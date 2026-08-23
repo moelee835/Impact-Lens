@@ -57,8 +57,13 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
         element.node.item.name,
         vscode.TreeItemCollapsibleState.Expanded,
       );
-      item.description = element.node.note || relativeLocation(element.node.item);
-      item.iconPath = new vscode.ThemeIcon('target');
+      item.description = [
+        stateLabel(this.result?.analysisState),
+        element.node.note || relativeLocation(element.node.item),
+      ].filter(Boolean).join(' · ');
+      item.iconPath = new vscode.ThemeIcon(
+        this.result?.analysisState === 'analyzing' ? 'sync~spin' : 'target',
+      );
       item.contextValue = 'impactLens.root';
       return item;
     }
@@ -73,7 +78,13 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
     }
 
     const item = new vscode.TreeItem(element.node.item.name, vscode.TreeItemCollapsibleState.None);
-    item.description = element.node.note || relativeLocation(element.node.item);
+    const diagnosticCount = element.node.diagnostics.length;
+    item.description = [
+      element.node.note || relativeLocation(element.node.item),
+      diagnosticCount ? `${diagnosticCount} diagnostic${diagnosticCount === 1 ? '' : 's'}` : '',
+      element.node.reviewed ? 'Reviewed' : '',
+      element.node.testFreshness === 'outdated' ? 'Test verification required' : '',
+    ].filter(Boolean).join(' · ');
     const tooltipLines = [
       `**${element.node.item.name}**`,
       '',
@@ -82,6 +93,22 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
     ];
     if (element.node.noteSource) {
       tooltipLines.push(`Note source: ${noteSourceLabel(element.node.noteSource)}`, '');
+    }
+    if (element.node.diagnostics.length) {
+      tooltipLines.push('**Diagnostics**', '');
+      for (const diagnostic of element.node.diagnostics) {
+        tooltipLines.push(`- ${diagnostic.severity}: ${diagnostic.message} (line ${diagnostic.line})`);
+      }
+      tooltipLines.push('');
+    }
+    if (element.node.changed) {
+      tooltipLines.push('Changed in the current live session', '');
+    }
+    if (element.node.reviewed) {
+      tooltipLines.push('Manually reviewed', '');
+    }
+    if (element.node.testFreshness === 'outdated') {
+      tooltipLines.push('No current test result is available after code changes', '');
     }
     tooltipLines.push(`${relativeLocation(element.node.item)} · ${element.node.depth} hop`);
     item.tooltip = new vscode.MarkdownString(tooltipLines.join('\n'));
@@ -119,12 +146,35 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
     const direct = this.result.nodes.filter(node => node.relation === 'direct');
     const transitive = this.result.nodes.filter(node => node.relation === 'transitive');
     const tests = this.result.nodes.filter(node => node.relation === 'test');
+    const changed = this.result.nodes.filter(node => node.changed);
+    const addedIds = new Set(this.result.delta.addedNodeIds);
+    const added = this.result.nodes.filter(node => addedIds.has(node.id));
+    const diagnostics = this.result.nodes.filter(node => node.diagnostics.length > 0);
     return [
+      new GroupItem('Changed functions', changed, 'edit'),
+      new GroupItem('New impact', added, 'diff-added'),
+      new GroupItem('Diagnostics', diagnostics, 'error'),
       new GroupItem('Direct callers', direct, 'arrow-right'),
       new GroupItem('Transitive impact', transitive, 'git-merge'),
       new GroupItem('Related tests', tests, 'beaker'),
     ].filter(group => group.nodes.length > 0);
   }
+}
+
+function stateLabel(state: ImpactResult['analysisState'] | undefined): string {
+  if (state === 'stale') {
+    return 'Editing · stale';
+  }
+  if (state === 'analyzing') {
+    return 'Analyzing…';
+  }
+  if (state === 'partial') {
+    return 'Partial result';
+  }
+  if (state === 'failed') {
+    return 'Analysis failed';
+  }
+  return '';
 }
 
 function noteSourceLabel(source: NonNullable<ImpactNode['noteSource']>): string {

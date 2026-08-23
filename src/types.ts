@@ -2,6 +2,22 @@ import * as vscode from 'vscode';
 import { NoteSource } from './noteModel';
 
 export type ImpactRelation = 'root' | 'direct' | 'transitive' | 'test';
+export type ImpactAnalysisState = 'current' | 'stale' | 'analyzing' | 'partial' | 'failed';
+export type TestFreshness = 'notRun' | 'outdated';
+
+export interface ImpactDiagnostic {
+  readonly severity: 'error' | 'warning';
+  readonly message: string;
+  readonly line: number;
+}
+
+export interface ImpactDelta {
+  readonly addedNodeIds: readonly string[];
+  readonly removedNodeIds: readonly string[];
+  readonly addedEdgeCount: number;
+  readonly removedEdgeCount: number;
+  readonly addedDiagnosticCount: number;
+}
 
 export interface ImpactNode {
   readonly id: string;
@@ -11,6 +27,10 @@ export interface ImpactNode {
   readonly callSiteRanges: readonly vscode.Range[];
   note: string;
   noteSource?: NoteSource;
+  diagnostics: readonly ImpactDiagnostic[];
+  changed: boolean;
+  reviewed: boolean;
+  testFreshness?: TestFreshness;
 }
 
 export interface ImpactEdge {
@@ -25,6 +45,9 @@ export interface ImpactResult {
   readonly edges: readonly ImpactEdge[];
   readonly truncated: boolean;
   readonly analyzedAt: number;
+  analysisState: ImpactAnalysisState;
+  delta: ImpactDelta;
+  changedAt?: number;
 }
 
 export interface TraversalEntry<T> {

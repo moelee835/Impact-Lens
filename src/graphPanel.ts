@@ -4,6 +4,15 @@ import { ImpactResult } from './types';
 interface GraphPayload {
   readonly rootId: string;
   readonly truncated: boolean;
+  readonly analysisState: string;
+  readonly changedAt?: number;
+  readonly delta: {
+    addedNodeIds: readonly string[];
+    removedNodeIds: readonly string[];
+    addedEdgeCount: number;
+    removedEdgeCount: number;
+    addedDiagnosticCount: number;
+  };
   readonly nodes: readonly {
     id: string;
     name: string;
@@ -13,6 +22,10 @@ interface GraphPayload {
     relation: string;
     path: string;
     line: number;
+    changed: boolean;
+    reviewed: boolean;
+    testFreshness?: string;
+    diagnostics: readonly { severity: string; message: string; line: number }[];
   }[];
   readonly edges: readonly { source: string; target: string }[];
 }
@@ -25,6 +38,8 @@ export class GraphPanel implements vscode.Disposable {
   constructor(
     private readonly onOpenNode: (nodeId: string, result: ImpactResult) => Promise<void>,
     private readonly onEditRootNote: (result: ImpactResult) => Promise<void>,
+    private readonly onToggleReviewed: (nodeId: string, result: ImpactResult) => Promise<void>,
+    private readonly onClearLiveChanges: () => void,
   ) {}
 
   show(result: ImpactResult): void {
@@ -51,6 +66,10 @@ export class GraphPanel implements vscode.Disposable {
           await this.onOpenNode(message.id, current);
         } else if (message.type === 'editRootNote') {
           await this.onEditRootNote(current);
+        } else if (message.type === 'toggleReviewed' && typeof message.id === 'string') {
+          await this.onToggleReviewed(message.id, current);
+        } else if (message.type === 'clearLiveChanges') {
+          this.onClearLiveChanges();
         }
       });
     }
@@ -78,6 +97,9 @@ function toPayload(result: ImpactResult): GraphPayload {
   return {
     rootId: result.root.id,
     truncated: result.truncated,
+    analysisState: result.analysisState,
+    changedAt: result.changedAt,
+    delta: result.delta,
     nodes: result.nodes.map(node => ({
       id: node.id,
       name: node.item.name,
@@ -87,6 +109,10 @@ function toPayload(result: ImpactResult): GraphPayload {
       relation: node.relation,
       path: vscode.workspace.asRelativePath(node.item.uri, false),
       line: node.item.selectionRange.start.line + 1,
+      changed: node.changed,
+      reviewed: node.reviewed,
+      testFreshness: node.testFreshness,
+      diagnostics: node.diagnostics,
     })),
     edges: result.edges.map(edge => ({ source: edge.source, target: edge.target })),
   };
@@ -123,6 +149,10 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     .node:hover rect { stroke: var(--vscode-focusBorder); }
     .node.root rect { fill: var(--vscode-button-background); stroke: var(--vscode-button-background); }
     .node.test rect { stroke: var(--vscode-testing-iconPassed); }
+    .node.changed rect { stroke: var(--vscode-editorWarning-foreground); stroke-width: 2; }
+    .node.added rect { stroke: var(--vscode-charts-green); stroke-width: 2; }
+    .node.diagnostic rect { stroke: var(--vscode-errorForeground); stroke-width: 2; }
+    .node.reviewed { opacity: .64; }
     .node-name { fill: var(--vscode-foreground); font-size: 11px; font-weight: 600; }
     .node.root .node-name { fill: var(--vscode-button-foreground); }
     .node-note { fill: var(--vscode-descriptionForeground); font-size: 10px; }
@@ -133,14 +163,21 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     .legend .transitive::before { background: var(--vscode-charts-purple); }
     .legend .test::before { background: var(--vscode-testing-iconPassed); }
     .warning { color: var(--vscode-editorWarning-foreground); }
+    .state { padding: 2px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 10px; color: var(--vscode-descriptionForeground); font-size: 10px; }
+    .state.stale, .state.analyzing { color: var(--vscode-editorWarning-foreground); }
+    .state.failed { color: var(--vscode-errorForeground); }
+    .node-status { fill: var(--vscode-descriptionForeground); font-size: 9px; }
   </style>
 </head>
 <body>
   <header>
     <div><h1 id="title"></h1><div class="subtitle" id="summary"></div></div>
+    <span class="state" id="state"></span>
     <div class="spacer"></div>
     <div class="depth"><span>Depth</span><span id="depth-buttons"></span></div>
     <button id="edit-note" type="button">Manage root note</button>
+    <button id="review-root" type="button">Toggle reviewed</button>
+    <button id="clear-changes" type="button">Clear live changes</button>
   </header>
   <main id="canvas" aria-live="polite"></main>
   <div class="legend"><span>Direct</span><span class="transitive">Transitive</span><span class="test">Test</span></div>
@@ -150,11 +187,20 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     let visibleDepth = Math.max(1, ...graph.nodes.map(node => node.depth));
     const title = document.getElementById('title');
     const summary = document.getElementById('summary');
+    const state = document.getElementById('state');
     const depthButtons = document.getElementById('depth-buttons');
     const canvas = document.getElementById('canvas');
     title.textContent = graph.nodes.find(node => node.id === graph.rootId)?.name ?? 'Impact graph';
-    summary.textContent = graph.nodes.length + ' symbols' + (graph.truncated ? ' · result truncated' : '');
+    const diagnosticCount = graph.nodes.reduce((sum, node) => sum + node.diagnostics.length, 0);
+    const deltaParts = [];
+    if (graph.delta.addedNodeIds.length) deltaParts.push('+' + graph.delta.addedNodeIds.length + ' affected');
+    if (graph.delta.removedNodeIds.length) deltaParts.push('-' + graph.delta.removedNodeIds.length + ' affected');
+    if (diagnosticCount) deltaParts.push(diagnosticCount + ' diagnostics');
+    summary.textContent = graph.nodes.length + ' symbols' + (deltaParts.length ? ' · ' + deltaParts.join(' · ') : '') + (graph.truncated ? ' · result truncated' : '');
     if (graph.truncated) summary.classList.add('warning');
+    state.textContent = stateLabel(graph.analysisState);
+    state.classList.add(graph.analysisState);
+    state.title = 'Static Call Hierarchy only; dynamic calls may be missing';
 
     const maximumDepth = Math.max(1, ...graph.nodes.map(node => node.depth));
     for (let value = 1; value <= maximumDepth; value += 1) {
@@ -171,6 +217,10 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       depthButtons.appendChild(button);
     }
     document.getElementById('edit-note').addEventListener('click', () => vscode.postMessage({ type: 'editRootNote' }));
+    document.getElementById('review-root').addEventListener('click', () => vscode.postMessage({ type: 'toggleReviewed', id: graph.rootId }));
+    const clearChanges = document.getElementById('clear-changes');
+    clearChanges.hidden = !graph.changedAt;
+    clearChanges.addEventListener('click', () => vscode.postMessage({ type: 'clearLiveChanges' }));
 
     function render() {
       const nodes = graph.nodes.filter(node => node.depth <= visibleDepth);
@@ -184,7 +234,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       }
 
       const columnWidth = 250;
-      const rowHeight = 92;
+      const rowHeight = 106;
       const marginX = 125;
       const marginY = 46;
       const width = Math.max(720, (visibleDepth + 1) * columnWidth + 80);
@@ -224,12 +274,21 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
         const position = positions.get(node.id);
         if (!position) continue;
         const group = document.createElementNS(svgNamespace, 'g');
-        group.setAttribute('class', 'node ' + node.relation);
+        const classes = ['node', node.relation];
+        if (node.changed) classes.push('changed');
+        if (graph.delta.addedNodeIds.includes(node.id)) classes.push('added');
+        if (node.diagnostics.length) classes.push('diagnostic');
+        if (node.reviewed) classes.push('reviewed');
+        group.setAttribute('class', classes.join(' '));
         group.setAttribute('transform', 'translate(' + (position.x - 80) + ',' + (position.y - 16) + ')');
         group.setAttribute('role', 'button');
         group.setAttribute('tabindex', '0');
         group.setAttribute('aria-label', node.name + '. ' + (node.note || 'No function note') + (node.noteSource ? '. ' + noteSourceLabel(node.noteSource) : ''));
         group.addEventListener('click', () => vscode.postMessage({ type: 'open', id: node.id }));
+        group.addEventListener('contextmenu', event => {
+          event.preventDefault();
+          vscode.postMessage({ type: 'toggleReviewed', id: node.id });
+        });
         group.addEventListener('keydown', event => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -244,6 +303,21 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
         addText(group, node.name.length > 24 ? node.name.slice(0, 23) + '…' : node.name, 80, 20, 'node-name');
         if (node.note) addText(group, truncate(node.note, 34), 80, 49, 'node-note');
         addText(group, node.path + ':' + node.line, 80, 65, 'node-location');
+        const statusText = node.diagnostics.length
+          ? node.diagnostics.length + ' diagnostic' + (node.diagnostics.length === 1 ? '' : 's')
+          : node.reviewed
+            ? 'Reviewed'
+            : node.testFreshness === 'outdated'
+              ? 'Test verification required'
+              : node.changed
+                ? 'Changed · review required'
+                : '';
+        if (statusText) addText(group, statusText, 80, 80, 'node-status');
+        if (node.diagnostics.length) {
+          const tooltip = document.createElementNS(svgNamespace, 'title');
+          tooltip.textContent = node.diagnostics.map(diagnostic => diagnostic.message).join('\\n');
+          group.appendChild(tooltip);
+        }
         svg.appendChild(group);
       }
 
@@ -268,6 +342,14 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       if (source === 'personal') return 'Personal note';
       if (source === 'shared') return 'Shared note';
       return 'Source comment note';
+    }
+
+    function stateLabel(value) {
+      if (value === 'stale') return 'Editing · stale';
+      if (value === 'analyzing') return 'Analyzing…';
+      if (value === 'partial') return 'Partial';
+      if (value === 'failed') return 'Analysis failed';
+      return 'Current';
     }
     render();
   </script>
