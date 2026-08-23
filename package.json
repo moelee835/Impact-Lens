@@ -1,0 +1,138 @@
+{
+  "name": "impact-lens",
+  "displayName": "Impact Lens",
+  "description": "Explore the potential impact of changing a function using VS Code language services.",
+  "version": "0.1.1",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:impactLens.explorer",
+    "onCommand:impactLens.showImpact",
+    "onCommand:impactLens.showGraph",
+    "onCommand:impactLens.editNote"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "impactLens.showImpact",
+        "title": "Impact Lens: Show Impact for Current Function",
+        "icon": "$(references)"
+      },
+      {
+        "command": "impactLens.showImpactAt",
+        "title": "Impact Lens: Show Impact"
+      },
+      {
+        "command": "impactLens.showGraph",
+        "title": "Impact Lens: Open Call Graph",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "impactLens.editNote",
+        "title": "Impact Lens: Edit Function Note",
+        "icon": "$(note)"
+      },
+      {
+        "command": "impactLens.refresh",
+        "title": "Impact Lens: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "impactLens.openLocation",
+        "title": "Impact Lens: Open Symbol"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "impactLens",
+          "title": "Impact Lens",
+          "icon": "media/impact-lens.svg"
+        }
+      ]
+    },
+    "views": {
+      "impactLens": [
+        {
+          "id": "impactLens.explorer",
+          "name": "Impact Explorer"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "impactLens.showImpact",
+          "group": "navigation@20",
+          "when": "editorHasCallHierarchyProvider"
+        },
+        {
+          "command": "impactLens.editNote",
+          "group": "navigation@21"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "impactLens.showGraph",
+          "group": "navigation@1",
+          "when": "view == impactLens.explorer"
+        },
+        {
+          "command": "impactLens.refresh",
+          "group": "navigation@2",
+          "when": "view == impactLens.explorer"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Impact Lens",
+      "properties": {
+        "impactLens.maxDepth": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Maximum incoming-call depth used for impact analysis."
+        },
+        "impactLens.maxNodes": {
+          "type": "number",
+          "default": 120,
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "Maximum number of symbols in one impact analysis."
+        },
+        "impactLens.autoAnalyzeOnCursorChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically update impact information when the cursor enters another function."
+        },
+        "impactLens.showCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show function notes and Impact Lens actions above functions."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "tsc -p ./ && node --test out/test/*.test.js",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.7.0"
+  }
+}
