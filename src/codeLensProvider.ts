@@ -41,7 +41,14 @@ export class ImpactCodeLensProvider implements vscode.CodeLensProvider {
         continue;
       }
       const range = getSelectionRange(symbol);
-      const note = this.notes.readFromDocument(document, range.start.line);
+      const resolved = await this.notes.resolveForSymbol(
+        document,
+        symbol.name,
+        symbol.kind,
+        getDetail(symbol),
+        range.start,
+      );
+      const note = resolved.text;
       lenses.push(new vscode.CodeLens(range, {
         command: 'impactLens.showImpactAt',
         title: note
@@ -53,6 +60,12 @@ export class ImpactCodeLensProvider implements vscode.CodeLensProvider {
     }
     return lenses;
   }
+}
+
+function getDetail(
+  symbol: vscode.DocumentSymbol | vscode.SymbolInformation,
+): string {
+  return 'selectionRange' in symbol ? symbol.detail : symbol.containerName;
 }
 
 function flattenSymbols(

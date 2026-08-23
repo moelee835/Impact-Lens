@@ -6,7 +6,7 @@ import { ImpactTreeProvider } from './impactTreeProvider';
 import { NoteStore } from './noteStore';
 
 export function activate(context: vscode.ExtensionContext): void {
-  const notes = new NoteStore();
+  const notes = new NoteStore(context);
   const analyzer = new ImpactAnalyzer(notes);
   const tree = new ImpactTreeProvider();
   const codeLenses = new ImpactCodeLensProvider(notes);
@@ -15,6 +15,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('impactLens.explorer', tree),
     vscode.languages.registerCodeLensProvider({ scheme: 'file' }, codeLenses),
+    notes,
     controller,
   );
 

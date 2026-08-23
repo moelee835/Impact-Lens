@@ -75,6 +75,7 @@ export class ImpactAnalyzer {
     const nodes: ImpactNode[] = await Promise.all(
       traversal.entries.map(async entry => {
         const isTest = isTestFile(entry.value.item.uri);
+        const note = await this.notes.resolve(entry.value.item);
         return {
           id: symbolKey(entry.value.item),
           item: entry.value.item,
@@ -87,7 +88,8 @@ export class ImpactAnalyzer {
                 ? 'direct'
                 : 'transitive',
           callSiteRanges: entry.value.callSiteRanges,
-          note: await this.notes.read(entry.value.item),
+          note: note.text,
+          noteSource: note.source,
         };
       }),
     );
