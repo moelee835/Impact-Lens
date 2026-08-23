@@ -8,6 +8,7 @@ interface GraphPayload {
     id: string;
     name: string;
     note: string;
+    noteSource?: string;
     depth: number;
     relation: string;
     path: string;
@@ -81,6 +82,7 @@ function toPayload(result: ImpactResult): GraphPayload {
       id: node.id,
       name: node.item.name,
       note: node.note,
+      noteSource: node.noteSource,
       depth: node.depth,
       relation: node.relation,
       path: vscode.workspace.asRelativePath(node.item.uri, false),
@@ -138,7 +140,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     <div><h1 id="title"></h1><div class="subtitle" id="summary"></div></div>
     <div class="spacer"></div>
     <div class="depth"><span>Depth</span><span id="depth-buttons"></span></div>
-    <button id="edit-note" type="button">Edit root note</button>
+    <button id="edit-note" type="button">Manage root note</button>
   </header>
   <main id="canvas" aria-live="polite"></main>
   <div class="legend"><span>Direct</span><span class="transitive">Transitive</span><span class="test">Test</span></div>
@@ -226,7 +228,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
         group.setAttribute('transform', 'translate(' + (position.x - 80) + ',' + (position.y - 16) + ')');
         group.setAttribute('role', 'button');
         group.setAttribute('tabindex', '0');
-        group.setAttribute('aria-label', node.name + '. ' + (node.note || 'No function note'));
+        group.setAttribute('aria-label', node.name + '. ' + (node.note || 'No function note') + (node.noteSource ? '. ' + noteSourceLabel(node.noteSource) : ''));
         group.addEventListener('click', () => vscode.postMessage({ type: 'open', id: node.id }));
         group.addEventListener('keydown', event => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -240,7 +242,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
         rect.setAttribute('height', '32');
         group.appendChild(rect);
         addText(group, node.name.length > 24 ? node.name.slice(0, 23) + '…' : node.name, 80, 20, 'node-name');
-        addText(group, node.note ? truncate(node.note, 34) : 'No function note', 80, 49, 'node-note' + (node.note ? '' : ' empty-note'));
+        if (node.note) addText(group, truncate(node.note, 34), 80, 49, 'node-note');
         addText(group, node.path + ':' + node.line, 80, 65, 'node-location');
         svg.appendChild(group);
       }
@@ -260,6 +262,12 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
 
     function truncate(value, maximum) {
       return value.length > maximum ? value.slice(0, maximum - 1) + '…' : value;
+    }
+
+    function noteSourceLabel(source) {
+      if (source === 'personal') return 'Personal note';
+      if (source === 'shared') return 'Shared note';
+      return 'Source comment note';
     }
     render();
   </script>

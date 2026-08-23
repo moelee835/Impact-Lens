@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { NoteSource } from './noteModel';
 
 export type ImpactRelation = 'root' | 'direct' | 'transitive' | 'test';
 
@@ -9,6 +10,7 @@ export interface ImpactNode {
   readonly relation: ImpactRelation;
   readonly callSiteRanges: readonly vscode.Range[];
   note: string;
+  noteSource?: NoteSource;
 }
 
 export interface ImpactEdge {

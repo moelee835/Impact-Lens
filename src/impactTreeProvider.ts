@@ -74,13 +74,17 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
 
     const item = new vscode.TreeItem(element.node.item.name, vscode.TreeItemCollapsibleState.None);
     item.description = element.node.note || relativeLocation(element.node.item);
-    item.tooltip = new vscode.MarkdownString([
+    const tooltipLines = [
       `**${element.node.item.name}**`,
       '',
       element.node.note || '_No function note_',
       '',
-      `${relativeLocation(element.node.item)} · ${element.node.depth} hop`,
-    ].join('\n'));
+    ];
+    if (element.node.noteSource) {
+      tooltipLines.push(`Note source: ${noteSourceLabel(element.node.noteSource)}`, '');
+    }
+    tooltipLines.push(`${relativeLocation(element.node.item)} · ${element.node.depth} hop`);
+    item.tooltip = new vscode.MarkdownString(tooltipLines.join('\n'));
     item.iconPath = new vscode.ThemeIcon(
       element.node.relation === 'test'
         ? 'beaker'
@@ -121,6 +125,16 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
       new GroupItem('Related tests', tests, 'beaker'),
     ].filter(group => group.nodes.length > 0);
   }
+}
+
+function noteSourceLabel(source: NonNullable<ImpactNode['noteSource']>): string {
+  if (source === 'personal') {
+    return 'Personal';
+  }
+  if (source === 'shared') {
+    return 'Shared';
+  }
+  return 'Source comment';
 }
 
 function relativeLocation(item: vscode.CallHierarchyItem): string {

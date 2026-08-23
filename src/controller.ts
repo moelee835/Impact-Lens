@@ -11,6 +11,7 @@ export class ImpactLensController implements vscode.Disposable {
   private currentSymbolKey: string | undefined;
   private analysisVersion = 0;
   private selectionTimer: ReturnType<typeof setTimeout> | undefined;
+  private noteRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly status: vscode.StatusBarItem;
   private readonly graph: GraphPanel;
   private readonly disposables: vscode.Disposable[] = [];
@@ -58,6 +59,16 @@ export class ImpactLensController implements vscode.Disposable {
           void this.refresh();
         }
       }),
+      this.notes.onDidChangeNotes(() => {
+        this.codeLenses.refresh();
+        if (this.noteRefreshTimer) {
+          clearTimeout(this.noteRefreshTimer);
+        }
+        this.noteRefreshTimer = setTimeout(() => {
+          this.noteRefreshTimer = undefined;
+          void this.refreshNotePresentation();
+        }, 100);
+      }),
     );
   }
 
@@ -98,7 +109,7 @@ export class ImpactLensController implements vscode.Disposable {
       vscode.commands.registerCommand('impactLens.editNote', async () => {
         const item = this.currentResult?.root.item ?? await this.prepareActiveItem();
         if (!item) {
-          void vscode.window.showInformationMessage('Place the cursor in a function before adding a role note.');
+          void vscode.window.showInformationMessage('Place the cursor in a function before managing its role note.');
           return;
         }
         await this.editNoteForItem(item);
@@ -207,17 +218,16 @@ export class ImpactLensController implements vscode.Disposable {
 
   private async editNoteForItem(item: vscode.CallHierarchyItem): Promise<void> {
     try {
-      const changed = await this.notes.promptAndWrite(item);
+      const changed = await this.notes.promptAndManage(item);
       if (!changed) {
         return;
       }
+      if (this.noteRefreshTimer) {
+        clearTimeout(this.noteRefreshTimer);
+        this.noteRefreshTimer = undefined;
+      }
       this.codeLenses.refresh();
-      const result = await this.analyzer.analyzeItem(item);
-      this.currentResult = result;
-      this.currentSymbolKey = symbolKey(item);
-      this.tree.setResult(result);
-      this.graph.update(result);
-      this.updateStatus(result);
+      await this.refreshNotePresentation();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`Could not update function note: ${message}`);
@@ -226,6 +236,20 @@ export class ImpactLensController implements vscode.Disposable {
 
   private async refresh(): Promise<void> {
     await this.analyzeActiveEditor(true);
+  }
+
+  private async refreshNotePresentation(): Promise<void> {
+    const result = this.currentResult;
+    if (!result) {
+      return;
+    }
+    await Promise.all(result.nodes.map(async node => {
+      const note = await this.notes.resolve(node.item);
+      node.note = note.text;
+      node.noteSource = note.source;
+    }));
+    this.tree.setResult(result);
+    this.graph.update(result);
   }
 
   private updateStatus(result: ImpactResult | undefined): void {
@@ -244,6 +268,9 @@ export class ImpactLensController implements vscode.Disposable {
   dispose(): void {
     if (this.selectionTimer) {
       clearTimeout(this.selectionTimer);
+    }
+    if (this.noteRefreshTimer) {
+      clearTimeout(this.noteRefreshTimer);
     }
     this.disposables.forEach(disposable => disposable.dispose());
   }
