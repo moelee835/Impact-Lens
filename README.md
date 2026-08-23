@@ -2,7 +2,7 @@
 
 Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범위를 VS Code 안에서 탐색하는 로컬 확장 프로그램입니다. 별도 AI 에이전트나 클라우드 분석 없이, 현재 언어 확장이 제공하는 Call Hierarchy를 사용합니다.
 
-## 현재 MVP 기능
+## v0.2.0 기능
 
 - 커서가 위치한 함수의 직접 호출자와 간접 호출자 탐색
 - 호출 깊이 및 최대 노드 수 제한
@@ -15,7 +15,27 @@ Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범�
 - 기존 `@impact-note` 주석 읽기·추가·수정·삭제 호환
 - 함수 위 CodeLens에 역할 노트 또는 영향 분석 동작 표시
 - 커서 이동 및 문서 저장 시 증분 재분석
+- 저장하지 않은 코드 편집 감지와 debounce 기반 라이브 재분석
+- `Editing → Analyzing → Current/Partial/Failed` 분석 상태 표시
+- 변경 전후 호출 그래프의 추가·제거 영향 비교
+- 영향 함수에 발생한 오류·경고 진단 표시
+- 코드 변경 후 관련 테스트 결과를 `Outdated`로 표시
+- 그래프 노드별 수동 검토 상태
 - 동적 호출처럼 언어 서버가 확인하지 못하는 관계는 결과에 포함되지 않는 정적 분석 방식
+
+## 라이브 변경 영향
+
+소스 문서를 편집하면 기존 그래프는 즉시 `Editing · stale` 상태가 되고, 기본 600ms 동안 추가 입력이 없으면 Call Hierarchy를 다시 요청합니다. 분석 중 문서가 다시 바뀌면 오래된 결과를 폐기하고 최신 문서 버전으로 다시 분석합니다.
+
+그래프와 Impact Explorer에서는 다음 근거를 구분합니다.
+
+- `Changed`: 현재 라이브 세션에서 수정된 함수
+- `New impact`: 이전 그래프에는 없었던 호출자
+- `Diagnostic`: 영향 함수 범위에 포함된 오류 또는 경고
+- `Test verification required`: 코드 변경 이후 현재 실행 결과가 확인되지 않은 관련 테스트
+- `Reviewed`: 사용자가 현재 세션에서 수동 검토한 노드
+
+이 정보는 실제 장애 확률이 아니라 검토가 필요한 잠재 영향과 검증 근거입니다. 테스트를 실행하지 않은 상태를 통과로 추정하지 않으며, reflection·동적 호출·이벤트·런타임 의존성 주입처럼 언어 서버가 제공하지 않는 관계는 분석하지 않습니다.
 
 ## 함수 역할 노트
 
@@ -54,6 +74,7 @@ Python에서는 `# @impact-note`, SQL과 Lua에서는 `-- @impact-note`를 사�
 - `Impact Lens: Open Call Graph`
 - `Impact Lens: Manage Function Note`
 - `Impact Lens: Refresh`
+- `Impact Lens: Clear Live Change Session`
 
 ## 요구 사항
 
@@ -64,6 +85,8 @@ Python에서는 `# @impact-note`, SQL과 Lua에서는 `-- @impact-note`를 사�
 - `impactLens.maxDepth`: 역방향 호출 탐색 깊이, 기본값 2
 - `impactLens.maxNodes`: 한 번에 표시할 최대 심볼 수, 기본값 120
 - `impactLens.autoAnalyzeOnCursorChange`: 커서 이동 시 자동 분석, 기본값 true
+- `impactLens.liveAnalysisEnabled`: 저장하지 않은 편집의 라이브 영향 분석, 기본값 true
+- `impactLens.liveAnalysisDebounceMs`: 마지막 편집 후 분석 시작 지연, 기본값 600ms
 - `impactLens.showCodeLens`: 함수 위 Impact Lens 표시, 기본값 true
 - `impactLens.defaultNoteStorage`: 노트 관리 화면에서 먼저 표시할 저장 위치, 기본값 `personal`
 
@@ -82,4 +105,4 @@ npm run compile
 npm test
 ```
 
-현재 버전은 함수 호출 관계에 집중한 MVP입니다. 데이터 흐름, 런타임 의존성 주입, reflection, 이벤트·라우트 연결, Git 변경분 병합 분석은 후속 범위입니다.
+현재 버전은 함수 호출 관계, 라이브 편집, 언어 진단을 기반으로 잠재 영향 범위를 제공합니다. 데이터 흐름, 런타임 의존성 주입, reflection, 이벤트·라우트 연결과 범용 테스트 결과 수집은 후속 범위입니다.

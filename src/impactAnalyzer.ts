@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { traverseIncoming } from './callGraph';
+import { EMPTY_IMPACT_DELTA } from './impactDelta';
 import { NoteStore } from './noteStore';
-import { ImpactEdge, ImpactNode, ImpactResult } from './types';
+import { ImpactDiagnostic, ImpactEdge, ImpactNode, ImpactResult } from './types';
 
 interface CallEntry {
   readonly item: vscode.CallHierarchyItem;
@@ -90,6 +91,10 @@ export class ImpactAnalyzer {
           callSiteRanges: entry.value.callSiteRanges,
           note: note.text,
           noteSource: note.source,
+          diagnostics: diagnosticsForItem(entry.value.item),
+          changed: false,
+          reviewed: false,
+          testFreshness: isTest ? 'notRun' : undefined,
         };
       }),
     );
@@ -106,16 +111,25 @@ export class ImpactAnalyzer {
       edges,
       truncated: traversal.truncated,
       analyzedAt: Date.now(),
+      analysisState: 'current',
+      delta: EMPTY_IMPACT_DELTA,
     };
+  }
+
+  refreshDiagnostics(result: ImpactResult): void {
+    for (const node of result.nodes) {
+      node.diagnostics = diagnosticsForItem(node.item);
+    }
   }
 }
 
 export function symbolKey(item: vscode.CallHierarchyItem): string {
   return [
     item.uri.toString(),
-    item.selectionRange.start.line,
-    item.selectionRange.start.character,
+    item.kind,
     item.name,
+    item.detail ?? '',
+    item.selectionRange.start.character,
   ].join('#');
 }
 
@@ -125,6 +139,20 @@ function edgeKey(source: string, target: string): string {
 
 function isTestFile(uri: vscode.Uri): boolean {
   return /(^|\/)(__tests__|tests?|spec)(\/|$)|\.(test|spec)\.[^/]+$/i.test(uri.path);
+}
+
+function diagnosticsForItem(item: vscode.CallHierarchyItem): ImpactDiagnostic[] {
+  return vscode.languages.getDiagnostics(item.uri)
+    .filter(diagnostic => (
+      (diagnostic.severity === vscode.DiagnosticSeverity.Error
+        || diagnostic.severity === vscode.DiagnosticSeverity.Warning)
+      && item.range.intersection(diagnostic.range) !== undefined
+    ))
+    .map(diagnostic => ({
+      severity: diagnostic.severity === vscode.DiagnosticSeverity.Error ? 'error' : 'warning',
+      message: diagnostic.message,
+      line: diagnostic.range.start.line + 1,
+    }));
 }
 
 async function findEnclosingCallable(

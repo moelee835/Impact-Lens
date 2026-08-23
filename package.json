@@ -2,7 +2,7 @@
   "name": "impact-lens",
   "displayName": "Impact Lens",
   "description": "Explore the potential impact of changing a function using VS Code language services.",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
@@ -21,7 +21,8 @@
     "onView:impactLens.explorer",
     "onCommand:impactLens.showImpact",
     "onCommand:impactLens.showGraph",
-    "onCommand:impactLens.editNote"
+    "onCommand:impactLens.editNote",
+    "onCommand:impactLens.clearLiveChanges"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -49,6 +50,11 @@
         "command": "impactLens.refresh",
         "title": "Impact Lens: Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "impactLens.clearLiveChanges",
+        "title": "Impact Lens: Clear Live Change Session",
+        "icon": "$(clear-all)"
       },
       {
         "command": "impactLens.openLocation",
@@ -94,6 +100,11 @@
           "command": "impactLens.refresh",
           "group": "navigation@2",
           "when": "view == impactLens.explorer"
+        },
+        {
+          "command": "impactLens.clearLiveChanges",
+          "group": "navigation@3",
+          "when": "view == impactLens.explorer"
         }
       ]
     },
@@ -118,6 +129,18 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically update impact information when the cursor enters another function."
+        },
+        "impactLens.liveAnalysisEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reanalyze impact after unsaved source edits and show stale/analyzing/current states."
+        },
+        "impactLens.liveAnalysisDebounceMs": {
+          "type": "number",
+          "default": 600,
+          "minimum": 150,
+          "maximum": 3000,
+          "description": "Delay after the last source edit before live impact analysis starts."
         },
         "impactLens.showCodeLens": {
           "type": "boolean",
