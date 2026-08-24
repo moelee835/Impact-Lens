@@ -14,6 +14,7 @@ FastAPI 프로젝트에서 영향 분석 결과가 프로젝트 전체가 아니
 2. 최소 depth 5 이상을 실제 분석에 지정할 수 있게 한다.
 3. 노드 한 번 클릭은 선택 및 강조만 수행하고, 더블클릭은 코드 위치를 연다.
 4. Graph에서 확대, 축소 및 화면 맞춤을 제공한다.
+5. 영향 노드의 코드를 열어도 현재 Graph의 root와 검토 문맥을 유지한다.
 
 ## 범위
 
@@ -25,6 +26,7 @@ FastAPI 프로젝트에서 영향 분석 결과가 프로젝트 전체가 아니
 - depth 상한 확대와 depth 변경 시 재분석
 - 선택 노드 및 연결 edge 강조
 - 더블클릭과 키보드로 코드 위치 열기
+- 코드 탐색과 Graph root 전환을 분리하고 명시적 root 전환 및 복귀 동작 제공
 - Graph zoom in, zoom out, reset/fit 및 확대 상태에서의 이동
 - 분석 제한 사유와 결과가 실제로 도달한 깊이 표시
 - 관련 단위 테스트, 통합 확인, README 및 설정 설명 갱신
@@ -46,6 +48,7 @@ FastAPI의 `Depends()`와 decorator 기반 route 등록은 VS Code 언어 서버
 - Graph의 Depth 버튼은 이미 분석된 `graph.nodes`를 필터링할 뿐 분석 깊이를 변경하지 않는다. 실제 결과가 depth 3까지만 있으면 4와 5 버튼도 만들어지지 않는다.
 - `symbolKey()`는 URI, symbol kind, name, detail, 시작 character를 조합하지만 시작 line을 포함하지 않아 같은 파일의 동명 심볼이 충돌할 여지가 있다.
 - `src/graphPanel.ts`는 노드의 `click`에서 즉시 `open` 메시지를 전송한다.
+- 노드를 열면 `openLocation()`이 에디터 selection을 해당 함수로 변경한다. 이후 `onDidChangeTextEditorSelection`의 450ms 자동 분석이 실행되면서 현재 Graph root가 이동한 함수로 교체되므로 이전 분석 관점과 검토 상태를 잃을 수 있다.
 - Graph는 고정 좌표 SVG와 scroll container를 사용하며 zoom transform 또는 viewport 상태를 관리하지 않는다.
 - Webview 스크립트가 HTML 문자열 안에 포함되어 있어 UI 상호작용 자동 테스트를 추가하려면 순수 상태/geometry 로직을 별도 모듈로 추출하는 편이 유리하다.
 
@@ -100,7 +103,27 @@ FastAPI의 `Depends()`와 decorator 기반 route 등록은 VS Code 언어 서버
 - 선택, changed, added, diagnostic, reviewed 스타일이 동시에 적용될 때 우선순위를 정의하고 VS Code 고대비 테마에서도 식별되도록 한다.
 - context menu의 reviewed toggle과 클릭/더블클릭이 충돌하지 않도록 이벤트 전파를 제어한다.
 
-### 5. Zoom과 viewport 이동 구현
+### 5. Graph root와 코드 탐색 문맥 분리
+
+- Graph에서 시작한 코드 이동은 현재 분석 root를 유지하는 탐색 동작으로 취급한다.
+- `openLocation()` 호출 전 탐색 의도를 기록하고, 그 이동으로 발생하는 selection event 한 건은 자동 root 재분석 대상에서 제외한다.
+- 단순 시간 지연만으로 억제하지 않고 URI와 selection 위치를 대조해 사용자의 실제 후속 커서 이동을 잘못 무시하지 않도록 한다.
+- Graph header에 현재 고정된 root를 명확히 표시한다.
+- 선택 노드에는 `Analyze from here` 또는 `Set as root` 명령을 제공해 사용자가 명시적으로 요청할 때만 새 관점으로 재분석한다.
+- root를 명시적으로 전환할 경우 이전 root를 세션 내 history에 저장하고 `Back to previous root` 동작으로 기존 관점에 복귀할 수 있게 한다.
+- live analysis는 고정 root를 기준으로 유지한다. 다른 노드의 코드를 편집해도 현재 root의 영향 그래프를 재분석하며, 편집한 노드는 기존 changed 표시 정책을 따른다.
+- 사용자가 Graph 밖에서 일반적으로 커서를 이동한 경우에는 기존 `autoAnalyzeOnCursorChange` 설정을 따른다. Graph가 열려 있다는 이유만으로 모든 자동 분석을 차단하지 않는다.
+- root 변경 시 reviewed 상태 처리 정책을 명시한다.
+  - 같은 root로 돌아오면 해당 root 세션의 reviewed 상태를 복원한다.
+  - 다른 root의 검토 상태와 섞지 않도록 root별로 관리한다.
+
+검토한 대안과 선택 기준:
+
+- **Graph 이동 직후 selection event 억제 + 명시적 root 전환**: 기존 자동 분석을 유지하면서 Graph 탐색 문맥만 보존할 수 있어 기본안으로 사용한다.
+- Graph가 열려 있는 동안 root를 항상 pin: 이해하기 쉽지만 사용자의 일반 커서 이동까지 막으므로 보조적인 `Pin root` 옵션으로만 고려한다.
+- root history만 제공하고 자동 전환 유지: 복귀는 가능하지만 매번 관점과 layout이 바뀌어 리뷰 흐름이 계속 끊기므로 단독 해결책으로 사용하지 않는다.
+
+### 6. Zoom과 viewport 이동 구현
 
 - Graph header에 zoom in, zoom out, fit/reset 버튼과 현재 배율을 추가한다.
 - 확대 배율은 예를 들어 50%~250% 범위에서 일정 step으로 제한한다.
@@ -110,7 +133,7 @@ FastAPI의 `Depends()`와 decorator 기반 route 등록은 VS Code 언어 서버
 - fit/reset은 현재 visible depth의 bounding box를 기준으로 전체 그래프를 viewport에 맞춘다.
 - depth 필터 변경 및 live-analysis 갱신 시 선택·배율·위치를 가능한 범위에서 보존하고, 선택 노드가 사라지면 선택만 해제한다.
 
-### 6. 구조 정리와 문서 갱신
+### 7. 구조 정리와 문서 갱신
 
 - 테스트 가능한 선택, zoom, depth 상태 계산을 Webview 문자열에서 순수 TypeScript/JavaScript 모듈로 분리한다.
 - CSP와 로컬 Webview resource URI를 유지해 외부 스크립트 의존성을 추가하지 않는다.
@@ -128,6 +151,10 @@ FastAPI의 `Depends()`와 decorator 기반 route 등록은 VS Code 언어 서버
 - `maxDepth` 제한과 `maxNodes` 제한이 구분되는지 확인
 - single click은 선택만 하고 `open` 메시지를 만들지 않는지 확인
 - double click과 Enter가 정확히 한 번 `open`을 요청하는지 확인
+- Graph에서 연 코드 위치의 selection event가 기존 root를 변경하지 않는지 확인
+- Graph 이동 후 사용자가 직접 커서를 움직이면 자동 분석이 정상적으로 동작하는지 확인
+- `Set as root`와 root history 복귀가 정확한 분석 결과 및 검토 상태를 복원하는지 확인
+- 다른 문서와 같은 문서의 연속 탐색에서 suppression 대상이 잘못 매칭되지 않는지 확인
 - zoom 최소/최대 clamp, step, reset/fit 계산 확인
 - depth 변경 후 선택과 viewport 상태 보존 규칙 확인
 
@@ -137,6 +164,9 @@ FastAPI의 `Depends()`와 decorator 기반 route 등록은 VS Code 언어 서버
 - `Depends()` 및 route 관계가 표시되는지, 표시된다면 관계 출처가 정확한지 확인한다.
 - analysis depth 1, 3, 5, 10에서 노드 수와 실제 도달 깊이를 비교한다.
 - 한 번 클릭, 더블클릭, Space, Enter 및 우클릭 동작을 확인한다.
+- 영향 노드의 코드를 연 뒤 Graph root, depth 필터, 선택, zoom 및 reviewed 상태가 유지되는지 확인한다.
+- `Set as root`로 관점을 바꾸고 `Back to previous root`로 기존 리뷰 관점에 복귀하는지 확인한다.
+- Graph 이동 직후 일반 커서 이동을 수행해 자동 분석이 의도대로 다시 작동하는지 확인한다.
 - 작은 그래프와 큰 그래프에서 zoom, wheel, pan, fit/reset을 확인한다.
 - light, dark, high contrast 테마에서 선택 및 edge 강조를 확인한다.
 - live analysis 갱신과 depth 변경 후 Graph 상태를 확인한다.
@@ -149,6 +179,8 @@ FastAPI의 `Depends()`와 decorator 기반 route 등록은 VS Code 언어 서버
 - 사용자가 depth 5 이상을 분석 값으로 지정할 수 있고, 요청 깊이와 표시 깊이를 구분할 수 있다.
 - 분석이 조기에 끝난 이유 또는 실제 도달 깊이를 UI에서 확인할 수 있다.
 - 노드 한 번 클릭은 highlight만 수행하며 더블클릭과 Enter만 코드를 연다.
+- Graph에서 코드를 열어도 현재 root와 리뷰 문맥이 유지되며, 명시적 명령으로만 root를 전환할 수 있다.
+- 명시적으로 전환한 root에서 이전 root로 복귀할 수 있고 root별 검토 상태가 섞이지 않는다.
 - zoom in, zoom out, fit/reset 및 확대 상태에서의 이동이 동작한다.
 - 새 자동 테스트와 기존 테스트가 모두 통과하고 compile 및 package 검증이 성공한다.
 - README와 이 작업 문서의 작업 로그가 실제 구현과 일치한다.
@@ -162,3 +194,10 @@ FastAPI의 `Depends()`와 decorator 기반 route 등록은 VS Code 언어 서버
 - `src/impactAnalyzer.ts`, `src/callGraph.ts`, `src/graphPanel.ts`, `src/controller.ts`, `src/types.ts`, `package.json`, 기존 테스트와 README를 조사했다.
 - 현재 구현이 파일 범위를 명시적으로 제한하지 않는 점을 확인했으므로, FastAPI/언어 서버 한계와 내부 탐색 결함을 재현 단계에서 분리하기로 결정했다.
 - 구현은 아직 시작하지 않았다. 이 문서는 Issue #3 구현 시 계획과 작업 로그의 기준 문서로 사용한다.
+
+### 2026-08-24 — Graph root 문맥 유지 요구사항 추가
+
+- Graph 노드에서 코드 위치를 열 때 에디터 selection 변경이 자동 분석을 유발해 해당 노드가 새 root가 되는 흐름을 확인했다.
+- 리뷰 중 기존 관점이 사라지는 문제를 막기 위해 Graph 탐색으로 발생한 selection event만 식별해 억제하고, `Set as root`를 명시적 동작으로 분리하는 방안을 기본안으로 추가했다.
+- root 고정 옵션과 root history 대안도 비교했으며, 일반 커서 자동 분석을 보존하기 위해 root history는 복귀 수단으로 결합하고 전역 pin은 선택 기능으로만 고려하기로 했다.
+- 관련 자동·수동 테스트 및 완료 기준을 추가했다. 구현은 아직 시작하지 않았다.
