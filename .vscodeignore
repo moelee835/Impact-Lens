@@ -1,6 +1,8 @@
 .git/**
 .gitignore
+AGENTS.md
 .vscode/**
+docs/**
 .pnpm-store/**
 pnpm-lock.yaml
 pnpm-workspace.yaml
