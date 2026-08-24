@@ -120,12 +120,12 @@ git diff --check
 
 ```json
 {
-  "version": "0.3.2"
+  "version": "0.3.3"
 }
 ```
 
 ```md
-## 0.3.2
+## 0.3.3
 
 - Fix or feature summary.
 ```
@@ -140,7 +140,7 @@ git diff --check
 pnpm test
 pnpm run compile
 git diff --check
-pnpm exec vsce package --out /tmp/impact-lens-0.3.2.vsix
+pnpm exec vsce package --out /tmp/impact-lens-0.3.3.vsix
 ```
 
 `vsce package`는 `vscode:prepublish` script를 실행한 뒤 VSIX에 포함된 파일 목록을 출력한다. 최소한 다음 항목을 확인한다.
@@ -154,13 +154,13 @@ pnpm exec vsce package --out /tmp/impact-lens-0.3.2.vsix
 필요하면 압축 파일 목록을 직접 확인한다.
 
 ```sh
-unzip -l /tmp/impact-lens-0.3.2.vsix
+unzip -l /tmp/impact-lens-0.3.3.vsix
 ```
 
 artifact checksum을 생성한다.
 
 ```sh
-shasum -a 256 /tmp/impact-lens-0.3.2.vsix
+shasum -a 256 /tmp/impact-lens-0.3.3.vsix
 ```
 
 릴리스에 첨부한 파일의 digest와 이 값을 비교한다.
@@ -170,7 +170,7 @@ shasum -a 256 /tmp/impact-lens-0.3.2.vsix
 `code` CLI가 PATH에 있다면 기존 설치를 덮어쓴다.
 
 ```sh
-code --install-extension /tmp/impact-lens-0.3.2.vsix --force
+code --install-extension /tmp/impact-lens-0.3.3.vsix --force
 ```
 
 설치 후 VS Code에서 `Developer: Reload Window`를 실행한다.
