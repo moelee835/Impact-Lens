@@ -2,6 +2,7 @@
 
 ## 0.3.0
 
+- Add the new Impact Lens package and Marketplace icon.
 - Explore incoming Call Hierarchy relationships across files with collision-safe symbol identities.
 - Raise the default analysis depth to 5 and support values up to 20.
 - Report requested depth, reached depth, and separate depth/node truncation reasons.
