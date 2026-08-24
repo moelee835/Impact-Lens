@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { traverseIncoming } from './callGraph';
 import { EMPTY_IMPACT_DELTA } from './impactDelta';
 import { NoteStore } from './noteStore';
+import { createSymbolKey } from './symbolIdentity';
 import { ImpactDiagnostic, ImpactEdge, ImpactNode, ImpactResult } from './types';
 
 interface CallEntry {
@@ -47,7 +48,7 @@ export class ImpactAnalyzer {
 
   async analyzeItem(rootItem: vscode.CallHierarchyItem): Promise<ImpactResult> {
     const configuration = vscode.workspace.getConfiguration('impactLens');
-    const maxDepth = configuration.get<number>('maxDepth', 2);
+    const maxDepth = configuration.get<number>('maxDepth', 5);
     const maxNodes = configuration.get<number>('maxNodes', 120);
     const rangesByEdge = new Map<string, readonly vscode.Range[]>();
     const root: CallEntry = { item: rootItem, callSiteRanges: [] };
@@ -110,6 +111,9 @@ export class ImpactAnalyzer {
       nodes,
       edges,
       truncated: traversal.truncated,
+      traversalLimits: traversal.limits,
+      requestedDepth: maxDepth,
+      reachedDepth: traversal.reachedDepth,
       analyzedAt: Date.now(),
       analysisState: 'current',
       delta: EMPTY_IMPACT_DELTA,
@@ -124,13 +128,14 @@ export class ImpactAnalyzer {
 }
 
 export function symbolKey(item: vscode.CallHierarchyItem): string {
-  return [
-    item.uri.toString(),
-    item.kind,
-    item.name,
-    item.detail ?? '',
-    item.selectionRange.start.character,
-  ].join('#');
+  return createSymbolKey({
+    uri: item.uri.toString(),
+    kind: item.kind,
+    name: item.name,
+    detail: item.detail,
+    line: item.selectionRange.start.line,
+    character: item.selectionRange.start.character,
+  });
 }
 
 function edgeKey(source: string, target: string): string {

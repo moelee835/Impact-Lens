@@ -22,34 +22,47 @@ export async function traverseIncoming<T>(
   ];
   const edges: Array<{ source: string; target: string }> = [];
   const queue: Array<{ value: T; depth: number }> = [{ value: root, depth: 0 }];
-  let truncated = false;
+  const limits = new Set<'depth' | 'nodes'>();
 
   while (queue.length > 0) {
     const current = queue.shift();
-    if (!current || current.depth >= maxDepth) {
+    if (!current) {
       continue;
     }
 
     const targetKey = adapter.key(current.value);
     const callers = await adapter.incoming(current.value);
+    if (current.depth >= maxDepth) {
+      if (callers.some(caller => !seen.has(adapter.key(caller)))) {
+        limits.add('depth');
+      }
+      continue;
+    }
     for (const caller of callers) {
       const sourceKey = adapter.key(caller);
-      edges.push({ source: sourceKey, target: targetKey });
 
       if (seen.has(sourceKey)) {
+        edges.push({ source: sourceKey, target: targetKey });
         continue;
       }
       if (entries.length >= maxNodes) {
-        truncated = true;
+        limits.add('nodes');
         continue;
       }
 
       const depth = current.depth + 1;
       seen.add(sourceKey);
+      edges.push({ source: sourceKey, target: targetKey });
       entries.push({ value: caller, depth, parentKey: targetKey });
       queue.push({ value: caller, depth });
     }
   }
 
-  return { entries, edges, truncated };
+  return {
+    entries,
+    edges,
+    truncated: limits.size > 0,
+    limits: [...limits],
+    reachedDepth: Math.max(0, ...entries.map(entry => entry.depth)),
+  };
 }

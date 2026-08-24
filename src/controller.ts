@@ -5,6 +5,7 @@ import { computeImpactDelta, EMPTY_IMPACT_DELTA } from './impactDelta';
 import { ImpactAnalyzer, symbolKey } from './impactAnalyzer';
 import { ImpactTreeProvider } from './impactTreeProvider';
 import { NoteStore } from './noteStore';
+import { matchesPendingNavigation, PendingNavigation } from './navigationGuard';
 import { ImpactResult } from './types';
 
 export class ImpactLensController implements vscode.Disposable {
@@ -15,8 +16,12 @@ export class ImpactLensController implements vscode.Disposable {
   private liveAnalysisTimer: ReturnType<typeof setTimeout> | undefined;
   private noteRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly changedSymbolKeys = new Set<string>();
-  private readonly reviewedSymbolKeys = new Set<string>();
+  private readonly reviewedByRoot = new Map<string, Set<string>>();
   private readonly baselineByRoot = new Map<string, ImpactResult>();
+  private readonly rootHistory: vscode.CallHierarchyItem[] = [];
+  private pendingGraphNavigation: PendingNavigation | undefined;
+  private navigationExpiryTimer: ReturnType<typeof setTimeout> | undefined;
+  private ignoreNextDepthConfigurationChange = false;
   private readonly pendingChangeIdentification = new Set<Promise<void>>();
   private lastChangeAt: number | undefined;
   private analyzedDocumentVersion: number | undefined;
@@ -41,6 +46,17 @@ export class ImpactLensController implements vscode.Disposable {
       async (nodeId, result) => {
         const node = result.nodes.find(candidate => candidate.id === nodeId);
         if (node) {
+          this.pendingGraphNavigation = {
+            uri: node.item.uri.toString(),
+            range: node.item.selectionRange,
+          };
+          if (this.navigationExpiryTimer) {
+            clearTimeout(this.navigationExpiryTimer);
+          }
+          this.navigationExpiryTimer = setTimeout(() => {
+            this.pendingGraphNavigation = undefined;
+            this.navigationExpiryTimer = undefined;
+          }, 1500);
           await openLocation(node.item.uri, node.item.selectionRange);
         }
       },
@@ -48,19 +64,24 @@ export class ImpactLensController implements vscode.Disposable {
         await this.editNoteForItem(result.root.item);
       },
       async (nodeId, result) => {
-        if (this.reviewedSymbolKeys.has(nodeId)) {
-          this.reviewedSymbolKeys.delete(nodeId);
+        const reviewed = this.reviewedForRoot(result.root.id);
+        if (reviewed.has(nodeId)) {
+          reviewed.delete(nodeId);
         } else {
-          this.reviewedSymbolKeys.add(nodeId);
+          reviewed.add(nodeId);
         }
         const node = result.nodes.find(candidate => candidate.id === nodeId);
         if (node) {
-          node.reviewed = this.reviewedSymbolKeys.has(nodeId);
+          node.reviewed = reviewed.has(nodeId);
         }
         this.tree.setResult(result);
         this.graph.update(result);
       },
       () => this.clearLiveChanges(),
+      async (nodeId, result) => this.setGraphRoot(nodeId, result),
+      async () => this.restorePreviousRoot(),
+      async depth => this.setAnalysisDepth(depth),
+      () => this.rootHistory.length > 0,
     );
 
     this.disposables.push(
@@ -69,6 +90,10 @@ export class ImpactLensController implements vscode.Disposable {
       vscode.window.onDidChangeTextEditorSelection(event => this.onSelectionChanged(event)),
       vscode.workspace.onDidChangeTextDocument(event => this.onDocumentChanged(event)),
       vscode.workspace.onDidSaveTextDocument(document => {
+        if (this.currentResult) {
+          void this.analyzePreparedItem(this.currentResult.root.item, true);
+          return;
+        }
         const editor = vscode.window.activeTextEditor;
         if (editor?.document.uri.toString() === document.uri.toString()) {
           void this.analyze(editor, editor.selection.active, { force: true, quiet: true });
@@ -80,7 +105,11 @@ export class ImpactLensController implements vscode.Disposable {
           this.codeLenses.refresh();
         }
         if (event.affectsConfiguration('impactLens.maxDepth') || event.affectsConfiguration('impactLens.maxNodes')) {
-          void this.refresh();
+          if (this.ignoreNextDepthConfigurationChange && event.affectsConfiguration('impactLens.maxDepth')) {
+            this.ignoreNextDepthConfigurationChange = false;
+          } else {
+            void this.refreshCurrentRoot();
+          }
         }
       }),
       this.notes.onDidChangeNotes(() => {
@@ -159,10 +188,30 @@ export class ImpactLensController implements vscode.Disposable {
   }
 
   private onSelectionChanged(event: vscode.TextEditorSelectionChangeEvent): void {
+    const selection = event.selections[0] ?? event.textEditor.selection;
+    if (
+      this.pendingGraphNavigation
+      && matchesPendingNavigation(
+        this.pendingGraphNavigation,
+        event.textEditor.document.uri.toString(),
+        selection,
+      )
+    ) {
+      this.pendingGraphNavigation = undefined;
+      if (this.navigationExpiryTimer) {
+        clearTimeout(this.navigationExpiryTimer);
+        this.navigationExpiryTimer = undefined;
+      }
+      if (this.selectionTimer) {
+        clearTimeout(this.selectionTimer);
+        this.selectionTimer = undefined;
+      }
+      return;
+    }
     if (!autoAnalyzeEnabled(event.textEditor.document.uri)) {
       return;
     }
-    this.scheduleAnalysis(event.textEditor, event.selections[0]?.active ?? event.textEditor.selection.active);
+    this.scheduleAnalysis(event.textEditor, selection.active);
   }
 
   private scheduleAnalysis(editor: vscode.TextEditor, position: vscode.Position): void {
@@ -190,7 +239,6 @@ export class ImpactLensController implements vscode.Disposable {
 
     this.analysisVersion += 1;
     this.lastChangeAt = Date.now();
-    this.reviewedSymbolKeys.clear();
     const current = this.currentResult;
     if (current) {
       if (!this.baselineByRoot.has(current.root.id)) {
@@ -199,7 +247,6 @@ export class ImpactLensController implements vscode.Disposable {
       current.analysisState = 'stale';
       current.changedAt = this.lastChangeAt;
       for (const node of current.nodes) {
-        node.reviewed = false;
         if (node.relation === 'test') {
           node.testFreshness = 'outdated';
         }
@@ -253,14 +300,14 @@ export class ImpactLensController implements vscode.Disposable {
 
   private async runLiveAnalysis(document: vscode.TextDocument): Promise<void> {
     await Promise.all([...this.pendingChangeIdentification]);
-    const editor = vscode.window.activeTextEditor;
-    if (editor?.document.uri.toString() === document.uri.toString()) {
-      await this.analyze(editor, editor.selection.active, { force: true, quiet: true });
-      return;
-    }
     const current = this.currentResult;
     if (current) {
       await this.analyzePreparedItem(current.root.item, true);
+      return;
+    }
+    const editor = vscode.window.activeTextEditor;
+    if (editor?.document.uri.toString() === document.uri.toString()) {
+      await this.analyze(editor, editor.selection.active, { force: true, quiet: true });
     }
   }
 
@@ -429,13 +476,62 @@ export class ImpactLensController implements vscode.Disposable {
   }
 
   private async refresh(): Promise<void> {
+    await this.refreshCurrentRoot();
+  }
+
+  private async refreshCurrentRoot(): Promise<void> {
+    if (this.currentResult) {
+      await this.analyzePreparedItem(this.currentResult.root.item, false);
+      return;
+    }
     await this.analyzeActiveEditor(true);
   }
 
+  private reviewedForRoot(rootId: string): Set<string> {
+    let reviewed = this.reviewedByRoot.get(rootId);
+    if (!reviewed) {
+      reviewed = new Set<string>();
+      this.reviewedByRoot.set(rootId, reviewed);
+    }
+    return reviewed;
+  }
+
+  private async setGraphRoot(nodeId: string, result: ImpactResult): Promise<void> {
+    const node = result.nodes.find(candidate => candidate.id === nodeId);
+    if (!node || node.id === result.root.id) {
+      return;
+    }
+    this.rootHistory.push(result.root.item);
+    await this.analyzePreparedItem(node.item, false);
+  }
+
+  private async restorePreviousRoot(): Promise<void> {
+    const previous = this.rootHistory.pop();
+    if (previous) {
+      await this.analyzePreparedItem(previous, false);
+    }
+  }
+
+  private async setAnalysisDepth(depth: number): Promise<void> {
+    const normalized = Math.max(1, Math.min(20, Math.round(depth)));
+    const current = vscode.workspace.getConfiguration('impactLens').get<number>('maxDepth', 5);
+    if (current === normalized) {
+      return;
+    }
+    this.ignoreNextDepthConfigurationChange = true;
+    await vscode.workspace.getConfiguration('impactLens').update(
+      'maxDepth',
+      normalized,
+      vscode.ConfigurationTarget.Workspace,
+    );
+    await this.refreshCurrentRoot();
+  }
+
   private applyLiveMetadata(result: ImpactResult): void {
+    const reviewed = this.reviewedForRoot(result.root.id);
     for (const node of result.nodes) {
       node.changed = this.changedSymbolKeys.has(node.id);
-      node.reviewed = this.reviewedSymbolKeys.has(node.id);
+      node.reviewed = reviewed.has(node.id);
       if (node.relation === 'test' && this.lastChangeAt) {
         node.testFreshness = 'outdated';
       }
@@ -447,7 +543,7 @@ export class ImpactLensController implements vscode.Disposable {
 
   private clearLiveChanges(): void {
     this.changedSymbolKeys.clear();
-    this.reviewedSymbolKeys.clear();
+    this.reviewedByRoot.clear();
     this.baselineByRoot.clear();
     this.lastChangeAt = undefined;
     const result = this.currentResult;
@@ -515,7 +611,9 @@ export class ImpactLensController implements vscode.Disposable {
       `${tests} related test symbols`,
       outdatedTests ? `${outdatedTests} test verifications required` : '',
       result.delta.addedNodeIds.length ? `${result.delta.addedNodeIds.length} newly affected` : '',
-      result.truncated ? 'result truncated' : '',
+      `reached depth ${result.reachedDepth} of ${result.requestedDepth}`,
+      result.traversalLimits.includes('depth') ? 'depth limit reached' : '',
+      result.traversalLimits.includes('nodes') ? 'node limit reached' : '',
     ].filter(Boolean).join(' · ');
   }
 
@@ -528,6 +626,9 @@ export class ImpactLensController implements vscode.Disposable {
     }
     if (this.liveAnalysisTimer) {
       clearTimeout(this.liveAnalysisTimer);
+    }
+    if (this.navigationExpiryTimer) {
+      clearTimeout(this.navigationExpiryTimer);
     }
     this.disposables.forEach(disposable => disposable.dispose());
   }

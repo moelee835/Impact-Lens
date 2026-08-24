@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+- Explore incoming Call Hierarchy relationships across files with collision-safe symbol identities.
+- Raise the default analysis depth to 5 and support values up to 20.
+- Report requested depth, reached depth, and separate depth/node truncation reasons.
+- Select and highlight graph nodes with a single click; open code with double-click or Enter.
+- Keep the current graph root while opening code and provide explicit root switching with history.
+- Add independent visible-depth filtering, zoom controls, fit/reset, and drag panning.
+- Preserve graph selection, viewport, and root-specific review state across live updates.
+- Document Python/FastAPI Call Hierarchy support and framework-driven relationship limits.
+
 ## 0.2.0
 
 - Detect unsaved source edits and invalidate stale impact results immediately.

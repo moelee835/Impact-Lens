@@ -1,7 +1,7 @@
 # Issue #3 수정 계획: 프로젝트 호출 계층과 Graph UI 개선
 
 - Issue: [#3 Hierarchy 표출 문제점 (Fast API 프로젝트), Graph UI 사용성 문제점, UI 문제점](https://github.com/moelee835/Impact-Lens/issues/3)
-- 상태: Open
+- 상태: 구현 및 자동 검증 완료 (수동 Extension Host 검증 제한은 작업 로그 참조)
 - 작성일: 2026-08-24
 
 ## 배경과 해결할 문제
@@ -201,3 +201,46 @@ FastAPI의 `Depends()`와 decorator 기반 route 등록은 VS Code 언어 서버
 - 리뷰 중 기존 관점이 사라지는 문제를 막기 위해 Graph 탐색으로 발생한 selection event만 식별해 억제하고, `Set as root`를 명시적 동작으로 분리하는 방안을 기본안으로 추가했다.
 - root 고정 옵션과 root history 대안도 비교했으며, 일반 커서 자동 분석을 보존하기 위해 root history는 복귀 수단으로 결합하고 전역 pin은 선택 기능으로만 고려하기로 했다.
 - 관련 자동·수동 테스트 및 완료 기준을 추가했다. 구현은 아직 시작하지 않았다.
+
+### 2026-08-24 — 호출 탐색과 제한 상태 구현
+
+- `src/callGraph.ts`, `src/types.ts`, `src/impactAnalyzer.ts`를 변경했다.
+  - 최대 깊이의 경계 노드도 incoming call 존재 여부를 확인해 실제로 더 탐색할 관계가 있을 때만 `depth` 제한으로 기록한다.
+  - `maxNodes`로 수집하지 못한 노드의 dangling edge는 결과에 넣지 않는다.
+  - 결과에 요청 깊이, 실제 도달 깊이, `depth`/`nodes` 제한 사유를 각각 저장한다.
+- `src/symbolIdentity.ts`를 추가하고 symbol key에 selection 시작 line과 character를 모두 포함했다. 같은 파일에서 이름과 column이 같은 심볼이 서로 다른 line에 있을 때 충돌하던 가능성을 제거했다.
+- `impactLens.maxDepth`의 기본값을 5, 허용 범위를 1~20으로 변경했다.
+- `src/test/callGraph.test.ts`, `src/test/symbolIdentity.test.ts`에 cross-file 동명 노드, depth 5 초과, 제한 사유, cycle/node limit, symbol line 구분 테스트를 추가했다.
+- FastAPI 전용 추론 edge는 추가하지 않았다. 일반 cross-file 직접 호출은 URI를 제한하지 않고 언어 서비스가 반환한 관계를 수집하지만, `Depends()`와 decorator route처럼 provider가 반환하지 않는 관계를 확정 호출로 생성하면 오탐 가능성이 크기 때문이다. 이 차이를 README에 명시했다.
+
+### 2026-08-24 — Graph 상호작용과 root 문맥 구현
+
+- `src/graphPanel.ts`를 변경했다.
+  - single click/Space는 선택만 수행하고 선택 노드, 인접 노드, 직접 연결 edge를 강조한다.
+  - double click/Enter만 `open` 메시지를 보낸다.
+  - Analysis depth와 Visible depth를 별도 select로 제공하며 Analysis 변경은 workspace 설정 갱신과 root 재분석을 요청한다.
+  - 50%~250% zoom, `Ctrl/Cmd + wheel`, Fit, Reset, 빈 공간 drag pan을 추가했다.
+  - Webview state에 선택 노드, visible depth, zoom, scroll 위치를 저장해 live update 후 유효한 상태를 복원한다.
+  - header에 현재 root, 요청/도달 깊이, 정상 종료 또는 제한 사유를 표시한다.
+- `src/navigationGuard.ts`와 테스트를 추가했다. Graph 이동 전에 URI와 selection range를 기록하고 정확히 일치하는 selection event만 한 번 억제한다. 1.5초 cleanup은 stale intent 제거용이며, 억제 판단 자체는 시간만 사용하지 않는다.
+- `src/controller.ts`를 변경했다.
+  - Graph 코드 이동, live edit 재분석, save, depth 설정 변경이 기존 root를 유지한다.
+  - `Set selected as root`에서만 root를 전환하고 `Previous root`로 이전 root를 재분석한다.
+  - reviewed set을 root별로 보관해 root 복귀 시 서로 섞이지 않도록 했다.
+  - Graph 밖에서 발생한 일반 cursor selection은 기존 자동 분석 동작을 유지한다.
+- 설계상 Graph node single click 후 DOM 전체를 교체하지 않고 class만 갱신한다. 브라우저의 click 두 번 뒤 `dblclick`이 발생할 때 target이 사라져 open이 누락되는 문제를 피하기 위한 결정이다.
+
+### 2026-08-24 — 문서, 버전 및 검증
+
+- `README.md`에 Graph 조작법, 분석/표시 depth 차이, root 유지와 복귀, cross-file 수집 범위 및 FastAPI 한계를 문서화했다.
+- `CHANGELOG.md`, `package.json`을 v0.3.0 릴리스 내용과 버전으로 갱신했다.
+- `npm test` 결과: 16개 테스트 모두 통과했다.
+  - reverse BFS/edge 방향, cycle, node limit, depth limit과 자연 종료 구분
+  - cross-file 동명 노드, depth 8 탐색, symbol line identity
+  - Graph navigation selection 정확 일치
+  - 기존 delta/note 관련 회귀 테스트
+- `npm run compile` 결과: TypeScript 컴파일 성공.
+- `git diff --check` 결과: whitespace 오류 없음.
+- `npx vsce package --out /tmp/impact-lens-0.3.0.vsix` 결과: 성공, 23 files, 43.78 KB.
+- 현재 shell에는 `code` CLI가 없고 설치된 Python/Pylance 확장을 조회할 수 없어 Extension Development Host에서 FastAPI와 실제 마우스/키보드 조작을 수동 검증하지 못했다. 따라서 이 항목을 성공으로 간주하지 않는다. 남은 위험은 언어 서버별 Call Hierarchy 반환 차이와 실제 VS Code theme/layout에서의 시각 동작이며, VSIX 설치 smoke test가 후속 확인 항목이다.
+- 계획과의 차이: 별도 FastAPI 보조 추론 및 FastAPI 전용 fixture는 구현하지 않았다. provider에 없는 framework 관계를 오탐 없이 확정할 근거가 없고 Issue의 프로젝트 범위 탐색은 provider가 반환한 URI를 보존하는 일반 traversal과 충돌 방지로 해결하는 범위로 확정했다.
