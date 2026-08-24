@@ -2,7 +2,7 @@
 
 Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범위를 VS Code 안에서 탐색하는 로컬 확장 프로그램입니다. 별도 AI 에이전트나 클라우드 분석 없이, 현재 언어 확장이 제공하는 Call Hierarchy를 사용합니다.
 
-## v0.3.0 기능
+## v0.3.1 기능
 
 - 커서가 위치한 함수의 직접 호출자와 간접 호출자 탐색
 - 프로젝트 범위 cross-file 호출 탐색과 기본 분석 depth 5(최대 20)
@@ -17,7 +17,7 @@ Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범�
 - 코드에 노출되지 않는 Personal 함수 노트
 - `.impact-lens/notes.json`을 통한 Shared 함수 노트
 - 기존 `@impact-note` 주석 읽기·추가·수정·삭제 호환
-- 함수 위 CodeLens에 역할 노트 또는 영향 분석 동작 표시
+- 언어 서버가 본문 위치를 반환해도 함수 선언 위에 고정되는 CodeLens
 - 커서 이동 및 문서 저장 시 증분 재분석
 - 저장하지 않은 코드 편집 감지와 debounce 기반 라이브 재분석
 - `Editing → Analyzing → Current/Partial/Failed` 분석 상태 표시
@@ -75,8 +75,8 @@ Python에서는 `# @impact-note`, SQL과 Lua에서는 `-- @impact-note`를 사�
 
 ## 실행
 
-1. Node.js 20 이상을 준비합니다.
-2. `npm install`을 실행합니다.
+1. Node.js 22 LTS 이상을 준비합니다.
+2. Corepack으로 pnpm 10을 활성화하고 `pnpm install --frozen-lockfile`을 실행합니다.
 3. VS Code에서 이 폴더를 열고 `F5`를 누릅니다.
 4. 새 Extension Development Host에서 분석할 프로젝트를 엽니다.
 5. 함수에 커서를 두거나 함수 위 CodeLens를 클릭합니다.
@@ -116,8 +116,12 @@ Python/FastAPI에서는 일반 함수의 직접 import 호출은 Python 언어 �
 ## 개발 검증
 
 ```sh
-npm run compile
-npm test
+pnpm run compile
+pnpm test
+git diff --check
+pnpm exec vsce package --out /tmp/impact-lens-0.3.1.vsix
 ```
+
+환경 준비, 코드 구조, 반복 테스트, Extension Development Host smoke test, 버전 변경, VSIX 설치 및 릴리스 전 점검은 [Impact Lens 개발 가이드](docs/DEVELOPMENT.md)를 참고하세요.
 
 현재 버전은 함수 호출 관계, 라이브 편집, 언어 진단을 기반으로 잠재 영향 범위를 제공합니다. 데이터 흐름, 런타임 의존성 주입, reflection, 이벤트·라우트 연결과 범용 테스트 결과 수집은 후속 범위입니다.
