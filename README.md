@@ -2,7 +2,7 @@
 
 Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범위를 VS Code 안에서 탐색하는 로컬 확장 프로그램입니다. 별도 AI 에이전트나 클라우드 분석 없이, 현재 언어 확장이 제공하는 Call Hierarchy를 사용합니다.
 
-## v0.3.1 기능
+## v0.3.2 기능
 
 - 커서가 위치한 함수의 직접 호출자와 간접 호출자 탐색
 - 프로젝트 범위 cross-file 호출 탐색과 기본 분석 depth 5(최대 20)
@@ -119,7 +119,7 @@ Python/FastAPI에서는 일반 함수의 직접 import 호출은 Python 언어 �
 pnpm run compile
 pnpm test
 git diff --check
-pnpm exec vsce package --out /tmp/impact-lens-0.3.1.vsix
+pnpm exec vsce package --out /tmp/impact-lens-0.3.2.vsix
 ```
 
 환경 준비, 코드 구조, 반복 테스트, Extension Development Host smoke test, 버전 변경, VSIX 설치 및 릴리스 전 점검은 [Impact Lens 개발 가이드](docs/DEVELOPMENT.md)를 참고하세요.

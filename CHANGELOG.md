@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Exclude repository development guides, work logs, and agent instructions from the VSIX artifact.
+
 ## 0.3.1
 
 - Anchor function CodeLens actions to the declaration name even when a language provider returns a body selection.
