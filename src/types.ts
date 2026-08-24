@@ -4,6 +4,7 @@ import { NoteSource } from './noteModel';
 export type ImpactRelation = 'root' | 'direct' | 'transitive' | 'test';
 export type ImpactAnalysisState = 'current' | 'stale' | 'analyzing' | 'partial' | 'failed';
 export type TestFreshness = 'notRun' | 'outdated';
+export type TraversalLimit = 'depth' | 'nodes';
 
 export interface ImpactDiagnostic {
   readonly severity: 'error' | 'warning';
@@ -44,6 +45,9 @@ export interface ImpactResult {
   readonly nodes: readonly ImpactNode[];
   readonly edges: readonly ImpactEdge[];
   readonly truncated: boolean;
+  readonly traversalLimits: readonly TraversalLimit[];
+  readonly requestedDepth: number;
+  readonly reachedDepth: number;
   readonly analyzedAt: number;
   analysisState: ImpactAnalysisState;
   delta: ImpactDelta;
@@ -65,4 +69,6 @@ export interface TraversalResult<T> {
   readonly entries: readonly TraversalEntry<T>[];
   readonly edges: readonly TraversalEdge[];
   readonly truncated: boolean;
+  readonly limits: readonly TraversalLimit[];
+  readonly reachedDepth: number;
 }

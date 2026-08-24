@@ -2,7 +2,7 @@
   "name": "impact-lens",
   "displayName": "Impact Lens",
   "description": "Explore the potential impact of changing a function using VS Code language services.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
@@ -113,9 +113,9 @@
       "properties": {
         "impactLens.maxDepth": {
           "type": "number",
-          "default": 2,
+          "default": 5,
           "minimum": 1,
-          "maximum": 5,
+          "maximum": 20,
           "description": "Maximum incoming-call depth used for impact analysis."
         },
         "impactLens.maxNodes": {

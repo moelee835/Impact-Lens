@@ -2,13 +2,17 @@
 
 Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범위를 VS Code 안에서 탐색하는 로컬 확장 프로그램입니다. 별도 AI 에이전트나 클라우드 분석 없이, 현재 언어 확장이 제공하는 Call Hierarchy를 사용합니다.
 
-## v0.2.0 기능
+## v0.3.0 기능
 
 - 커서가 위치한 함수의 직접 호출자와 간접 호출자 탐색
-- 호출 깊이 및 최대 노드 수 제한
+- 프로젝트 범위 cross-file 호출 탐색과 기본 분석 depth 5(최대 20)
+- 요청한 분석 깊이, 실제 도달 깊이, depth/node 제한 사유 구분
 - 테스트 파일에서 발견된 호출자를 별도 분류
 - Impact Explorer 트리에서 호출자와 소스 위치 탐색
-- 함수 중심 호출 그래프와 깊이 필터
+- 함수 중심 호출 그래프와 분석 깊이/표시 깊이 분리
+- 노드 단일 클릭 선택 및 연결 강조, 더블클릭·Enter 코드 이동
+- 50%~250% 확대/축소, 화면 맞춤, 초기화 및 드래그 이동
+- 코드 이동 시 Graph root 유지, 명시적 root 전환 및 이전 root 복귀
 - 모든 그래프 노드 아래에 함수 역할 노트 표시
 - 코드에 노출되지 않는 Personal 함수 노트
 - `.impact-lens/notes.json`을 통한 Shared 함수 노트
@@ -36,6 +40,15 @@ Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범�
 - `Reviewed`: 사용자가 현재 세션에서 수동 검토한 노드
 
 이 정보는 실제 장애 확률이 아니라 검토가 필요한 잠재 영향과 검증 근거입니다. 테스트를 실행하지 않은 상태를 통과로 추정하지 않으며, reflection·동적 호출·이벤트·런타임 의존성 주입처럼 언어 서버가 제공하지 않는 관계는 분석하지 않습니다.
+
+## Graph 사용법
+
+- 노드를 한 번 클릭하거나 Space를 누르면 노드와 직접 연결된 edge가 강조됩니다.
+- 노드를 더블클릭하거나 Enter를 누르면 코드로 이동합니다. 이 이동만으로 현재 Graph root는 바뀌지 않습니다.
+- 선택한 노드를 새 분석 기준으로 삼으려면 `Set selected as root`를 누릅니다. `Previous root`로 이전 관점에 복귀할 수 있습니다.
+- `Analysis`는 언어 서비스에 요청할 탐색 깊이이며 변경 시 재분석합니다. `Visible`은 이미 수집한 결과의 표시 깊이만 즉시 바꿉니다.
+- `+`, `−`, `Ctrl/Cmd + wheel`로 확대·축소하고, 빈 공간을 드래그해 이동합니다. `Fit`은 현재 그래프를 화면에 맞추고 `Reset`은 100%로 되돌립니다.
+- 선택, 확대 배율, 스크롤 위치는 live analysis로 Webview가 갱신될 때 가능한 범위에서 유지됩니다.
 
 ## 함수 역할 노트
 
@@ -78,11 +91,13 @@ Python에서는 `# @impact-note`, SQL과 Lua에서는 `-- @impact-note`를 사�
 
 ## 요구 사항
 
-대상 언어의 VS Code 확장이 Call Hierarchy를 제공해야 합니다. JavaScript/TypeScript, Java, C/C++, C#, Go, Rust 등은 각 언어 확장의 지원 범위에 따라 동작합니다. Python 등 일부 언어는 설치된 언어 서버와 설정에 따라 결과가 달라질 수 있습니다.
+대상 언어의 VS Code 확장이 Call Hierarchy를 제공해야 합니다. Impact Lens는 URI로 파일을 제한하지 않으므로 언어 서비스가 제공한 cross-file 호출자는 프로젝트 전체에서 수집합니다. JavaScript/TypeScript, Java, C/C++, C#, Go, Rust 등은 각 언어 확장의 지원 범위에 따라 동작합니다.
+
+Python/FastAPI에서는 일반 함수의 직접 import 호출은 Python 언어 서버가 Call Hierarchy로 반환하는 범위에서 표시됩니다. 반면 `Depends()`, decorator route 등록, reflection, 문자열 기반 import처럼 런타임 또는 프레임워크가 연결하는 관계는 Call Hierarchy에 없을 수 있으며, Impact Lens가 이를 실제 호출로 추정해 추가하지 않습니다. Graph의 `call hierarchy completed` 표시는 제공자가 반환한 관계가 끝났다는 뜻이지 런타임 호출이 없다는 보장은 아닙니다.
 
 ## 설정
 
-- `impactLens.maxDepth`: 역방향 호출 탐색 깊이, 기본값 2
+- `impactLens.maxDepth`: 역방향 호출 분석 깊이, 기본값 5, 범위 1~20
 - `impactLens.maxNodes`: 한 번에 표시할 최대 심볼 수, 기본값 120
 - `impactLens.autoAnalyzeOnCursorChange`: 커서 이동 시 자동 분석, 기본값 true
 - `impactLens.liveAnalysisEnabled`: 저장하지 않은 편집의 라이브 영향 분석, 기본값 true
