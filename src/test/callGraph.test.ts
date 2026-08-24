@@ -111,3 +111,53 @@ test('supports analysis depths greater than five', async () => {
   assert.equal(result.entries.length, 9);
   assert.deepEqual(result.limits, []);
 });
+
+test('preserves a cross-file route to service to repository caller chain', async () => {
+  interface SymbolNode { readonly id: string; readonly uri: string }
+  const repository: SymbolNode = { id: 'save', uri: 'file:///app/repository.py' };
+  const service: SymbolNode = { id: 'create_order', uri: 'file:///app/service.py' };
+  const route: SymbolNode = { id: 'post_order', uri: 'file:///app/routes.py' };
+  const incoming = new Map<SymbolNode, readonly SymbolNode[]>([
+    [repository, [service]],
+    [service, [route]],
+    [route, []],
+  ]);
+
+  const result = await traverseIncoming(
+    repository,
+    {
+      key: value => `${value.uri}#${value.id}`,
+      incoming: async value => incoming.get(value) ?? [],
+    },
+    5,
+    20,
+  );
+
+  assert.deepEqual(result.entries.map(entry => [entry.value.id, entry.depth]), [
+    ['save', 0],
+    ['create_order', 1],
+    ['post_order', 2],
+  ]);
+  assert.deepEqual(result.edges, [
+    { source: 'file:///app/service.py#create_order', target: 'file:///app/repository.py#save' },
+    { source: 'file:///app/routes.py#post_order', target: 'file:///app/service.py#create_order' },
+  ]);
+  assert.equal(result.truncated, false);
+});
+
+test('keeps cycle edges without re-expanding an already seen node', async () => {
+  const graph: Record<string, string[]> = { service: ['route'], route: ['service'] };
+  const result = await traverseIncoming(
+    'service',
+    { key: value => value, incoming: async value => graph[value] ?? [] },
+    5,
+    20,
+  );
+
+  assert.deepEqual(result.entries.map(entry => entry.value), ['service', 'route']);
+  assert.deepEqual(result.edges, [
+    { source: 'route', target: 'service' },
+    { source: 'service', target: 'route' },
+  ]);
+  assert.deepEqual(result.limits, []);
+});

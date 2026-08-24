@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Anchor function CodeLens actions to the declaration name even when a language provider returns a body selection.
+- Add declaration-location and cross-file call-chain regression coverage.
+
 ## 0.3.0
 
 - Add the new Impact Lens package and Marketplace icon.
