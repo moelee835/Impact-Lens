@@ -16,3 +16,18 @@ test('includes both line and character in a symbol key', () => {
     createSymbolKey({ ...base, line: 20 }),
   );
 });
+
+test('keeps otherwise identical symbols from different files distinct', () => {
+  const base = {
+    kind: 11,
+    name: 'handler',
+    detail: '',
+    line: 10,
+    character: 4,
+  };
+
+  assert.notEqual(
+    createSymbolKey({ ...base, uri: 'file:///workspace/routes/a.py' }),
+    createSymbolKey({ ...base, uri: 'file:///workspace/routes/b.py' }),
+  );
+});

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { findDeclarationAnchorWithLineAt } from './declarationAnchor';
 import { NoteStore } from './noteStore';
 
 const supportedKinds = new Set([
@@ -40,7 +41,19 @@ export class ImpactCodeLensProvider implements vscode.CodeLensProvider {
       if (!supportedKinds.has(symbol.kind)) {
         continue;
       }
-      const range = getSelectionRange(symbol);
+      const providerRange = getSelectionRange(symbol);
+      const symbolRange = getSymbolRange(symbol);
+      const anchor = findDeclarationAnchorWithLineAt(
+        line => document.lineAt(line).text,
+        document.lineCount,
+        {
+          name: symbol.name,
+          symbolRange,
+          providerSelection: providerRange,
+        },
+      );
+      const position = new vscode.Position(anchor.line, anchor.character);
+      const range = new vscode.Range(position, position);
       const resolved = await this.notes.resolveForSymbol(
         document,
         symbol.name,
@@ -85,6 +98,12 @@ function getSelectionRange(
   symbol: vscode.DocumentSymbol | vscode.SymbolInformation,
 ): vscode.Range {
   return 'selectionRange' in symbol ? symbol.selectionRange : symbol.location.range;
+}
+
+function getSymbolRange(
+  symbol: vscode.DocumentSymbol | vscode.SymbolInformation,
+): vscode.Range {
+  return 'selectionRange' in symbol ? symbol.range : symbol.location.range;
 }
 
 function truncate(value: string, maximum: number): string {
