@@ -3,6 +3,7 @@ import { traverseIncoming } from './callGraph';
 import { EMPTY_IMPACT_DELTA } from './impactDelta';
 import { NoteStore } from './noteStore';
 import { createSymbolKey } from './symbolIdentity';
+import { classifyImpactRelation } from './testFile';
 import { ImpactDiagnostic, ImpactEdge, ImpactNode, ImpactResult } from './types';
 
 interface CallEntry {
@@ -76,19 +77,14 @@ export class ImpactAnalyzer {
 
     const nodes: ImpactNode[] = await Promise.all(
       traversal.entries.map(async entry => {
-        const isTest = isTestFile(entry.value.item.uri);
+        const relation = classifyImpactRelation(entry.depth, entry.value.item.uri.path);
+        const isTest = relation === 'test';
         const note = await this.notes.resolve(entry.value.item);
         return {
           id: symbolKey(entry.value.item),
           item: entry.value.item,
           depth: entry.depth,
-          relation: entry.depth === 0
-            ? 'root'
-            : isTest
-              ? 'test'
-              : entry.depth === 1
-                ? 'direct'
-                : 'transitive',
+          relation,
           callSiteRanges: entry.value.callSiteRanges,
           note: note.text,
           noteSource: note.source,
@@ -140,10 +136,6 @@ export function symbolKey(item: vscode.CallHierarchyItem): string {
 
 function edgeKey(source: string, target: string): string {
   return `${source}\u0000${target}`;
-}
-
-function isTestFile(uri: vscode.Uri): boolean {
-  return /(^|\/)(__tests__|tests?|spec)(\/|$)|\.(test|spec)\.[^/]+$/i.test(uri.path);
 }
 
 function diagnosticsForItem(item: vscode.CallHierarchyItem): ImpactDiagnostic[] {

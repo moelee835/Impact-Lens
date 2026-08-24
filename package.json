@@ -3,7 +3,7 @@
   "displayName": "Impact Lens",
   "description": "Explore the potential impact of changing a function using VS Code language services.",
   "icon": "media/impact-lens.png",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "publisher": "local",
   "license": "MIT",
   "repository": {

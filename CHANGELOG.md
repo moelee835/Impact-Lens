@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+
+- Show Direct, Transitive, and Test relation markers, labels, hop counts, and visible category counts in the graph.
+- Recognize common cross-language test directory and filename conventions.
+- Size graph layouts from actual visible nodes instead of unused requested-depth columns.
+- Fit and center the graph on first open and explicit root changes while preserving same-root live-update viewports.
+
 ## 0.3.2
 
 - Exclude repository development guides, work logs, and agent instructions from the VSIX artifact.

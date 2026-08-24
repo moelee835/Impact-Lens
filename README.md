@@ -2,16 +2,18 @@
 
 Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범위를 VS Code 안에서 탐색하는 로컬 확장 프로그램입니다. 별도 AI 에이전트나 클라우드 분석 없이, 현재 언어 확장이 제공하는 Call Hierarchy를 사용합니다.
 
-## v0.3.2 기능
+## v0.3.3 기능
 
 - 커서가 위치한 함수의 직접 호출자와 간접 호출자 탐색
 - 프로젝트 범위 cross-file 호출 탐색과 기본 분석 depth 5(최대 20)
 - 요청한 분석 깊이, 실제 도달 깊이, depth/node 제한 사유 구분
-- 테스트 파일에서 발견된 호출자를 별도 분류
+- 테스트 파일에서 발견된 호출자를 별도 분류하고 direct/transitive 호출 거리 유지
 - Impact Explorer 트리에서 호출자와 소스 위치 탐색
 - 함수 중심 호출 그래프와 분석 깊이/표시 깊이 분리
 - 노드 단일 클릭 선택 및 연결 강조, 더블클릭·Enter 코드 이동
 - 50%~250% 확대/축소, 화면 맞춤, 초기화 및 드래그 이동
+- 실제 표시 노드 기준 compact layout, 최초·root 변경 시 자동 Fit과 중앙 정렬
+- Direct·Transitive·Test 노드 표식, 호출 거리 및 현재 표시 개수
 - 코드 이동 시 Graph root 유지, 명시적 root 전환 및 이전 root 복귀
 - 모든 그래프 노드 아래에 함수 역할 노트 표시
 - 코드에 노출되지 않는 Personal 함수 노트
@@ -47,8 +49,9 @@ Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범�
 - 노드를 더블클릭하거나 Enter를 누르면 코드로 이동합니다. 이 이동만으로 현재 Graph root는 바뀌지 않습니다.
 - 선택한 노드를 새 분석 기준으로 삼으려면 `Set selected as root`를 누릅니다. `Previous root`로 이전 관점에 복귀할 수 있습니다.
 - `Analysis`는 언어 서비스에 요청할 탐색 깊이이며 변경 시 재분석합니다. `Visible`은 이미 수집한 결과의 표시 깊이만 즉시 바꿉니다.
-- `+`, `−`, `Ctrl/Cmd + wheel`로 확대·축소하고, 빈 공간을 드래그해 이동합니다. `Fit`은 현재 그래프를 화면에 맞추고 `Reset`은 100%로 되돌립니다.
-- 선택, 확대 배율, 스크롤 위치는 live analysis로 Webview가 갱신될 때 가능한 범위에서 유지됩니다.
+- `+`, `−`, `Ctrl/Cmd + wheel`로 확대·축소하고, 빈 공간을 드래그해 이동합니다. `Fit`은 실제 표시 노드의 경계를 화면 중앙에 맞추고 `Reset`은 100%로 되돌립니다.
+- 처음 열거나 root를 명시적으로 바꾸면 자동으로 Fit합니다. 같은 root의 live analysis 갱신에서는 선택, 확대 배율, 스크롤 위치를 가능한 범위에서 유지합니다.
+- 노드 안의 색상 표식과 `Direct caller`, `Transitive · N hops`, `Test · direct caller/N hops` 문구로 관계를 구분합니다. 좌측 아래 범례는 현재 Visible depth에 실제 표시된 범주별 개수입니다.
 
 ## 함수 역할 노트
 
@@ -95,6 +98,8 @@ Python에서는 `# @impact-note`, SQL과 Lua에서는 `-- @impact-note`를 사�
 
 Python/FastAPI에서는 일반 함수의 직접 import 호출은 Python 언어 서버가 Call Hierarchy로 반환하는 범위에서 표시됩니다. 반면 `Depends()`, decorator route 등록, reflection, 문자열 기반 import처럼 런타임 또는 프레임워크가 연결하는 관계는 Call Hierarchy에 없을 수 있으며, Impact Lens가 이를 실제 호출로 추정해 추가하지 않습니다. Graph의 `call hierarchy completed` 표시는 제공자가 반환한 관계가 끝났다는 뜻이지 런타임 호출이 없다는 보장은 아닙니다.
 
+Test 분류는 `test`, `tests`, `spec`, `specs`, `__tests__` 디렉터리와 `.test`/`.spec`, `test_*`/`spec_*`, `*_test`/`*_spec`, `*Test`/`*Tests` 파일 이름 관례를 인식합니다. 다만 테스트 함수가 Graph에 나타나려면 해당 언어 확장이 그 호출을 Call Hierarchy caller로 반환해야 합니다.
+
 ## 설정
 
 - `impactLens.maxDepth`: 역방향 호출 분석 깊이, 기본값 5, 범위 1~20
@@ -119,7 +124,7 @@ Python/FastAPI에서는 일반 함수의 직접 import 호출은 Python 언어 �
 pnpm run compile
 pnpm test
 git diff --check
-pnpm exec vsce package --out /tmp/impact-lens-0.3.2.vsix
+pnpm exec vsce package --out /tmp/impact-lens-0.3.3.vsix
 ```
 
 환경 준비, 코드 구조, 반복 테스트, Extension Development Host smoke test, 버전 변경, VSIX 설치 및 릴리스 전 점검은 [Impact Lens 개발 가이드](docs/DEVELOPMENT.md)를 참고하세요.
