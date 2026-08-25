@@ -4,7 +4,7 @@ set -eu
 
 impact_lens_plugin_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 impact_lens_repo_entry="$impact_lens_plugin_dir/../../cli/dist/index.js"
-impact_lens_release_package="${IMPACT_LENS_CLI_PACKAGE:-https://github.com/moelee835/Impact-Lens/releases/download/v0.4.0/impact-lens-cli-0.4.0.tgz}"
+impact_lens_release_package="${IMPACT_LENS_CLI_PACKAGE:-https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-cli-0.5.0.tgz}"
 
 impact_lens_error() {
   printf '%s\n' '{"schemaVersion":1,"operation":"unknown","ok":false,"error":{"code":"cli_unavailable","message":"Impact Lens CLI is unavailable. Install Node.js 22+ and npm, install @impact-lens/cli globally, build cli/dist/index.js, or set IMPACT_LENS_CLI_PATH.","retryable":false}}' >&2
