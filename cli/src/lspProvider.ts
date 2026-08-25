@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JsonRpcClient } from './jsonRpc';
+import { bundledTypeScriptCommand } from './runtime';
 import {
   CallHierarchyItem,
   CallHierarchyProvider,
@@ -149,6 +150,11 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
 
   async dispose(): Promise<void> {
     await this.client.dispose(this.initialized);
+  }
+
+  async initializeForDoctor(): Promise<ProviderCapabilities> {
+    await this.initialize();
+    return this.capabilities;
   }
 
   private async initialize(): Promise<void> {
@@ -311,18 +317,7 @@ function defaultTypeScriptServerCommand(detectedLanguageId: string): ProviderCom
       },
     );
   }
-  try {
-    const entry = require.resolve('typescript-language-server/lib/cli.mjs');
-    return { command: process.execPath, args: [entry, '--stdio'], languageId: detectedLanguageId };
-  } catch (error) {
-    throw new CliError(
-      'provider_unavailable',
-      'typescript-language-server is not installed; provide an explicit provider command.',
-      5,
-      false,
-      { stage: 'discovery', cause: error instanceof Error ? error.message : String(error) },
-    );
-  }
+  return bundledTypeScriptCommand(detectedLanguageId);
 }
 
 export function languageId(file: string): string {

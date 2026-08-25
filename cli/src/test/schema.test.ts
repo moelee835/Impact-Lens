@@ -12,6 +12,8 @@ test('response schema requires provider and coverage for successful impact analy
 
   assert.ok(schema.$defs.provider);
   assert.ok(schema.$defs.coverage);
+  assert.ok(schema.$defs.runtime);
+  assert.match(JSON.stringify(schema.$defs.runtime), /release-fallback/);
   assert.match(JSON.stringify(schema.allOf), /"required":\["provider","coverage"\]/);
   assert.match(JSON.stringify(schema.$defs.coverage), /static-only/);
   assert.match(JSON.stringify(schema.$defs.coverage), /unknown/);

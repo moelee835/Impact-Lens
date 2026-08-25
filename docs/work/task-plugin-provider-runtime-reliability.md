@@ -114,10 +114,10 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
 
 ## 테스트 및 완료 기준
 
-- [ ] runner explicit/checkout/global/release-fallback 각각의 source가 하위 CLI에 전달된다.
-- [ ] Node missing/old, npm missing과 CLI artifact 오류가 서로 다른 JSON error code로 반환된다.
-- [ ] doctor가 Node/CLI/provider package와 entry/access를 점검하고 `--smoke`가 initialize/capability를 확인한다.
-- [ ] 정상 및 오류 envelope runtime metadata에 raw path, 전체 argv, registry credential이 포함되지 않는다.
+- [x] runner explicit/checkout/global/release-fallback 각각의 source가 하위 CLI에 전달된다.
+- [x] Node missing/old, npm missing과 CLI artifact 오류가 서로 다른 JSON error code로 반환된다.
+- [x] doctor가 Node/CLI/provider package와 entry/access를 점검하고 `--smoke`가 initialize/capability를 확인한다.
+- [x] 정상 및 오류 envelope runtime metadata에 raw path, 전체 argv, registry credential이 포함되지 않는다.
 - [ ] clean tarball과 Codex/Claude layout의 TS/TSX/JS/JSX incoming-call E2E가 통과한다.
 - [ ] Linux/macOS/Windows packed E2E matrix가 workflow에 존재한다.
 - [ ] `npm run test:all`, schema parse, plugin validation, package dry-run과 E2E가 통과한다.
@@ -155,3 +155,33 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
 - 최종 `sh -n plugins/impact-lens/scripts/run-impact-lens`: 통과.
 - 최종 `npm --prefix cli test`: 31/31 통과(기존 25개 + runner 6개).
 - `git diff --check`: 통과.
+
+### 2026-08-25 — 2단계 CLI runtime metadata와 bundled provider doctor
+
+- `cli/src/runtime.ts`에 Node 22 startup guard, CLI/Node/runner runtime metadata와 bundled
+  `typescript-language-server`/TypeScript package version 및 entry 접근 검사를 구현했다. package resolution,
+  read permission과 package metadata 손상을 `bundled_provider_artifact_missing|unreadable|corrupt`로 분리하고
+  오류에는 절대경로나 parser 원문을 포함하지 않는다.
+- `cli/src/doctor.ts`와 `doctor bundled-typescript [--smoke] [--timeout-ms N]` 명령을 추가했다. 기본 preflight는
+  파일·version만 동기 점검해 일반 분석 latency와 무관하고, `--smoke`만 실제 bundled server를 initialize해
+  advertised Call Hierarchy capability를 확인한다.
+- `LspCallHierarchyProvider`의 bundled command resolution이 공통 artifact inspector를 사용하게 했으며 doctor가
+  query 없이 initialization 결과를 읽는 제한된 public method를 추가했다. analyze/note의 기존 query 경로는
+  변경하지 않았다.
+- CLI 정상·오류 envelope에 additive `runtime`을 추가하고 response schema에 CLI/Node/runner 구조와
+  `provider.doctor` operation을 정의했다. runner가 CLI 시작 전에 실패하는 경우에도 schema가 일치하도록
+  `version: unknown`, `node.version: unavailable`을 허용한 안전한 snapshot을 포함했다.
+- allowlist 밖의 `IMPACT_LENS_RUNNER_SOURCE`는 `direct`로 정규화한다. release URL, 전체 argv, provider entry의
+  절대경로는 runtime이나 doctor 결과에 포함하지 않는다.
+- `cli/src/test/runtime.test.ts` 5개와 doctor contract/smoke/validation 3개를 추가하고 runner 조기 오류 runtime
+  assertion을 보강했다. unsupported Node, 실제 package version/entry, missing/unreadable/corrupt artifact,
+  resolution 실패 redaction, 양수가 아닌 timeout 거부와 실제 server initialize를 검증한다.
+- `npm run test:all`: Extension 34/34, CLI 37/37 통과. 이후 negative case를 보강한 최종
+  `npm --prefix cli test`: 39/39 통과.
+- AJV 2020 strict mode로 실제 doctor 성공 envelope와 invalid-command 오류 envelope를 검증: 모두
+  `response.schema.json`과 일치.
+- `validate_plugin.py plugins/impact-lens`: 통과. quick validator를 처음 plugin-creator의 scripts 아래에서
+  호출해 파일 부재로 실패했으나, 실제 공용 위치인 skill-creator의 `quick_validate.py`로 다시 실행해
+  `plugins/impact-lens/skills/impact-lens-cli` validation이 통과했다.
+- 개인 marketplace 부재는 계속되므로 cachebuster/reinstall은 아직 검증하지 못했다. 이 항목은 4단계까지
+  성공으로 표시하지 않는다.

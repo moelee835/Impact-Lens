@@ -84,15 +84,50 @@
         "reasons": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["cli", "node", "runner"],
+      "properties": {
+        "cli": {
+          "type": "object",
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "const": "@impact-lens/cli" },
+            "version": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "node": {
+          "type": "object",
+          "required": ["version", "major", "executable"],
+          "properties": {
+            "version": { "type": "string" },
+            "major": { "type": "integer" },
+            "executable": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "runner": {
+          "type": "object",
+          "required": ["source"],
+          "properties": {
+            "source": { "enum": ["direct", "explicit", "checkout", "global", "release-fallback"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   },
-  "required": ["schemaVersion", "operation", "ok"],
+  "required": ["schemaVersion", "operation", "ok", "runtime"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "operation": {
-      "enum": ["impact.analyze", "note.get", "note.list", "note.set", "note.delete", "unknown"]
+      "enum": ["impact.analyze", "note.get", "note.list", "note.set", "note.delete", "provider.doctor", "unknown"]
     },
     "ok": { "type": "boolean" },
+    "runtime": { "$ref": "#/$defs/runtime" },
     "data": { "type": "object" },
     "capabilities": { "type": "object" },
     "limitations": {

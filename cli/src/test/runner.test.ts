@@ -126,6 +126,8 @@ posixOnly('runner rejects an unsupported Node before resolving any CLI source', 
   assert.equal(response.operation, 'impact.analyze');
   assert.equal(response.error.code, 'node_version_unsupported');
   assert.equal(response.error.details.detectedMajor, 20);
+  assert.equal(response.runtime.node.major, 20);
+  assert.equal(response.runtime.runner.source, 'direct');
 });
 
 posixOnly('runner distinguishes missing explicit artifacts and missing npm', async t => {
@@ -134,9 +136,11 @@ posixOnly('runner distinguishes missing explicit artifacts and missing npm', asy
   assert.equal(missingCli.status, 127);
   assert.equal(JSON.parse(missingCli.stderr).error.code, 'cli_artifact_missing');
   assert.equal(JSON.parse(missingCli.stderr).error.details.source, 'explicit');
+  assert.equal(JSON.parse(missingCli.stderr).runtime.runner.source, 'explicit');
 
   const missingNpm = run(harness, ['note', 'list']);
   assert.equal(missingNpm.status, 127);
   assert.equal(JSON.parse(missingNpm.stderr).error.code, 'npm_runtime_unavailable');
   assert.equal(JSON.parse(missingNpm.stderr).error.details.source, 'release-fallback');
+  assert.equal(JSON.parse(missingNpm.stderr).runtime.runner.source, 'release-fallback');
 });

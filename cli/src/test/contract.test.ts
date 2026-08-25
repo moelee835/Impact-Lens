@@ -13,7 +13,46 @@ test('writes one compact JSON error to stderr and keeps stdout empty', () => {
   assert.equal(error.schemaVersion, 1);
   assert.equal(error.ok, false);
   assert.equal(error.error.code, 'invalid_command');
+  assert.equal(error.runtime.cli.name, '@impact-lens/cli');
+  assert.equal(error.runtime.runner.source, 'direct');
   assert.doesNotMatch(result.stderr, /\u001b\[/);
+});
+
+test('reports bundled TypeScript runtime preflight as compact JSON', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const result = spawnSync(process.execPath, [executable, 'doctor', 'bundled-typescript'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, '');
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.operation, 'provider.doctor');
+  assert.equal(response.runtime.cli.version, '0.5.0');
+  assert.equal(response.data.status, 'ready');
+  assert.equal(response.data.mode, 'preflight');
+  assert.equal(response.data.checks[2].version, '6.0.0');
+  assert.equal(response.data.checks[2].entry, 'lib/cli.mjs');
+  assert.doesNotMatch(result.stdout, new RegExp(process.cwd()));
+});
+
+test('doctor smoke initializes the bundled TypeScript Call Hierarchy provider', { timeout: 30000 }, () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const result = spawnSync(process.execPath, [executable, 'doctor', 'bundled-typescript', '--smoke'], {
+    encoding: 'utf8',
+    timeout: 25000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.data.mode, 'smoke');
+  assert.equal(response.data.checks.at(-1).id, 'initialize-capability-smoke');
+  assert.equal(response.data.checks.at(-1).callHierarchy, true);
+});
+
+test('doctor rejects a non-positive smoke timeout', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const result = spawnSync(process.execPath, [executable, 'doctor', 'bundled-typescript', '--timeout-ms', '0'], {
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 2);
+  assert.equal(JSON.parse(result.stderr).error.code, 'invalid_request');
 });
 
 test('rejects invalid stdin as a stable validation error', () => {
