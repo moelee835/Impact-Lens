@@ -3,6 +3,10 @@
 이 디렉터리는 개별 한계점 story를 사용자가 검증할 수 있는 릴리스 단위로 묶는다. 날짜나 version을 먼저
 고정하지 않고, 앞 마일스톤의 종료 gate를 다음 마일스톤의 진입 조건으로 사용한다.
 
+각 마일스톤의 기능과 UI가 자동 E2E를 통과하면 실제 사용자가 수행할 테스트를 별도 명세로 제안한다.
+현재는 case를 작성하거나 실행하지 않으며, 작성 시점·필수 항목과 증거 규칙은
+[마일스톤별 사용자 테스트 명세 계획](user-validation-planning.md)을 따른다.
+
 ## 전체 순서
 
 | 순서 | 마일스톤 | 완료 소유 story | 선행 기여 story | 사용자 결과 | 상태 |
@@ -59,6 +63,8 @@ augmentation의 공식 release gate는 evidence schema가 모든 검증 언어�
 - Story 상태는 실제 구현 상태를 나타내고, milestone 상태는 소속 story와 종료 gate를 함께 반영한다.
 - 완료 소유 story는 하나만 둔다. 앞 마일스톤에서 수행하는 일부 단계는 `선행 기여`로 표시한다.
 - milestone을 `Done`으로 바꾸려면 모든 완료 소유 story가 Done이고 공통 종료 gate가 통과해야 한다.
+- 각 milestone의 release candidate 단계에서 사용자 테스트 명세를 작성하고 별도 실행 여부를 결정한다.
+  명세 작성이나 자동 테스트를 실제 사용자 검증 통과로 대체하지 않는다.
 - 한 언어나 provider가 실패해도 다른 독립 언어의 검증 결과를 숨기지 않는다. 단, milestone 완료 여부는
   문서에 명시한 필수/experimental 범위를 따른다.
 - 자동 설치, build, sync, test 실행은 별도 사용자 승인 없이는 milestone 완료 수단으로 사용하지 않는다.

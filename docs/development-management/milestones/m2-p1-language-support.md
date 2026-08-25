@@ -32,6 +32,20 @@
 - 설치 안내, custom fallback과 project preparation guide
 - verified/experimental/unsupported를 구분한 language support table
 
+## 단계별 계획
+
+1. **provider·project 기준선**: Python 후보, gopls, clangd version과 project readiness matrix를 확정한다.
+2. **언어별 preset 구현**: discovery, initialization, FastAPI/Go module/compile database profile과 설치 안내를
+   독립적으로 구현한다.
+3. **언어별 자동 E2E**: Python·Go·C·C++의 single/cross-file, missing metadata와 no-auto-build fixture를 OS별로
+   통과한다.
+4. **사용자 테스트 명세 제안**: 각 언어 구현이 안정되면 `user-tests/m2-user-test-spec.md`를 작성한다.
+   Python·Go·C/C++ 실제 사용자가 raw provider JSON 없이 자신의 대표 project를 분석하고, virtualenv/module/
+   compile database 준비 문제를 이해하며, DI/function pointer/virtual dispatch 누락을 과신하지 않는지를
+   언어별 독립 과업과 결과로 정의한다. 지금은 project나 참여자를 선정하고 실행하지 않는다.
+5. **언어별 사용자 검증과 승격 결정**: 별도 승인 후 언어별 참여자가 과업을 수행한다. 한 언어 실패를
+   전체 평균으로 숨기지 않고 preset별 verified/experimental/unsupported 승격을 독립 결정한다.
+
 ## 종료 gate
 
 - [ ] IL-LIM-004, IL-LIM-006, IL-LIM-014의 수용 기준이 통과한다.
@@ -41,6 +55,8 @@
 - [ ] compile database나 Python environment 문제는 zero callers가 아니라 readiness error/limitation이다.
 - [ ] CMake configure, package install, virtualenv 생성과 dependency sync를 자동 실행하지 않는다.
 - [ ] 기존 bundled TS/JS 및 custom provider 회귀가 없다.
+- [ ] `user-tests/m2-user-test-spec.md`가 언어별 환경·과업·판정 기준을 포함해 검토됐으며, 실행 결과 또는
+  보류 사유가 각 preset 지원 등급 결정에 연결된다.
 
 ## 제외 범위
 

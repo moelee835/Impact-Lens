@@ -30,6 +30,21 @@ note 주석을 생성한다. note 편의를 위해 사용자 데이터 격리나
 - unsupported/generated/ambiguous source에 대한 refusal reason
 - 설치·백업·복구 및 privacy 안내
 
+## 단계별 계획
+
+1. **note 경계·문법 기준선**: Personal/shared/local/source scope, export privacy와 언어별 comment fixture를
+   확정한다.
+2. **명시적 note workflow 구현**: 선택한 export/import 또는 bridge, preview/apply/conflict와 language-profile
+   comment 처리를 구현한다.
+3. **자동 round-trip·안전 gate**: scope identity, conflict, unsupported/generated source refusal와 comment
+   보존 fixture를 통과한다.
+4. **사용자 테스트 명세 제안**: note workflow가 안정되면 `user-tests/m6-user-test-spec.md`를 작성한다.
+   실제 사용자가 Personal note의 위치·가시성을 이해하고 명시적으로 이동·복구하며, 여러 언어 source note를
+   preview 후 적용하고 conflict/unsupported 거부를 안전하게 처리하는지, 민감 note가 의도치 않게 공유되지
+   않는지를 검증하도록 정의한다. 지금은 실제 note 데이터나 참여자를 수집·실행하지 않는다.
+5. **사용자 검증과 privacy review**: 별도 승인·동의 후 note 사용자가 수행하고, scope 오해·데이터 노출·
+   source 손상 여부를 검토해 workflow와 지원 문법을 확정한다.
+
 ## 종료 gate
 
 - [ ] IL-LIM-012와 IL-LIM-013의 수용 기준이 통과한다.
@@ -38,6 +53,8 @@ note 주석을 생성한다. note 편의를 위해 사용자 데이터 격리나
 - [ ] 추가 언어의 source note insertion/deletion round trip과 기존 주석 보존 fixture가 통과한다.
 - [ ] 검증하지 않은 언어에서 임의 comment fallback으로 source를 수정하지 않는다.
 - [ ] Extension/CLI/Plugin의 scope와 capability 표현이 일치한다.
+- [ ] `user-tests/m6-user-test-spec.md`가 scope/privacy/round-trip 과업을 포함해 검토됐으며, 사용자 결과 또는
+  실행 보류 사유가 release decision에 기록된다.
 
 ## 제외 범위
 

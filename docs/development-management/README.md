@@ -79,6 +79,10 @@ Plugin cache E2E까지 완료해야 해결된 것으로 본다.
 없고, provider/coverage 의미가 안정되기 전에 동적·DI edge를 추가하면 사용자가 추론 결과를 확정 관계로
 오해할 수 있으므로 다음 순서를 사용한다.
 
+각 마일스톤의 자동 E2E 이후에는 [사용자 테스트 명세 계획](milestones/user-validation-planning.md)에 따라
+실제 사용자가 수행할 과업·환경·기대 결과·관측 지표와 판정 기준을 별도 제안한다. 현재 milestone 계획
+단계에서는 상세 test case를 작성하거나 실행하지 않는다.
+
 | 순서 | 마일스톤 | 핵심 완료 story | 종료 결과 |
 | ---: | --- | --- | --- |
 | M0 | [Provider 실행 신뢰성](milestones/m0-provider-runtime-trust.md) | IL-LIM-003, 017 | packed CLI와 Plugin cache에서 JS/TS provider 신뢰성 확보 |

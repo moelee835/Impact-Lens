@@ -31,6 +31,20 @@
 - deterministic selection 순서: custom > explicit preset > trusted project > verified auto > unsupported
 - CLI, Extension, Codex/Claude Plugin의 completeness 표현 지침
 
+## 단계별 계획
+
+1. **protocol·상태 계약**: 양방향 LSP lifecycle, preset manifest, doctor와 completeness 상태를 확정한다.
+2. **Auto/doctor/custom 구현**: 안전한 선택 순서, discovery cache, advanced escape hatch와 UI/Plugin 표현을
+   구현한다.
+3. **자동 호환성 검증**: bundled/custom/mock provider로 capability, timeout, indexing unknown과 partial 결과
+   matrix를 통과한다.
+4. **사용자 테스트 명세 제안**: 동작과 문구가 고정되면 `user-tests/m1-user-test-spec.md`를 작성한다. 실제
+   사용자가 provider 내부 지식 없이 Auto로 시작하고, doctor 안내만으로 missing/unsupported 상태를
+   해결하며, 필요할 때 custom 설정으로 전환하고 `complete`의 정적 범위를 올바르게 해석하는지를 검증하도록
+   설계한다. 지금은 세부 case와 합격 수치를 확정하거나 실행하지 않는다.
+5. **사용자 검증과 UX 조정**: 별도 승인 후 초급/고급 사용자 집단이 과업을 수행하고, 설정 개입·복구율·
+   과신 여부를 반영해 기본 UI와 문서를 조정한 뒤 release한다.
+
 ## 종료 gate
 
 - [ ] IL-LIM-005와 IL-LIM-009의 수용 기준이 모두 통과한다.
@@ -41,6 +55,8 @@
 - [ ] Auto가 검증되지 않은 server를 임의 선택하거나 다른 언어 provider로 fallback하지 않는다.
 - [ ] Plugin이 `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다.
 - [ ] build/configure/sync는 사용자 승인 없이 실행되지 않는다.
+- [ ] `user-tests/m1-user-test-spec.md`가 release candidate 기준으로 검토됐으며, 실제 사용자 검증 결과 또는
+  실행 보류 사유가 release decision에 기록된다.
 
 ## 제외 범위
 

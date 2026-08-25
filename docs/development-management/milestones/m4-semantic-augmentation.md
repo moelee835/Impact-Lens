@@ -32,6 +32,19 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
 - test evidence classifier, rule ID와 freshness/run-state model
 - adapter별 precision/recall proxy, latency와 disable/rollback switch
 
+## 단계별 계획
+
+1. **evidence 계약·corpus**: confirmed/candidate/runtime-only provenance와 false-positive corpus를 확정한다.
+2. **언어·framework adapter 구현**: 제한된 dynamic 추론, Spring bean/context와 test evidence adapter를
+   kill switch와 함께 구현한다.
+3. **자동 정확도·성능 gate**: LSP-only 비교, ambiguity, false-positive, latency와 rollback fixture를 통과한다.
+4. **사용자 테스트 명세 제안**: evidence UI가 안정되면 `user-tests/m4-user-test-spec.md`를 작성한다. Spring/
+   FastAPI 및 동적 dispatch를 사용하는 실제 사용자가 변경 영향 검토에서 confirmed와 candidate를 구분하고,
+   누락·오탐을 발견하며, 관련 테스트 후보를 실제 통과로 오해하지 않는지를 blind review 과업으로 정의한다.
+   지금은 실제 codebase나 참여자를 모집하고 평가하지 않는다.
+5. **사용자 검증과 adapter rollout**: 별도 승인 후 framework/언어 경험자가 명세를 수행하고, adapter별
+   유용성·오탐·이해도를 근거로 default/opt-in/disabled 상태를 결정한다.
+
 ## 종료 gate
 
 - [ ] IL-LIM-001, IL-LIM-002, IL-LIM-010의 수용 기준이 통과한다.
@@ -41,6 +54,8 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
 - [ ] path convention만으로 가짜 call edge나 test passed 상태를 만들지 않는다.
 - [ ] augmentation을 끄면 기존 LSP-only graph로 안전하게 rollback된다.
 - [ ] 지원 언어 fixture에서 정해진 false-positive와 latency budget을 통과한다.
+- [ ] `user-tests/m4-user-test-spec.md`가 evidence 이해도와 실제 누락·오탐 검토를 포함해 승인됐으며,
+  사용자 결과 또는 보류 사유가 adapter rollout 결정에 연결된다.
 
 ## 제외 범위
 

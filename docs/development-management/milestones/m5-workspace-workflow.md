@@ -30,6 +30,21 @@ CLI/Plugin이 저장하지 않은 변경을 명시적 overlay로 분석하고, �
 - partial graph의 resume/expand UX와 deterministic ordering
 - source/evidence별 budget 소비와 truncation reason
 
+## 단계별 계획
+
+1. **overlay·규모 기준선**: content provenance, version conflict와 large-workspace latency/memory baseline을
+   확정한다.
+2. **overlay·bounded traversal 구현**: didOpen/didChange, cancellation, partial result와 resume/expand UX를
+   구현한다.
+3. **자동 stress·안전 gate**: unsaved fixture, stale token, deterministic resume, memory/latency와 no-write를
+   검증한다.
+4. **사용자 테스트 명세 제안**: workflow가 안정되면 `user-tests/m5-user-test-spec.md`를 작성한다. 대규모
+   repository에서 일하는 실제 사용자가 저장 전 변경을 분석하고, partial/truncated graph를 인지해 확장·
+   재개하며, 기다림·취소·stale 결과를 혼동하지 않는지를 실제 편집 흐름 중심으로 정의한다. 지금은 repo
+   선정, 상세 과업과 성능 합격치를 확정하거나 실행하지 않는다.
+5. **사용자 검증과 budget 조정**: 별도 승인 후 규모가 다른 project 사용자가 수행하고, time-to-useful-result,
+   취소/재개 성공과 과신 여부를 근거로 default budget을 조정한다.
+
 ## 종료 gate
 
 - [ ] IL-LIM-007과 IL-LIM-008의 수용 기준이 통과한다.
@@ -38,6 +53,8 @@ CLI/Plugin이 저장하지 않은 변경을 명시적 overlay로 분석하고, �
 - [ ] timeout/node/depth/cancellation이 서로 다른 partial reason으로 반환된다.
 - [ ] benchmark workspace에서 memory/latency budget과 deterministic resume 결과를 충족한다.
 - [ ] Extension live analysis와 CLI overlay의 completeness 용어가 일치한다.
+- [ ] `user-tests/m5-user-test-spec.md`가 실제 편집·partial/resume 과업과 privacy 규칙을 포함해 검토됐으며,
+  사용자 결과 또는 보류 사유가 default budget 결정에 기록된다.
 
 ## 제외 범위
 

@@ -32,6 +32,20 @@ capability/query 단계와 해결 가능한 진단을 제공한다.
 - Python 요청은 TS provider를 시작하지 않는 regression, FastAPI 정적 coverage baseline
 - 지원 OS별 pass/fail matrix와 troubleshooting 문서
 
+## 단계별 계획
+
+1. **실패 기준선 고정**: 관측된 Python wrong-provider와 JS/JSX process exit를 fixture와 artifact provenance로
+   재현한다.
+2. **runtime·runner 구현**: Node/entry preflight, CLI 선택 provenance, stderr lifecycle과 package 검사를
+   구현한다.
+3. **자동 release gate**: clean tarball, Codex/Claude Plugin cache와 지원 OS의 TS/TSX/JS/JSX E2E를 통과한다.
+4. **사용자 테스트 명세 제안**: UI와 오류 문구가 안정되면 `user-tests/m0-user-test-spec.md`를 작성한다.
+   실제 사용자가 clean install/update 후 첫 JS/TS 분석을 완료하고, 의도적으로 깨진 runtime/provider 상태에서
+   원인을 이해해 복구할 수 있는지를 중심으로 과업·기대 결과·증거를 정의한다. 지금은 명세를 작성하거나
+   테스트를 실행하지 않는다.
+5. **사용자 검증과 release 결정**: 별도 승인 후 Codex/Claude 사용자와 OS별 참여자가 명세를 수행하고,
+   발견된 설치·진단 문제를 수정·재시험한 뒤 안정화 release 여부를 결정한다.
+
 ## 종료 gate
 
 - [ ] IL-LIM-003과 IL-LIM-017의 수용 기준이 모두 충족되고 구현 PR이 연결된다.
@@ -41,6 +55,8 @@ capability/query 단계와 해결 가능한 진단을 제공한다.
 - [ ] Python no-provider fixture는 process launch 없이 actionable discovery error를 반환한다.
 - [ ] code 1·빈 stderr 실패가 재현되면 최소한 실제 lifecycle stage와 artifact provenance가 보존된다.
 - [ ] release 문서가 source test와 packed artifact 검증 결과를 구분한다.
+- [ ] `user-tests/m0-user-test-spec.md`가 release candidate 기준으로 검토됐으며, 실제 사용자 검증 결과 또는
+  실행 보류 사유가 release decision에 기록된다.
 
 ## 제외 범위
 

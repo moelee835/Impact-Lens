@@ -30,6 +30,20 @@ Swift와 Kotlin을 각 toolchain의 준비 상태를 존중하는 verified 또�
 - 문서 version별 bounded probe/cache와 negative callable fixture
 - Swift Xcode/Objective-C runtime, Kotlin Android/Gradle sync의 명시적 한계 안내
 
+## 단계별 계획
+
+1. **toolchain 기준선**: SourceKit-LSP, Kotlin LSP/JDK와 SwiftPM/Gradle/Maven project matrix를 고정한다.
+2. **preset·callable policy 구현**: toolchain discovery, experimental version policy와 bounded callable probe를
+   구현한다.
+3. **자동 toolchain E2E**: Swift/Kotlin caller, readiness, latency와 callable positive/negative fixture를
+   독립적으로 통과한다.
+4. **사용자 테스트 명세 제안**: release candidate가 준비되면 `user-tests/m3-user-test-spec.md`를 작성한다.
+   Swift/Kotlin 실제 사용자가 기존 toolchain project에서 분석을 시작하고, 느린 indexing·Alpha 경고·project
+   readiness를 이해하며, getter/operator/subscript 등 검증 callable을 찾되 일반 property 오탐을 발견할 수
+   있는 과업을 정의한다. 지금은 상세 case나 참여자를 확정·실행하지 않는다.
+5. **사용자 검증과 지원 등급 결정**: 별도 승인 후 SwiftPM/Xcode 및 Kotlin Gradle/Maven 사용자가 수행하고,
+   toolchain별 결과를 근거로 verified 또는 version-pinned experimental 등급을 결정한다.
+
 ## 종료 gate
 
 - [ ] IL-LIM-015, IL-LIM-016, IL-LIM-011의 수용 기준이 통과한다.
@@ -39,6 +53,8 @@ Swift와 Kotlin을 각 toolchain의 준비 상태를 존중하는 verified 또�
 - [ ] 추가 callable kind마다 positive provider 근거와 false-positive negative fixture가 있다.
 - [ ] 큰 symbol 문서에서 CodeLens probe budget과 cancellation 기준을 통과한다.
 - [ ] 기존 function/method/constructor 및 M2 언어 동작이 유지된다.
+- [ ] `user-tests/m3-user-test-spec.md`가 toolchain별 환경과 callable 오탐 확인을 포함해 검토됐으며, 사용자
+  결과 또는 보류 사유가 지원 등급 결정에 기록된다.
 
 ## 제외 범위
 
