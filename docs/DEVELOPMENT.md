@@ -54,6 +54,13 @@ git switch -c <branch-name>
 - `src/noteStore.ts`: Personal, Shared 및 source comment 노트 저장
 - `src/test/*.test.ts`: Node test runner 기반 자동 테스트
 - `cli/`: Extension과 격리된 Agent CLI package, LSP provider, note adapter 및 CLI 테스트
+- `plugins/impact-lens/`: Codex와 Claude Code가 공유하는 plugin payload
+  - `.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`: host별 manifest
+  - `skills/impact-lens-cli/`: 두 host가 공유하는 skill과 CLI 계약 문서
+  - `commands/`: Claude Code slash command
+  - `scripts/run-impact-lens`: 셸 평가 없이 CLI를 찾아 실행하는 runner
+- `.agents/plugins/marketplace.json`: Codex marketplace 정의
+- `.claude-plugin/marketplace.json`: Claude Code marketplace 정의
 - `package.json`: 명령, 설정, 버전, Extension manifest
 - `CHANGELOG.md`: 버전별 사용자 변경 내역
 
@@ -109,6 +116,24 @@ node cli/dist/index.js analyze --workspace . --file src/callGraph.ts --line 12 -
 ```
 
 CLI 테스트에는 compact JSON stdout/stderr 계약, BFS와 제한 처리, note preview/apply/conflict/delete 및 실제 TypeScript Language Server cross-file fixture가 포함된다. CLI는 기존 `src/**` runtime을 import하지 않으며 VSIX에서 제외되어야 한다.
+
+plugin payload를 변경했다면 manifest, marketplace, skill과 command를 검증한다.
+
+```sh
+sh -n plugins/impact-lens/scripts/run-impact-lens
+claude plugin validate plugins/impact-lens --strict
+claude plugin validate plugins/impact-lens/commands --strict
+claude plugin validate plugins/impact-lens/skills --strict
+claude plugin validate .claude-plugin/marketplace.json --strict
+```
+
+runner가 실제로 CLI를 찾아 실행하는지도 확인한다.
+
+```sh
+./plugins/impact-lens/scripts/run-impact-lens note list --workspace "$(pwd)"
+```
+
+`plugins/impact-lens`는 Codex와 Claude Code가 공유하므로 skill 또는 runner를 바꾸면 두 host 문서를 함께 갱신한다.
 
 이 script는 TypeScript를 먼저 컴파일한 후 `out/test/*.test.js`를 Node test runner로 실행한다. 성공 결과에서 `fail 0`을 확인한다.
 
@@ -167,6 +192,11 @@ pnpm exec vsce package --out /tmp/impact-lens-0.5.0.vsix
 - `extension/out/`의 변경된 runtime 모듈
 - `extension/media/impact-lens.png`
 - `extension/README.md`와 `extension/CHANGELOG.md`
+
+다음 항목은 포함되지 않아야 한다.
+
+- `src/`, `cli/`, `docs/`, `out/test/`
+- `plugins/`, `.agents/`, `.claude-plugin/`
 
 필요하면 압축 파일 목록을 직접 확인한다.
 

@@ -1,0 +1,18 @@
+{
+  "name": "impact-lens",
+  "description": "Analyze incoming-call impact and manage function notes through the Impact Lens Agent CLI. Use for change impact radius, affected callers and tests, and shared, source, or local function notes.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Impact Lens contributors",
+    "url": "https://github.com/moelee835/Impact-Lens"
+  },
+  "homepage": "https://github.com/moelee835/Impact-Lens",
+  "repository": "https://github.com/moelee835/Impact-Lens",
+  "license": "MIT",
+  "keywords": [
+    "impact-analysis",
+    "call-hierarchy",
+    "code-agent",
+    "function-notes"
+  ]
+}
