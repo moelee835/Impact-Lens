@@ -2,6 +2,8 @@
 
 Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범위를 VS Code 안에서 탐색하는 로컬 확장 프로그램입니다. 별도 AI 에이전트나 클라우드 분석 없이, 현재 언어 확장이 제공하는 Call Hierarchy를 사용합니다.
 
+Extension과 Agent CLI의 요구 사항, 다운로드, 설치, 업데이트, 제거 및 checksum 확인은 [Impact Lens 설치 가이드](INSTALL.md)를 참고하세요.
+
 ## v0.4.0 기능
 
 - 커서가 위치한 함수의 직접 호출자와 간접 호출자 탐색
@@ -80,7 +82,17 @@ export function calculateTotal(items: LineItem[]): Money {
 
 Python에서는 `# @impact-note`, SQL과 Lua에서는 `-- @impact-note`를 사용합니다. 그래프에서는 태그를 제외한 설명만 모든 함수 노드 아래에 표시됩니다. 기존 주석은 자동으로 삭제되거나 변환되지 않으며, 새 노트의 기본 저장 위치는 Personal입니다.
 
-## 실행
+## 설치
+
+v0.4.0은 VS Code Extension용 VSIX와 Agent CLI용 tarball을 별도로 제공합니다.
+
+- [v0.4.0 Release](https://github.com/moelee835/Impact-Lens/releases/tag/v0.4.0)
+- [VSIX 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.4.0/impact-lens-0.4.0.vsix)
+- [Agent CLI 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.4.0/impact-lens-cli-0.4.0.tgz)
+
+설치 방법과 검증·업데이트·제거 절차는 [INSTALL.md](INSTALL.md)에 정리되어 있습니다.
+
+## 소스에서 개발 실행
 
 1. Node.js 22 LTS 이상을 준비합니다.
 2. Corepack으로 pnpm 10을 활성화하고 `pnpm install --frozen-lockfile`을 실행합니다.
@@ -100,7 +112,7 @@ Python에서는 `# @impact-note`, SQL과 Lua에서는 `-- @impact-note`를 사�
 
 CLI는 VS Code Extension process와 분리되어 동작하며 사람용 table이나 interactive prompt를 출력하지 않습니다. 성공 시 stdout에 compact JSON document 하나를 출력하고, 실패 시 stderr에 JSON error 하나와 non-zero exit code를 반환합니다.
 
-빌드하고 전체 CLI 테스트를 실행합니다.
+Release tarball 설치와 전역 설치 없는 실행 방법은 [설치 가이드](INSTALL.md#3-agent-cli-설치)를 참고하세요. 소스 checkout에서 빌드하고 전체 CLI 테스트를 실행하려면 다음 명령을 사용합니다.
 
 ```sh
 pnpm run cli:build
