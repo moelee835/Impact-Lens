@@ -129,6 +129,15 @@ plugin payload를 공유할 수 있다.
   (`extension/out/testFile.js`는 test output이 아니라 test 파일 판별 runtime 모듈이다.)
 - 2026-08-25: README, INSTALL, 개발 가이드, CLI README의 로컬 link target 12개가 모두 존재함을 확인했다.
 - 2026-08-25: Codex plugin manifest, marketplace, skill, runner는 변경하지 않았음을 `git diff`로 확인했다.
+- 2026-08-25: 완료 요청에 따라 독립 감사를 다시 수행했다. Claude Code 2.1.241에서 plugin manifest,
+  `commands`, `skills`, marketplace의 strict validation을 모두 재실행해 통과했고, runner의 `sh -n`과
+  `note list`도 `ok: true`를 반환했다.
+- 2026-08-25: `npm run test:all`을 재실행해 Extension 32개와 CLI 16개 테스트가 모두 통과했으며,
+  `/tmp/impact-lens-claude-audit.vsix`를 다시 패키징해 27 files, 1.07MB와 plugin·marketplace 제외를
+  확인했다. `git diff --check`와 기존 Codex plugin 파일 불변 조건도 다시 통과했다.
+- 2026-08-25: 원격 기능 branch가 commit `7fc9ce8`까지 push되어 있고 PR #15가 열려 있음을 확인했다.
+  GitHub API는 PR을 `mergeable: true`, `mergeable_state: clean`으로 보고했으며 등록된 status/check run은
+  없었다. 이번 감사 기록을 추가 커밋으로 push한 뒤 PR을 병합한다.
 
 ## 남은 제한 사항
 
