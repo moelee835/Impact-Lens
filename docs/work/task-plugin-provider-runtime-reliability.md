@@ -118,8 +118,8 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
 - [x] Node missing/old, npm missing과 CLI artifact 오류가 서로 다른 JSON error code로 반환된다.
 - [x] doctor가 Node/CLI/provider package와 entry/access를 점검하고 `--smoke`가 initialize/capability를 확인한다.
 - [x] 정상 및 오류 envelope runtime metadata에 raw path, 전체 argv, registry credential이 포함되지 않는다.
-- [ ] clean tarball과 Codex/Claude layout의 TS/TSX/JS/JSX incoming-call E2E가 통과한다.
-- [ ] Linux/macOS/Windows packed E2E matrix가 workflow에 존재한다.
+- [x] clean tarball과 Codex/Claude layout의 TS/TSX/JS/JSX incoming-call E2E가 통과한다.
+- [x] Linux/macOS/Windows packed E2E matrix가 workflow에 존재한다.
 - [ ] `npm run test:all`, schema parse, plugin validation, package dry-run과 E2E가 통과한다.
 - [ ] 검증하지 못한 실제 개인 Plugin cache 재설치 및 사용자 테스트는 남은 제한으로 기록된다.
 
@@ -185,3 +185,29 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
   `plugins/impact-lens/skills/impact-lens-cli` validation이 통과했다.
 - 개인 marketplace 부재는 계속되므로 cachebuster/reinstall은 아직 검증하지 못했다. 이 항목은 4단계까지
   성공으로 표시하지 않는다.
+
+### 2026-08-25 — 3단계 packed CLI와 Plugin layout E2E 및 CI gate
+
+- `scripts/test-plugin-artifact-e2e.mjs`와 root `test:plugin-artifact` script를 추가했다. E2E는 실제
+  `npm pack` tarball을 임시 npm cache와 clean prefix에 production install하고, 설치된 bin의
+  `doctor bundled-typescript --smoke`를 먼저 실행한다.
+- 같은 tarball을 Codex `plugins/cache/personal/impact-lens/0.1.0` 및 Claude
+  `plugins/cache/impact-lens/0.1.0` 형태에 복사한 repository Plugin runner의 release fallback으로 실행한다.
+  `npm_config_offline=true`와 동일 임시 cache를 사용하므로 runner 단계에서는 네트워크나 source checkout에
+  의존하지 않는다.
+- 각 Plugin layout에서 doctor smoke와 `.ts`, `.tsx`, `.js`, `.jsx` multi-file incoming-call을 실행한다.
+  모든 응답이 `runtime.runner.source: release-fallback`, bundled provider, complete traversal과 예상 direct
+  caller를 반환해야 통과한다. clean-prefix 설치 bin은 `runner.source: direct`여야 한다.
+- runner에서 외부 `dirname` 명령 의존성을 제거하고 POSIX parameter expansion으로 script directory를
+  계산하게 했다. 격리 PATH와 Windows Git Bash에서도 불필요한 system utility 차이를 줄인다.
+- `.github/workflows/plugin-artifact-e2e.yml`을 추가했다. pull request의 CLI/Plugin/E2E 관련 변경과 `v*` tag,
+  수동 실행에서 Ubuntu/macOS/Windows, Node 22 matrix가 packed E2E를 실행한다. branch protection의 required
+  check 지정은 저장소 외부 설정이므로 이번 구현에서 변경하거나 완료로 주장하지 않는다.
+- 최초 sandbox 실행은 clean prefix dependency 설치가 registry에 접근하지 못해 120초 timeout됐다. 파일
+  또는 assertion 실패로 처리하지 않고 네트워크 허용 환경에서 동일 테스트를 재실행해 약 19초에 통과했다.
+  설치 timeout은 느린 CI를 고려해 5분으로 확대했고 최종 clean run도 약 19초에 통과했다.
+- 최종 `npm run test:plugin-artifact`: macOS local에서 clean install, 두 Plugin layout, doctor 3회와 언어 분석
+  8회 모두 통과. Linux/Windows matrix는 workflow로 정의·YAML parse했지만 아직 원격 workflow가 실행되지
+  않았으므로 해당 OS 실행 성공으로 간주하지 않는다.
+- `npm --prefix cli test`: 39/39 통과. `sh -n`/Node syntax, 3-OS matrix YAML assertion,
+  `validate_plugin.py plugins/impact-lens`와 `git diff --check`: 통과.

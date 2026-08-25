@@ -173,6 +173,7 @@
     "test": "tsc -p ./ && node --test out/test/*.test.js",
     "cli:build": "npm --prefix cli run build",
     "cli:test": "npm --prefix cli test",
+    "test:plugin-artifact": "node scripts/test-plugin-artifact-e2e.mjs",
     "test:all": "npm test && npm run cli:test",
     "vscode:prepublish": "npm run compile"
   },
