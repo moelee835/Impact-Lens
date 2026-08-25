@@ -1,6 +1,6 @@
 # IL-LIM-003 Language Server 분석 범위 투명성
 
-- 상태: Backlog
+- 상태: In progress
 - 우선순위: P0
 - 영향도: 매우 높음
 - 적용 영역: VS Code Extension, Agent CLI, Codex/Claude Code Plugin
@@ -33,12 +33,12 @@ provider가 생략됐을 때 기본 TypeScript 서버를 실행하는 것처럼 
 
 ## 수용 기준
 
-- [ ] 모든 분석 결과에 provider identity와 Call Hierarchy capability가 포함된다.
-- [ ] provider 누락과 실제 caller 없음이 사용자 메시지와 JSON에서 구분된다.
-- [ ] Extension과 CLI의 completeness 용어 및 limitation code가 문서화된다.
-- [ ] 대표 provider별 기준 fixture와 기대 coverage가 기록된다.
-- [ ] 대상 언어와 맞지 않는 기본 provider는 실행되지 않고 해결 가능한 오류로 종료된다.
-- [ ] provider process 종료 시 exit code, 단계와 redacted stderr가 가능한 범위에서 보존된다.
+- [x] 모든 분석 결과에 provider identity와 Call Hierarchy capability가 포함된다.
+- [x] provider 누락과 실제 caller 없음이 사용자 메시지와 JSON에서 구분된다.
+- [x] Extension과 CLI의 completeness 용어 및 limitation code가 문서화된다.
+- [x] 대표 provider별 기준 fixture와 기대 coverage가 기록된다.
+- [x] 대상 언어와 맞지 않는 기본 provider는 실행되지 않고 해결 가능한 오류로 종료된다.
+- [x] provider process 종료 시 exit code, 단계와 redacted stderr가 가능한 범위에서 보존된다.
 
 ## 검증
 
@@ -175,3 +175,18 @@ provider가 생략됐을 때 기본 TypeScript 서버를 실행하는 것처럼 
 - structured limitation을 `coverage.reasons[]`로 둘지 기존 top-level limitation object로 확장할지 결정해야 한다.
 - dynamic registration까지 CLI v1에서 지원할지 `IL-LIM-005`와 같은 release로 묶을지 조율이 필요하다.
 - indexing `unknown`을 UI warning으로 표시하면 과도한 경고가 되는지 사용자 검증이 필요하다.
+
+## 구현 결과
+
+- 구현 계획과 검증 근거: [`docs/work/task-provider-coverage-transparency.md`](../../work/task-provider-coverage-transparency.md)
+- 공통 계약: [`docs/development-management/provider-coverage-contract.md`](../provider-coverage-contract.md)
+- CLI는 schema v1 기존 field를 유지하면서 provider/coverage를 추가했고, bundled TypeScript provider의
+  언어 불일치 실행을 차단한다.
+- Extension은 VS Code가 provider identity를 공개하지 않는 사실을 `unknown`과 limitation으로 보존하고
+  Graph/Explorer/status에 static coverage를 표시한다.
+- bundled TypeScript, fake traversal, VS Code broker, Python discovery 실패, process exit와 capability 없음
+  fixture가 자동 테스트에 포함됐다.
+- dynamic registration, provider별 indexing readiness와 외부 언어 정상 E2E는 제외 범위대로 후속
+  `IL-LIM-004/005/006/014/015/016`에 남는다.
+- 수용 기준은 구현과 자동 검증 기준으로 충족했지만 관리 규칙상 구현 PR이 아직 없으므로 상태는
+  `In progress`로 유지한다. PR 생성·병합 시 검증 결과와 링크를 연결하고 `Done`으로 전환한다.

@@ -98,7 +98,15 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
 - `line` and `column` are 1-based UTF-16 positions.
 - Node and edge arrays use deterministic ordering.
 - `complete` only means the configured provider completed the requested static traversal.
-- `capabilities` and `limitations` distinguish absent data from unsupported or unavailable data.
+- `provider` records the host, server identity, detected/requested language, selection source,
+  advertised/observed capability, and last lifecycle stage.
+- `coverage.traversal` distinguishes complete, depth-limited, and node-limited traversal.
+- `coverage.semantic` is `static-only` until provenance-bearing augmentation is implemented.
+- `coverage.indexing` is `unknown` unless a provider gives an explicit readiness signal.
+- Top-level `capabilities` and `limitations` remain schema v1 compatibility projections.
+
+An empty caller list with a prepared root is a successful static result. A missing, mismatched,
+failed, or capability-incompatible provider is an error and is never returned as an empty graph.
 
 Exit codes:
 
@@ -125,3 +133,12 @@ TypeScript and JavaScript use the packaged `typescript-language-server` by defau
 ```
 
 The CLI passes executable and arguments directly without shell evaluation. Provider-specific initialization requirements may need a future adapter; unsupported Call Hierarchy is returned as `provider_capability_missing` rather than an empty graph.
+
+The bundled provider is selected only for TypeScript and JavaScript file types. Other languages fail
+before process launch with `provider_required_for_language`; an explicit `languageId` that conflicts
+with the detected file language fails with `provider_language_mismatch`.
+
+Provider lifecycle errors are separated into `provider_launch_failed`,
+`provider_initialize_failed`, and `provider_query_failed`. When a child process exits, `error.details`
+contains the failure stage and, when available, its executable basename, exit code/signal, and a
+redacted stderr tail.

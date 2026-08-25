@@ -48,13 +48,15 @@
 `IL-LIM-003/005`만으로 진단은 개선돼도 정상 실행을 보장하지 않으므로 `IL-LIM-017`의 packed artifact와
 Plugin cache E2E까지 완료해야 해결된 것으로 본다.
 
+구조화된 상태의 공통 의미와 오류 단계는 [Provider와 coverage 계약](provider-coverage-contract.md)을 따른다.
+
 ## 한계점 백로그
 
 | 순위 | ID | 우선순위 | 스토리 | 주요 적용 영역 | 상태 |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | IL-LIM-001 | P0 | [동적·런타임 호출 관계 보완](stories/il-lim-001-dynamic-runtime-calls.md) | Extension, CLI, Plugin | Backlog |
 | 2 | IL-LIM-002 | P0 | [프레임워크 DI·라우팅 관계 보완](stories/il-lim-002-framework-di-routing.md) | Extension, CLI, Plugin | Backlog |
-| 3 | IL-LIM-003 | P0 | [Language Server 분석 범위 투명성](stories/il-lim-003-provider-coverage-transparency.md) | Extension, CLI, Plugin | Backlog |
+| 3 | IL-LIM-003 | P0 | [Language Server 분석 범위 투명성](stories/il-lim-003-provider-coverage-transparency.md) | Extension, CLI, Plugin | In progress |
 | 4 | IL-LIM-017 | P0 | [Plugin provider 실행·배포 신뢰성](stories/il-lim-017-plugin-provider-runtime-reliability.md) | CLI, Plugin, Release | Backlog |
 | 5 | IL-LIM-004 | P1 | [주요 언어용 기본 provider preset](stories/il-lim-004-first-class-language-presets.md) | CLI, Plugin | Backlog |
 | 6 | IL-LIM-005 | P1 | [사용자 지정 LSP 호환성 확장](stories/il-lim-005-custom-lsp-compatibility.md) | CLI, Plugin | Backlog |

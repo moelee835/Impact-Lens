@@ -42,7 +42,8 @@ JSON
   change the answer.
 - Use `includeSource: "body"` only when implementation context is necessary.
 - On a non-zero exit status, read the JSON error from stderr. Exit 5 means the provider could not be
-  established, which is not an empty impact graph.
+  established, which is not an empty impact graph. Use the provider error code and `details.stage`
+  to distinguish discovery, language mismatch, launch, initialize, capability, and query failures.
 
 ## 3. Report the impact
 
@@ -53,6 +54,10 @@ Summarize from the parsed JSON, not from raw output:
 - Truncation: report the requested depth, the reached depth, and whether a depth or node limit
   stopped the traversal. Never present a truncated or empty result as proof of no impact.
 - The `limitations` array as stated by the CLI.
+- Provider host/name/language/selection, advertised versus observed capability, and the last
+  lifecycle stage from `provider`.
+- Traversal, semantic and indexing status from `coverage`. `complete: true` only confirms the
+  requested static traversal; it does not override `static-only` or `indexing: unknown`.
 
 State plainly that these are static Call Hierarchy relationships. Do not claim coverage of
 reflection, dependency injection, decorator routing, event buses, generated code, or other

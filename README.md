@@ -215,8 +215,14 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 - VS Code Extension은 대상 언어 확장이 제공하는 Call Hierarchy 범위에서 동작합니다.
 - JavaScript/TypeScript CLI에는 `typescript-language-server`가 포함됩니다.
 - 다른 언어의 CLI 분석은 표준 LSP Call Hierarchy server command와 `languageId` 설정이 필요합니다.
+- CLI는 대상 파일 언어와 맞지 않는 bundled provider를 실행하지 않으며, provider의 discovery/launch/
+  initialize/capability/query 실패를 서로 다른 오류로 반환합니다.
 - Python/FastAPI의 일반 import 호출은 provider 지원 범위에서 나타날 수 있지만 `Depends()`와 decorator routing은 누락될 수 있습니다.
-- `complete: true`는 요청한 provider 탐색이 완료되었다는 뜻이며, 런타임 호출이 없다는 보장이 아닙니다.
+- `provider`에는 선택 근거와 advertised/observed capability가, `coverage`에는 traversal/semantic/indexing
+  범위가 기록됩니다. Extension은 VS Code 공개 API가 실제 provider identity를 노출하지 않으므로 이름을
+  `unknown`으로 표시합니다.
+- `complete: true`는 `coverage.traversal`이 완료됐다는 뜻이며, `semantic: static-only` 또는
+  `indexing: unknown`을 무효화하지 않습니다.
 - 저장하지 않은 editor buffer는 Extension live analysis에는 반영되지만 독립 CLI에서는 사용할 수 없습니다.
 
 ## 설정

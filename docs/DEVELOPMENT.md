@@ -90,7 +90,9 @@ VS Code에서 저장소를 연 다음 `F5`를 누르면 Extension Development Ho
 5. 코드를 연 뒤 기존 Graph root가 유지되는지 확인한다.
 6. Analysis/Visible depth, zoom, fit/reset 및 drag pan을 확인한다.
 7. source edit 후 stale/analyzing/current 상태와 diagnostics가 갱신되는지 확인한다.
-8. light/dark/high contrast theme에서 선택과 diagnostic 표시를 확인한다.
+8. Graph summary와 Explorer root tooltip이 `static Call Hierarchy`, provider host/language,
+   traversal/indexing 상태를 표시하는지 확인한다.
+9. light/dark/high contrast theme에서 선택과 diagnostic 표시를 확인한다.
 
 Python/FastAPI는 설치된 Python extension과 language server가 제공하는 Call Hierarchy 범위 안에서 확인한다. `Depends()`, decorator route 및 런타임 연결이 provider 결과에 없으면 Impact Lens에도 표시되지 않을 수 있다.
 
@@ -271,4 +273,4 @@ VS Code의 명령 팔레트에서 `Shell Command: Install 'code' command in PATH
 
 ### 호출 관계 일부가 보이지 않음
 
-대상 언어 extension이 Call Hierarchy를 제공하는지 먼저 확인한다. Impact Lens는 provider가 반환한 incoming call을 프로젝트 URI 제한 없이 수집하지만 런타임 DI, reflection, event 및 framework 연결을 임의로 추론하지 않는다. Graph header의 requested/reached depth와 depth/node limit 표시도 함께 확인한다.
+대상 언어 extension이 Call Hierarchy를 제공하는지 먼저 확인한다. Impact Lens는 provider가 반환한 incoming call을 프로젝트 URI 제한 없이 수집하지만 런타임 DI, reflection, event 및 framework 연결을 임의로 추론하지 않는다. Graph header의 requested/reached depth, `static Call Hierarchy`와 depth/node limit 표시도 함께 확인한다. CLI에서는 `provider`와 `coverage`를 확인하고 `complete: true`만으로 runtime 영향이 없다고 판단하지 않는다.

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { traverseIncoming } from './callGraph';
+import { vscodeCoverage, vscodeProviderMetadata } from './coverage';
 import { EMPTY_IMPACT_DELTA } from './impactDelta';
 import { NoteStore } from './noteStore';
 import { createSymbolKey } from './symbolIdentity';
@@ -53,6 +54,7 @@ export class ImpactAnalyzer {
     const maxNodes = configuration.get<number>('maxNodes', 120);
     const rangesByEdge = new Map<string, readonly vscode.Range[]>();
     const root: CallEntry = { item: rootItem, callSiteRanges: [] };
+    const languageId = (await vscode.workspace.openTextDocument(rootItem.uri)).languageId;
 
     const traversal = await traverseIncoming(
       root,
@@ -102,6 +104,12 @@ export class ImpactAnalyzer {
       callSiteRanges: rangesByEdge.get(edgeKey(edge.source, edge.target)) ?? [],
     }));
 
+    const coverage = vscodeCoverage(
+      traversal.limits,
+      maxDepth,
+      traversal.reachedDepth,
+      maxNodes,
+    );
     return {
       root: nodes[0],
       nodes,
@@ -110,6 +118,10 @@ export class ImpactAnalyzer {
       traversalLimits: traversal.limits,
       requestedDepth: maxDepth,
       reachedDepth: traversal.reachedDepth,
+      maxNodes,
+      provider: vscodeProviderMetadata(languageId),
+      coverage,
+      limitations: coverage.reasons,
       analyzedAt: Date.now(),
       analysisState: 'current',
       delta: EMPTY_IMPACT_DELTA,

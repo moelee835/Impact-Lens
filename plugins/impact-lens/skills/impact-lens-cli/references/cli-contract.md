@@ -31,7 +31,33 @@ Failure is one compact JSON document on stderr with a non-zero exit status:
 {"schemaVersion":1,"operation":"impact.analyze","ok":false,"error":{"code":"provider_unavailable","message":"...","retryable":false}}
 ```
 
-Do not parse human-oriented tables or depend on whitespace. Node and edge arrays are deterministically ordered. `complete` means only that the provider completed the requested static traversal. Check limitations and any depth or node truncation fields in `data`.
+Do not parse human-oriented tables or depend on whitespace. Node and edge arrays are deterministically ordered. `complete` means only that the provider completed the requested static traversal. Inspect `data.provider` and `data.coverage`; check traversal, semantic and indexing coverage as well as the compatibility `limitations` and truncation fields.
+
+Successful analysis includes additive schema v1 metadata:
+
+```json
+{
+  "provider": {
+    "host": "lsp",
+    "name": "typescript-language-server",
+    "requestedLanguageId": "typescript",
+    "detectedLanguageId": "typescript",
+    "selectedBy": "bundled",
+    "languageMatch": true,
+    "advertised": {"callHierarchy": true, "diagnostics": "unknown"},
+    "observed": {"prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true},
+    "lifecycle": {"stage": "query", "status": "ready"}
+  },
+  "coverage": {
+    "traversal": {"status": "complete", "requestedDepth": 5, "reachedDepth": 2, "maxNodes": 120},
+    "semantic": {"status": "static-only", "evidenceSources": ["lsp-call-hierarchy"]},
+    "indexing": {"status": "unknown"},
+    "reasons": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable"]
+  }
+}
+```
+
+`complete: true` does not override `semantic.status: static-only` or `indexing.status: unknown`.
 
 ## Analyze
 
@@ -74,6 +100,10 @@ TypeScript and JavaScript use the packaged language server. For another language
 ```
 
 The executable and arguments are passed directly without shell evaluation. Provider-specific initialization may be unsupported and must be reported from the response rather than inferred as zero callers.
+
+Without an explicit provider, non-TypeScript/JavaScript files return
+`provider_required_for_language`. An explicit `languageId` that conflicts with the detected file
+type returns `provider_language_mismatch`; the bundled TypeScript provider is not tried.
 
 ## Note list
 
@@ -164,3 +194,7 @@ Use the same target and scope with `note delete`. Preview first without `apply` 
 - `6`: timeout
 - `10`: unexpected CLI error
 - `127`: plugin runner could not locate or launch the CLI runtime
+
+Provider exit-5 errors distinguish `provider_launch_failed`, `provider_initialize_failed`,
+`provider_capability_missing`, and `provider_query_failed`. Use `error.details.stage` and the
+redacted stderr tail when present; these errors mean analysis was not established, not zero callers.

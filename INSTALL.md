@@ -364,9 +364,15 @@ CLI는 Node.js 22 이상이 필요합니다. `node --version`을 확인하고 �
 
 대상 언어 확장의 Call Hierarchy 지원 여부를 확인합니다. Impact Lens는 provider가 반환하지 않은 reflection, runtime dependency injection, decorator route 및 동적 호출을 추정하지 않습니다.
 
-### CLI에서 `provider_capability_missing` 또는 `provider_unavailable`
+### CLI에서 provider 오류
 
-기본 provider는 TypeScript/JavaScript용입니다. 다른 언어는 표준 LSP Call Hierarchy를 제공하는 language server command, argument와 `languageId`를 CLI request에 명시해야 합니다. server별 initialization option이 필요한 경우 현재 generic adapter로 동작하지 않을 수 있습니다.
+기본 provider는 TypeScript/JavaScript용이며 다른 파일 형식으로 자동 fallback하지 않습니다.
+`provider_required_for_language`이면 해당 언어의 표준 LSP Call Hierarchy server command, argument와
+`languageId`를 CLI request에 명시합니다. `provider_language_mismatch`이면 파일과 `languageId`를 맞춥니다.
+`provider_launch_failed`, `provider_initialize_failed`, `provider_capability_missing`,
+`provider_query_failed`는 각각 process 실행, initialize, Call Hierarchy capability와 실제 query 단계를
+가리킵니다. `error.details`의 stage, exit code/signal과 redacted stderr를 확인합니다. server별
+initialization option이 필요한 경우 현재 generic adapter로 동작하지 않을 수 있습니다.
 
 ### 이전 Extension 동작이 계속 보임
 

@@ -32,6 +32,7 @@ export async function run(argv: readonly string[]): Promise<Record<string, unkno
     const normalizedRequest = { ...request, workspace };
     const provider = new LspCallHierarchyProvider(
       workspace,
+      request.file,
       request.provider,
       request.timeoutMs ?? 30000,
     );
@@ -55,6 +56,7 @@ export async function run(argv: readonly string[]): Promise<Record<string, unkno
     const normalizedRequest = { ...request, workspace };
     const provider = new LspCallHierarchyProvider(
       workspace,
+      request.target.file,
       request.provider,
       request.timeoutMs ?? 30000,
     );

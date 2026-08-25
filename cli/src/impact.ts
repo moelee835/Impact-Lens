@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { classifyRelation } from './testFile';
+import { coverageForTraversal } from './coverage';
 import {
   AnalyzeRequest,
   CallHierarchyItem,
@@ -86,17 +87,25 @@ export async function analyzeImpact(
   if (traversal.limits.has('nodes')) {
     limitations.push('node_limit_reached');
   }
+  const reachedDepth = Math.max(0, ...traversal.entries.map(entry => entry.depth));
   return {
     rootId: symbolId(root),
     nodes,
     edges,
     requestedDepth,
-    reachedDepth: Math.max(0, ...traversal.entries.map(entry => entry.depth)),
+    reachedDepth,
     maxNodes,
     truncated: traversal.limits.size > 0,
     traversalLimits: [...traversal.limits].sort(),
     complete: traversal.limits.size === 0,
     provider: provider.capabilities,
+    coverage: coverageForTraversal(
+      traversal.limits,
+      requestedDepth,
+      reachedDepth,
+      maxNodes,
+      limitations,
+    ),
     coordinateBase: 1,
     positionEncoding: 'utf-16',
     limitations,
