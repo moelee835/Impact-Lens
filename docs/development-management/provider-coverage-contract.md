@@ -20,6 +20,27 @@ additive 계약이다. 기존 `complete`, `truncated`, `traversalLimits`, `limit
 기존 `callHierarchy`, `diagnostics` boolean은 v1 소비자 호환을 위해 유지한다. 새 소비자는 선언과 실제 성공을
 구분하기 위해 `advertised`와 `observed`를 우선 사용한다.
 
+## Runtime metadata와 bundled doctor
+
+Agent CLI와 Plugin envelope의 top-level `runtime`은 실행된 CLI package name/version, Node version/major와
+runner source를 기록한다. source는 `direct`, `explicit`, `checkout`, `global`, `release-fallback`만 허용한다.
+절대 executable/provider 경로, release URL, registry credential과 전체 argv는 포함하지 않는다. Plugin
+manifest version은 host inventory가 소유하며 CLI runtime이 추측하지 않는다.
+
+`doctor bundled-typescript`는 Node engine, CLI package, `typescript-language-server`/TypeScript version과
+논리적 entry/read access를 확인한다. `--smoke`에서만 실제 initialize와 advertised Call Hierarchy를 검사해
+일반 analyze latency에 추가 provider process를 만들지 않는다.
+
+| code | 계층 | 의미와 조치 |
+| --- | --- | --- |
+| `node_runtime_unavailable` / `node_version_unreadable` / `node_version_unsupported` | runner/startup | Node 22+ 설치 또는 active version 확인 |
+| `cli_artifact_missing` / `cli_artifact_not_executable` | runner resolution | 선택된 explicit/global/cache artifact 재설치·경로·permission 확인 |
+| `npm_runtime_unavailable` | runner resolution | release fallback에 필요한 npm 설치 또는 CLI 직접 설치 |
+| `bundled_provider_artifact_missing` / `unreadable` / `corrupt` | provider discovery | CLI/Plugin 재설치 또는 package permission 확인 |
+
+선택된 explicit/global artifact가 손상돼도 다음 후보로 조용히 넘어가지 않는다. 오류의
+`runtime.runner.source`와 `error.details.recovery`로 해당 설치를 수정한다.
+
 ## Coverage metadata
 
 - `coverage.traversal.status`: 요청한 정적 그래프 탐색이 `complete`, `depth-limited`, `node-limited`인지 표시한다.
@@ -74,6 +95,7 @@ process 실패의 `error.details`는 가능한 경우 executable basename, exit 
 | VS Code broker metadata unit fixture | `vscode`, `name: unknown`, languageId 보존 | identity limitation, static-only, indexing unknown |
 | provider 없는 Python | process 미실행 | `provider_required_for_language`, discovery |
 | stderr 후 exit하는 mock server | custom provider | initialize failure, exit/stderr 보존 및 secret redaction |
+| stderr 없이 exit 1인 mock server | custom provider | initialize stage/exit와 runner provenance 보존 |
 | didOpen 후 exit하는 mock server | custom provider | query failure로 분리되고 stderr 보존 |
 
 Python/C/C++/Swift/Kotlin의 정상 provider E2E fixture와 indexing adapter는 해당 언어별 스토리에서 추가한다.

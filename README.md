@@ -174,6 +174,7 @@ Agent CLI는 사람용 table이나 interactive prompt 대신 stdout에 compact J
 
 ```sh
 impact-lens analyze --stdin < analyze-request.json
+impact-lens doctor bundled-typescript --smoke
 impact-lens note get --stdin < note-get-request.json
 impact-lens note list --workspace /path/to/project --scope shared
 impact-lens note set --stdin < note-set-request.json
@@ -198,7 +199,7 @@ Claude Code에서는 slash command로도 직접 실행할 수 있습니다.
 /impact-lens:notes list
 ```
 
-plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.5.0 release package 순서로 실행 대상을 찾습니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요합니다.
+plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.5.0 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요합니다.
 
 | Host | Manifest | Marketplace |
 | --- | --- | --- |
@@ -221,6 +222,7 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 - `provider`에는 선택 근거와 advertised/observed capability가, `coverage`에는 traversal/semantic/indexing
   범위가 기록됩니다. Extension은 VS Code 공개 API가 실제 provider identity를 노출하지 않으므로 이름을
   `unknown`으로 표시합니다.
+- CLI/Plugin 응답의 `runtime`은 CLI·Node version과 runner 선택 source를 경로·credential 없이 기록합니다.
 - `complete: true`는 `coverage.traversal`이 완료됐다는 뜻이며, `semantic: static-only` 또는
   `indexing: unknown`을 무효화하지 않습니다.
 - 저장하지 않은 editor buffer는 Extension live analysis에는 반영되지만 독립 CLI에서는 사용할 수 없습니다.

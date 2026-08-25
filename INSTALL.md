@@ -127,6 +127,17 @@ impact-lens note list --workspace /path/to/project
 
 두 번째 명령은 stdout에 `schemaVersion`, `operation`, `ok`, `data`를 포함한 compact JSON 한 줄을 출력해야 합니다.
 
+기본 TypeScript/JavaScript provider까지 점검합니다.
+
+```sh
+impact-lens doctor bundled-typescript
+impact-lens doctor bundled-typescript --smoke
+```
+
+첫 명령은 Node·CLI·provider package/version과 entry 접근을 빠르게 확인합니다. `--smoke`는 실제 Language
+Server를 시작해 initialize와 Call Hierarchy capability까지 확인하므로 설치 검증이나 장애 진단 때만
+실행합니다. 일반 분석마다 별도 설정하거나 실행할 필요는 없습니다.
+
 기본 분석 예시:
 
 ```sh
@@ -359,6 +370,28 @@ global executable 디렉터리가 `PATH`에 포함돼 있어야 합니다. 권�
 ### Node.js version 오류
 
 CLI는 Node.js 22 이상이 필요합니다. `node --version`을 확인하고 오래된 Node.js를 업그레이드합니다.
+runner는 모든 CLI 선택 경로 전에 이 조건을 검사하며 `node_runtime_unavailable`,
+`node_version_unreadable`, `node_version_unsupported`를 구분합니다.
+
+### Plugin의 JavaScript/TypeScript provider가 시작되지 않음
+
+TypeScript/JavaScript에는 provider command, args 또는 `languageId`를 직접 설정하지 마세요. 먼저 실패 JSON의
+`runtime`과 `error.details`를 확인합니다.
+
+1. `runtime.cli.version`, `runtime.node.version`과 `runtime.runner.source`를 확인합니다.
+2. 같은 runner 또는 설치된 CLI로 `doctor bundled-typescript --smoke`를 실행합니다.
+3. `bundled_provider_artifact_missing|unreadable|corrupt`이면 CLI 또는 Plugin을 다시 설치합니다. permission만
+   임의로 넓히기 전에 package가 정상 release에서 왔는지 확인합니다.
+4. source가 `checkout`이면 저장소 root에서 `npm run cli:build` 후 다시 검사합니다.
+5. source가 `global`이면 `npm list --global @impact-lens/cli --depth=0`으로 version을 확인하고 최신 release로
+   다시 설치합니다.
+6. source가 `release-fallback`이고 npm download 자체가 실패하면 GitHub/npm 접근, proxy와 certificate를
+   확인하거나 release tarball을 내려받아 전역 설치합니다. 이 경우 CLI가 시작되기 전이라 npm 오류가 먼저
+   보일 수 있으며, 설치된 provider의 initialize/query 실패와는 다른 문제입니다.
+
+runner source는 `explicit`, `checkout`, `global`, `release-fallback` 중 하나입니다. 전체 executable path,
+registry URL, credential과 argv는 진단 JSON에 포함되지 않습니다. stale source를 발견해도 runner가 조용히
+다음 후보로 넘어가지 않으므로, 선택된 설치를 수정하거나 explicit override를 제거한 뒤 재시도합니다.
 
 ### Extension에서 caller가 나타나지 않음
 
@@ -373,6 +406,9 @@ CLI는 Node.js 22 이상이 필요합니다. `node --version`을 확인하고 �
 `provider_query_failed`는 각각 process 실행, initialize, Call Hierarchy capability와 실제 query 단계를
 가리킵니다. `error.details`의 stage, exit code/signal과 redacted stderr를 확인합니다. server별
 initialization option이 필요한 경우 현재 generic adapter로 동작하지 않을 수 있습니다.
+
+Bundled TypeScript/JavaScript 오류라면 위 doctor 절차를 먼저 사용합니다. Python/C/C++/Swift/Kotlin 등은
+아직 자동 preset이 없으므로 `provider_required_for_language`가 provider artifact 손상을 뜻하지 않습니다.
 
 ### 이전 Extension 동작이 계속 보임
 

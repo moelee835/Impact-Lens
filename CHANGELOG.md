@@ -8,6 +8,8 @@
   discovery, language mismatch, launch, initialize, capability, and query failures.
 - Preserve redacted Language Server exit diagnostics after stderr closes and expose static coverage
   in the Extension graph, explorer, and status tooltips.
+- Add runner resolution provenance, common Node startup checks, bundled TypeScript provider doctor,
+  and clean-install Codex/Claude Plugin E2E across the release OS matrix.
 - Add a repository-backed Claude Code plugin that shares the existing Impact Lens skill and CLI runner with the Codex plugin.
 - Add `/impact-lens:analyze` and `/impact-lens:notes` slash commands that follow the preview-then-apply note contract.
 - Add Claude Code marketplace metadata and installation, update, and removal instructions.

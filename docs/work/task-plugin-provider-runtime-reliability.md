@@ -120,8 +120,8 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
 - [x] 정상 및 오류 envelope runtime metadata에 raw path, 전체 argv, registry credential이 포함되지 않는다.
 - [x] clean tarball과 Codex/Claude layout의 TS/TSX/JS/JSX incoming-call E2E가 통과한다.
 - [x] Linux/macOS/Windows packed E2E matrix가 workflow에 존재한다.
-- [ ] `npm run test:all`, schema parse, plugin validation, package dry-run과 E2E가 통과한다.
-- [ ] 검증하지 못한 실제 개인 Plugin cache 재설치 및 사용자 테스트는 남은 제한으로 기록된다.
+- [x] `npm run test:all`, schema parse, plugin validation, package dry-run과 E2E가 통과한다.
+- [x] 검증하지 못한 실제 개인 Plugin cache 재설치 및 사용자 테스트는 남은 제한으로 기록된다.
 
 ## 작업 로그
 
@@ -211,3 +211,44 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
   않았으므로 해당 OS 실행 성공으로 간주하지 않는다.
 - `npm --prefix cli test`: 39/39 통과. `sh -n`/Node syntax, 3-OS matrix YAML assertion,
   `validate_plugin.py plugins/impact-lens`와 `git diff --check`: 통과.
+
+### 2026-08-25 — 4단계 복구 UX와 최종 회귀 마감
+
+- `cli/README.md`, root `README.md`, `INSTALL.md`에 `runtime`, bundled doctor의 preflight/smoke 차이와
+  source별 복구 순서를 추가했다. TypeScript/JavaScript 사용자는 provider JSON을 작성하지 않고 doctor로
+  Node/package/entry/initialize/capability를 먼저 진단한다.
+- Plugin skill과 contract가 `runtime.runner.source`를 확인하고 bundled startup 실패 때 doctor를 한 번 실행한
+  뒤 재설치/update를 제안하도록 변경했다. runner resolution 실패와 provider lifecycle 실패를 구분하고
+  raw path, registry URL, credential과 argv를 요구하거나 보고하지 않는다.
+- `docs/development-management/provider-coverage-contract.md`에 runtime/doctor 및 runner/artifact 오류 계약을
+  추가했다. IL-LIM-017과 개발 관리 index 상태를 `In progress`로 바꾸고 M0의 local 자동 gate 통과 항목을
+  체크했다.
+- 관측 사례를 직접 고정하기 위해 `silentExitServer.ts`와 contract test를 추가했다. provider가 stderr 없이
+  exit 1로 종료해도 `provider_initialize_failed`, `details.stage: initialize`, exit code와
+  `runtime.runner.source`가 남고 비어 있는 stderr field는 만들지 않는다.
+- 최종 `npm run test:all`: Extension 34/34, CLI 40/40 통과.
+- 실제 doctor smoke 성공 및 invalid-command 오류 envelope를 AJV 2020 strict mode로 검증: schema 일치.
+- `npm pack --dry-run --json`: 15개 파일, 22,771 bytes archive 예상. 새 `dist/runtime.js`,
+  `dist/doctor.js`, schema와 runtime 모듈이 포함되고 source/test output은 제외됨.
+- 최종 `npm run test:plugin-artifact`: macOS clean install, installed bin doctor, Codex/Claude layout doctor와
+  TS/TSX/JS/JSX 8개 분석이 모두 통과. registry 응답 대기 때문에 tool call은 길어졌지만 harness 자체
+  출력 기준 clean run은 약 19초였다.
+- Plugin validator와 skill quick validator, runner shell/Node E2E syntax, workflow 3-OS matrix YAML,
+  수정 Markdown local link, schema JSON과 `git diff --check`: 모두 통과.
+- `CHANGELOG.md` Unreleased에 runner provenance, Node preflight, bundled doctor와 packed Plugin E2E를 기록했다.
+
+### 계획과 실제 구현의 차이 및 남은 제한
+
+- 계획의 “Plugin cache 설치”는 실제 host가 만든 개인 cache를 변경하지 않고 임시 디렉터리에 동일 payload
+  layout을 구성하는 hermetic E2E로 구현했다. 개인 marketplace 파일이 없어 plugin-creator cachebuster와
+  실제 Codex reinstall은 수행하지 못했으며 성공으로 간주하지 않는다.
+- Linux/Windows는 workflow matrix를 정의했지만 이 branch push만으로 workflow가 실행되지 않았고 PR도 아직
+  없으므로 통과로 간주하지 않는다. macOS local 결과만 확보했다.
+- GitHub branch protection의 required check 설정은 저장소 외부 정책 변경이므로 수행하지 않았다. workflow는
+  PR 관련 변경 및 `v*` tag에서 실행되지만 실제 merge/release 차단 여부는 repository 설정이 필요하다.
+- M0 사용자 테스트 명세는 사용자의 이전 지시대로 이번 단계에서 작성하거나 실행하지 않았다. M0 자동
+  E2E가 PR matrix를 통과한 뒤 별도 단계에서 제안할 예정이다.
+- 첫 release fallback의 npm network/proxy 실패는 CLI가 시작되기 전 npm stderr로 나타날 수 있다. 설치된
+  provider crash와는 구분되지만 아직 runner의 단일 JSON envelope로 정규화되지 않아 후속 UX 보완이 필요하다.
+- IL-LIM-017의 local 수용 기준은 충족했으나 구현 PR, 원격 3-OS 결과와 실제 사용자/host cache 검증이 없어
+  story와 M0는 `In progress`를 유지한다.

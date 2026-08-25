@@ -22,16 +22,34 @@ IMPACT_LENS_CLI_PATH=/absolute/path/to/impact-lens \
 Success is one compact JSON document on stdout:
 
 ```json
-{"schemaVersion":1,"operation":"impact.analyze","ok":true,"data":{},"capabilities":{},"limitations":[],"timings":{}}
+{"schemaVersion":1,"operation":"impact.analyze","ok":true,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.5.0"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"release-fallback"}},"data":{},"capabilities":{},"limitations":[],"timings":{}}
 ```
 
 Failure is one compact JSON document on stderr with a non-zero exit status:
 
 ```json
-{"schemaVersion":1,"operation":"impact.analyze","ok":false,"error":{"code":"provider_unavailable","message":"...","retryable":false}}
+{"schemaVersion":1,"operation":"impact.analyze","ok":false,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.5.0"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"global"}},"error":{"code":"provider_initialize_failed","message":"...","retryable":true}}
 ```
 
 Do not parse human-oriented tables or depend on whitespace. Node and edge arrays are deterministically ordered. `complete` means only that the provider completed the requested static traversal. Inspect `data.provider` and `data.coverage`; check traversal, semantic and indexing coverage as well as the compatibility `limitations` and truncation fields.
+
+Top-level `runtime` identifies CLI/Node versions and an allowlisted runner source (`direct`,
+`explicit`, `checkout`, `global`, or `release-fallback`). It intentionally omits resolved absolute
+paths, the release package URL, credentials, and the full argument list.
+
+## Bundled TypeScript doctor
+
+Run a fast package/entry preflight or an explicit initialize/capability smoke:
+
+```sh
+<plugin-root>/scripts/run-impact-lens doctor bundled-typescript
+<plugin-root>/scripts/run-impact-lens doctor bundled-typescript --smoke
+```
+
+Use this for TypeScript/JavaScript installation failures before asking for provider configuration.
+`bundled_provider_artifact_missing`, `bundled_provider_artifact_unreadable`, and
+`bundled_provider_artifact_corrupt` are reinstall/permission problems. Provider launch, initialize,
+capability, and query codes mean the artifact was selected but failed later in its lifecycle.
 
 Successful analysis includes additive schema v1 metadata:
 
@@ -192,9 +210,13 @@ Use the same target and scope with `note delete`. Preview first without `apply` 
 - `4`: conflict or invalid note document
 - `5`: provider unavailable or missing Call Hierarchy support
 - `6`: timeout
+- `7`: unsupported CLI Node.js runtime
 - `10`: unexpected CLI error
 - `127`: plugin runner could not locate or launch the CLI runtime
 
 Provider exit-5 errors distinguish `provider_launch_failed`, `provider_initialize_failed`,
 `provider_capability_missing`, and `provider_query_failed`. Use `error.details.stage` and the
 redacted stderr tail when present; these errors mean analysis was not established, not zero callers.
+Runner exit-127 errors distinguish Node missing/unreadable/unsupported, selected CLI artifact
+missing/not executable, and npm unavailable. Read `runtime.runner.source` and the stable recovery code
+in `error.details`; do not infer provider failure when the CLI never started.

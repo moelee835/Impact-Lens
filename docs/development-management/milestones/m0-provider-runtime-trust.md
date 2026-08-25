@@ -49,12 +49,12 @@ capability/query 단계와 해결 가능한 진단을 제공한다.
 ## 종료 gate
 
 - [ ] IL-LIM-003과 IL-LIM-017의 수용 기준이 모두 충족되고 구현 PR이 연결된다.
-- [ ] clean temp 환경의 CLI tarball에서 TS/TSX/JS/JSX cross-file fixture가 통과한다.
-- [ ] Codex와 Claude Plugin cache 설치 형태에서 같은 fixture가 통과한다.
+- [x] clean temp 환경의 CLI tarball에서 TS/TSX/JS/JSX cross-file fixture가 통과한다.
+- [x] Codex와 Claude Plugin cache 설치 형태에서 같은 fixture가 통과한다.
 - [ ] 지원하는 Linux/macOS/Windows 조합에서 Node engine과 bundled entry preflight가 통과한다.
-- [ ] Python no-provider fixture는 process launch 없이 actionable discovery error를 반환한다.
-- [ ] code 1·빈 stderr 실패가 재현되면 최소한 실제 lifecycle stage와 artifact provenance가 보존된다.
-- [ ] release 문서가 source test와 packed artifact 검증 결과를 구분한다.
+- [x] Python no-provider fixture는 process launch 없이 actionable discovery error를 반환한다.
+- [x] code 1·빈 stderr 실패가 재현되면 최소한 실제 lifecycle stage와 artifact provenance가 보존된다.
+- [x] release 문서가 source test와 packed artifact 검증 결과를 구분한다.
 - [ ] `user-tests/m0-user-test-spec.md`가 release candidate 기준으로 검토됐으며, 실제 사용자 검증 결과 또는
   실행 보류 사유가 release decision에 기록된다.
 

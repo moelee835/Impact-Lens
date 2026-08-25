@@ -1,6 +1,6 @@
 # IL-LIM-017 Plugin provider 실행·배포 신뢰성
 
-- 상태: Backlog
+- 상태: In progress
 - 우선순위: P0
 - 완료 마일스톤: [M0 — Provider 실행 신뢰성](../milestones/m0-provider-runtime-trust.md)
 - 영향도: 매우 높음
@@ -35,11 +35,11 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
 
 ## 수용 기준
 
-- [ ] release tarball을 새 임시 환경에 설치한 뒤 TS/TSX/JS/JSX incoming-call smoke가 통과한다.
-- [ ] runner가 explicit path, source checkout, global binary와 npm fallback 중 선택한 source/version을 진단한다.
-- [ ] Node 미지원, CLI/provider artifact 누락, spawn, initialize와 query failure가 구분된다.
-- [ ] stderr-only exit가 bounded drain 후 redacted detail을 보존한다.
-- [ ] Codex와 Claude Plugin cache 설치 형태의 runner E2E가 release 전에 검증된다.
+- [x] release tarball을 새 임시 환경에 설치한 뒤 TS/TSX/JS/JSX incoming-call smoke가 통과한다.
+- [x] runner가 explicit path, source checkout, global binary와 npm fallback 중 선택한 source/version을 진단한다.
+- [x] Node 미지원, CLI/provider artifact 누락, spawn, initialize와 query failure가 구분된다.
+- [x] stderr-only exit가 bounded drain 후 redacted detail을 보존한다.
+- [x] Codex와 Claude Plugin cache 설치 형태의 runner E2E가 release 전에 검증된다.
 
 ## 검증
 
@@ -54,7 +54,7 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
 - 이 story는 `IL-LIM-004`의 외부 preset보다 먼저 완료해야 bundled reference provider를 신뢰할 수 있다.
 - debug 정보에 전체 argv, registry URL, credential과 사용자 path가 노출되지 않도록 redaction이 필요하다.
 
-## 현재 기준선
+## 구현 전 기준선
 
 - runner는 `IMPACT_LENS_CLI_PATH`, source checkout `cli/dist/index.js`, global `impact-lens`, pinned npm package
   순서로 선택하지만 정상 출력에는 실제 선택 source/version이 없다.
@@ -172,6 +172,24 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
 
 ## 미해결 질문
 
-- Plugin manifest version과 CLI release version이 다른 현재 모델을 runtime metadata에서 어떻게 명확히 표현할지 정해야 한다.
-- global binary가 다른 Node shebang을 사용할 때 runner와 CLI 중 어느 계층이 최종 engine 오류를 소유할지 결정해야 한다.
-- network가 제한된 첫 fallback 설치 실패와 설치된 provider crash를 사용자 메시지에서 어떻게 분리할지 검토해야 한다.
+- Plugin manifest version은 host의 plugin inventory가, `runtime.cli.version`은 실행된 CLI가 소유하도록 분리했다.
+  runtime envelope가 Plugin version을 추측하지 않는다.
+- global binary를 포함한 Plugin 경로는 runner가 먼저 Node 22를 검사하고, 직접 CLI 실행은 CLI startup guard가
+  소유한다. 두 계층 모두 같은 minimum을 적용한다.
+- network가 제한된 첫 release fallback은 CLI가 시작되기 전 npm 오류이고, 설치된 provider crash는 JSON의
+  lifecycle code/runtime으로 구분한다. npm stderr를 하나의 구조화된 runner envelope로 감싸는 기능은 아직
+  없으므로 후속 runner UX 과제로 남긴다.
+
+## 구현 결과 — 2026-08-25
+
+- 작업 문서: [`docs/work/task-plugin-provider-runtime-reliability.md`](../../work/task-plugin-provider-runtime-reliability.md)
+- 개발 branch: `fix/il-lim-017-provider-runtime`
+- runner는 모든 source에서 Node 22 preflight를 실행하고 선택 source를 allowlist provenance로 전달한다.
+- CLI는 `runtime` metadata와 `doctor bundled-typescript [--smoke]`를 제공하며 missing/unreadable/corrupt
+  artifact, launch/initialize/capability/query를 구분한다.
+- packed E2E는 clean tarball bin과 Codex/Claude cache layout에서 TS/TSX/JS/JSX incoming-call을 검증한다.
+  macOS local 실행은 통과했고 Linux/macOS/Windows Node 22 workflow가 추가됐다.
+- exit 1·빈 stderr fixture도 initialize stage, exit code와 runner provenance를 보존한다. stderr가 없다는
+  사실은 빈 문자열을 만들어내지 않고 해당 detail field 생략으로 표현한다.
+- 상태는 `In progress`를 유지한다. 구현 PR이 아직 없고 원격 Linux/Windows workflow, 실제 개인 Codex
+  marketplace cachebuster/reinstall 및 계획된 M0 사용자 검증을 실행하지 않았기 때문이다.

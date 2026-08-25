@@ -158,6 +158,30 @@ test('preserves initialize exit diagnostics after stderr closes and redacts secr
   assert.doesNotMatch(error.details.stderr, new RegExp(process.env.HOME ?? '/definitely-not-home'));
 });
 
+test('preserves lifecycle and runtime provenance when the provider exits silently', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'silentExitServer.js');
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    env: { ...process.env, IMPACT_LENS_RUNNER_SOURCE: 'release-fallback' },
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 5);
+  const response = JSON.parse(result.stderr);
+  assert.equal(response.error.code, 'provider_initialize_failed');
+  assert.equal(response.error.details.stage, 'initialize');
+  assert.equal(response.error.details.exitCode, 1);
+  assert.equal(response.error.details.stderr, undefined);
+  assert.equal(response.runtime.runner.source, 'release-fallback');
+  assert.match(response.error.message, /during initialize \(exit code 1\)/);
+});
+
 test('reports missing Call Hierarchy capability instead of an empty graph', () => {
   const executable = path.resolve(__dirname, '..', 'index.js');
   const server = path.resolve(__dirname, 'fixtures', 'noCapabilityServer.js');

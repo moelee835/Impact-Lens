@@ -103,6 +103,8 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
 - `coverage.traversal` distinguishes complete, depth-limited, and node-limited traversal.
 - `coverage.semantic` is `static-only` until provenance-bearing augmentation is implemented.
 - `coverage.indexing` is `unknown` unless a provider gives an explicit readiness signal.
+- Top-level `runtime` records the CLI and Node versions plus the allowlisted runner source without
+  exposing an absolute executable, package URL, or full argument list.
 - Top-level `capabilities` and `limitations` remain schema v1 compatibility projections.
 
 An empty caller list with a prepared root is a successful static result. A missing, mismatched,
@@ -116,7 +118,26 @@ Exit codes:
 - `4`: conflict or invalid note document
 - `5`: provider unavailable or missing Call Hierarchy support
 - `6`: timeout
+- `7`: unsupported CLI Node.js runtime
 - `10`: unexpected internal error
+
+## Bundled provider doctor
+
+TypeScript/JavaScript installation checks do not require a provider configuration:
+
+```sh
+impact-lens doctor bundled-typescript
+impact-lens doctor bundled-typescript --smoke
+```
+
+The default preflight checks the active Node engine, CLI package, `typescript-language-server`,
+TypeScript version, and readable packaged entry. `--smoke` additionally starts the server and verifies
+initialize and advertised Call Hierarchy capability. It is explicit so normal analyze requests do not
+pay for an extra server process.
+
+Inspect `runtime.runner.source` to distinguish `direct`, `explicit`, `checkout`, `global`, and
+`release-fallback`. Doctor output uses logical package and entry names only; it does not return resolved
+absolute paths, registry URLs, or command arguments.
 
 ## Provider
 

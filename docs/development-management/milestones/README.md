@@ -56,7 +56,7 @@ augmentation의 공식 release gate는 evidence schema가 모든 검증 언어�
 | IL-LIM-014 | M2 | M1 | clangd와 compile database readiness |
 | IL-LIM-015 | M3 | M1 | SourceKit-LSP와 SwiftPM/Xcode 경계 |
 | IL-LIM-016 | M3 | M1 | Kotlin LSP Alpha와 Gradle/Maven readiness |
-| IL-LIM-017 | M0 | IL-LIM-003 구현 | packed artifact와 Plugin cache 실행 신뢰성 |
+| IL-LIM-017 | M0 | 구현 진행 중 | local packed/cache E2E 완료, PR·원격 OS matrix·사용자 검증 남음 |
 
 ## 운영 규칙
 
