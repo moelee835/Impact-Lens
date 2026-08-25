@@ -39,7 +39,7 @@ git pull --ff-only
 git switch -c <branch-name>
 ```
 
-`AGENTS.md`의 저장소 규칙에 따라 코드 또는 설정을 바꾸기 전에 `docs/work/<task-name>.md`에 계획과 완료 기준을 작성한다. 구현 중에는 같은 문서에 변경 파일, 설계 결정, 테스트 결과와 제한 사항을 계속 기록한다.
+`AGENTS.md`의 저장소 규칙에 따라 코드 또는 설정을 바꾸기 전에 `docs/work/<task-name>.md`에 계획과 완료 기준을 작성한다. 구현 중에는 같은 문서에 변경 파일, 설계 결정, 테스트 결과와 제한 사항을 계속 기록한다. 장기 개선 후보와 알려진 한계는 [`docs/development-management/`](development-management/README.md)에서 우선순위와 개별 스토리로 관리한다.
 
 ## 3. 주요 코드 위치
 
@@ -61,6 +61,7 @@ git switch -c <branch-name>
   - `scripts/run-impact-lens`: 셸 평가 없이 CLI를 찾아 실행하는 runner
 - `.agents/plugins/marketplace.json`: Codex marketplace 정의
 - `.claude-plugin/marketplace.json`: Claude Code marketplace 정의
+- `docs/development-management/`: 알려진 한계, 우선순위와 개별 개발 스토리
 - `package.json`: 명령, 설정, 버전, Extension manifest
 - `CHANGELOG.md`: 버전별 사용자 변경 내역
 
