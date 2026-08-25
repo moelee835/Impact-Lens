@@ -70,6 +70,10 @@ augmentation의 공식 release gate는 evidence schema가 모든 검증 언어�
 - 자동 설치, build, sync, test 실행은 별도 사용자 승인 없이는 milestone 완료 수단으로 사용하지 않는다.
 - 날짜와 version은 team capacity와 release 결정이 생길 때 별도 issue에 지정한다. 이 문서는 의존성과
   완료 조건을 관리한다.
+- 각 상세 문서의 최상위 구현 단계는 `AGENTS.md`의 stage gate를 따른다. 검증·작업 로그·독립 commit·동일
+  이름의 원격 개발 branch push가 끝나기 전에는 다음 단계로 진행하거나 milestone 진행률에 반영하지 않는다.
+- milestone 작업을 `main`/`master`에서 직접 수행하거나 push하지 않는다. 전용 개발 branch에서 단계별로
+  push하고 Pull Request를 통해서만 통합한다.
 
 ## 진행률 계산
 

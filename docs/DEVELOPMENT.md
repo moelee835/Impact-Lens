@@ -35,11 +35,31 @@ pnpm install --frozen-lockfile
 
 ```sh
 git status --short --branch
-git pull --ff-only
-git switch -c <branch-name>
+git fetch origin
+git switch -c <branch-name> origin/main
 ```
 
+`main`/`master`에서는 파일 변경, commit과 push를 하지 않는다. `feat/`, `fix/`, `docs/`, `refactor/`,
+`test/`, `chore/` 또는 `release/` 전용 branch를 사용하고 main 반영은 Pull Request로만 진행한다.
+
 `AGENTS.md`의 저장소 규칙에 따라 코드 또는 설정을 바꾸기 전에 `docs/work/<task-name>.md`에 계획과 완료 기준을 작성한다. 구현 중에는 같은 문서에 변경 파일, 설계 결정, 테스트 결과와 제한 사항을 계속 기록한다. 장기 개선 후보와 알려진 한계는 [`docs/development-management/`](development-management/README.md)에서 우선순위와 개별 스토리로 관리한다.
+
+작업 문서의 각 최상위 구현 단계는 독립적으로 검증 가능한 commit 단위다. 단계마다 다음 cycle을 완료한다.
+
+```sh
+# 단계 구현과 문서 로그 갱신 후
+pnpm run test:all              # 변경 범위에 맞는 실제 검증으로 대체 가능
+git diff --check
+git status --short --branch
+git add <stage-files>
+git diff --cached --check
+git commit -m "<imperative stage summary>"
+git push -u origin <branch-name>  # 첫 단계
+git push                         # 이후 단계
+```
+
+push가 성공하기 전에는 다음 단계로 넘어가지 않는다. 검증 실패나 미완료 단계는 commit/push하지 않고 작업
+로그에 원인과 위험을 남긴다. force push와 main 직접 push는 이 workflow에 포함되지 않는다.
 
 ## 3. 주요 코드 위치
 
