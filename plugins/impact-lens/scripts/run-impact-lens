@@ -5,54 +5,117 @@ set -eu
 impact_lens_plugin_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 impact_lens_repo_entry="$impact_lens_plugin_dir/../../cli/dist/index.js"
 impact_lens_release_package="${IMPACT_LENS_CLI_PACKAGE:-https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-cli-0.5.0.tgz}"
+impact_lens_required_node_major=22
+
+impact_lens_operation=unknown
+case "${1:-}" in
+  analyze)
+    impact_lens_operation=impact.analyze
+    ;;
+  note)
+    case "${2:-}" in
+      get|list|set|delete)
+        impact_lens_operation="note.${2}"
+        ;;
+    esac
+    ;;
+  doctor)
+    impact_lens_operation=provider.doctor
+    ;;
+esac
 
 impact_lens_error() {
-  printf '%s\n' '{"schemaVersion":1,"operation":"unknown","ok":false,"error":{"code":"cli_unavailable","message":"Impact Lens CLI is unavailable. Install Node.js 22+ and npm, install @impact-lens/cli globally, build cli/dist/index.js, or set IMPACT_LENS_CLI_PATH.","retryable":false}}' >&2
+  impact_lens_error_code=$1
+  impact_lens_error_message=$2
+  impact_lens_error_details=$3
+  printf '%s\n' "{\"schemaVersion\":1,\"operation\":\"$impact_lens_operation\",\"ok\":false,\"error\":{\"code\":\"$impact_lens_error_code\",\"message\":\"$impact_lens_error_message\",\"retryable\":false,\"details\":$impact_lens_error_details}}" >&2
   exit 127
+}
+
+impact_lens_check_node() {
+  if ! command -v node >/dev/null 2>&1; then
+    impact_lens_error \
+      node_runtime_unavailable \
+      'Node.js is required to run Impact Lens. Install Node.js 22 or newer and retry.' \
+      '{"stage":"startup","component":"node","requiredMajor":22,"recovery":"install_node_22_or_newer"}'
+  fi
+
+  impact_lens_node_major=$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null) || \
+    impact_lens_error \
+      node_version_unreadable \
+      'Impact Lens could not read the Node.js version. Verify the active Node.js installation.' \
+      '{"stage":"startup","component":"node","requiredMajor":22,"recovery":"verify_active_node"}'
+  case "$impact_lens_node_major" in
+    ''|*[!0-9]*)
+      impact_lens_error \
+        node_version_unreadable \
+        'Impact Lens could not read the Node.js version. Verify the active Node.js installation.' \
+        '{"stage":"startup","component":"node","requiredMajor":22,"recovery":"verify_active_node"}'
+      ;;
+  esac
+  if [ "$impact_lens_node_major" -lt "$impact_lens_required_node_major" ]; then
+    impact_lens_error \
+      node_version_unsupported \
+      'Impact Lens requires Node.js 22 or newer. Switch the active Node.js version and retry.' \
+      "{\"stage\":\"startup\",\"component\":\"node\",\"requiredMajor\":22,\"detectedMajor\":$impact_lens_node_major,\"recovery\":\"switch_to_node_22_or_newer\"}"
+  fi
+}
+
+impact_lens_select_source() {
+  export IMPACT_LENS_RUNNER_SOURCE=$1
 }
 
 impact_lens_run_path() {
   impact_lens_candidate=$1
-  shift
+  impact_lens_source=$2
+  shift 2
 
   if [ ! -f "$impact_lens_candidate" ]; then
-    impact_lens_error
+    impact_lens_error \
+      cli_artifact_missing \
+      'The selected Impact Lens CLI artifact does not exist. Reinstall the plugin or correct IMPACT_LENS_CLI_PATH.' \
+      "{\"stage\":\"resolution\",\"component\":\"cli\",\"source\":\"$impact_lens_source\",\"recovery\":\"reinstall_or_correct_cli_path\"}"
   fi
 
+  impact_lens_select_source "$impact_lens_source"
   case "$impact_lens_candidate" in
     *.js)
-      command -v node >/dev/null 2>&1 || impact_lens_error
       exec node "$impact_lens_candidate" "$@"
       ;;
     *)
       if [ ! -x "$impact_lens_candidate" ]; then
-        impact_lens_error
+        impact_lens_error \
+          cli_artifact_not_executable \
+          'The selected Impact Lens CLI artifact is not executable. Reinstall the plugin or fix the artifact permissions.' \
+          "{\"stage\":\"resolution\",\"component\":\"cli\",\"source\":\"$impact_lens_source\",\"recovery\":\"reinstall_or_fix_permissions\"}"
       fi
       exec "$impact_lens_candidate" "$@"
       ;;
   esac
 }
 
+impact_lens_check_node
+
 if [ -n "${IMPACT_LENS_CLI_PATH:-}" ]; then
-  impact_lens_run_path "$IMPACT_LENS_CLI_PATH" "$@"
+  impact_lens_run_path "$IMPACT_LENS_CLI_PATH" explicit "$@"
 fi
 
 if [ -f "$impact_lens_repo_entry" ]; then
-  impact_lens_run_path "$impact_lens_repo_entry" "$@"
+  impact_lens_run_path "$impact_lens_repo_entry" checkout "$@"
 fi
 
 if command -v impact-lens >/dev/null 2>&1; then
-  exec impact-lens "$@"
+  impact_lens_global_entry=$(command -v impact-lens)
+  impact_lens_run_path "$impact_lens_global_entry" global "$@"
 fi
 
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  impact_lens_error
+if ! command -v npm >/dev/null 2>&1; then
+  impact_lens_error \
+    npm_runtime_unavailable \
+    'npm is required for the Impact Lens release fallback. Install npm, install @impact-lens/cli globally, or set IMPACT_LENS_CLI_PATH.' \
+    '{"stage":"resolution","component":"npm","source":"release-fallback","recovery":"install_npm_or_cli"}'
 fi
 
-impact_lens_node_major=$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null) || impact_lens_error
-if [ "$impact_lens_node_major" -lt 22 ]; then
-  impact_lens_error
-fi
-
+impact_lens_select_source release-fallback
 export npm_config_loglevel="${npm_config_loglevel:-error}"
 exec npm exec --yes --package="$impact_lens_release_package" -- impact-lens "$@"
