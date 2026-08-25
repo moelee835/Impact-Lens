@@ -19,12 +19,14 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 ## 범위
 
 - 첫 대상 프레임워크와 지원할 관계를 명시적으로 선정한다.
+- framework adapter registry와 지원 등급을 정의하고 FastAPI 이후 Spring Java/Kotlin 후보를 분리한다.
 - framework adapter가 만든 edge에 adapter 이름, 근거 위치와 추론 상태를 기록한다.
 - 일반 호출 관계와 프레임워크 관계를 함께 탐색하되 필터링할 수 있게 한다.
 
 ## 제외 범위
 
 - 여러 프레임워크를 한 번에 지원
+- Spring Context, Koin, Dagger/Hilt와 Swift DI를 하나의 규칙으로 일반화
 - 애플리케이션 실행 없이 런타임 구성을 완전하게 확정
 
 ## 수용 기준
@@ -33,6 +35,7 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 - [ ] 추론 관계가 정적 확정 관계와 UI·JSON에서 구분된다.
 - [ ] alias, 중첩 dependency와 cross-file 사례가 테스트된다.
 - [ ] 모호한 관계는 확정 edge로 생성되지 않고 limitation으로 보고된다.
+- [ ] 단일 후보, 복수 후보와 runtime-only binding이 확정·후보·미지원 관계로 구분된다.
 
 ## 검증
 
@@ -58,6 +61,9 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 
 - [FastAPI Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/)는 dependency 함수를 사용자가
   직접 호출하지 않고 FastAPI가 호출하며, dependency가 다시 sub-dependency를 선언할 수 있다고 설명한다.
+- [Spring Framework의 annotation-based container 설정](https://docs.spring.io/spring-framework/reference/core/beans/annotation-config.html)은
+  component scan, `@Autowired`, `@Primary`, `@Qualifier`와 `@Bean` 같은 container resolution 규칙을 사용한다.
+  일반 코드에 직접 생성 호출이 없어도 Spring Context가 연결하므로 별도 framework evidence가 필요하다.
 - dependency는 `Annotated[..., Depends(function)]` 또는 기본값 `Depends(function)`으로 나타날 수 있고,
   [decorator dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-in-path-operation-decorators/)처럼
   path operation decorator의 `dependencies=[Depends(...)]`에도 선언될 수 있다.
@@ -79,6 +85,8 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 ## 권장 대응
 
 - 첫 adapter를 `fastapi-static-v1`로 한정하고 지원 문법을 versioned capability로 공개한다.
+- 공통 `FrameworkRelationAdapter`는 adapter별 언어, framework/version, project marker, relation type과
+  confidence를 선언한다. FastAPI 규칙을 Spring이나 다른 container에 재사용하지 않는다.
 - v1 관계는 다음 순서로 지원한다.
   1. 함수 parameter의 `Depends(target)`와 `Annotated[T, Depends(target)]`
   2. route decorator의 `dependencies=[Depends(target)]`
@@ -90,6 +98,12 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 - HTTP route는 실제 source caller가 없으므로 `GET /items` 같은 synthetic entrypoint node를 도입하되,
   일반 function node와 다른 kind·provenance로 표시한다.
 - route node 도입은 dependency edge 검증 뒤 별도 단계로 진행하여 기존 graph identity 변경을 격리한다.
+- Spring Java/Kotlin 후속 adapter는 bean registration과 injection point를 분리하고 결과를 세 단계로 표현한다.
+  - `confirmed`: type·qualifier·primary·조건으로 단일 bean이 결정됨
+  - `candidate`: 복수 implementation 또는 정적으로 확정하지 못한 조건
+  - `runtime-only`: profile, conditional, programmatic registration, proxy/AOP 등 실행 전 확정 불가
+- Koin, Dagger/Hilt와 Swift DI container는 annotation/generated/runtime 모델이 달라 별도 수요·fixture 검토 후
+  독립 adapter story로 승격한다.
 
 ## 단계별 계획
 
@@ -128,6 +142,15 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 
 종료 조건: route → handler → dependency 경로를 정적 Call Hierarchy와 혼동 없이 탐색할 수 있다.
 
+### 5단계 — Spring Java/Kotlin feasibility와 adapter 분리
+
+1. component/service/repository, constructor injection, `@Bean`, qualifier/primary와 interface 구현 fixture를 만든다.
+2. profile, conditional, collection injection, proxy/AOP와 programmatic registration을 negative/runtime-only로 둔다.
+3. Java/Kotlin provider definition 결과와 build model을 이용해 bean type을 기존 symbol ID에 mapping할 수 있는지 측정한다.
+4. FastAPI adapter의 공통 SPI만 재사용하고 Spring resolution rule은 별도 adapter와 release gate로 분리한다.
+
+종료 조건: exact/candidate/runtime-only 분류 정확도와 성능이 승인된 경우에만 독립 구현 Issue를 만든다.
+
 ## 예상 변경 영역
 
 - 신규 `src/frameworkAdapters/`, `cli/src/frameworkAdapters/` 또는 공유 package: adapter와 FastAPI extractor
@@ -145,6 +168,7 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 | 통합 | route → handler → direct/sub-dependency | 모든 edge가 inferred provenance로 연결됨 |
 | cross-file | 다른 module의 dependency와 router include | 실제 symbol ID로 연결되고 이동 가능 |
 | 부정 | `Depends(factory())`, 동적 decorator, 동명 함수 | 모호한 확정 edge가 생성되지 않음 |
+| Spring spike | 단일·복수·조건부 bean | confirmed/candidate/runtime-only가 근거와 함께 분리됨 |
 | 안전 | import 시 side effect가 있는 module | 사용자 module을 실행하지 않음 |
 | 회귀 | adapter 비활성화 | 기존 Language Server graph와 JSON이 유지됨 |
 
@@ -161,3 +185,4 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 - AST helper를 Python runtime에 의존할지 TypeScript parser dependency로 구현할지 spike가 필요하다.
 - `include_router` prefix와 재사용 router가 만든 여러 route를 synthetic node identity에 어떻게 반영할지 결정해야 한다.
 - callable class dependency와 dependency override를 v1 범위에 포함할지 실제 사용 fixture를 바탕으로 정해야 한다.
+- Spring adapter에서 application context를 실제로 띄우지 않고 어느 수준까지 condition을 해석할지 경계를 정해야 한다.

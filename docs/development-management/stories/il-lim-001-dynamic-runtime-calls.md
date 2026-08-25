@@ -33,6 +33,7 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
 - [ ] 최소 2개 동적 호출 유형의 fixture에 대해 탐지 결과와 오탐 기준이 검증된다.
 - [ ] 보조 분석 실패가 기존 정적 그래프를 실패시키지 않는다.
 - [ ] 미지원 동적 관계가 limitation과 사용자 문서에 명시된다.
+- [ ] 지원 후보 언어마다 대표 dynamic-dispatch gap과 확정할 수 없는 이유가 fixture로 기록된다.
 
 ## 검증
 
@@ -66,6 +67,9 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
   이는 특정 provider 교체만으로 본 한계가 사라지지 않음을 보여준다.
 - 언어 AST는 호출 표현을 찾는 데는 유용하지만 이름 해석과 실제 실행 대상 확정은 별도 문제다.
   예를 들어 [Python AST](https://docs.python.org/3/library/ast.html#ast.Call)는 호출의 문법 구조만 제공한다.
+- 언어별 대표 gap도 서로 다르다. C는 function pointer, C++은 virtual dispatch·function object, Swift는
+  protocol existential·closure·Objective-C selector, Kotlin은 interface dispatch·lambda·reflection이 있다.
+  compiler/LSP를 정상 연결해도 runtime receiver나 등록 상태가 없으면 하나의 확정 target으로 환원되지 않는다.
 
 ## 대안 검토와 결정
 
@@ -89,6 +93,8 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
   부분 limitation으로 격리한다.
 - 첫 구현 후보는 이름 해석이 가능한 명시적 callback 전달과 event subscription 두 종류로 제한한다.
   문자열 이름, reflection과 framework DI는 별도 adapter 또는 `IL-LIM-002`에서 다룬다.
+- `IL-LIM-014`~`016`의 E2E fixture는 direct call baseline과 위 dynamic gap을 함께 저장한다. provider가
+  conservative candidate를 반환해도 `language-server` evidence로 보존하되 runtime 확정으로 승격하지 않는다.
 - UI는 확정 관계를 기본 표시하고 inferred/observed edge는 별도 선 스타일, badge와 filter로 표시한다.
 - CLI schema는 기존 `source`/`target`을 유지하면서 optional `evidence[]`를 추가해 하위 호환을 우선한다.
 
@@ -145,6 +151,7 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
 | 단위 | 동일 edge의 LSP·추론 evidence 병합 | edge는 하나이고 evidence가 결정적 순서로 모두 보존됨 |
 | 단위 | adapter timeout·예외 | 정적 graph는 유지되고 adapter limitation만 추가됨 |
 | 통합 | 명시적 callback과 event subscription | 기대 caller와 근거 range가 inferred로 표시됨 |
+| 언어 matrix | C pointer, C++ virtual, Swift protocol/closure, Kotlin interface/lambda | provider 원본·추론·미지원이 구분됨 |
 | 부정 | 같은 이름, 다른 scope·문자열 callback | 확정 또는 inferred edge가 생성되지 않음 |
 | 계약 | 기존 schema consumer | 새 optional 필드가 기존 필드를 변경하지 않음 |
 | 성능 | 중간 규모 workspace | 설정한 파일·시간 budget 안에서 종료하고 취소 가능 |

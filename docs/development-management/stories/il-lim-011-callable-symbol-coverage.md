@@ -43,6 +43,8 @@ operator, macro 또는 언어 서버가 다른 kind로 표현하는 함수형 �
 ## 의존성 및 위험
 
 - `IL-LIM-004`의 언어별 검증 결과가 대상 kind 선정에 도움이 된다.
+- `IL-LIM-014`~`016`에서 C/C++ operator·function object, Swift property/subscript/operator와 Kotlin
+  property accessor·operator가 실제 Call Hierarchy item으로 준비되는지 evidence를 제공해야 한다.
 - symbol kind 의미가 Language Server마다 달라 allowlist만 넓히면 오탐이 생길 수 있다.
 
 ## 현재 기준선
@@ -89,6 +91,7 @@ operator, macro 또는 언어 서버가 다른 kind로 표현하는 함수형 �
 ### 1단계 — 관측 matrix
 
 1. 지원·후보 언어 fixture에 function, method, constructor, property/getter, operator, callable variable를 만든다.
+   C/C++·Swift·Kotlin fixture는 각 언어 story가 소유하고 이 story는 공통 matrix 형식만 정의한다.
 2. DocumentSymbol kind/selection과 prepareCallHierarchy 응답을 provider/version별로 capture한다.
 3. 실제 callable과 false candidate를 matrix로 분류한다.
 

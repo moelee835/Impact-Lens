@@ -84,6 +84,8 @@ CLI Source note 쓰기는 등록된 파일 확장자와 `//`, `#`, `--` line com
 - Extension과 CLI는 같은 registry artifact에서 resolver를 생성하고 unknown은 둘 다 mutation을 거부한다.
 - read/list는 기존 `@impact-note`를 가능한 범위에서 보여주되, mutation 가능 여부를 별도 capability로 반환한다.
 - 첫 단계는 현재 명시 지원 언어의 정합성과 fail-closed에 집중하고 새 언어는 `IL-LIM-004` preset 우선순위와 맞춘다.
+- C/C++, Swift와 Kotlin은 `//` line comment를 사용하는 명시 registry entry와 확장자/languageId fixture를
+  각각 `IL-LIM-014`~`016`에 연결한다. “우연히 기본값이 맞음”은 지원 근거로 간주하지 않는다.
 - 사용자 custom syntax는 project setting으로 추가할 수 있게 검토하되 delimiter 길이·newline 금지와 preview를 강제한다.
 
 ## 단계별 계획

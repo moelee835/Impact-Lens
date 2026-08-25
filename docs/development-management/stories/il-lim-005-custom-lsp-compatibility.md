@@ -10,6 +10,8 @@
 현재 generic adapter는 command, args, languageId와 빈 `initializationOptions`를 사용한다.
 서버별 초기화 옵션, workspace settings, configuration 요청, indexing 대기가 필요하면 표준 Call Hierarchy를
 지원하는 서버도 초기화에 실패하거나 불완전한 결과를 반환할 수 있다.
+server process가 initialize 전에 종료될 때 stderr stream이 완전히 drain되기 전에 오류를 생성하면
+`Language Server exited (1):`처럼 원인 없는 메시지만 남아 provider 설정과 실행환경 문제를 진단하기 어렵다.
 
 ## 사용자 스토리
 
@@ -21,11 +23,14 @@ indexing 완료 후 안정적으로 분석하고 싶다.
 - JSON schema에 제한된 initialization options와 settings 전달 계약을 설계한다.
 - `workspace/configuration`과 필요한 표준 lifecycle 요청을 지원한다.
 - indexing 준비 전략과 timeout/실패 상태를 명확히 보고한다.
+- process launch부터 stdio close까지 lifecycle과 redacted 진단 계약을 보강한다.
+- preset별 build metadata와 readiness profile을 core protocol과 분리한다.
 
 ## 제외 범위
 
 - 임의 shell command 평가
 - 비표준 protocol 전체를 자동으로 추론하는 범용 adapter
+- project configure, dependency resolve, build 또는 application의 무단 실행
 
 ## 수용 기준
 
@@ -33,6 +38,8 @@ indexing 완료 후 안정적으로 분석하고 싶다.
 - [ ] configuration 요청 및 준비 대기가 필요한 fixture가 통과한다.
 - [ ] 민감한 설정 값이 stdout·stderr에 임의 노출되지 않는다.
 - [ ] 기존 TypeScript 기본 provider 계약과 결과가 유지된다.
+- [ ] initialize 전후 process crash가 단계·exit/signal·redacted stderr와 함께 재현 가능하게 보고된다.
+- [ ] build/index 준비가 필요한 provider가 `not_ready`와 실제 empty graph를 구분한다.
 
 ## 검증
 
@@ -54,6 +61,8 @@ indexing 완료 후 안정적으로 분석하고 싶다.
   server→client request는 pending client request가 아니므로 현재 응답하지 못한다.
 - `workspace/configuration`, `client/registerCapability`, `window/workDoneProgress/create`, request cancellation과
   document sync negotiation이 구현되어 있지 않다.
+- child process의 `exit` 이벤트에서 누적 stderr를 즉시 읽는다. `close` 이벤트 전에 남은 pipe data가 도착하면
+  실제 오류가 메시지에서 빠질 수 있으며, 현재 error에는 discovery/launch/initialize 단계도 없다.
 
 ## 조사 결과
 
@@ -65,6 +74,9 @@ indexing 완료 후 안정적으로 분석하고 싶다.
   `workspace/didChangeConfiguration` 기반의 자체 settings namespace를 가진다.
 - LSP server request는 response와 같은 `id`를 가지므로 현재 `JsonRpcClient.handle`의 “id면 pending response”
   분기만으로는 표준 client 역할을 완수할 수 없다.
+- clangd의 compile database, SourceKit-LSP의 toolchain/build index와 Kotlin LSP의 Gradle/Maven import처럼
+  protocol이 표준이어도 의미 있는 결과를 위한 project readiness 조건은 provider마다 다르다. 자유 형식
+  shell hook이 아니라 제한된 preset profile과 doctor evidence로 다뤄야 한다.
 
 ## 대안 검토와 결정
 
@@ -87,6 +99,10 @@ indexing 완료 후 안정적으로 분석하고 싶다.
   prototype key 거부와 schema validation을 적용한다.
 - indexing readiness는 범용 추측 대신 preset이 정의한 signal/timeout/first-query 전략을 사용한다.
 - 모든 timeout은 `$/cancelRequest`를 보낸 뒤 child process 종료까지 bounded하게 처리한다.
+- process 종료는 `exit`와 stdio `close`를 구분하고 bounded drain 뒤 stderr tail을 redaction한다. error에는
+  lifecycle stage, exit/signal, executable basename과 관측 version을 포함하되 전체 argv와 환경은 기본 노출하지 않는다.
+- readiness profile은 필요한 metadata(`compile_commands.json`, `Package.swift`, Gradle/Maven files 등),
+  안전한 read-only probe와 사용자 승인 필요 작업을 분리한다.
 
 ## 단계별 계획
 
@@ -96,6 +112,7 @@ indexing 완료 후 안정적으로 분석하고 싶다.
 2. success/error response writer와 id collision 테스트를 추가한다.
 3. request timeout 시 `$/cancelRequest` notification을 전송한다.
 4. malformed/oversized frame과 stderr cap의 기존 안전 경계를 유지한다.
+5. spawn error, stderr-only exit, partial frame 후 exit와 graceful shutdown을 각각 fixture로 만든다.
 
 종료 조건: mock server가 initialize 중 보낸 request에 응답하고 client request도 정상 완료된다.
 
@@ -119,7 +136,7 @@ indexing 완료 후 안정적으로 분석하고 싶다.
 
 ### 4단계 — 실제 서버 호환 matrix
 
-1. bundled TypeScript, gopls와 Python 후보를 실제 process로 검증한다.
+1. bundled TypeScript, gopls, Python 후보와 `IL-LIM-014`~`016`의 provider를 단계적으로 실제 process로 검증한다.
 2. initialization transcript에서 지원하지 않은 server request를 탐지해 fixture로 고정한다.
 3. 문서화된 최소·권장 설정 profile을 preset으로 이동한다.
 
@@ -128,7 +145,7 @@ indexing 완료 후 안정적으로 분석하고 싶다.
 ## 예상 변경 영역
 
 - `cli/src/jsonRpc.ts`: 양방향 request, cancellation과 progress
-- `cli/src/lspProvider.ts`: capability registration, settings와 readiness
+- `cli/src/lspProvider.ts`: process lifecycle 진단, capability registration, settings와 readiness
 - `cli/src/types.ts`, `cli/src/index.ts`: provider config validation
 - `cli/schemas/request.schema.json`: initialization/settings 계약
 - `cli/src/test/`: scripted mock LSP와 실제 provider integration
@@ -143,12 +160,15 @@ indexing 완료 후 안정적으로 분석하고 싶다.
 | 설정 | nested initialization/settings | schema 제한 내 값만 정확한 section에 전달 |
 | 보안 | prototype key, oversized config, secret-like field | 거부 또는 redaction되고 로그에 원문 미노출 |
 | lifecycle | timeout과 cancellation | cancel 전송 후 bounded dispose, orphan process 없음 |
-| 통합 | TypeScript·gopls·Python 후보 | capability와 expected graph가 provider별 fixture와 일치 |
+| lifecycle | stderr 출력 직후 code 1 종료 | close/drain 뒤 redacted stderr와 initialize 단계가 보존됨 |
+| readiness | build metadata 없음·index 진행 중 | empty graph와 다른 상태 및 안전한 해결 방법 반환 |
+| 통합 | TypeScript·gopls·Python·clangd·SourceKit/Kotlin 후보 | capability와 expected graph가 provider별 fixture와 일치 |
 
 ## rollout과 관측
 
 - JSON-RPC core 변경은 먼저 bundled TypeScript 회귀 suite 뒤에 feature flag 없이 적용하되 새 config field는 opt-in이다.
 - debug mode에서 처리·미처리 server method 이름과 단계별 timing만 기록한다.
+- 기본 오류에는 안전한 요약만 넣고 사용자가 요청한 debug artifact에만 redacted transcript와 discovery detail을 남긴다.
 - 지원하지 않은 server request가 오면 silent ignore하지 않고 `provider_protocol_incompatible` detail을 제공한다.
 - 실제 server matrix가 안정된 뒤에만 해당 preset을 `verified-external`로 승격한다.
 - core 회귀 시 새 handler를 비활성화하기보다 이전 TypeScript fixture 실패를 release blocker로 취급한다.
@@ -158,3 +178,5 @@ indexing 완료 후 안정적으로 분석하고 싶다.
 - 범용 JSON 설정의 최대 byte/depth와 허용 scalar type을 어느 수준으로 제한할지 결정이 필요하다.
 - dynamic registration을 모든 method에 일반화할지 Call Hierarchy 관련 method만 수용할지 범위를 정해야 한다.
 - server process 재사용이 필요한 indexing 비용과 one-shot CLI 격리 원칙 사이의 tradeoff를 benchmark해야 한다.
+- build/project import가 code execution을 수반할 수 있는 provider에서 workspace trust와 명시 승인을 어떤
+  host 계약으로 받을지 결정해야 한다.

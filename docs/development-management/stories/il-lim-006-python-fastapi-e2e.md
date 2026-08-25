@@ -9,7 +9,8 @@
 
 Python 선언 anchor 단위 테스트는 있지만 실제 Python Language Server와 FastAPI workspace를 사용한
 end-to-end 기준선이 없다. 일반 cross-file 호출과 `Depends()`·decorator 관계 중 무엇이 provider에서
-제공되는지 검증 근거가 부족하다.
+제공되는지 검증 근거가 부족하다. 또한 Plugin의 provider 없는 `.py` 요청이 Python 지원 부족을 알리지 않고
+기본 TypeScript server를 실행한 뒤 빈 stderr의 `provider_unavailable`로 끝나는 실제 실패가 회귀 fixture로 없다.
 
 ## 사용자 스토리
 
@@ -20,6 +21,7 @@ Python/FastAPI 사용 개발자로서 설치 조합별로 검증된 지원 범�
 - 고정된 Python, FastAPI와 Language Server 버전의 최소 workspace fixture를 만든다.
 - same-file, cross-file, async, route decorator와 dependency 관계의 원본 Call Hierarchy를 기록한다.
 - Extension과 CLI에서 가능한 범위의 결과를 비교하고 문서화한다.
+- provider를 생략한 Plugin 요청의 Auto 선택·실패 UX와 잘못된 provider fallback을 검증한다.
 
 ## 제외 범위
 
@@ -32,6 +34,8 @@ Python/FastAPI 사용 개발자로서 설치 조합별로 검증된 지원 범�
 - [ ] 일반 호출, route와 dependency별 기대·미지원 결과가 명시된다.
 - [ ] 실제 Language Server 기반 자동 또는 반복 가능한 통합 검사가 수행된다.
 - [ ] 검증된 지원 범위가 README/INSTALL과 일치한다.
+- [ ] provider가 없는 Python 요청은 검증 preset을 자동 선택하거나 Python 전용 actionable error를 반환한다.
+- [ ] Python 분석 실패가 빈 그래프 또는 TypeScript provider 실패로 오인되지 않는다.
 
 ## 검증
 
@@ -42,6 +46,7 @@ Python/FastAPI 사용 개발자로서 설치 조합별로 검증된 지원 범�
 ## 의존성 및 위험
 
 - `IL-LIM-003`의 provider/version 기록 방식이 필요하다.
+- bundled/reference runtime 기준은 `IL-LIM-017`, Auto 선택 계약은 `IL-LIM-004`에 의존한다.
 - CI 환경의 Python과 Language Server 설치 비용 때문에 별도 integration job이 필요할 수 있다.
 
 ## 현재 기준선
@@ -51,6 +56,9 @@ Python/FastAPI 사용 개발자로서 설치 조합별로 검증된 지원 범�
   실제 FastAPI Call Hierarchy 수동 검증을 완료하지 못했다고 기록한다.
 - CLI 실제 LSP integration은 TypeScript fixture 하나뿐이며 Python provider dependency가 없다.
 - 따라서 Python의 일반 cross-file caller, provider capability, FastAPI dependency 누락을 분리할 기준선이 없다.
+- 관측 사례에서 `offer_mail_states`가 있는 `.py` 파일을 provider field 없이 Plugin runner로 요청했고,
+  CLI는 기본 TypeScript Language Server를 실행한 뒤 `Language Server exited (1):`로 실패했다. 이는 Python
+  Call Hierarchy 품질을 시험한 결과가 아니라 provider selection 이전 단계의 실패다.
 
 ## 조사 결과
 
@@ -83,6 +91,9 @@ Python/FastAPI 사용 개발자로서 설치 조합별로 검증된 지원 범�
   - **Extension lane**: 공식 VS Code + Python extension/Pylance, 공개 command 결과 capture
   - **CLI lane**: 재배포·실행 가능한 후보 server를 `--stdio`로 capability probe 후 실행
 - provider가 Call Hierarchy를 지원하지 않으면 실패가 아니라 명시적 `unsupported` baseline으로 기록한다.
+- provider 없는 요청, 명시 preset 요청과 raw custom 요청을 같은 fixture에서 비교하고 `selectedBy`를 기록한다.
+- 호환 Python provider가 없으면 TypeScript fallback 없이 `no_compatible_provider` 계열 상태와 설치/선택
+  안내를 반환한다. 최종 error code 이름은 `IL-LIM-003/004` 계약에서 확정한다.
 - 기대 결과를 `required static edges`, `framework-only expected gaps`, `provider-variable edges`로 분리한다.
 - Python preset 승격은 cross-file required edge, 안정성, license와 설정 재현성을 모두 통과해야 한다.
 
@@ -103,6 +114,7 @@ Python/FastAPI 사용 개발자로서 설치 조합별로 검증된 지원 범�
 2. prepare/incoming request 원본 응답과 Impact Lens 정규화 결과를 함께 capture한다.
 3. cold/warm run, timeout, process exit와 repeatability를 측정한다.
 4. source path·version 같은 비결정 값을 normalization한다.
+5. stderr-only crash와 provider 없는 `.py` 요청을 regression transcript로 고정한다.
 
 종료 조건: 같은 provider/version 3회 결과 차이를 자동 비교할 수 있다.
 
@@ -151,6 +163,8 @@ Python/FastAPI 사용 개발자로서 설치 조합별로 검증된 지원 범�
 | Extension | Pylance 일반 cross-file 호출 | 원본 provider와 Impact Lens 차이가 설명됨 |
 | FastAPI | Depends/decorator/sub-dependency | 원본 gap이 framework-only로 분류됨 |
 | Plugin | runner를 통한 Python analyze | 지원이면 graph, 미지원이면 actionable error 반환 |
+| Plugin | provider 없는 `.py` 요청 | Auto 선택 또는 Python provider 안내이며 TypeScript process는 실행되지 않음 |
+| 진단 | Python provider initialize crash | 선택 provider·실패 단계·exit와 redacted stderr가 보존됨 |
 
 ## rollout과 관측
 
@@ -164,4 +178,6 @@ Python/FastAPI 사용 개발자로서 설치 조합별로 검증된 지원 범�
 
 - CI에서 공식 VS Code/Pylance 설치를 지속적으로 허용할 수 있는지 정책 확인이 필요하다.
 - standalone Python server 중 Call Hierarchy와 cross-file fixture를 충족하는 후보가 실제로 있는지 spike가 필요하다.
+- Python executable/interpreter와 Language Server project environment를 자동 연결할 범위 및 virtualenv 탐색
+  우선순위를 정해야 한다.
 - provider별 결과 artifact를 저장소에 snapshot으로 둘지 CI artifact로 보관할지 결정해야 한다.
