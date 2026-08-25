@@ -188,8 +188,10 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
 - CLI는 `runtime` metadata와 `doctor bundled-typescript [--smoke]`를 제공하며 missing/unreadable/corrupt
   artifact, launch/initialize/capability/query를 구분한다.
 - packed E2E는 clean tarball bin과 Codex/Claude cache layout에서 TS/TSX/JS/JSX incoming-call을 검증한다.
-  macOS local 실행은 통과했고 Linux/macOS/Windows Node 22 workflow가 추가됐다.
+  macOS local 실행과 [PR #16의 Linux/macOS/Windows Node 22 실행](https://github.com/moelee835/Impact-Lens/actions/runs/32826288752)이
+  모두 통과했다.
 - exit 1·빈 stderr fixture도 initialize stage, exit code와 runner provenance를 보존한다. stderr가 없다는
   사실은 빈 문자열을 만들어내지 않고 해당 detail field 생략으로 표현한다.
-- 상태는 `In progress`를 유지한다. 구현 PR이 아직 없고 원격 Linux/Windows workflow, 실제 개인 Codex
-  marketplace cachebuster/reinstall 및 계획된 M0 사용자 검증을 실행하지 않았기 때문이다.
+- 구현은 [PR #16](https://github.com/moelee835/Impact-Lens/pull/16)에 연결했다. 상태는 `In progress`를
+  유지한다. PR이 아직 open이고 실제 Codex/Claude host 설치 smoke 및 계획된 M0 사용자 검증을 실행하지
+  않았기 때문이다.

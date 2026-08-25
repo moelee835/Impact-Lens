@@ -269,13 +269,42 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
   수정 Markdown local link, schema JSON과 `git diff --check`: 모두 통과.
 - `CHANGELOG.md` Unreleased에 runner provenance, Node preflight, bundled doctor와 packed Plugin E2E를 기록했다.
 
+### 2026-08-25 — 5단계 PR 항상 실행 gate
+
+- `.github/workflows/plugin-artifact-e2e.yml`의 pull request path filter를 제거했다. 구현 이후 결과를 기록하는
+  문서-only commit도 새 PR head가 되므로 Ubuntu/macOS/Windows required check가 생략되지 않아야 한다.
+- workflow가 `pull_request`, `workflow_dispatch`, `v*` tag에서 실행되고 3개 OS와 Node 22를 유지하는지 YAML
+  assertion으로 확인했다.
+- `npm run test:plugin-artifact`: macOS local clean tarball, Codex/Claude layout과 TS/TSX/JS/JSX 분석 통과.
+- `git diff --check`: 통과.
+- commit `c27955d`를 `origin/fix/il-lim-017-provider-runtime`에 push하고 local/upstream head 일치를 확인했다.
+
+### 2026-08-25 — 6단계 구현 PR과 원격 3-OS matrix
+
+- 누적 M0 구현 branch에서 `main` 대상 [PR #16](https://github.com/moelee835/Impact-Lens/pull/16)을 생성했다.
+  PR에는 limitation backlog, IL-LIM-003 provider transparency와 IL-LIM-017 runtime reliability가 함께 포함됨을
+  본문에 명시했다. PR은 open 상태이며 승인·merge는 수행하지 않았다.
+- 첫 원격 실행 [32826088306](https://github.com/moelee835/Impact-Lens/actions/runs/32826088306)에서 Ubuntu와
+  macOS는 통과했지만 Windows가 첫 `npm pack`에서 `spawnSync npm.cmd EINVAL`로 실패했다. provider나 tarball
+  결함이 아니라 Node가 Windows command shim을 직접 spawn한 harness 이식성 결함이었다.
+- `scripts/test-plugin-artifact-e2e.mjs`의 npm 호출을 OS별로 캡슐화했다. Windows는 `shell: true`의 quoting 및
+  injection 위험을 도입하지 않고 현재 npm이 제공한 `npm_execpath`를 `process.execPath`로 실행하며, POSIX는
+  기존 `npm` 직접 실행을 유지한다.
+- 수정 후 Node syntax, `git diff --check`, local `npm run test:plugin-artifact`가 통과했고 commit `a28609d`를
+  push했다.
+- 최신 구현 head의 원격 실행 [32826288752](https://github.com/moelee835/Impact-Lens/actions/runs/32826288752)에서
+  Ubuntu 30초, macOS 47초, Windows 2분 2초로 모두 통과했다. Windows도 clean package install, doctor와
+  Codex/Claude TS/TSX/JS/JSX fixture 전체를 완료했다.
+
 ### 계획과 실제 구현의 차이 및 남은 제한
 
 - 계획의 “Plugin cache 설치”는 실제 host가 만든 개인 cache를 변경하지 않고 임시 디렉터리에 동일 payload
   layout을 구성하는 hermetic E2E로 구현했다. 개인 marketplace 파일이 없어 plugin-creator cachebuster와
   실제 Codex reinstall은 수행하지 못했으며 성공으로 간주하지 않는다.
-- Linux/Windows는 workflow matrix를 정의했지만 이 branch push만으로 workflow가 실행되지 않았고 PR도 아직
-  없으므로 통과로 간주하지 않는다. macOS local 결과만 확보했다.
+- 최초 Windows 원격 실행은 `.cmd` 직접 spawn 호환성 결함으로 실패했고 `npm_execpath`를 Node로 실행하도록
+  계획에 없던 harness 수정을 추가했다. 수정된 PR head에서는 Linux/macOS/Windows가 모두 통과했다.
+- PR #16은 생성됐지만 아직 open이며 merge되지 않았다. 실제 host 설치 smoke와 계획된 M0 사용자 검증도
+  아직 완료되지 않았으므로 story와 마일스톤 상태는 `In progress`를 유지한다.
 - GitHub branch protection의 required check 설정은 저장소 외부 정책 변경이므로 수행하지 않았다. workflow는
   PR 관련 변경 및 `v*` tag에서 실행되지만 실제 merge/release 차단 여부는 repository 설정이 필요하다.
 - M0 사용자 테스트 명세는 사용자의 이전 지시대로 이번 단계에서 작성하거나 실행하지 않았다. M0 자동
