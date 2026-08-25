@@ -1,7 +1,7 @@
 # Agent용 CLI 개발 목표 및 상세 명세
 
 - Issue: [#11 Add an agent-oriented Impact Lens CLI](https://github.com/moelee835/Impact-Lens/issues/11)
-- 상태: 구현 및 자동 검증 완료, PR·merge·release 대기
+- 상태: 구현, 검증, PR, merge, Issue close 및 v0.4.0 release 완료
 - 최초 작성일: 2026-08-24
 - 구현 착수일: 2026-08-25
 - 대상 독자: Impact Lens CLI 구현자, 검토자, CLI를 호출하는 코드 에이전트
@@ -715,7 +715,7 @@ CLI 첫 정식 릴리스는 다음 조건을 모두 만족해야 한다.
 - CLI tarball을 새 `/tmp` prefix에 실제 설치했고 설치된 `impact-lens` binary로 `traverseIncoming` 분석에 성공했다. package dependency와 bin entry가 실제 artifact에서도 동작함을 확인했다.
 - root workspace에서 `pnpm audit --prod`를 실행하면 workspace directory key `cli`를 2016년의 별도 npm package `cli <1.0.0`으로 오인해 GHSA-6cpc-mj5c-m9rq를 보고했다. lockfile과 dependency graph에는 해당 package가 없다.
 - 실제 release tarball을 새 prefix에 설치해 생성된 production dependency tree를 `npm audit --omit=dev`로 검사했으며 `found 0 vulnerabilities`를 확인했다. 따라서 workspace audit 1건은 `@impact-lens/cli` dependency의 취약점이 아닌 importer path false positive로 기록한다.
-- 최종 VSIX SHA-256: `8ff88d9c9618b29092b91c5f8570fc8343e224f89a4d427721ce6ba4d9f65d6d`.
+- 구현 브랜치에서 생성한 VSIX SHA-256: `8ff88d9c9618b29092b91c5f8570fc8343e224f89a4d427721ce6ba4d9f65d6d`. ZIP timestamp가 포함되므로 병합된 main에서 release artifact를 다시 생성하고 아래 release digest를 최종 기준으로 사용했다.
 - 최종 CLI tarball SHA-256: `34e8e945e55ca935b180fcd9f9a37311e87fb10a9cb9b54283dc57bb37cf5e39`.
 
 ### 2026-08-25 — 계획과 실제 구현 차이 및 제한
@@ -726,3 +726,18 @@ CLI 첫 정식 릴리스는 다음 조건을 모두 만족해야 한다.
 - CLI Local은 Extension Personal과 통합하지 않는다. CLI Local을 Extension Graph에 표시하는 기능도 이번 범위가 아니다.
 - custom LSP는 command/args/languageId를 지원하지만 server-specific initialization options와 settings adapter는 제공하지 않는다.
 - 현재 환경에는 `code` CLI가 없어 새 VSIX를 Extension Development Host에서 수동 실행하지 못했다. 이 항목은 성공으로 간주하지 않는다. 대신 기존 Extension source 무변경, 32개 회귀 테스트, v0.3.3/v0.4.0 runtime byte comparison과 VSIX content 검증으로 자동 근거를 확보했다.
+
+### 2026-08-25 — PR, merge, Issue close 및 v0.4.0 release
+
+- 개발 목표 문서 기준 commit: `4f8b6b2` (`Document agent CLI development goals`).
+- 구현 commit: `bb72abc` (`Add isolated agent CLI (#11)`).
+- Pull Request: [#12 Add an isolated agent CLI](https://github.com/moelee835/Impact-Lens/pull/12).
+- PR #12가 mergeable이고 configured CI check가 없음을 확인한 뒤 merge commit `c658132af435d4b92982755032dcf3559f9637b5`로 병합했다.
+- PR의 `Closes #11`에 의해 GitHub Issue #11이 자동으로 닫혔음을 확인했다.
+- 병합된 main에서 `npm run test:all`을 다시 실행해 Extension 32개와 CLI 16개, 총 48개 테스트가 모두 통과했다.
+- 병합된 main에서 VSIX와 CLI tarball을 다시 생성했다.
+  - Release VSIX: 25 files, 126.13KB, SHA-256 `1e3214f7bc9747efc3bdbd9ab32101840a17bd9410080cd11dc618331cb6851e`.
+  - Release CLI tarball: 12 files, 17.9KB, SHA-256 `34e8e945e55ca935b180fcd9f9a37311e87fb10a9cb9b54283dc57bb37cf5e39`.
+- [Impact Lens v0.4.0](https://github.com/moelee835/Impact-Lens/releases/tag/v0.4.0)을 공개 release로 게시하고 두 artifact를 첨부했다.
+- release가 draft/prerelease가 아니며 tag `v0.4.0`이 merge commit `c658132af435d4b92982755032dcf3559f9637b5`를 가리킴을 확인했다.
+- GitHub가 보고한 두 asset digest가 병합된 main에서 만든 로컬 artifact SHA-256과 일치함을 확인했다.
