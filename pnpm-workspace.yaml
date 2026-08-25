@@ -1,3 +1,7 @@
+packages:
+  - .
+  - cli
+
 allowBuilds:
   '@vscode/vsce-sign': false
   keytar: false

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/moelee835/Impact-Lens/cli/schemas/request.schema.json",
+  "title": "Impact Lens Agent CLI stdin request",
+  "$defs": {
+    "position": {
+      "type": "object",
+      "required": ["line", "column"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "expectedSymbol": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "oneOf": [{ "type": "string" }, { "type": "integer" }] },
+        "detail": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": ["file", "position"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "position": { "$ref": "#/$defs/position" },
+        "expectedSymbol": { "$ref": "#/$defs/expectedSymbol" }
+      },
+      "additionalProperties": false
+    },
+    "provider": {
+      "type": "object",
+      "required": ["command"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "languageId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "title": "impact.analyze",
+      "type": "object",
+      "required": ["workspace", "file", "line", "column"],
+      "properties": {
+        "workspace": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 },
+        "depth": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "maxNodes": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "includeSource": { "enum": ["none", "declaration", "body"] },
+        "timeoutMs": { "type": "integer", "minimum": 1 },
+        "expectedSymbol": { "$ref": "#/$defs/expectedSymbol" },
+        "provider": { "$ref": "#/$defs/provider" }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "note.get or note mutation",
+      "type": "object",
+      "required": ["workspace", "target"],
+      "properties": {
+        "workspace": { "type": "string", "minLength": 1 },
+        "target": { "$ref": "#/$defs/target" },
+        "scope": { "enum": ["shared", "source", "local"] },
+        "text": { "type": "string" },
+        "apply": { "type": "boolean" },
+        "expectedToken": { "type": "string" },
+        "timeoutMs": { "type": "integer", "minimum": 1 },
+        "provider": { "$ref": "#/$defs/provider" }
+      },
+      "additionalProperties": false
+    },
+    {
+      "title": "note.list",
+      "type": "object",
+      "required": ["workspace"],
+      "properties": {
+        "workspace": { "type": "string", "minLength": 1 },
+        "scope": { "enum": ["shared", "source", "local"] }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

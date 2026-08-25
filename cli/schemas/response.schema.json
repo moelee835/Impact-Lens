@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/moelee835/Impact-Lens/cli/schemas/response.schema.json",
+  "title": "Impact Lens Agent CLI response envelope",
+  "type": "object",
+  "required": ["schemaVersion", "operation", "ok"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "operation": {
+      "enum": ["impact.analyze", "note.get", "note.list", "note.set", "note.delete", "unknown"]
+    },
+    "ok": { "type": "boolean" },
+    "data": { "type": "object" },
+    "capabilities": { "type": "object" },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "timings": { "type": "object" },
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "details": {}
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "ok": { "const": true } } },
+      "then": { "required": ["data", "capabilities", "limitations", "timings"] },
+      "else": { "required": ["error"] }
+    }
+  ],
+  "additionalProperties": false
+}

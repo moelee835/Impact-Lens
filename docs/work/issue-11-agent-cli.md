@@ -1,7 +1,9 @@
 # Agent용 CLI 개발 목표 및 상세 명세
 
-- 상태: 개발 목표와 안전 경계 명세 완료, 구현 착수 예정
-- 작성일: 2026-08-24
+- Issue: [#11 Add an agent-oriented Impact Lens CLI](https://github.com/moelee835/Impact-Lens/issues/11)
+- 상태: 구현 및 자동 검증 완료, PR·merge·release 대기
+- 최초 작성일: 2026-08-24
+- 구현 착수일: 2026-08-25
 - 대상 독자: Impact Lens CLI 구현자, 검토자, CLI를 호출하는 코드 에이전트
 - 기준 버전: Impact Lens v0.3.3
 
@@ -647,3 +649,80 @@ CLI 첫 정식 릴리스는 다음 조건을 모두 만족해야 한다.
 - `git diff --check`: 공백 오류 없음.
 - 이 시점에는 문서 외 코드, 설정, version 및 package artifact를 변경하지 않았다.
 - 사용자가 문서 완료 후 실제 구현, push, PR, merge 및 release까지 진행하도록 범위를 확대했다. 구현 결과와 계획 차이는 이후 로그에 계속 기록한다.
+
+### 2026-08-25 — 구현 범위 확정 및 Issue 등록
+
+- 구현과 릴리스 추적을 위해 GitHub Issue #11을 등록했다.
+- Issue가 생성됨에 따라 저장소 규칙에 맞게 문서 경로를 `docs/work/issue-11-agent-cli.md`로 변경했다.
+- 첫 정식 CLI와 Extension release version은 하위 호환 기능 추가에 해당하므로 v0.4.0을 목표로 한다.
+- TypeScript/JavaScript reference provider는 표준 LSP Call Hierarchy를 사용하는 독립 process로 구현한다.
+- 구현은 `cli/` package, root workspace/build scripts, VSIX 제외 설정, Agent CLI 문서와 release metadata로 한정한다. 기존 `src/**` Extension runtime과 Personal note storage는 변경하지 않는다.
+
+### 2026-08-25 — 독립 CLI와 LSP 분석 구현
+
+- `cli/`에 별도 package, TypeScript config, MIT license, README 및 version 1 request/response JSON Schema를 추가했다.
+- `cli/src/jsonRpc.ts`에 stdio `Content-Length` framing, request timeout, notification 수신, stderr 격리 및 graceful shutdown을 포함한 JSON-RPC client를 구현했다.
+- `cli/src/lspProvider.ts`가 독립 `typescript-language-server` process를 실행하고 LSP initialize, didOpen, prepareCallHierarchy, incomingCalls 및 publishDiagnostics를 처리하도록 구현했다.
+- 기본 provider는 TypeScript/JavaScript를 지원하고 custom provider 설정은 shell 평가 없이 executable, argument array 및 languageId를 받는다.
+- `cli/src/impact.ts`에 caller-to-callee 역방향 BFS, cycle/deduplication, depth/node truncation, call-site, 1-based range, deterministic symbol ID/order, source fragment, diagnostics 및 limitation metadata를 구현했다.
+- root target이 여러 개인 경우 첫 후보를 임의 선택하지 않고 expected symbol과 비교하며, 여전히 모호하면 candidate를 포함한 `target_ambiguous` 오류를 반환한다.
+- macOS의 `/var`와 `/private/var`처럼 lexical path와 realpath가 다른 경우를 발견해 workspace와 target을 realpath로 canonicalize했다. 이 보정 전에는 실제 caller가 workspace 밖으로 잘못 표시되는 통합 테스트 실패가 있었다.
+- `src/**`를 import하거나 수정하지 않았으며 CLI traversal과 test-path 판별은 초기 격리 원칙에 따라 독립 구현했다.
+
+### 2026-08-25 — Note CRUD와 mutation 안전장치 구현
+
+- `cli/src/notes.ts`에 Shared, Source comment 및 CLI Local note의 get/list/set/delete를 구현했다.
+- Shared는 기존 `.impact-lens/notes.json` version 1 identity와 fuzzy match 의미를 유지하고, 알 수 없는 top-level 및 entry field를 보존한다.
+- CLI Local은 `.impact-lens/notes.local.json`을 사용한다. 현재 저장소 `.gitignore`에 이를 추가했고, 대상 저장소에서 ignore되지 않았으면 `local_note_file_not_git_ignored` warning을 반환한다.
+- Source comment는 지원 확장자별 `//`, `#`, `--` prefix, declaration 위 5줄 탐색, indentation, CRLF/LF 및 마지막 newline을 보존한다.
+- mutation은 preview가 기본이며 apply에는 직전 preview/get의 SHA-256 conflict token이 필요하다. create/update는 upsert, delete는 별도 idempotent 명령으로 분리했다.
+- Shared/Local은 temporary file과 rename, Source는 전체 file replacement를 사용하며 기존 file mode를 보존한다.
+- file/document가 조회 후 바뀌었거나 expected symbol이 달라지면 overwrite하지 않고 conflict를 반환한다.
+- realpath 기준 workspace 밖으로 이어지는 symlink source mutation을 거부한다.
+- 결과에 before/after, applied/changed, effective note 전후, 새 conflict token 및 warning을 포함한다.
+- 기존 VS Code Personal note는 읽거나 쓰거나 migration하지 않고 모든 note 응답에서 `vscode_personal_notes_unavailable`을 명시한다.
+- 분석 중 같은 Shared/Local document를 node마다 다시 읽지 않도록 per-analysis cache를 추가하고 mutation 적용 후 invalidate한다.
+
+### 2026-08-25 — 명령, 문서, version 및 package 구성
+
+- `cli/src/index.ts`에 `analyze`, `note get`, `note list`, `note set`, `note delete`와 option/stdin JSON parsing을 구현했다.
+- 성공은 stdout compact JSON 하나, 실패는 stderr compact JSON 하나로 제한하고 exit code 0/2/3/4/5/6/10 계약을 적용했다.
+- root pnpm workspace에 `cli`를 추가하고 `cli:build`, `cli:test`, `test:all` script를 추가했다. script 내부 package 실행은 직접 pnpm binary가 없는 환경도 지원하도록 npm lifecycle을 사용한다.
+- root/CLI package version, CHANGELOG 및 문서를 v0.4.0으로 갱신했다.
+- README와 `docs/DEVELOPMENT.md`에 Agent CLI 명령, stdin JSON, note scope, conflict token, build/test/package 절차 및 제한을 반영했다.
+- CLI release tarball은 runtime `dist/*.js`, README, schema와 license만 포함하고 source/test output은 포함하지 않도록 package `files`를 제한했다.
+
+### 2026-08-25 — 테스트 및 회귀 검증
+
+- CLI test 16개를 구현했다.
+  - compact stdout/stderr, validation error, unknown field/option 및 provider failure contract 4개
+  - direct/transitive/test, cycle, depth/node limit, dangling edge 방지 및 ambiguity graph contract 4개
+  - 실제 TypeScript Language Server cross-file incoming-call integration 1개
+  - Shared CRUD/unknown field/conflict, Local, symlink, Source CRUD 및 source list 7개
+- CLI 13개 시점의 전체 테스트를 실제 Language Server integration을 포함해 3회 연속 실행했고 모두 통과했다. 이후 final audit에서 추가한 3개 회귀 테스트까지 포함한 최종 CLI 16개도 모두 통과했다.
+- `npm run test:all`: Extension 32개와 CLI 16개, 총 48개 테스트 모두 통과.
+- 최종 감사에서 node 제한 때문에 수집하지 않은 caller의 edge가 먼저 추가돼 dangling edge가 될 수 있는 순서 문제를 발견했다. unseen node는 node cap을 통과한 뒤에만 edge와 node를 함께 추가하도록 수정하고 전용 테스트를 추가했다.
+- Agent option과 stdin JSON의 unknown/duplicate field를 무시하면 오타가 잘못된 기본 동작으로 이어질 수 있어 operation별 allowlist validation을 추가했다.
+- Language Server executable이 없거나 initialize에 실패한 경우 stdin error나 장시간 dispose 대기 없이 `provider_unavailable`, exit 5를 반환하도록 JSON-RPC child lifecycle을 보강했다.
+- `git diff --check`: 공백 오류 없음.
+- JSON request/response schema를 Node JSON parser로 검증했다.
+- 실제 CLI로 `src/callGraph.ts`의 `traverseIncoming`을 depth 2로 분석해 cross-file Direct/Transitive/Test node, caller-to-callee edge, call-site, source declaration, note layer와 depth truncation을 compact JSON으로 확인했다.
+- 실제 CLI로 같은 symbol의 `note get`과 Shared `note set` preview를 실행해 1-based target identity, conflict token, effectiveBefore/effectiveAfter를 확인했으며 apply하지 않아 repository note file은 생성되지 않았다.
+- 첫 VSIX package에는 pnpm workspace의 CLI production dependency가 잘못 따라 들어가 9,105 files, 23.69MB가 포함됐다. `node_modules/**`와 `cli/**`를 `.vscodeignore`에서 명시적으로 제외한 뒤 재패키징했다.
+- 최종 `/tmp/impact-lens-0.4.0.vsix`: 25 files, 126.13KB. CLI, node_modules, docs, source 및 test output이 포함되지 않았다.
+- v0.3.3과 v0.4.0 VSIX의 `extension/out` 디렉터리를 파일별 비교했고 차이가 없었다. CLI 추가로 기존 Extension runtime JavaScript가 변경되지 않았음을 확인했다.
+- 최종 `/tmp/impact-lens-cli-0.4.0.tgz`: 12 files, 17.9KB. CLI test와 TypeScript source는 포함되지 않았다.
+- CLI tarball을 새 `/tmp` prefix에 실제 설치했고 설치된 `impact-lens` binary로 `traverseIncoming` 분석에 성공했다. package dependency와 bin entry가 실제 artifact에서도 동작함을 확인했다.
+- root workspace에서 `pnpm audit --prod`를 실행하면 workspace directory key `cli`를 2016년의 별도 npm package `cli <1.0.0`으로 오인해 GHSA-6cpc-mj5c-m9rq를 보고했다. lockfile과 dependency graph에는 해당 package가 없다.
+- 실제 release tarball을 새 prefix에 설치해 생성된 production dependency tree를 `npm audit --omit=dev`로 검사했으며 `found 0 vulnerabilities`를 확인했다. 따라서 workspace audit 1건은 `@impact-lens/cli` dependency의 취약점이 아닌 importer path false positive로 기록한다.
+- 최종 VSIX SHA-256: `8ff88d9c9618b29092b91c5f8570fc8343e224f89a4d427721ce6ba4d9f65d6d`.
+- 최종 CLI tarball SHA-256: `34e8e945e55ca935b180fcd9f9a37311e87fb10a9cb9b54283dc57bb37cf5e39`.
+
+### 2026-08-25 — 계획과 실제 구현 차이 및 제한
+
+- 초기 reference provider를 조사 단계에서 미확정으로 두었으나 구현에서는 `typescript-language-server` 6.0.0과 TypeScript 5.9.x를 선택했다. 실제 표준 Call Hierarchy integration test가 가능하고 별도 VS Code process가 필요 없기 때문이다.
+- 상세 명세의 분리된 initialize/index/traversal timing 대신 첫 릴리스에서는 정확히 측정 가능한 total timing만 제공한다. Language Server별 indexing completion 신호가 표준화되지 않아 허위 세부 timing을 만들지 않기 위함이며 후속 측정 항목으로 남긴다.
+- Source `note list`는 명시적 source scan에서 file, line, text를 반환하지만 모든 언어의 declaration symbol과 자동 연결하지 않는다. 특정 Source note CRUD는 provider로 target symbol을 다시 확인한다.
+- CLI Local은 Extension Personal과 통합하지 않는다. CLI Local을 Extension Graph에 표시하는 기능도 이번 범위가 아니다.
+- custom LSP는 command/args/languageId를 지원하지만 server-specific initialization options와 settings adapter는 제공하지 않는다.
+- 현재 환경에는 `code` CLI가 없어 새 VSIX를 Extension Development Host에서 수동 실행하지 못했다. 이 항목은 성공으로 간주하지 않는다. 대신 기존 Extension source 무변경, 32개 회귀 테스트, v0.3.3/v0.4.0 runtime byte comparison과 VSIX content 검증으로 자동 근거를 확보했다.

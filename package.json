@@ -3,13 +3,14 @@
   "displayName": "Impact Lens",
   "description": "Explore the potential impact of changing a function using VS Code language services.",
   "icon": "media/impact-lens.png",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/moelee835/Impact-Lens.git"
   },
+  "packageManager": "pnpm@10.34.5",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -170,6 +171,9 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "tsc -p ./ && node --test out/test/*.test.js",
+    "cli:build": "npm --prefix cli run build",
+    "cli:test": "npm --prefix cli test",
+    "test:all": "npm test && npm run cli:test",
     "vscode:prepublish": "npm run compile"
   },
   "devDependencies": {
