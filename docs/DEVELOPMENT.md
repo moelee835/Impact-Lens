@@ -53,6 +53,7 @@ git switch -c <branch-name>
 - `src/impactTreeProvider.ts`: Impact Explorer 트리
 - `src/noteStore.ts`: Personal, Shared 및 source comment 노트 저장
 - `src/test/*.test.ts`: Node test runner 기반 자동 테스트
+- `cli/`: Extension과 격리된 Agent CLI package, LSP provider, note adapter 및 CLI 테스트
 - `package.json`: 명령, 설정, 버전, Extension manifest
 - `CHANGELOG.md`: 버전별 사용자 변경 내역
 
@@ -93,6 +94,22 @@ Python/FastAPI는 설치된 Python extension과 language server가 제공하는 
 pnpm test
 ```
 
+Agent CLI까지 포함한 전체 검증은 다음과 같다.
+
+```sh
+pnpm run test:all
+```
+
+CLI만 반복 개발할 때는 별도 package 명령을 사용한다.
+
+```sh
+pnpm run cli:build
+pnpm run cli:test
+node cli/dist/index.js analyze --workspace . --file src/callGraph.ts --line 12 --column 23
+```
+
+CLI 테스트에는 compact JSON stdout/stderr 계약, BFS와 제한 처리, note preview/apply/conflict/delete 및 실제 TypeScript Language Server cross-file fixture가 포함된다. CLI는 기존 `src/**` runtime을 import하지 않으며 VSIX에서 제외되어야 한다.
+
 이 script는 TypeScript를 먼저 컴파일한 후 `out/test/*.test.js`를 Node test runner로 실행한다. 성공 결과에서 `fail 0`을 확인한다.
 
 호출 그래프나 live state처럼 순서와 상태에 민감한 변경은 여러 번 반복한다.
@@ -120,12 +137,12 @@ git diff --check
 
 ```json
 {
-  "version": "0.3.3"
+  "version": "0.4.0"
 }
 ```
 
 ```md
-## 0.3.3
+## 0.4.0
 
 - Fix or feature summary.
 ```
@@ -140,7 +157,7 @@ git diff --check
 pnpm test
 pnpm run compile
 git diff --check
-pnpm exec vsce package --out /tmp/impact-lens-0.3.3.vsix
+pnpm exec vsce package --out /tmp/impact-lens-0.4.0.vsix
 ```
 
 `vsce package`는 `vscode:prepublish` script를 실행한 뒤 VSIX에 포함된 파일 목록을 출력한다. 최소한 다음 항목을 확인한다.
@@ -160,7 +177,7 @@ unzip -l /tmp/impact-lens-0.3.3.vsix
 artifact checksum을 생성한다.
 
 ```sh
-shasum -a 256 /tmp/impact-lens-0.3.3.vsix
+shasum -a 256 /tmp/impact-lens-0.4.0.vsix
 ```
 
 릴리스에 첨부한 파일의 digest와 이 값을 비교한다.
@@ -170,7 +187,7 @@ shasum -a 256 /tmp/impact-lens-0.3.3.vsix
 `code` CLI가 PATH에 있다면 기존 설치를 덮어쓴다.
 
 ```sh
-code --install-extension /tmp/impact-lens-0.3.3.vsix --force
+code --install-extension /tmp/impact-lens-0.4.0.vsix --force
 ```
 
 설치 후 VS Code에서 `Developer: Reload Window`를 실행한다.
@@ -197,6 +214,14 @@ git diff --stat
 작업 문서에 실제 결과와 수행하지 못한 수동 검증을 기록한다. 관련 테스트가 모두 통과하면 구현, 테스트, CHANGELOG와 작업 문서를 함께 커밋한다.
 
 Pull Request를 병합한 뒤 최종 `main`에서 VSIX를 다시 생성한다. GitHub Release를 발행할 때는 tag가 해당 `main` merge commit을 가리키는지, release가 draft/prerelease가 아닌지, VSIX asset의 digest가 로컬 checksum과 같은지 확인한다.
+
+CLI release artifact도 함께 만들 때는 다음을 실행한다.
+
+```sh
+pnpm --dir cli pack --pack-destination /tmp
+```
+
+생성된 CLI tarball의 파일 목록에 `dist/**`, `README.md`, `schemas/**`만 포함되는지 확인한다. CLI package는 VSIX에 포함하지 않고 GitHub Release asset으로 별도 배포한다.
 
 ## 문제 해결
 

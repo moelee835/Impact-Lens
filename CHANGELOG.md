@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- Add an isolated Agent CLI with compact, versioned JSON responses and stable error exit codes.
+- Analyze TypeScript and JavaScript incoming calls through an independent Language Server process.
+- Return Direct, Transitive, and Test nodes, call sites, diagnostics, traversal limits, source fragments, notes, capabilities, and limitations.
+- Add Shared, source-comment, and CLI-local note get/list/set/delete operations.
+- Protect note mutations with preview-by-default behavior, explicit apply, conflict tokens, atomic writes, and symbol identity checks.
+- Keep VS Code Personal notes and the existing Extension runtime path unchanged, and exclude CLI files and dependencies from VSIX packages.
+
 ## 0.3.3
 
 - Show Direct, Transitive, and Test relation markers, labels, hop counts, and visible category counts in the graph.

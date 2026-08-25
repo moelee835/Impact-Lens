@@ -2,7 +2,7 @@
 
 Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범위를 VS Code 안에서 탐색하는 로컬 확장 프로그램입니다. 별도 AI 에이전트나 클라우드 분석 없이, 현재 언어 확장이 제공하는 Call Hierarchy를 사용합니다.
 
-## v0.3.3 기능
+## v0.4.0 기능
 
 - 커서가 위치한 함수의 직접 호출자와 간접 호출자 탐색
 - 프로젝트 범위 cross-file 호출 탐색과 기본 분석 depth 5(최대 20)
@@ -28,6 +28,10 @@ Impact Lens는 현재 수정하려는 함수의 호출자와 잠재 영향 범�
 - 코드 변경 후 관련 테스트 결과를 `Outdated`로 표시
 - 그래프 노드별 수동 검토 상태
 - 동적 호출처럼 언어 서버가 확인하지 못하는 관계는 결과에 포함되지 않는 정적 분석 방식
+- 코드 Agent를 위한 독립 `impact-lens` CLI와 compact JSON 응답
+- CLI의 TypeScript/JavaScript incoming-call 분석, call-site, source 및 completeness 출력
+- Shared·Source comment·CLI Local 함수 노트의 조회, 목록, 입력, 수정 및 삭제
+- preview, conflict token 및 명시적 apply로 보호되는 CLI note mutation
 
 ## 라이브 변경 영향
 
@@ -92,6 +96,49 @@ Python에서는 `# @impact-note`, SQL과 Lua에서는 `-- @impact-note`를 사�
 - `Impact Lens: Refresh`
 - `Impact Lens: Clear Live Change Session`
 
+## Agent CLI
+
+CLI는 VS Code Extension process와 분리되어 동작하며 사람용 table이나 interactive prompt를 출력하지 않습니다. 성공 시 stdout에 compact JSON document 하나를 출력하고, 실패 시 stderr에 JSON error 하나와 non-zero exit code를 반환합니다.
+
+빌드하고 전체 CLI 테스트를 실행합니다.
+
+```sh
+pnpm run cli:build
+pnpm run cli:test
+```
+
+TypeScript 또는 JavaScript 함수의 incoming-call 영향을 조회합니다. 모든 외부 좌표는 1-based입니다.
+
+```sh
+node cli/dist/index.js analyze \
+  --workspace /path/to/project \
+  --file src/order.ts \
+  --line 42 \
+  --column 17 \
+  --depth 5 \
+  --max-nodes 120
+```
+
+Agent 통합에서는 shell escaping을 피할 수 있도록 stdin JSON을 canonical 입력으로 사용합니다.
+
+```sh
+node cli/dist/index.js analyze --stdin < analyze-request.json
+node cli/dist/index.js note get --stdin < note-get-request.json
+node cli/dist/index.js note list --workspace /path/to/project --scope shared
+node cli/dist/index.js note set --stdin < note-set-request.json
+node cli/dist/index.js note delete --stdin < note-delete-request.json
+```
+
+`note set`과 `note delete`는 기본적으로 preview만 반환합니다. 실제 변경에는 `apply: true`와 직전 get/preview가 반환한 `expectedToken`이 모두 필요합니다.
+
+- `shared`: `.impact-lens/notes.json`을 사용하며 Extension과 공유
+- `source`: 함수 선언 위 `@impact-note`를 변경
+- `local`: Git에서 제외되는 `.impact-lens/notes.local.json`을 사용하며 CLI에서만 조회
+
+기존 Personal note는 VS Code `workspaceState`에 그대로 유지됩니다. standalone CLI는 이를 읽거나 수정하지 않으며 응답의 `capabilities`와 `limitations`에 이 사실을 표시합니다. 저장하지 않은 editor buffer와 동적 호출도 CLI가 실제 부재로 추정하지 않습니다.
+
+CLI 명령, JSON 예제, note scope 및 build 방법은 [CLI README](cli/README.md), 전체 안전 경계와 단계별 목표는 [Issue #11 작업 문서](docs/work/issue-11-agent-cli.md)를 참고하세요.
+
 ## 요구 사항
 
 대상 언어의 VS Code 확장이 Call Hierarchy를 제공해야 합니다. Impact Lens는 URI로 파일을 제한하지 않으므로 언어 서비스가 제공한 cross-file 호출자는 프로젝트 전체에서 수집합니다. JavaScript/TypeScript, Java, C/C++, C#, Go, Rust 등은 각 언어 확장의 지원 범위에 따라 동작합니다.
@@ -117,14 +164,17 @@ Test 분류는 `test`, `tests`, `spec`, `specs`, `__tests__` 디렉터리와 `.t
 - `ImpactTreeProvider`: 사이드바 영향 트리
 - `GraphPanel`: 함수 노트가 포함된 로컬 Webview 그래프
 - `ImpactCodeLensProvider`: 함수 선언 위 인라인 진입점
+- `cli/`: Agent용 독립 JSON CLI, LSP provider 및 note adapter
 
 ## 개발 검증
 
 ```sh
 pnpm run compile
 pnpm test
+pnpm run cli:test
+pnpm run test:all
 git diff --check
-pnpm exec vsce package --out /tmp/impact-lens-0.3.3.vsix
+pnpm exec vsce package --out /tmp/impact-lens-0.4.0.vsix
 ```
 
 환경 준비, 코드 구조, 반복 테스트, Extension Development Host smoke test, 버전 변경, VSIX 설치 및 릴리스 전 점검은 [Impact Lens 개발 가이드](docs/DEVELOPMENT.md)를 참고하세요.

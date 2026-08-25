@@ -4,9 +4,11 @@ AGENTS.md
 .vscode/**
 docs/**
 .pnpm-store/**
+node_modules/**
 pnpm-lock.yaml
 pnpm-workspace.yaml
 src/**
+cli/**
 out/test/**
 tsconfig.json
 **/*.map
