@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- Add a repository-backed Codex plugin that teaches Codex to analyze incoming-call impact and manage function notes through the Agent CLI.
+- Add a safe CLI runner that resolves a local build, a global installation, or the pinned release package without shell-evaluating user input.
+- Preserve preview, explicit apply, and conflict-token safeguards for Codex note mutations.
+- Add repository marketplace metadata and installation instructions for the Codex plugin.
+- Redesign the README as a product landing page with a new Impact Lens graph-and-lens hero.
+- Exclude Codex plugin and marketplace files from VSIX packages while retaining the README marketing asset.
+
 ## 0.4.0
 
 - Add an isolated Agent CLI with compact, versioned JSON responses and stable error exit codes.

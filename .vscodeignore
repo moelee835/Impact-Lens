@@ -2,6 +2,7 @@
 .gitignore
 AGENTS.md
 .vscode/**
+.agents/**
 docs/**
 .pnpm-store/**
 node_modules/**
@@ -9,6 +10,7 @@ pnpm-lock.yaml
 pnpm-workspace.yaml
 src/**
 cli/**
+plugins/**
 out/test/**
 tsconfig.json
 **/*.map

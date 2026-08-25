@@ -1,0 +1,58 @@
+#!/bin/sh
+
+set -eu
+
+impact_lens_plugin_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+impact_lens_repo_entry="$impact_lens_plugin_dir/../../cli/dist/index.js"
+impact_lens_release_package="${IMPACT_LENS_CLI_PACKAGE:-https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-cli-0.5.0.tgz}"
+
+impact_lens_error() {
+  printf '%s\n' '{"schemaVersion":1,"operation":"unknown","ok":false,"error":{"code":"cli_unavailable","message":"Impact Lens CLI is unavailable. Install Node.js 22+ and npm, install @impact-lens/cli globally, build cli/dist/index.js, or set IMPACT_LENS_CLI_PATH.","retryable":false}}' >&2
+  exit 127
+}
+
+impact_lens_run_path() {
+  impact_lens_candidate=$1
+  shift
+
+  if [ ! -f "$impact_lens_candidate" ]; then
+    impact_lens_error
+  fi
+
+  case "$impact_lens_candidate" in
+    *.js)
+      command -v node >/dev/null 2>&1 || impact_lens_error
+      exec node "$impact_lens_candidate" "$@"
+      ;;
+    *)
+      if [ ! -x "$impact_lens_candidate" ]; then
+        impact_lens_error
+      fi
+      exec "$impact_lens_candidate" "$@"
+      ;;
+  esac
+}
+
+if [ -n "${IMPACT_LENS_CLI_PATH:-}" ]; then
+  impact_lens_run_path "$IMPACT_LENS_CLI_PATH" "$@"
+fi
+
+if [ -f "$impact_lens_repo_entry" ]; then
+  impact_lens_run_path "$impact_lens_repo_entry" "$@"
+fi
+
+if command -v impact-lens >/dev/null 2>&1; then
+  exec impact-lens "$@"
+fi
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  impact_lens_error
+fi
+
+impact_lens_node_major=$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null) || impact_lens_error
+if [ "$impact_lens_node_major" -lt 22 ]; then
+  impact_lens_error
+fi
+
+export npm_config_loglevel="${npm_config_loglevel:-error}"
+exec npm exec --yes --package="$impact_lens_release_package" -- impact-lens "$@"
