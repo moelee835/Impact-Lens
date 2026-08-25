@@ -16,6 +16,21 @@
 - 스토리 상태와 수용 기준이 바뀌면 해당 파일과 이 인덱스를 함께 갱신한다.
 - `Done`으로 변경할 때 구현 PR, 검증 결과와 남은 제한 사항을 스토리에 연결한다.
 
+## 상세 계획 읽는 법
+
+각 스토리의 초기 문제 정의 뒤에는 현재 코드 기준선, 공식 표준·도구 조사, 대안 비교와 권장 대응이
+이어진다. `단계별 계획`의 각 단계는 별도 GitHub Issue로 분리할 수 있는 크기를 목표로 하며,
+단계의 종료 조건을 충족하기 전에는 다음 단계의 지원을 공식화하지 않는다.
+
+공통 설계 원칙은 다음과 같다.
+
+- **근거 우선**: Language Server, 정적 추론과 runtime 관측 결과의 출처를 섞지 않는다.
+- **안전 기본값**: 모호한 관계나 주석 문법을 추측하지 않고 limitation 또는 unsupported로 반환한다.
+- **host 경계 유지**: VS Code 전용 API·Pylance와 독립 CLI에서 실행 가능한 LSP를 구분한다.
+- **점진적 계약 변경**: CLI JSON은 optional field를 먼저 추가하고 schema 제거·이름 변경은 version을 올린다.
+- **검증 후 지원 선언**: 실제 provider/version fixture가 없는 언어·pattern은 verified support로 표시하지 않는다.
+- **사용자 실행권 보존**: 프로그램, test와 framework app을 자동 실행하지 않고 명시적 입력·승인을 요구한다.
+
 ## 한계점 백로그
 
 | 순위 | ID | 우선순위 | 스토리 | 주요 적용 영역 | 상태 |
@@ -42,6 +57,18 @@
 4. `IL-LIM-009`로 사용자가 결과를 과신하지 않도록 완료·부분 결과 의미를 정리한다.
 5. `IL-LIM-001`, `IL-LIM-002`에서 provenance가 표시된 보조 관계를 단계적으로 도입한다.
 6. `IL-LIM-007`부터 `IL-LIM-013`까지 규모, workflow와 기능별 제약을 독립적으로 개선한다.
+
+영향도 순위는 `IL-LIM-001`부터 내림차순이지만 실제 착수는 공통 기반인 `003 → 006 → 005 → 004 → 009`
+순서를 권장한다. 이후 `001`과 `002`를 진행해야 추론 edge를 기존 Language Server edge와 구분하고
+Python/FastAPI 개선 효과를 기준선과 비교할 수 있다.
+
+| 실행 wave | 스토리 | 목적 |
+| --- | --- | --- |
+| 0 | IL-LIM-003 1단계, IL-LIM-006 1~2단계 | provenance·coverage 계약과 Python 기준선 확보 |
+| 1 | IL-LIM-005, IL-LIM-004, IL-LIM-009 | LSP client 기반, 검증된 preset과 완료 의미 정립 |
+| 2 | IL-LIM-001, IL-LIM-002 | 출처가 표시된 동적·framework 보조 관계 도입 |
+| 3 | IL-LIM-007, IL-LIM-008, IL-LIM-010 | 편집 overlay, 대형 graph와 테스트 후보 workflow 개선 |
+| 4 | IL-LIM-011, IL-LIM-012, IL-LIM-013 | 언어별 callable·note 기능 확장 |
 
 ## 디렉터리 구조
 
