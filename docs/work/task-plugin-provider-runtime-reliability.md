@@ -294,3 +294,17 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
 - workflow YAML event/job과 Ubuntu/macOS/Windows Node 22 matrix 정적 검사: 통과.
 - `npm run test:plugin-artifact`: clean install, Codex/Claude layout과 TS/TSX/JS/JSX release fallback 모두 통과.
 - `git diff --check`: 통과.
+
+### 2026-08-25 — 6단계 PR 생성과 첫 원격 matrix 결과
+
+- Git credential을 process-local `GH_TOKEN`으로만 사용해 기존 열린 PR이 없음을 확인하고 main 대상
+  [PR #16](https://github.com/moelee835/Impact-Lens/pull/16)을 생성했다. PR은 선행 IL-LIM-003, 개발 관리
+  backlog/milestone과 IL-LIM-017 runtime 구현을 함께 포함하며 사용자 테스트는 제외한다고 본문에 명시했다.
+- 첫 workflow run `32826088306`에서 Ubuntu(33초)와 macOS(35초)는 통과했고 Windows는 43초에 실패했다.
+- Windows log에서 provider 실행 전 `spawnSync npm.cmd EINVAL`을 확인했다. 이는 Language Server나 tarball
+  문제가 아니라 Node가 Windows command shim을 shell 없이 직접 spawn한 harness portability 결함이다.
+- `shell: true`로 우회하면 path/argument escaping 계약이 약해지므로 사용하지 않았다. Windows에서는
+  `npm run`이 제공한 `npm_execpath`를 현재 `process.execPath`로 실행하고 POSIX에서는 기존 `npm` binary를
+  유지하도록 `scripts/test-plugin-artifact-e2e.mjs`를 수정했다.
+- 수정 후 Node syntax, `git diff --check`와 local `npm run test:plugin-artifact`: 모두 통과. 다음 commit/push로
+  PR matrix를 다시 실행한다.

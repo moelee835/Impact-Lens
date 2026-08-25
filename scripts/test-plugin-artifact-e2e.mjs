@@ -6,7 +6,12 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmInvocation = process.platform === 'win32'
+  ? {
+      command: process.execPath,
+      prefixArgs: [requiredNpmExecPath()],
+    }
+  : { command: 'npm', prefixArgs: [] };
 const shell = process.platform === 'win32' ? findExecutable('bash.exe', 'bash') : '/bin/sh';
 const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'impact-lens-plugin-artifact-'));
 
@@ -16,7 +21,7 @@ try {
   const cleanPrefix = path.join(temporary, 'clean-prefix');
   await fs.mkdir(artifacts, { recursive: true });
 
-  const packed = run(npm, ['pack', '--json', '--pack-destination', artifacts], {
+  const packed = runNpm(['pack', '--json', '--pack-destination', artifacts], {
     cwd: path.join(repository, 'cli'),
     env: { npm_config_cache: npmCache, npm_config_loglevel: 'silent' },
   });
@@ -24,14 +29,14 @@ try {
   assert.ok(Array.isArray(packResult) && typeof packResult[0]?.filename === 'string', packed.stdout);
   const tarball = path.join(artifacts, packResult[0].filename);
 
-  run(npm, [
+  runNpm([
     'install', '--prefix', cleanPrefix, '--no-package-lock', '--ignore-scripts', '--no-audit', '--no-fund', tarball,
   ], {
     env: { npm_config_cache: npmCache, npm_config_loglevel: 'error' },
     timeout: 300000,
   });
 
-  const installedDoctor = run(npm, [
+  const installedDoctor = runNpm([
     'exec', '--prefix', cleanPrefix, '--offline', '--', 'impact-lens', 'doctor', 'bundled-typescript', '--smoke',
   ], {
     env: { npm_config_cache: npmCache, npm_config_loglevel: 'error' },
@@ -145,6 +150,10 @@ function run(command, args, options = {}) {
   return result;
 }
 
+function runNpm(args, options = {}) {
+  return run(npmInvocation.command, [...npmInvocation.prefixArgs, ...args], options);
+}
+
 function parseEnvelope(stdout) {
   const lines = stdout.trim().split(/\r?\n/).filter(Boolean);
   assert.equal(lines.length, 1, `Expected one JSON line, received:\n${stdout}`);
@@ -164,6 +173,14 @@ function findExecutable(...names) {
     }
   }
   throw new Error('Git Bash is required to execute the Plugin runner on Windows.');
+}
+
+function requiredNpmExecPath() {
+  const value = process.env.npm_execpath;
+  if (!value) {
+    throw new Error('Run this E2E through npm so Windows can invoke npm-cli.js without shell evaluation.');
+  }
+  return value;
 }
 
 function requireExecutable(candidate) {
