@@ -296,44 +296,37 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
   Ubuntu 30초, macOS 47초, Windows 2분 2초로 모두 통과했다. Windows도 clean package install, doctor와
   Codex/Claude TS/TSX/JS/JSX fixture 전체를 완료했다.
 
+### 2026-08-25 — 7단계 실제 Codex/Claude host 설치 smoke
+
+- `plugin-creator` 절차에 따라 설치 전에 marketplace와 inventory를 확인했다. 기본 개인 marketplace 경로
+  `/Users/woony6/.agents/plugins/marketplace.json`은 없지만 저장소의 명시적 Codex marketplace 이름은
+  `personal`로 검증됐다. Codex 0.149.1에는 curated marketplace만, Claude Code 2.1.245에는 설치 Plugin이
+  없었으므로 기존 사용자 Plugin을 갱신하거나 cachebuster를 적용하지 않았다.
+- 저장소 루트를 로컬 marketplace로 등록하고 `impact-lens@personal`을 Codex에,
+  `impact-lens@impact-lens`를 Claude local scope에 설치했다. 두 inventory 모두 version 0.1.0과 enabled 상태를
+  반환했고 Claude component inventory에서 skills 3개를 확인했다.
+- 설치된 두 cache runner를 override 없이 실행하면 고정 공개 v0.5.0 CLI가 새 doctor subcommand를 알지 못해
+  모두 `invalid_request: Unexpected argument: bundled-typescript`를 반환했다. 설치 성공과 현재 공개 artifact의
+  계약 호환 실패를 분리했으며 이 결과를 사용자 테스트 준비 완료로 간주하지 않는다.
+- 현재 branch의 CLI를 격리 npm cache로 pack한 22,771-byte release candidate를 실제 두 cache runner의
+  `IMPACT_LENS_CLI_PACKAGE`에 주입했다. 두 runner 모두 `release-fallback` provenance로 doctor smoke에 성공했고
+  Node 25.8.1, TypeScript Language Server 6.0.0, TypeScript 5.9.3과 Call Hierarchy capability를 확인했다.
+- 같은 실제 cache runner에서 TypeScript 원본과 빌드 JavaScript 분석을 각각 실행했다. 총 4건 모두 bundled
+  provider의 query-ready 성공 응답을 반환했고 TypeScript 분석은 `cli/src/index.ts`의 direct caller를 찾았다.
+- 기본 `~/.npm` cache에는 root 소유 파일이 있어 첫 local pack이 `EPERM`으로 실패했다. 사용자 홈 권한을
+  변경하지 않고 `/private/tmp` 격리 cache로 재실행해 성공했다. runner의 npm pre-CLI 오류는 아직 단일 JSON
+  envelope가 아니므로 기존 후속 UX 과제로 유지한다.
+- 기록 commit `f85395c`에서 재실행된 원격 [run 32826658345](https://github.com/moelee835/Impact-Lens/actions/runs/32826658345)도
+  Ubuntu 37초, macOS 41초, Windows 1분 16초로 모두 통과했다.
+
 ### 계획과 실제 구현의 차이 및 남은 제한
 
-- 계획의 “Plugin cache 설치”는 실제 host가 만든 개인 cache를 변경하지 않고 임시 디렉터리에 동일 payload
-  layout을 구성하는 hermetic E2E로 구현했다. 개인 marketplace 파일이 없어 plugin-creator cachebuster와
-  실제 Codex reinstall은 수행하지 못했으며 성공으로 간주하지 않는다.
 - 최초 Windows 원격 실행은 `.cmd` 직접 spawn 호환성 결함으로 실패했고 `npm_execpath`를 Node로 실행하도록
-  계획에 없던 harness 수정을 추가했다. 수정된 PR head에서는 Linux/macOS/Windows가 모두 통과했다.
-- PR #16은 생성됐지만 아직 open이며 merge되지 않았다. 실제 host 설치 smoke와 계획된 M0 사용자 검증도
-  아직 완료되지 않았으므로 story와 마일스톤 상태는 `In progress`를 유지한다.
-- GitHub branch protection의 required check 설정은 저장소 외부 정책 변경이므로 수행하지 않았다. workflow는
-  PR 관련 변경 및 `v*` tag에서 실행되지만 실제 merge/release 차단 여부는 repository 설정이 필요하다.
-- M0 사용자 테스트 명세는 사용자의 이전 지시대로 이번 단계에서 작성하거나 실행하지 않았다. M0 자동
-  E2E가 PR matrix를 통과한 뒤 별도 단계에서 제안할 예정이다.
-- 첫 release fallback의 npm network/proxy 실패는 CLI가 시작되기 전 npm stderr로 나타날 수 있다. 설치된
-  provider crash와는 구분되지만 아직 runner의 단일 JSON envelope로 정규화되지 않아 후속 UX 보완이 필요하다.
-- IL-LIM-017의 local 수용 기준은 충족했으나 구현 PR, 원격 3-OS 결과와 실제 사용자/host cache 검증이 없어
-  story와 M0는 `In progress`를 유지한다.
-
-### 2026-08-25 — 5단계 PR 항상 실행 OS gate 보강
-
-- PR head가 문서-only 기록 commit으로 바뀌면 path-filtered required workflow가 skipped/pending 상태가 될 수
-  있음을 발견했다. `.github/workflows/plugin-artifact-e2e.yml`의 `pull_request.paths`를 제거해 모든 PR
-  revision에서 packed Plugin E2E가 실행되게 했다. `v*` tag와 수동 trigger는 유지했다.
-- GitHub-hosted runner 자체가 사용자 GUI/원격 PC를 대신하므로 이 단계는 GUI 환경을 요구하지 않는다.
-- workflow YAML event/job과 Ubuntu/macOS/Windows Node 22 matrix 정적 검사: 통과.
-- `npm run test:plugin-artifact`: clean install, Codex/Claude layout과 TS/TSX/JS/JSX release fallback 모두 통과.
-- `git diff --check`: 통과.
-
-### 2026-08-25 — 6단계 PR 생성과 첫 원격 matrix 결과
-
-- Git credential을 process-local `GH_TOKEN`으로만 사용해 기존 열린 PR이 없음을 확인하고 main 대상
-  [PR #16](https://github.com/moelee835/Impact-Lens/pull/16)을 생성했다. PR은 선행 IL-LIM-003, 개발 관리
-  backlog/milestone과 IL-LIM-017 runtime 구현을 함께 포함하며 사용자 테스트는 제외한다고 본문에 명시했다.
-- 첫 workflow run `32826088306`에서 Ubuntu(33초)와 macOS(35초)는 통과했고 Windows는 43초에 실패했다.
-- Windows log에서 provider 실행 전 `spawnSync npm.cmd EINVAL`을 확인했다. 이는 Language Server나 tarball
-  문제가 아니라 Node가 Windows command shim을 shell 없이 직접 spawn한 harness portability 결함이다.
-- `shell: true`로 우회하면 path/argument escaping 계약이 약해지므로 사용하지 않았다. Windows에서는
-  `npm run`이 제공한 `npm_execpath`를 현재 `process.execPath`로 실행하고 POSIX에서는 기존 `npm` binary를
-  유지하도록 `scripts/test-plugin-artifact-e2e.mjs`를 수정했다.
-- 수정 후 Node syntax, `git diff --check`와 local `npm run test:plugin-artifact`: 모두 통과. 다음 commit/push로
-  PR matrix를 다시 실행한다.
+  계획에 없던 harness 수정을 추가했다. 수정된 모든 PR head에서는 Linux/macOS/Windows가 통과했다.
+- hermetic E2E에 더해 실제 Codex/Claude local marketplace와 cache runner도 검증했다. 다만 공개 v0.5.0
+  artifact에는 이번 branch의 runtime/doctor 계약이 없으므로 새 CLI release를 발행하고 runner pin을 갱신한
+  뒤 default-path smoke를 다시 통과해야 한다. release 발행은 이 작업의 승인 범위 밖이라 수행하지 않았다.
+- PR #16은 open이며 merge되지 않았다. GitHub branch protection의 required check 지정도 저장소 외부 정책
+  변경이므로 수행하지 않았다.
+- M0 사용자 테스트 명세 작성과 실제 사용자 테스트는 지시대로 시작하지 않았다. 다음 단계는 공개
+  release-candidate와 runner pin을 일치시킨 뒤 사용자 테스트 명세를 제안하는 것이다.

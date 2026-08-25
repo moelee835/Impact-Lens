@@ -40,6 +40,7 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
 - [x] Node 미지원, CLI/provider artifact 누락, spawn, initialize와 query failure가 구분된다.
 - [x] stderr-only exit가 bounded drain 후 redacted detail을 보존한다.
 - [x] Codex와 Claude Plugin cache 설치 형태의 runner E2E가 release 전에 검증된다.
+- [ ] Plugin 기본 fallback이 runtime/doctor 계약을 포함한 공개 CLI artifact를 가리키고 실제 host에서 통과한다.
 
 ## 검증
 
@@ -193,5 +194,6 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
 - exit 1·빈 stderr fixture도 initialize stage, exit code와 runner provenance를 보존한다. stderr가 없다는
   사실은 빈 문자열을 만들어내지 않고 해당 detail field 생략으로 표현한다.
 - 구현은 [PR #16](https://github.com/moelee835/Impact-Lens/pull/16)에 연결했다. 상태는 `In progress`를
-  유지한다. PR이 아직 open이고 실제 Codex/Claude host 설치 smoke 및 계획된 M0 사용자 검증을 실행하지
-  않았기 때문이다.
+  유지한다. 실제 Codex/Claude local marketplace 설치와 현재 branch tarball을 사용한 cache runner smoke는
+  통과했지만, 기본 공개 v0.5.0 fallback에는 새 doctor 계약이 없다. 새 CLI artifact 발행과 runner pin 갱신,
+  PR merge 및 계획된 M0 사용자 검증이 남았다.

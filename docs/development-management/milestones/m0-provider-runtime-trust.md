@@ -55,6 +55,7 @@ capability/query 단계와 해결 가능한 진단을 제공한다.
 - [x] Python no-provider fixture는 process launch 없이 actionable discovery error를 반환한다.
 - [x] code 1·빈 stderr 실패가 재현되면 최소한 실제 lifecycle stage와 artifact provenance가 보존된다.
 - [x] release 문서가 source test와 packed artifact 검증 결과를 구분한다.
+- [ ] 실제 Plugin의 기본 fallback이 이번 runtime/doctor 계약을 포함한 공개 CLI release와 일치한다.
 - [ ] `user-tests/m0-user-test-spec.md`가 release candidate 기준으로 검토됐으며, 실제 사용자 검증 결과 또는
   실행 보류 사유가 release decision에 기록된다.
 
