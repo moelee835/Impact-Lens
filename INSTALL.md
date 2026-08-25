@@ -1,10 +1,11 @@
 # Impact Lens 설치 가이드
 
-Impact Lens는 다음 세 구성 요소를 제공합니다. 필요한 것만 설치하거나 함께 사용할 수 있습니다.
+Impact Lens는 다음 네 구성 요소를 제공합니다. 필요한 것만 설치하거나 함께 사용할 수 있습니다.
 
 - **VS Code Extension**: CodeLens, Impact Explorer와 Graph UI를 사용하는 `.vsix`
 - **Agent CLI**: 코드 Agent가 compact JSON으로 영향 범위를 조회하고 노트를 관리하는 `.tgz`
 - **Codex Plugin**: Codex가 Agent CLI를 발견하고 안전한 분석·노트 workflow로 사용하는 repository plugin
+- **Claude Code Plugin**: Claude Code가 같은 skill과 CLI runner를 slash command와 함께 사용하는 repository plugin
 
 최신 배포 파일은 [GitHub Releases](https://github.com/moelee835/Impact-Lens/releases/latest)에서 받습니다. 아래 예시는 현재 안정 버전인 v0.5.0을 기준으로 합니다.
 
@@ -37,6 +38,17 @@ npm --version
 
 ```sh
 codex plugin --help
+```
+
+### Claude Code Plugin
+
+- plugin 명령을 지원하는 Claude Code
+- Agent CLI와 동일하게 Node.js 22 이상 및 npm. Plugin runner가 전역 CLI나 source build를 찾지 못하면 GitHub Release tarball을 사용합니다.
+
+현재 Claude Code에서 plugin 명령을 확인합니다.
+
+```sh
+claude plugin --help
 ```
 
 ## 2. VS Code Extension 설치
@@ -155,7 +167,49 @@ codex plugin list --json
 
 plugin runner는 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.5.0 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
 
-## 5. 다운로드 파일 검증
+## 5. Claude Code Plugin 설치
+
+GitHub repository를 Claude Code marketplace로 등록하고 plugin을 설치합니다.
+
+```sh
+claude plugin marketplace add moelee835/Impact-Lens
+claude plugin install impact-lens@impact-lens
+```
+
+Claude Code 대화 안에서는 같은 작업을 slash command로 수행할 수 있습니다.
+
+```text
+/plugin marketplace add moelee835/Impact-Lens
+/plugin install impact-lens@impact-lens
+```
+
+현재 checkout에서 테스트하거나 개발 중인 branch를 사용하려면 repository root에서 로컬 marketplace를 등록합니다.
+
+```sh
+claude plugin marketplace add ./
+claude plugin install impact-lens@impact-lens
+```
+
+설치 결과와 구성 요소를 확인합니다.
+
+```sh
+claude plugin list
+claude plugin details impact-lens
+```
+
+`impact-lens` plugin이 enabled 상태이고 `impact-lens-cli` skill과 `analyze`, `notes` command가 inventory에 나타나는지 확인합니다. 적용하려면 Claude Code를 다시 시작합니다.
+
+이후 새 세션에서 다음처럼 요청하거나 slash command를 사용합니다.
+
+```text
+Impact Lens로 이 함수의 변경 영향도를 분석해줘.
+/impact-lens:analyze calculateTotal
+/impact-lens:notes list
+```
+
+plugin runner는 Codex plugin과 동일하게 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.5.0 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
+
+## 6. 다운로드 파일 검증
 
 다운로드한 파일의 SHA-256을 계산하고 [v0.5.0 Release](https://github.com/moelee835/Impact-Lens/releases/tag/v0.5.0)의 각 asset에 표시된 digest와 비교합니다. Release 페이지의 digest를 기준값으로 사용하므로 문서에 복사된 값이 새 artifact와 달라지는 문제를 피할 수 있습니다.
 
@@ -180,7 +234,7 @@ Get-FileHash .\impact-lens-cli-0.5.0.tgz -Algorithm SHA256
 
 계산 결과가 GitHub Release asset의 digest와 다르면 설치하지 말고 파일을 다시 다운로드합니다.
 
-## 6. 업데이트
+## 7. 업데이트
 
 ### Extension 업데이트
 
@@ -215,7 +269,18 @@ codex plugin add impact-lens@personal
 
 업데이트 후 새 대화를 열어 변경된 skill을 사용합니다. 로컬 marketplace는 checkout을 직접 가리키므로 branch를 갱신한 뒤 plugin을 다시 설치합니다.
 
-## 7. 제거와 노트 데이터
+### Claude Code Plugin 업데이트
+
+marketplace snapshot을 갱신하고 plugin을 업데이트합니다.
+
+```sh
+claude plugin marketplace update impact-lens
+claude plugin update impact-lens
+```
+
+업데이트를 적용하려면 Claude Code를 다시 시작합니다. 로컬 marketplace는 checkout을 직접 가리키므로 branch를 갱신한 뒤 다시 업데이트합니다.
+
+## 8. 제거와 노트 데이터
 
 ### Extension 제거
 
@@ -239,6 +304,15 @@ npm uninstall --global @impact-lens/cli
 codex plugin remove impact-lens@personal
 ```
 
+### Claude Code Plugin 제거
+
+```sh
+claude plugin uninstall impact-lens@impact-lens
+claude plugin marketplace remove impact-lens
+```
+
+로컬 marketplace로 설치했다면 설치 scope에 맞춰 `--scope local`을 함께 지정합니다.
+
 Plugin 제거는 Impact Lens workspace note를 삭제하지 않습니다.
 
 Extension이나 CLI package를 제거해도 다음 workspace 데이터는 자동으로 삭제하지 않습니다.
@@ -249,7 +323,7 @@ Extension이나 CLI package를 제거해도 다음 workspace 데이터는 자동
 
 이 데이터까지 제거하려면 내용을 먼저 검토하고 각 파일 또는 comment를 별도로 정리합니다. Shared와 Local 파일을 무조건 삭제하면 다른 함수의 노트도 함께 사라질 수 있습니다.
 
-## 8. 문제 해결
+## 9. 문제 해결
 
 ### `code: command not found`
 
@@ -274,6 +348,14 @@ global executable 디렉터리가 `PATH`에 포함돼 있어야 합니다. 권�
 
 `codex plugin list --json`에서 `impact-lens`가 설치 상태인지 확인합니다. marketplace를 갱신하고 plugin을 다시 설치한 뒤 새 대화를 엽니다.
 
+### `claude plugin` 명령을 사용할 수 없음
+
+설치된 Claude Code가 plugin 명령을 지원하는지 `claude plugin --help`로 확인합니다. 명령이 없다면 Claude Code를 업데이트한 뒤 다시 시도합니다.
+
+### Claude Code가 Impact Lens plugin을 사용하지 않음
+
+`claude plugin list`에서 `impact-lens`가 enabled 상태인지 확인하고 `claude plugin details impact-lens`로 skill과 command가 등록되었는지 확인합니다. 설치 또는 업데이트 직후에는 Claude Code를 다시 시작해야 변경이 적용됩니다.
+
 ### Node.js version 오류
 
 CLI는 Node.js 22 이상이 필요합니다. `node --version`을 확인하고 오래된 Node.js를 업그레이드합니다.
@@ -290,6 +372,6 @@ CLI는 Node.js 22 이상이 필요합니다. `node --version`을 확인하고 �
 
 Extensions 상세 화면에서 설치 버전을 확인하고 `Developer: Reload Window`를 실행합니다. 일반 VS Code 창과 Extension Development Host를 혼동하지 않았는지도 확인합니다.
 
-## 9. 소스에서 개발 실행
+## 10. 소스에서 개발 실행
 
 release artifact 설치가 아니라 저장소를 clone해 빌드·테스트하거나 VSIX와 CLI tarball을 직접 만들려면 [Impact Lens 개발 가이드](docs/DEVELOPMENT.md)를 참고하세요.

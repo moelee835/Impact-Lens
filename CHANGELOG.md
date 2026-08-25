@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add a repository-backed Claude Code plugin that shares the existing Impact Lens skill and CLI runner with the Codex plugin.
+- Add `/impact-lens:analyze` and `/impact-lens:notes` slash commands that follow the preview-then-apply note contract.
+- Add Claude Code marketplace metadata and installation, update, and removal instructions.
+- Exclude the Claude Code marketplace directory from VSIX packages.
+
 ## 0.5.0
 
 - Add a repository-backed Codex plugin that teaches Codex to analyze incoming-call impact and manage function notes through the Agent CLI.

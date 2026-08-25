@@ -17,7 +17,7 @@
 <p align="center">
   <a href="#빠른-설치">빠른 설치</a> ·
   <a href="#무엇을-확인할-수-있나요">주요 기능</a> ·
-  <a href="#agent-cli와-codex">Agent & Codex</a> ·
+  <a href="#agent-cli와-plugin">Agent & Plugin</a> ·
   <a href="#분석-경계">분석 경계</a> ·
   <a href="#문서">문서</a>
 </p>
@@ -38,6 +38,10 @@ Impact Lens는 함수 변경의 잠재 영향 범위를 탐색하는 **local-fir
   <tr>
     <td><strong>✦ Codex Plugin</strong></td>
     <td>Codex가 Impact Lens CLI를 발견하고 안전한 note preview/apply 절차로 사용합니다.</td>
+  </tr>
+  <tr>
+    <td><strong>◇ Claude Code Plugin</strong></td>
+    <td>Claude Code에서 skill과 <code>/impact-lens:analyze</code>, <code>/impact-lens:notes</code> 명령으로 같은 CLI를 사용합니다.</td>
   </tr>
 </table>
 
@@ -77,7 +81,20 @@ codex plugin marketplace add moelee835/Impact-Lens --ref main
 codex plugin add impact-lens@personal
 ```
 
-로컬 checkout을 사용하려면 첫 번째 명령의 저장소 대신 `.`을 지정합니다. 요구 사항, checksum, 업데이트와 제거 방법은 **[설치 가이드](INSTALL.md)**에 정리되어 있습니다.
+로컬 checkout을 사용하려면 첫 번째 명령의 저장소 대신 `.`을 지정합니다.
+
+### Claude Code Plugin
+
+GitHub 저장소를 marketplace로 등록한 뒤 Impact Lens plugin을 설치합니다.
+
+```sh
+claude plugin marketplace add moelee835/Impact-Lens
+claude plugin install impact-lens@impact-lens
+```
+
+Claude Code 안에서는 `/plugin marketplace add moelee835/Impact-Lens`와 `/plugin install impact-lens@impact-lens`를 사용할 수 있습니다. 로컬 checkout을 사용하려면 저장소 대신 `./`을 지정합니다.
+
+요구 사항, checksum, 업데이트와 제거 방법은 **[설치 가이드](INSTALL.md)**에 정리되어 있습니다.
 
 ## 무엇을 확인할 수 있나요?
 
@@ -151,7 +168,7 @@ export function calculateTotal(items: LineItem[]): Money {
 
 Python은 `# @impact-note`, SQL과 Lua는 `-- @impact-note`를 지원합니다. 기존 주석은 자동으로 삭제하거나 다른 저장 방식으로 변환하지 않습니다.
 
-## Agent CLI와 Codex
+## Agent CLI와 Plugin
 
 Agent CLI는 사람용 table이나 interactive prompt 대신 stdout에 compact JSON 문서 하나를 반환합니다. 실패는 stderr의 JSON error와 non-zero exit code로 구분합니다.
 
@@ -165,7 +182,7 @@ impact-lens note delete --stdin < note-delete-request.json
 
 `note set`과 `note delete`는 기본적으로 preview만 반환합니다. 실제 변경에는 직전 preview의 최신 `expectedToken`과 명시적인 `apply: true`가 필요합니다.
 
-Codex plugin은 `plugins/impact-lens`에 있으며 다음 요청을 자동으로 Impact Lens CLI workflow에 연결합니다.
+Codex plugin과 Claude Code plugin은 같은 `plugins/impact-lens` payload를 공유합니다. 두 plugin 모두 `impact-lens-cli` skill과 안전한 CLI runner를 사용하므로 다음 요청이 자동으로 Impact Lens CLI workflow에 연결됩니다.
 
 ```text
 Impact Lens로 이 함수의 변경 영향도를 분석해줘.
@@ -174,7 +191,19 @@ Impact Lens Shared 노트를 조회해줘.
 이 함수에 Source note를 추가해줘.
 ```
 
+Claude Code에서는 slash command로도 직접 실행할 수 있습니다.
+
+```text
+/impact-lens:analyze calculateTotal
+/impact-lens:notes list
+```
+
 plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.5.0 release package 순서로 실행 대상을 찾습니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요합니다.
+
+| Host | Manifest | Marketplace |
+| --- | --- | --- |
+| Codex | `plugins/impact-lens/.codex-plugin/plugin.json` | `.agents/plugins/marketplace.json` |
+| Claude Code | `plugins/impact-lens/.claude-plugin/plugin.json` | `.claude-plugin/marketplace.json` |
 
 자세한 JSON schema, note CRUD와 exit code 계약은 **[Agent CLI 문서](cli/README.md)**를 참고하세요.
 
@@ -234,7 +263,9 @@ VS Code에서 저장소를 열고 `F5`를 누르면 Extension Development Host�
 ```text
 src/                    VS Code Extension, graph와 note 구현
 cli/                    독립 Agent CLI와 LSP provider
-plugins/impact-lens/    Codex plugin, skill과 CLI runner
+plugins/impact-lens/    Codex·Claude Code plugin, skill, command와 CLI runner
+.agents/                Codex marketplace 정의
+.claude-plugin/         Claude Code marketplace 정의
 media/                  Extension icon과 README hero
 docs/                   개발 가이드와 작업 기록
 ```
