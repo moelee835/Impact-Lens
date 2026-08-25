@@ -151,6 +151,28 @@ node cli/dist/index.js note delete --stdin < note-delete-request.json
 
 CLI 명령, JSON 예제, note scope 및 build 방법은 [CLI README](cli/README.md), 전체 안전 경계와 단계별 목표는 [Issue #11 작업 문서](docs/work/issue-11-agent-cli.md)를 참고하세요.
 
+## Codex 플러그인
+
+`plugins/impact-lens`에는 Codex가 Impact Lens Agent CLI를 발견하고 사용할 수 있도록 plugin manifest, `impact-lens-cli` 스킬과 실행 래퍼가 포함되어 있습니다. 플러그인은 영향도 분석, caller와 관련 테스트 조회, Shared·Source·Local 노트 조회 및 사용자가 요청한 노트 변경을 지원합니다.
+
+로컬 checkout을 Codex marketplace로 등록하고 플러그인을 설치합니다.
+
+```sh
+codex plugin marketplace add .
+codex plugin add impact-lens@personal
+```
+
+GitHub 저장소에서 직접 등록할 수도 있습니다.
+
+```sh
+codex plugin marketplace add moelee835/Impact-Lens --ref main
+codex plugin add impact-lens@personal
+```
+
+설치 후 새 Codex 대화에서 "Impact Lens로 이 함수의 변경 영향도를 분석해줘" 또는 "Impact Lens Shared 노트를 조회해줘"처럼 요청합니다. 플러그인의 runner는 현재 저장소에서 빌드된 CLI, 전역 `impact-lens`, v0.4.0 release package 순서로 실행 가능한 CLI를 찾습니다. release fallback을 처음 사용할 때는 Node.js 22 이상, npm과 네트워크 접근이 필요합니다.
+
+노트 입력·수정·삭제는 CLI와 동일하게 먼저 preview하고, 사용자가 실제 변경을 요청한 경우에만 최신 `expectedToken`과 `apply: true`로 반영합니다. VS Code Personal note는 CLI에서 접근하지 않습니다.
+
 ## 요구 사항
 
 대상 언어의 VS Code 확장이 Call Hierarchy를 제공해야 합니다. Impact Lens는 URI로 파일을 제한하지 않으므로 언어 서비스가 제공한 cross-file 호출자는 프로젝트 전체에서 수집합니다. JavaScript/TypeScript, Java, C/C++, C#, Go, Rust 등은 각 언어 확장의 지원 범위에 따라 동작합니다.
@@ -177,6 +199,7 @@ Test 분류는 `test`, `tests`, `spec`, `specs`, `__tests__` 디렉터리와 `.t
 - `GraphPanel`: 함수 노트가 포함된 로컬 Webview 그래프
 - `ImpactCodeLensProvider`: 함수 선언 위 인라인 진입점
 - `cli/`: Agent용 독립 JSON CLI, LSP provider 및 note adapter
+- `plugins/impact-lens/`: Impact Lens CLI를 사용하는 Codex plugin, skill 및 runner
 
 ## 개발 검증
 
