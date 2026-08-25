@@ -1,14 +1,7 @@
 name: Plugin artifact E2E
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/plugin-artifact-e2e.yml"
-      - "cli/**"
-      - "plugins/impact-lens/**"
-      - "scripts/test-plugin-artifact-e2e.mjs"
-      - "package.json"
-      - "pnpm-lock.yaml"
+  pull_request: {}
   push:
     tags:
       - "v*"

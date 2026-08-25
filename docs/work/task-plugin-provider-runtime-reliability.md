@@ -112,6 +112,38 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
 종료 조건: 자동 완료 기준이 모두 근거와 함께 반영되고 검증 불가 항목을 성공으로 표시하지 않으며 마지막
 문서 단계가 독립 commit/push된다. 구현 PR이 없으면 story 상태는 `In progress`를 유지한다.
 
+### 5단계 — PR의 항상 실행되는 원격 OS gate 보강
+
+1. 문서-only 상태 기록 commit에서도 required check가 pending/skipped되지 않도록 pull request path filter를
+   제거하고 모든 PR head에서 packed Plugin E2E가 실행되게 한다.
+2. workflow YAML과 3-OS Node 22 matrix를 정적으로 검증하고 local packed E2E를 다시 실행한다.
+3. 변경과 계획 로그를 독립 commit으로 남겨 같은 원격 branch에 push한다.
+
+종료 조건: 이후 PR 및 host-smoke 기록 commit마다 Ubuntu/macOS/Windows packed E2E가 새 HEAD에서 실행될 수
+있으며 local gate가 통과한다.
+
+### 6단계 — 구현 PR과 원격 3-OS matrix 마감
+
+1. 현재 누적 M0 branch와 `origin/main` 차이 및 기존 PR을 확인하고 main 대상 구현 PR을 생성한다.
+2. PR의 Ubuntu/macOS/Windows Node 22 check를 관찰하고 실패 시 해당 OS 원인을 수정·검증·commit·push한다.
+3. 모든 원격 check가 성공한 실제 URL/결과를 작업 로그와 story/M0 상태에 기록하고 독립 commit/push한다.
+4. 기록 commit으로 다시 실행된 required matrix도 성공하는지 확인한다.
+
+종료 조건: open PR의 최신 head에서 3-OS packed Plugin E2E가 모두 성공한다. 승인·merge는 별도 권한과 review
+단계이므로 이번 단계에서 수행하지 않는다.
+
+### 7단계 — 실제 Codex/Claude host 설치 smoke
+
+1. 공식 OpenAI 문서와 설치된 Codex/Claude CLI help를 대조해 현재 host의 marketplace/install 명령을 확정한다.
+2. plugin-creator 절차로 marketplace 이름·source를 검증하고, 이미 설치된 local plugin이면 cachebuster helper
+   및 reinstall을 사용한다. marketplace가 없거나 remote source이면 임의 변경하지 않고 제한으로 기록한다.
+3. 가능한 host에서 Plugin inventory, runner doctor smoke와 TS/JS 분석을 검증한다. 설치 전후 사용자 source나
+   note를 변경하지 않는다.
+4. host 결과와 불가능한 항목을 기록해 독립 commit/push하고 최신 PR matrix가 다시 성공하는지 확인한다.
+
+종료 조건: 자동 release gate와 가능한 실제 host smoke가 완료되고, 다음 작업이 계획돼 있던 M0 사용자 테스트
+명세 제안임이 명확하다. 사용자 테스트 명세 작성과 실제 사용자 테스트는 시작하지 않는다.
+
 ## 테스트 및 완료 기준
 
 - [x] runner explicit/checkout/global/release-fallback 각각의 source가 하위 CLI에 전달된다.
@@ -252,3 +284,13 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
   provider crash와는 구분되지만 아직 runner의 단일 JSON envelope로 정규화되지 않아 후속 UX 보완이 필요하다.
 - IL-LIM-017의 local 수용 기준은 충족했으나 구현 PR, 원격 3-OS 결과와 실제 사용자/host cache 검증이 없어
   story와 M0는 `In progress`를 유지한다.
+
+### 2026-08-25 — 5단계 PR 항상 실행 OS gate 보강
+
+- PR head가 문서-only 기록 commit으로 바뀌면 path-filtered required workflow가 skipped/pending 상태가 될 수
+  있음을 발견했다. `.github/workflows/plugin-artifact-e2e.yml`의 `pull_request.paths`를 제거해 모든 PR
+  revision에서 packed Plugin E2E가 실행되게 했다. `v*` tag와 수동 trigger는 유지했다.
+- GitHub-hosted runner 자체가 사용자 GUI/원격 PC를 대신하므로 이 단계는 GUI 환경을 요구하지 않는다.
+- workflow YAML event/job과 Ubuntu/macOS/Windows Node 22 matrix 정적 검사: 통과.
+- `npm run test:plugin-artifact`: clean install, Codex/Claude layout과 TS/TSX/JS/JSX release fallback 모두 통과.
+- `git diff --check`: 통과.
