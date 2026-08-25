@@ -2,6 +2,7 @@
 
 - 상태: Backlog
 - 우선순위: P2
+- 완료 마일스톤: [M5 — 편집 중 분석과 대규모 workspace](../milestones/m5-workspace-workflow.md)
 - 영향도: 중간
 - 적용 영역: Agent CLI, Codex/Claude Code Plugin
 

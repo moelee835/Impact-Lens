@@ -2,6 +2,7 @@
 
 - 상태: Backlog
 - 우선순위: P3
+- 완료 마일스톤: [M3 — Swift·Kotlin 및 callable 확장](../milestones/m3-p2-language-callables.md)
 - 영향도: 낮음~중간
 - 적용 영역: VS Code Extension, Agent CLI
 

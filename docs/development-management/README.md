@@ -72,33 +72,32 @@ Plugin cache E2E까지 완료해야 해결된 것으로 본다.
 | 16 | IL-LIM-012 | P3 | [Personal note의 CLI 접근 전략](stories/il-lim-012-personal-note-cli-access.md) | CLI, Plugin | Backlog |
 | 17 | IL-LIM-013 | P3 | [Source note 주석 문법 확장](stories/il-lim-013-source-note-syntax.md) | Extension, CLI | Backlog |
 
-## 권장 실행 순서
+## 마일스톤 실행 순서
 
-1. `IL-LIM-003`과 `IL-LIM-017`로 provider 상태와 bundled TS/JS 실행·배포 기준을 확립한다.
-2. `IL-LIM-006` 1~2단계로 관측된 Python 실패와 FastAPI 기준선을 고정한다.
-3. `IL-LIM-005`와 `IL-LIM-004`로 양방향 LSP, Auto/preset/doctor와 no-silent-fallback을 구현한다.
-4. `IL-LIM-006`, `IL-LIM-014`, `IL-LIM-015`, `IL-LIM-016`에서 언어별 E2E gate를 독립적으로 통과시킨다.
-5. `IL-LIM-009`로 사용자가 결과를 과신하지 않도록 완료·부분 결과 의미를 정리한다.
-6. `IL-LIM-001`, `IL-LIM-002`에서 provenance가 표시된 동적·framework 보조 관계를 단계적으로 도입한다.
-7. `IL-LIM-007`~`013`의 규모, workflow, callable과 note 제약을 독립적으로 개선한다.
+기존 실행 wave는 사용자 산출물과 종료 gate가 있는 [M0~M6 마일스톤](milestones/README.md)으로
+구체화했다. bundled provider와 실제 Plugin artifact가 안정적이지 않으면 external preset 결과도 신뢰할 수
+없고, provider/coverage 의미가 안정되기 전에 동적·DI edge를 추가하면 사용자가 추론 결과를 확정 관계로
+오해할 수 있으므로 다음 순서를 사용한다.
 
-영향도 순위와 ID 순서는 다르다. 실제 착수는 `003 → 017 → 006 baseline → 005 → 004 → 언어별 story → 009`
-순서를 권장한다. bundled provider가 배포 환경에서 안정적이지 않으면 external preset 확대 결과도 신뢰할 수 없다.
-이후 `001`과 `002`를 진행해야 추론 edge를 기존 Language Server edge와 구분하고 개선 효과를 기준선과 비교할 수 있다.
+| 순서 | 마일스톤 | 핵심 완료 story | 종료 결과 |
+| ---: | --- | --- | --- |
+| M0 | [Provider 실행 신뢰성](milestones/m0-provider-runtime-trust.md) | IL-LIM-003, 017 | packed CLI와 Plugin cache에서 JS/TS provider 신뢰성 확보 |
+| M1 | [Provider 플랫폼·무설정 UX](milestones/m1-provider-platform-ux.md) | IL-LIM-005, 009 | Auto/doctor/custom과 completeness 기반 확립 |
+| M2 | [Python·Go·C/C++ 지원](milestones/m2-p1-language-support.md) | IL-LIM-004, 006, 014 | 우선 언어 verified preset과 readiness 안내 |
+| M3 | [Swift·Kotlin·callable](milestones/m3-p2-language-callables.md) | IL-LIM-015, 016, 011 | toolchain 언어와 검증 callable 확장 |
+| M4 | [동적·DI·테스트 의미 보완](milestones/m4-semantic-augmentation.md) | IL-LIM-001, 002, 010 | provenance가 있는 semantic evidence graph |
+| M5 | [편집·대규모 workspace](milestones/m5-workspace-workflow.md) | IL-LIM-007, 008 | unsaved overlay와 bounded/resumable graph |
+| M6 | [Note·언어별 마무리](milestones/m6-notes-language-polish.md) | IL-LIM-012, 013 | Personal note 전략과 안전한 source note 문법 |
 
-| 실행 wave | 스토리 | 목적 |
-| --- | --- | --- |
-| 0 | IL-LIM-003 1~2단계, IL-LIM-017, IL-LIM-006 1~2단계 | 상태 계약, bundled provider 신뢰성과 관측 실패 baseline 확보 |
-| 1 | IL-LIM-005, IL-LIM-004, IL-LIM-009 | LSP core, Auto/preset/doctor와 완료 의미 정립 |
-| 2 | IL-LIM-006 3~5단계, IL-LIM-014, IL-LIM-015, IL-LIM-016 | Python·C/C++·Swift·Kotlin 독립 E2E gate |
-| 3 | IL-LIM-001, IL-LIM-002 | 출처가 표시된 동적·framework 보조 관계 도입 |
-| 4 | IL-LIM-007, IL-LIM-008, IL-LIM-010 | 편집 overlay, 대형 graph와 테스트 후보 workflow 개선 |
-| 5 | IL-LIM-011, IL-LIM-012, IL-LIM-013 | 언어별 callable·note 기능 확장 |
+`IL-LIM-004`는 M1에서 preset/doctor 기반을 만들고 M2의 실제 언어 fixture로 완료한다. `IL-LIM-006`은
+M0에서 관측 실패 baseline을 고정하고 M2에서 Python 지원 gate를 완료한다. 나머지 story는 하나의 완료
+마일스톤만 가진다.
 
 ## 디렉터리 구조
 
 ```text
 docs/development-management/
 ├── README.md       전체 우선순위, 상태와 운영 규칙
+├── milestones/     M0~M6 산출물, 진입 조건과 종료 gate
 └── stories/        한계점·언어·배포 신뢰성별 문제 정의와 수용 기준(현재 17개)
 ```

@@ -2,6 +2,7 @@
 
 - 상태: Backlog
 - 우선순위: P0
+- 완료 마일스톤: [M0 — Provider 실행 신뢰성](../milestones/m0-provider-runtime-trust.md)
 - 영향도: 매우 높음
 - 적용 영역: Agent CLI, Codex/Claude Code Plugin, Release
 

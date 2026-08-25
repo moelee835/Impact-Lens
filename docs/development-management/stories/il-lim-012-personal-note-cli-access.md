@@ -2,6 +2,7 @@
 
 - 상태: Backlog
 - 우선순위: P3
+- 완료 마일스톤: [M6 — Note 접근성과 언어별 마무리](../milestones/m6-notes-language-polish.md)
 - 영향도: 낮음
 - 적용 영역: Agent CLI, Codex/Claude Code Plugin
 

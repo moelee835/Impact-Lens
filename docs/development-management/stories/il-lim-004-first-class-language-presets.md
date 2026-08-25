@@ -2,6 +2,8 @@
 
 - 상태: Backlog
 - 우선순위: P1
+- 완료 마일스톤: [M2 — Python·Go·C/C++ verified support](../milestones/m2-p1-language-support.md)
+- 선행 기여: [M1 — preset manifest·discovery·doctor 기반](../milestones/m1-provider-platform-ux.md)
 - 영향도: 높음
 - 적용 영역: Agent CLI, Codex/Claude Code Plugin
 

@@ -2,6 +2,7 @@
 
 - 상태: Backlog
 - 우선순위: P1
+- 완료 마일스톤: [M1 — Provider 플랫폼과 무설정 UX 기반](../milestones/m1-provider-platform-ux.md)
 - 영향도: 높음
 - 적용 영역: Agent CLI, Codex/Claude Code Plugin
 

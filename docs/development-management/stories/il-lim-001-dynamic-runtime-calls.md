@@ -2,6 +2,7 @@
 
 - 상태: Backlog
 - 우선순위: P0
+- 완료 마일스톤: [M4 — 동적 호출·DI·테스트 의미 보완](../milestones/m4-semantic-augmentation.md)
 - 영향도: 매우 높음
 - 적용 영역: VS Code Extension, Agent CLI, Codex/Claude Code Plugin
 
