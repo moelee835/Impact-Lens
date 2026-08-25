@@ -2,8 +2,9 @@
 
 ## 상태
 
-- v0.5.0 릴리즈 준비 및 브랜치 검증 완료
-- PR 생성 전
+- PR #14 merge 완료
+- 병합된 main 최종 artifact 검증 완료
+- v0.5.0 Release 게시 준비 완료
 
 ## 배경과 해결할 문제
 
@@ -93,3 +94,12 @@ Codex plugin은 하위 호환 신규 사용자 기능이므로 기존 v0.4.0 다
 - 2026-08-25: CLI tarball `/tmp/impact-lens-cli-0.5.0.tgz`를 생성했다. 12 files이며 SHA-256은 `29e87440a6c06189ac2d3309033b151526c86c57288bf2441ee905180d5807f0`이다. runtime JS 7개, schema 2개, package manifest, README와 LICENSE만 포함했다.
 - 2026-08-25: CLI tarball을 새 `/tmp/impact-lens-cli-install.pLgzDV` prefix에 설치했다. 설치된 binary로 `cli/src/index.ts`의 `run`을 depth 2로 분석해 3 nodes, 2 edges, `complete: true`, `truncated: false`를 확인했다.
 - 2026-08-25: 설치된 production dependency tree를 `npm audit --omit=dev`로 검사해 `found 0 vulnerabilities`를 확인했다. sandbox DNS 제한으로 첫 audit가 실패했으며 외부 네트워크 승인 환경에서 동일 검사를 재실행해 통과했다.
+- 2026-08-25: 릴리즈 준비 커밋 `bcb4f10`을 `feat/codex-plugin`에 push하고 [PR #14](https://github.com/moelee835/Impact-Lens/pull/14)를 생성했다. GitHub는 `MERGEABLE`, `CLEAN`을 반환했고 등록된 자동 check는 없었다.
+- 2026-08-25: PR #14를 merge commit 방식으로 병합했다. merge commit은 `befd0a291392c3bd91aa4a83ca4a9f91a46b582e`이며 로컬 `main`과 `origin/main`이 일치함을 확인했다. 열린 Issue가 없어 close 대상은 없었다.
+- 2026-08-25: 병합된 main에서 `npm run test:all`을 다시 실행해 Extension 32개와 CLI 16개 테스트가 모두 통과했다. plugin/skill validator, runner shell syntax와 `git diff --check`도 다시 통과했다.
+- 2026-08-25: 병합된 main에서 최종 `/tmp/impact-lens-0.5.0.vsix`를 생성했다. 27 files, 1.07MB이며 SHA-256은 `014849bfb37b51b810f18526b9d13703ed20af4304155379ccd320d51887d7e8`이다.
+- 2026-08-25: 최종 VSIX에 manifest, README, INSTALL, CHANGELOG, README hero, Extension icon/runtime이 포함되고 `.agents`, `plugins`, `cli`, `docs`, `src`, `node_modules`, test output이 포함되지 않음을 확인했다.
+- 2026-08-25: 병합된 main에서 최종 `/tmp/impact-lens-cli-0.5.0.tgz`를 생성했다. 12 files이며 SHA-256은 `29e87440a6c06189ac2d3309033b151526c86c57288bf2441ee905180d5807f0`이다.
+- 2026-08-25: 최종 CLI tarball을 새 `/tmp/impact-lens-cli-release.A9kKH4` prefix에 설치했다. 설치된 binary의 depth 2 분석이 3 nodes, 2 edges, `complete: true`, `truncated: false`를 반환했고 production audit는 `found 0 vulnerabilities`였다.
+- 2026-08-25: 현재 환경에는 `code` CLI가 없어 최종 VSIX를 로컬 VS Code에 설치하는 smoke test는 실행하지 못했다. package manifest, 포함 파일, compile/test로 검증했지만 실제 Extension Development Host의 pointer/theme 수동 검증은 이번 release 환경의 제한으로 남는다.
+- 2026-08-25: 이 최종 기록 변경은 `docs/work/**`에만 있으며 VSIX와 CLI tarball에서 모두 제외된다. 따라서 기록 커밋 전 생성한 최종 artifact의 package payload는 release target tree의 배포 대상 파일과 동일하다.
