@@ -180,6 +180,10 @@ test('preserves lifecycle and runtime provenance when the provider exits silentl
   assert.equal(response.error.details.stderr, undefined);
   assert.equal(response.runtime.runner.source, 'release-fallback');
   assert.match(response.error.message, /during initialize \(exit code 1\)/);
+  // A silent exit still has to say whether the server ever spoke the protocol and how long it lived.
+  assert.equal(response.error.details.bytesFromServer, 0);
+  assert.equal(response.error.details.requestsSent, 1);
+  assert.equal(typeof response.error.details.msSinceSpawn, 'number');
 });
 
 test('does not hand the provider a parent processId to police', () => {

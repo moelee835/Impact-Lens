@@ -34,6 +34,8 @@ export class JsonRpcClient {
   private exitSignal: NodeJS.Signals | null = null;
   private closeTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly executable: string;
+  private readonly spawnedAt = Date.now();
+  private serverBytes = 0;
 
   constructor(command: string, args: readonly string[], private readonly timeoutMs: number) {
     this.executable = path.basename(command);
@@ -41,7 +43,11 @@ export class JsonRpcClient {
     this.child.once('spawn', () => {
       this.spawned = true;
     });
-    this.child.stdout.on('data', chunk => this.consume(Buffer.from(chunk)));
+    this.child.stdout.on('data', chunk => {
+      const buffer = Buffer.from(chunk);
+      this.serverBytes += buffer.length;
+      this.consume(buffer);
+    });
     this.child.stderr.on('data', chunk => {
       this.stderr = `${this.stderr}${String(chunk)}`.slice(-8000);
     });
@@ -245,6 +251,12 @@ export class JsonRpcClient {
         executable: this.executable,
         exitCode: this.exitCode,
         signal: this.exitSignal,
+        // A server that dies without stderr still tells us whether it ever spoke the protocol and how
+        // long it survived. Silence plus zero bytes points at the launch environment, while a reply
+        // followed by a sudden exit points at what the server did after answering.
+        msSinceSpawn: Date.now() - this.spawnedAt,
+        bytesFromServer: this.serverBytes,
+        requestsSent: this.nextId - 1,
         ...(stderr ? { stderr } : {}),
         ...(cause ? { cause } : {}),
       },

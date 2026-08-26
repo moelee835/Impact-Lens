@@ -66,6 +66,10 @@ M0는 "배포된 형태에서 기본 언어 분석이 재현 가능하게 시작
 | S5 | release fallback 실패 | 임시 npm cache를 쓰고 네트워크를 차단하거나 존재하지 않는 package를 pin |
 | S6 | preset 없는 언어 | 참여자 저장소 또는 sample의 Python 파일 |
 
+환경 초기화와 시나리오별 재설치 절차는 [M0 테스트 환경 구성과 초기화 가이드](m0-environment-setup.md)를
+따른다. 특히 전역 CLI와 Plugin을 동시에 설치한 상태에서는 어떤 경로를 검증했는지 확정할 수 없으므로,
+과업 시작 전에 `runtime.runner.source`가 의도한 시나리오와 일치하는지 확인한다.
+
 준비 원칙:
 
 - 깨진 상태는 **세션 범위**로만 만든다. 시스템 Node 기본값, 사용자 홈 권한, 실제 source를 변경하지 않는다.

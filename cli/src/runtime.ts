@@ -121,7 +121,21 @@ export function inspectBundledTypeScriptArtifact(resolveModule: ModuleResolver =
 
 export function bundledTypeScriptCommand(languageId: string): ProviderCommand {
   const artifact = inspectBundledTypeScriptArtifact();
-  return { command: process.execPath, args: [artifact.entryPath, '--stdio'], languageId };
+  return {
+    command: process.execPath,
+    args: [artifact.entryPath, '--stdio', ...bundledProviderLogArgs()],
+    languageId,
+  };
+}
+
+// A Language Server that dies before answering usually says nothing on stderr. This opt-in raises its
+// own log level so the next run explains itself; the captured output still goes through redaction.
+function bundledProviderLogArgs(): readonly string[] {
+  const requested = process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL;
+  if (!requested || !/^[1-4]$/.test(requested)) {
+    return [];
+  }
+  return ['--log-level', requested];
 }
 
 function packageVersion(packagePath: string, component: string): string {
