@@ -23,6 +23,8 @@ syscall 추적까지 해야 원인에 접근할 수 있으므로 그 약속에 �
 
 - 실패 envelope에 언어 서버의 활동량과 생존 시간을 추가한다.
 - 침묵하는 언어 서버를 말하게 만드는 opt-in을 제공한다.
+- Impact Lens를 거치지 않고 번들 서버만 확인하는 probe를 제공한다.
+- 상충하는 관측을 만들지 않는 환경 초기화·구성 가이드를 작성한다.
 - 회귀 테스트와 문서를 갱신한다.
 
 ## 범위에서 제외할 항목
@@ -74,3 +76,24 @@ stderr가 없을 때 field를 생략하는 기존 계약은 유지했다. 빈 �
 - 로그 opt-in 값 검증을 정규식 `^[1-4]$`로 좁혔다. 이 값은 argv로 들어가므로 자유 문자열을 허용하면
   provider 실행 인자를 외부에서 조작할 수 있다.
 - 검증: CLI 46/46 통과. 실제 번들 서버에서 opt-in을 켠 smoke도 stdout 단일 JSON을 유지했다.
+
+### 2026-08-26 — 환경 오염 대응: probe와 초기화 가이드
+
+- 변경 파일: `scripts/probe-bundled-provider.mjs` (신규),
+  `docs/development-management/user-tests/m0-environment-setup.md` (신규), `INSTALL.md`,
+  `docs/development-management/user-tests/m0-user-test-spec.md`
+- 상충하는 두 관측(같은 환경·같은 version에서 smoke 성공과 실패)의 가장 유력한 설명은 실행 경로 오염이다.
+  runner는 `IMPACT_LENS_CLI_PATH` → checkout → 전역 → release fallback 순으로 CLI를 고르고, 마지막 경로는
+  `npm exec`의 package cache에 버전별로 쌓인다. 개발 machine 한 대에서 `~/.npm/_npx` 아래 `0.4.0`, `0.5.0`,
+  `0.6.0`, `0.6.1` 네 버전이 동시에 발견됐다. 사용자 shell에서는 전역 `0.6.1`이, agent 세션에서는 `PATH`
+  차이로 release fallback의 구버전이 선택되면 정확히 관측된 모순이 만들어진다.
+- 그래서 가이드의 핵심 규칙을 "실패 보고에 `runtime.cli.version`과 `runtime.runner.source`가 없으면 원인을
+  확정할 수 없다"와 "시나리오 하나만 설치한다"로 잡았다. 전역 CLI와 Plugin을 동시에 설치하면 runner
+  우선순위 때문에 무엇을 검증했는지 모호해진다.
+- probe는 저장소 checkout, PATH의 전역 `impact-lens`, 전역 node_modules 순으로 서버를 찾고
+  `IMPACT_LENS_LSP_ENTRY`로 직접 지정할 수 있다. checkout과 전역 설치 두 형태에서 동작을 확인했다.
+- 초기화 절차에서 사용자 노트(`.impact-lens/notes.json`, `notes.local.json`) 삭제를 명시적으로 금지했다.
+  테스트 편의로 사용자 데이터를 지우는 일이 없어야 한다. `sudo npm`과 홈 권한 변경도 금지 항목에 넣었다.
+- `scripts/**`는 이미 `.vscodeignore`에 있어 probe가 VSIX에 포함되지 않는 것을 재패키징으로 확인했다
+  (28 files 유지).
+- 검증: Extension 34/34, CLI 46/46 통과.

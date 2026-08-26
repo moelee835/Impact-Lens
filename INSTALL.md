@@ -417,6 +417,41 @@ initialization option이 필요한 경우 현재 generic adapter로 동작하지
 Bundled TypeScript/JavaScript 오류라면 위 doctor 절차를 먼저 사용합니다. Python/C/C++/Swift/Kotlin 등은
 아직 자동 preset이 없으므로 `provider_required_for_language`가 provider artifact 손상을 뜻하지 않습니다.
 
+### 실행된 CLI가 예상과 다름, 또는 결과가 실행할 때마다 다름
+
+Impact Lens는 실행 경로가 여러 개입니다. plugin runner는 `IMPACT_LENS_CLI_PATH` → source checkout → 전역
+`impact-lens` → 고정 release tarball 순으로 CLI를 고르고, 마지막 경로는 `npm exec`의 package cache에
+버전별로 따로 쌓입니다. 그래서 사용자 shell에서는 전역 CLI가, agent 세션에서는 `PATH` 차이로 release
+fallback의 구버전이 선택되는 일이 생깁니다.
+
+먼저 **실제로 무엇이 실행됐는지** 확인합니다. 요약이 아니라 응답 JSON의 다음 두 값을 봅니다.
+
+- `runtime.cli.version`: 실제로 실행된 CLI 버전
+- `runtime.runner.source`: `explicit` / `checkout` / `global` / `release-fallback`
+
+남아 있는 설치와 cache는 다음으로 확인합니다.
+
+```sh
+env | grep -i IMPACT_LENS || echo "(환경변수 없음)"
+command -v impact-lens || echo "(전역 CLI 없음)"
+for f in $(grep -rl "@impact-lens/cli" ~/.npm/_npx/*/package.json 2>/dev/null); do
+  d=$(dirname "$f"); printf '%s -> ' "$(basename "$d")"
+  node -p "require('$d/node_modules/@impact-lens/cli/package.json').version" 2>/dev/null || echo '?'
+done
+```
+
+구버전이 섞여 있으면 아래로 정리한 뒤 필요한 경로 하나만 다시 설치합니다. `sudo npm`은 사용하지 않습니다.
+
+```sh
+unset IMPACT_LENS_CLI_PATH IMPACT_LENS_CLI_PACKAGE
+npm uninstall --global @impact-lens/cli
+for f in $(grep -rl "@impact-lens/cli" ~/.npm/_npx/*/package.json 2>/dev/null); do rm -rf "$(dirname "$f")"; done
+```
+
+Plugin과 Extension까지 포함한 전체 초기화, 시나리오별 재설치와 증거 수집 절차는
+[M0 테스트 환경 구성과 초기화 가이드](docs/development-management/user-tests/m0-environment-setup.md)를
+참고하세요.
+
 ### 이전 Extension 동작이 계속 보임
 
 Extensions 상세 화면에서 설치 버전을 확인하고 `Developer: Reload Window`를 실행합니다. 일반 VS Code 창과 Extension Development Host를 혼동하지 않았는지도 확인합니다.
