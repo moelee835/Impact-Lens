@@ -197,3 +197,17 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
   유지한다. 실제 Codex/Claude local marketplace 설치와 현재 branch tarball을 사용한 cache runner smoke는
   통과했지만, 기본 공개 v0.5.0 fallback에는 새 doctor 계약이 없다. 새 CLI artifact 발행과 runner pin 갱신,
   PR merge 및 계획된 M0 사용자 검증이 남았다.
+
+## Release 검증 결과 — 2026-08-26
+
+- 작업 문서: [`docs/work/task-m0-release-0-6-0.md`](../../work/task-m0-release-0-6-0.md)
+- version 정합성을 `0.6.0`으로 맞추고 runner의 release fallback pin을
+  `releases/download/v0.6.0/impact-lens-cli-0.6.0.tgz`로 갱신했다. Plugin payload manifest는 `0.2.0`이다.
+- PR #16이 merge commit `4e1403b`로 병합됐고 같은 commit에 공개 `v0.6.0` release를 발행했다.
+- override 없는 실제 default path에서 Codex와 Claude Code cache runner 모두 doctor preflight, doctor
+  `--smoke`, TypeScript와 JavaScript 분석 4건이 성공했다. `runtime.runner.source`는 `release-fallback`,
+  `runtime.cli.version`은 `0.6.0`이다. 이로써 공개 artifact와 runner 계약 불일치라는 release blocker는 해소됐다.
+- VSIX 패키징 회귀도 함께 고쳤다. `.vscodeignore`가 이번 branch에서 추가된 `.github/`, `scripts/`,
+  `.claude/`를 따라가지 못해 CI workflow, release E2E script와 host-local plugin 설정이 VSIX에 포함되고 있었다.
+- 남은 항목은 M0 사용자 검증뿐이므로 상태는 `In progress`를 유지한다. runner가 CLI 시작 전 npm 오류를 단일
+  JSON envelope로 감싸는 UX 과제도 후속으로 남는다.

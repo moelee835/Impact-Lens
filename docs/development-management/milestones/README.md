@@ -42,7 +42,7 @@ augmentation의 공식 release gate는 evidence schema가 모든 검증 언어�
 | --- | --- | --- | --- |
 | IL-LIM-001 | M4 | M0~M2 | 동적 edge는 evidence/provenance 계약 후 추가 |
 | IL-LIM-002 | M4 | M0~M2 | Spring Java/Kotlin을 첫 framework adapter 후보로 사용 |
-| IL-LIM-003 | M0 | 구현 완료 | PR·release 검증 후 Done 전환 |
+| IL-LIM-003 | M0 | Done | PR #16 병합과 v0.6.0 release 검증으로 완료 |
 | IL-LIM-004 | M2 | M1 1~2단계 | M1에서 catalog/doctor 기반, M2에서 verified preset으로 완료 |
 | IL-LIM-005 | M1 | M0 | generic LSP lifecycle·transport·compatibility 기반 |
 | IL-LIM-006 | M2 | M0 1~2단계 | M0에서 실패 baseline, M2에서 Python support gate 완료 |
@@ -56,7 +56,7 @@ augmentation의 공식 release gate는 evidence schema가 모든 검증 언어�
 | IL-LIM-014 | M2 | M1 | clangd와 compile database readiness |
 | IL-LIM-015 | M3 | M1 | SourceKit-LSP와 SwiftPM/Xcode 경계 |
 | IL-LIM-016 | M3 | M1 | Kotlin LSP Alpha와 Gradle/Maven readiness |
-| IL-LIM-017 | M0 | 구현 진행 중 | local packed/cache E2E 완료, PR·원격 OS matrix·사용자 검증 남음 |
+| IL-LIM-017 | M0 | 구현 완료 | PR #16 병합, v0.6.0 release와 실제 default-path 검증 완료, 사용자 검증 남음 |
 
 ## 운영 규칙
 

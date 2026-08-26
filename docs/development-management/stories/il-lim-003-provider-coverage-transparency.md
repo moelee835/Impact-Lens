@@ -1,6 +1,6 @@
 # IL-LIM-003 Language Server 분석 범위 투명성
 
-- 상태: In progress
+- 상태: Done
 - 우선순위: P0
 - 완료 마일스톤: [M0 — Provider 실행 신뢰성](../milestones/m0-provider-runtime-trust.md)
 - 영향도: 매우 높음
@@ -189,5 +189,7 @@ provider가 생략됐을 때 기본 TypeScript 서버를 실행하는 것처럼 
   fixture가 자동 테스트에 포함됐다.
 - dynamic registration, provider별 indexing readiness와 외부 언어 정상 E2E는 제외 범위대로 후속
   `IL-LIM-004/005/006/014/015/016`에 남는다.
-- 수용 기준은 구현과 자동 검증 기준으로 충족했지만 관리 규칙상 구현 PR이 아직 없으므로 상태는
-  `In progress`로 유지한다. PR 생성·병합 시 검증 결과와 링크를 연결하고 `Done`으로 전환한다.
+- 구현은 [PR #16](https://github.com/moelee835/Impact-Lens/pull/16)으로 연결됐고 merge commit
+  `4e1403b`로 `main`에 병합됐다. 공개 `v0.6.0` release의 CLI로 실제 Codex/Claude Plugin에서 provider와
+  coverage metadata가 반환되는 것을 확인해 상태를 `Done`으로 전환한다. 검증 근거는
+  [`docs/work/task-m0-release-0-6-0.md`](../../work/task-m0-release-0-6-0.md)에 있다.
