@@ -105,14 +105,14 @@ runner UX 과제로 남겨 두었다. 이 작업은 그 구간을 나머지 실�
 
 ## 테스트 및 완료 기준
 
-- [ ] 1단계: 설계 결정과 분류표가 구현 전에 문서화된다.
-- [ ] 2단계: npm 실패가 stdout 없이 exit 127과 단일 JSON envelope로 보고된다.
-- [ ] 2단계: network/권한/404/기타 실패가 서로 다른 `error.code`로 분류된다.
-- [ ] 2단계: CLI가 낸 JSON 오류는 이중 wrapping 없이 원문과 exit code가 보존된다.
-- [ ] 2단계: 성공 경로의 stdout과 exit code가 변하지 않는다.
-- [ ] 2단계: `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough`가 원본 npm 출력과 exit code를 유지한다.
-- [ ] 2단계: envelope에 release package URL, 절대 경로, credential이 포함되지 않는다.
-- [ ] 2단계: `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
+- [x] 1단계: 설계 결정과 분류표가 구현 전에 문서화된다.
+- [x] 2단계: npm 실패가 stdout 없이 exit 127과 단일 JSON envelope로 보고된다.
+- [x] 2단계: network/권한/404/기타 실패가 서로 다른 `error.code`로 분류된다.
+- [x] 2단계: CLI가 낸 JSON 오류는 이중 wrapping 없이 원문과 exit code가 보존된다.
+- [x] 2단계: 성공 경로의 stdout과 exit code가 변하지 않는다.
+- [x] 2단계: `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough`가 원본 npm 출력과 exit code를 유지한다.
+- [x] 2단계: envelope에 release package URL, 절대 경로, credential이 포함되지 않는다.
+- [x] 2단계: `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
 - [ ] 3단계: PR의 Ubuntu/macOS/Windows Node 22 check가 모두 성공하고 병합된다.
 
 ## 작업 로그
@@ -125,3 +125,33 @@ runner UX 과제로 남겨 두었다. 이 작업은 그 구간을 나머지 실�
   실행하므로 POSIX sh 범위와 GNU 비의존을 유지해야 한다는 제약을 먼저 고정했다.
 - npm stderr 원문을 envelope에 담지 않기로 했다. redaction이 불완전할 수 있는 credential/URL 노출 위험이
   진단 편의보다 크다고 판단했고, 대신 opt-in passthrough를 제공한다.
+
+### 2026-08-26 — 2단계 runner 정규화 구현
+
+- 변경 파일: `plugins/impact-lens/scripts/run-impact-lens`, `cli/src/test/runner.test.ts`,
+  `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`, `INSTALL.md`, `README.md`,
+  `CHANGELOG.md`, `plugins/impact-lens/.claude-plugin/plugin.json`,
+  `plugins/impact-lens/.codex-plugin/plugin.json`
+- `impact_lens_error`가 4번째 인자로 `retryable`을 받도록 확장했다. 기본값 `false`를 유지해 기존 호출부는
+  그대로 동작한다.
+- 마지막 `exec npm exec ...`를 stdout streaming + stderr 캡처 구조로 바꿨다. 성공 경로의 stdout은 계속
+  caller로 직접 흐르고, stderr와 exit status만 변수에 담는다.
+- **계획 수정**: 처음에 `$( { cmd 2>&1 1>&3 3>&-; } 3>&1 )` 형태로 작성했으나 이 경우 fd 3이 command
+  substitution의 capture pipe를 가리켜 stdout까지 캡처됐다. 성공 경로 stdout 검증 테스트가 이를 잡아냈다.
+  substitution 밖에서 `exec 3>&1`로 실제 stdout을 먼저 확보하는 형태로 고쳤다.
+- `set -eu` 아래에서는 substitution 내부의 실패가 `printf`를 건너뛰게 하므로
+  `cmd && result=0 || result=$?` 형태로 exit status를 보존한다.
+- CLI가 이미 시작돼 자체 envelope를 낸 경우(`{"schemaVersion":` 포함)는 원문과 exit code를 그대로
+  통과시킨다. npm 경고가 앞에 붙을 수 있어 접두사가 아니라 포함 여부로 판정한다.
+- Plugin payload manifest를 `0.2.1`로 올렸다. CLI/Extension version은 `0.6.0` 그대로이며 새 CLI release는
+  필요 없다. 두 host 모두 repository marketplace를 사용하므로 병합만으로 update가 노출된다.
+- 검증 결과
+  - `npm run test:all`: Extension 34/34, CLI 44/44 통과 (runner 테스트 4건 신규)
+  - `npm run test:plugin-artifact`: 실제 npm으로 clean install과 Codex/Claude TS/TSX/JS/JSX 통과.
+    실제 npm exec 경로에서 stdout streaming과 `--stdin` 입력이 회귀하지 않는 것을 확인했다.
+  - 실제 npm 404 재현: 존재하지 않는 `v9.9.9` tarball을 pin하면 `cli_release_unavailable`,
+    `exitCode: 1`, `recovery: verify_release_or_set_cli_path`로 분류된 단일 JSON과 exit 127을 반환했다.
+    stderr에는 URL과 절대 경로가 나타나지 않는다.
+  - `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough`로 같은 명령을 실행하면 `npm error code E404`를 포함한
+    원본 출력이 그대로 보인다.
+  - 공개 `v0.6.0` fallback은 정규화 구조에서도 doctor `ready`를 반환한다.

@@ -385,9 +385,16 @@ TypeScript/JavaScript에는 provider command, args 또는 `languageId`를 직접
 4. source가 `checkout`이면 저장소 root에서 `npm run cli:build` 후 다시 검사합니다.
 5. source가 `global`이면 `npm list --global @impact-lens/cli --depth=0`으로 version을 확인하고 최신 release로
    다시 설치합니다.
-6. source가 `release-fallback`이고 npm download 자체가 실패하면 GitHub/npm 접근, proxy와 certificate를
-   확인하거나 release tarball을 내려받아 전역 설치합니다. 이 경우 CLI가 시작되기 전이라 npm 오류가 먼저
-   보일 수 있으며, 설치된 provider의 initialize/query 실패와는 다른 문제입니다.
+6. source가 `release-fallback`이고 npm download 자체가 실패하면 runner가 npm 원본 출력 대신 단일 JSON
+   오류를 반환합니다. `npm_network_unreachable`은 GitHub/npm 접근, proxy와 certificate를,
+   `npm_permission_denied`는 npm cache 소유권을, `cli_release_unavailable`은 plugin 재설치를,
+   `npm_disk_space_unavailable`은 디스크 여유 공간을 확인하라는 뜻입니다. 분류되지 않은 실패는
+   `npm_release_fallback_failed`입니다. 어느 경우든 CLI가 시작되기 전 단계이므로 설치된 provider의
+   initialize/query 실패와는 다른 문제입니다.
+7. 위 오류의 원본 npm 출력을 사람이 직접 봐야 하면 `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough`로 다시
+   실행합니다. 이 모드는 npm의 출력과 exit code를 그대로 보여 주며 JSON envelope를 만들지 않습니다.
+   진단 JSON이 npm 원본 텍스트를 담지 않는 이유는 그 안에 절대 경로, release package URL과 registry/proxy
+   credential이 섞일 수 있기 때문입니다.
 
 runner source는 `explicit`, `checkout`, `global`, `release-fallback` 중 하나입니다. 전체 executable path,
 registry URL, credential과 argv는 진단 JSON에 포함되지 않습니다. stale source를 발견해도 runner가 조용히

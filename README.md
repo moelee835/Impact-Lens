@@ -199,7 +199,7 @@ Claude Code에서는 slash command로도 직접 실행할 수 있습니다.
 /impact-lens:notes list
 ```
 
-plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.6.0 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요합니다.
+plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.6.0 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요하며, 이 단계의 실패도 raw npm 출력이 아니라 단일 JSON 오류로 보고됩니다.
 
 | Host | Manifest | Marketplace |
 | --- | --- | --- |

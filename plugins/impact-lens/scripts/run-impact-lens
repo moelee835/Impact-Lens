@@ -35,7 +35,8 @@ impact_lens_error() {
   impact_lens_error_code=$1
   impact_lens_error_message=$2
   impact_lens_error_details=$3
-  printf '%s\n' "{\"schemaVersion\":1,\"operation\":\"$impact_lens_operation\",\"ok\":false,\"runtime\":{\"cli\":{\"name\":\"@impact-lens/cli\",\"version\":\"unknown\"},\"node\":{\"version\":\"$impact_lens_runtime_node_version\",\"major\":$impact_lens_runtime_node_major,\"executable\":\"node\"},\"runner\":{\"source\":\"$impact_lens_runtime_source\"}},\"error\":{\"code\":\"$impact_lens_error_code\",\"message\":\"$impact_lens_error_message\",\"retryable\":false,\"details\":$impact_lens_error_details}}" >&2
+  impact_lens_error_retryable=${4:-false}
+  printf '%s\n' "{\"schemaVersion\":1,\"operation\":\"$impact_lens_operation\",\"ok\":false,\"runtime\":{\"cli\":{\"name\":\"@impact-lens/cli\",\"version\":\"unknown\"},\"node\":{\"version\":\"$impact_lens_runtime_node_version\",\"major\":$impact_lens_runtime_node_major,\"executable\":\"node\"},\"runner\":{\"source\":\"$impact_lens_runtime_source\"}},\"error\":{\"code\":\"$impact_lens_error_code\",\"message\":\"$impact_lens_error_message\",\"retryable\":$impact_lens_error_retryable,\"details\":$impact_lens_error_details}}" >&2
   exit 127
 }
 
@@ -127,4 +128,75 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 export npm_config_loglevel="${npm_config_loglevel:-error}"
-exec npm exec --yes --package="$impact_lens_release_package" -- impact-lens "$@"
+
+if [ "${IMPACT_LENS_RUNNER_NPM_OUTPUT:-}" = passthrough ]; then
+  exec npm exec --yes --package="$impact_lens_release_package" -- impact-lens "$@"
+fi
+
+# Keep stdout streaming to the caller while capturing only npm's stderr and exit status, so a
+# failure before the CLI starts can still be reported as one JSON envelope.
+exec 3>&1
+impact_lens_npm_capture=$(
+  npm exec --yes --package="$impact_lens_release_package" -- impact-lens "$@" 2>&1 1>&3 3>&- &&
+    impact_lens_npm_result=0 || impact_lens_npm_result=$?
+  printf '\n%s' "$impact_lens_npm_result"
+)
+exec 3>&-
+impact_lens_npm_status=${impact_lens_npm_capture##*"
+"}
+impact_lens_npm_stderr=${impact_lens_npm_capture%"
+"*}
+case "$impact_lens_npm_status" in
+  ''|*[!0-9]*)
+    impact_lens_npm_status=1
+    ;;
+esac
+
+if [ "$impact_lens_npm_status" -eq 0 ]; then
+  if [ -n "$impact_lens_npm_stderr" ]; then
+    printf '%s\n' "$impact_lens_npm_stderr" >&2
+  fi
+  exit 0
+fi
+
+# A started CLI owns its own envelope, so never wrap it a second time.
+case "$impact_lens_npm_stderr" in
+  *'{"schemaVersion":'*)
+    printf '%s\n' "$impact_lens_npm_stderr" >&2
+    exit "$impact_lens_npm_status"
+    ;;
+esac
+
+impact_lens_npm_code=npm_release_fallback_failed
+impact_lens_npm_recovery=inspect_npm_output_or_install_cli
+impact_lens_npm_retryable=false
+impact_lens_npm_message='The Impact Lens release fallback failed before the CLI started. Install @impact-lens/cli globally, set IMPACT_LENS_CLI_PATH, or rerun with IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough to read the npm output.'
+case "$impact_lens_npm_stderr" in
+  *ENOTFOUND*|*EAI_AGAIN*|*ETIMEDOUT*|*ECONNREFUSED*|*ECONNRESET*|*ERR_SOCKET_TIMEOUT*)
+    impact_lens_npm_code=npm_network_unreachable
+    impact_lens_npm_recovery=check_network_or_install_cli
+    impact_lens_npm_retryable=true
+    impact_lens_npm_message='Impact Lens could not download the pinned CLI release. Check network, proxy, and certificate access, or install @impact-lens/cli globally.'
+    ;;
+  *E404*|*'404 Not Found'*)
+    impact_lens_npm_code=cli_release_unavailable
+    impact_lens_npm_recovery=verify_release_or_set_cli_path
+    impact_lens_npm_message='The pinned Impact Lens CLI release package was not found. Reinstall the plugin, or set IMPACT_LENS_CLI_PATH to a local CLI artifact.'
+    ;;
+  *EACCES*|*EPERM*)
+    impact_lens_npm_code=npm_permission_denied
+    impact_lens_npm_recovery=fix_npm_cache_permissions_or_install_cli
+    impact_lens_npm_message='npm could not read or write its cache while installing the Impact Lens CLI. Repair the npm cache ownership or install @impact-lens/cli globally.'
+    ;;
+  *ENOSPC*)
+    impact_lens_npm_code=npm_disk_space_unavailable
+    impact_lens_npm_recovery=free_disk_space_and_retry
+    impact_lens_npm_message='npm ran out of disk space while installing the Impact Lens CLI. Free disk space and retry.'
+    ;;
+esac
+
+impact_lens_error \
+  "$impact_lens_npm_code" \
+  "$impact_lens_npm_message" \
+  "{\"stage\":\"resolution\",\"component\":\"npm\",\"source\":\"release-fallback\",\"exitCode\":$impact_lens_npm_status,\"recovery\":\"$impact_lens_npm_recovery\",\"npmOutput\":\"suppressed\"}" \
+  "$impact_lens_npm_retryable"
