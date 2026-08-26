@@ -173,7 +173,13 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     this.client.setLifecycleStage('initialize');
     try {
       result = await this.client.request<InitializeResult>('initialize', {
-        processId: process.pid,
+        // A Language Server that receives a parent processId polls it with kill(pid, 0) every few
+        // seconds and exits 1 without any stderr when the probe throws. That happens whenever the
+        // child cannot signal the parent, such as a different PID namespace or a sandbox that denies
+        // the syscall, and it would surface as an unexplained initialize failure. Impact Lens owns
+        // the child directly: it is killed on dispose, and closing the stdin pipe when this process
+        // dies already ends the server. The watchdog is redundant, so no processId is handed over.
+        processId: null,
         rootUri: pathToFileURL(this.workspace).toString(),
         workspaceFolders: [{ uri: pathToFileURL(this.workspace).toString(), name: path.basename(this.workspace) }],
         capabilities: {

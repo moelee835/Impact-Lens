@@ -25,7 +25,7 @@ test('reports bundled TypeScript runtime preflight as compact JSON', () => {
   assert.equal(result.stderr, '');
   const response = JSON.parse(result.stdout);
   assert.equal(response.operation, 'provider.doctor');
-  assert.equal(response.runtime.cli.version, '0.6.0');
+  assert.equal(response.runtime.cli.version, '0.6.1');
   assert.equal(response.data.status, 'ready');
   assert.equal(response.data.mode, 'preflight');
   assert.equal(response.data.checks[2].version, '6.0.0');
@@ -180,6 +180,26 @@ test('preserves lifecycle and runtime provenance when the provider exits silentl
   assert.equal(response.error.details.stderr, undefined);
   assert.equal(response.runtime.runner.source, 'release-fallback');
   assert.match(response.error.message, /during initialize \(exit code 1\)/);
+});
+
+test('does not hand the provider a parent processId to police', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'parentWatchdogServer.js');
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  // The fixture exits 1 without stderr whenever it receives a numeric processId, which is exactly how
+  // a sandboxed Language Server dies today. Reaching the missing-target error proves initialize and
+  // the Call Hierarchy capability handshake completed instead.
+  assert.equal(result.status, 3, result.stderr);
+  assert.equal(JSON.parse(result.stderr).error.code, 'target_not_found');
 });
 
 test('reports missing Call Hierarchy capability instead of an empty graph', () => {

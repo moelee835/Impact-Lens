@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/moelee835/Impact-Lens/releases/tag/v0.6.0"><img src="https://img.shields.io/badge/Release-v0.6.0-F5B942?style=for-the-badge" alt="Release v0.6.0"></a>
+  <a href="https://github.com/moelee835/Impact-Lens/releases/tag/v0.6.1"><img src="https://img.shields.io/badge/Release-v0.6.1-F5B942?style=for-the-badge" alt="Release v0.6.1"></a>
   <a href="INSTALL.md"><img src="https://img.shields.io/badge/VS_Code-1.96%2B-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.96+"></a>
   <a href="INSTALL.md#3-agent-cli-설치"><img src="https://img.shields.io/badge/Agent_CLI-Node_22%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Agent CLI Node.js 22+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2EA44F?style=for-the-badge" alt="MIT License"></a>
@@ -49,10 +49,10 @@ Impact Lens는 함수 변경의 잠재 영향 범위를 탐색하는 **local-fir
 
 ### VS Code Extension
 
-[v0.6.0 VSIX](https://github.com/moelee835/Impact-Lens/releases/download/v0.6.0/impact-lens-0.6.0.vsix)를 내려받아 설치합니다.
+[v0.6.1 VSIX](https://github.com/moelee835/Impact-Lens/releases/download/v0.6.1/impact-lens-0.6.1.vsix)를 내려받아 설치합니다.
 
 ```sh
-code --install-extension ./impact-lens-0.6.0.vsix --force
+code --install-extension ./impact-lens-0.6.1.vsix --force
 ```
 
 VS Code를 reload한 뒤 함수 선언 위의 `Show impact`를 선택합니다.
@@ -61,7 +61,7 @@ VS Code를 reload한 뒤 함수 선언 위의 `Show impact`를 선택합니다.
 
 ```sh
 npm install --global \
-  https://github.com/moelee835/Impact-Lens/releases/download/v0.6.0/impact-lens-cli-0.6.0.tgz
+  https://github.com/moelee835/Impact-Lens/releases/download/v0.6.1/impact-lens-cli-0.6.1.tgz
 ```
 
 ```sh
@@ -199,7 +199,7 @@ Claude Code에서는 slash command로도 직접 실행할 수 있습니다.
 /impact-lens:notes list
 ```
 
-plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.6.0 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요하며, 이 단계의 실패도 raw npm 출력이 아니라 단일 JSON 오류로 보고됩니다.
+plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.6.1 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요하며, 이 단계의 실패도 raw npm 출력이 아니라 단일 JSON 오류로 보고됩니다.
 
 | Host | Manifest | Marketplace |
 | --- | --- | --- |

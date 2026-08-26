@@ -1,11 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.6.1
 
 - Report a failed plugin runner release fallback as one structured JSON error that separates network,
   npm permission, missing release, and disk-space causes instead of raw npm output.
 - Keep the started CLI's own error envelope and exit status unchanged, and add
   `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough` for reading the original npm output.
+- Stop sending a parent process id to the Language Server, which made it exit without any diagnostics
+  in sandboxed and containerised environments where probing the parent process is not permitted.
 
 ## 0.6.0
 
