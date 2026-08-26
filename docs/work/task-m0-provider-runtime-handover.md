@@ -30,7 +30,7 @@
 
 ### Git과 PR 상태
 
-- 저장소: `/Users/woony6/dev/Impact-Lens`
+- 저장소: `~/dev/Impact-Lens`
 - 개발 branch: `fix/il-lim-017-provider-runtime`
 - remote branch: `origin/fix/il-lim-017-provider-runtime`
 - handover 작성 직전 HEAD: `13e3b9589af5c449c367c2f4e77f8431f8ee3a84`
@@ -82,7 +82,7 @@
 - repository local marketplace `personal` 등록
 - `impact-lens@personal` version 0.1.0 설치·활성화
 - 설치 cache runner:
-  `/Users/woony6/.codex/plugins/cache/personal/impact-lens/0.1.0/scripts/run-impact-lens`
+  `~/.codex/plugins/cache/personal/impact-lens/0.1.0/scripts/run-impact-lens`
 
 ### Claude Code
 
@@ -91,7 +91,7 @@
 - `impact-lens@impact-lens` version 0.1.0 설치·활성화
 - component inventory: `analyze`, `impact-lens-cli`, `notes` skill 3개
 - 설치 cache runner:
-  `/Users/woony6/.claude/plugins/cache/impact-lens/impact-lens/0.1.0/scripts/run-impact-lens`
+  `~/.claude/plugins/cache/impact-lens/impact-lens/0.1.0/scripts/run-impact-lens`
 
 ### host smoke 결과
 

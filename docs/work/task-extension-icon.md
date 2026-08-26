@@ -2,7 +2,7 @@
 
 - 상태: 구현 및 검증 완료
 - 작성일: 2026-08-24
-- 입력 이미지: `/Users/woony6/.codex/generated_images/01a0323b-a90e-79e1-9dc7-c0eadb59c009/exec-6b94cb30-879d-426d-a427-a008da18395a.png`
+- 입력 이미지: `~/.codex/generated_images/01a0323b-a90e-79e1-9dc7-c0eadb59c009/exec-6b94cb30-879d-426d-a427-a008da18395a.png`
 
 ## 배경과 해결할 문제
 

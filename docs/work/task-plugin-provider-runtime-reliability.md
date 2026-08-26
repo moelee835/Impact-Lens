@@ -48,7 +48,7 @@ bundled TypeScript/JavaScript 분석이 동작하게 하고, 설치·런타임 �
   tarball clean install smoke를 수동으로 기록했지만 Plugin runner의 실제 네 resolution branch와 cache
   layout을 release gate로 고정하지 않았다.
 - `plugin-creator`가 요구하는 개인 마켓플레이스 조회는
-  `/Users/woony6/.agents/plugins/marketplace.json` 부재로 실패했다. 저장소 내부 `.agents` marketplace는
+  `~/.agents/plugins/marketplace.json` 부재로 실패했다. 저장소 내부 `.agents` marketplace는
   존재하지만 개인 설치 registry가 아니므로 cachebuster/reinstall 성공으로 간주하지 않는다.
 
 ## 설계 결정
@@ -299,7 +299,7 @@ actionable hint로 구분하고 CLI 전체 테스트 및 schema 검증이 통과
 ### 2026-08-25 — 7단계 실제 Codex/Claude host 설치 smoke
 
 - `plugin-creator` 절차에 따라 설치 전에 marketplace와 inventory를 확인했다. 기본 개인 marketplace 경로
-  `/Users/woony6/.agents/plugins/marketplace.json`은 없지만 저장소의 명시적 Codex marketplace 이름은
+  `~/.agents/plugins/marketplace.json`은 없지만 저장소의 명시적 Codex marketplace 이름은
   `personal`로 검증됐다. Codex 0.149.1에는 curated marketplace만, Claude Code 2.1.245에는 설치 Plugin이
   없었으므로 기존 사용자 Plugin을 갱신하거나 cachebuster를 적용하지 않았다.
 - 저장소 루트를 로컬 marketplace로 등록하고 `impact-lens@personal`을 Codex에,
