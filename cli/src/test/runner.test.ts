@@ -176,6 +176,12 @@ printf '%s\\n' "\$IMPACT_LENS_TEST_NPM_STDERR" >&2
 exit "\${IMPACT_LENS_TEST_NPM_STATUS:-1}"
 `);
   const cases = [
+    {
+      // Observed inside a Codex agent sandbox, which mounts $HOME read-only.
+      stderr: "npm error code EROFS\nnpm error rofs EROFS: read-only file system, mkdtemp '/home/u/.npm/_cacache/tmp/x'",
+      code: 'npm_filesystem_read_only',
+      recovery: 'install_cli_globally_or_use_writable_npm_cache',
+    },
     { stderr: 'npm error code EACCES', code: 'npm_permission_denied', recovery: 'fix_npm_cache_permissions_or_install_cli' },
     { stderr: 'npm error code E404 Not Found', code: 'cli_release_unavailable', recovery: 'verify_release_or_set_cli_path' },
     { stderr: 'npm error code ENOSPC', code: 'npm_disk_space_unavailable', recovery: 'free_disk_space_and_retry' },

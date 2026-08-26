@@ -97,3 +97,27 @@ stderr가 없을 때 field를 생략하는 기존 계약은 유지했다. 빈 �
 - `scripts/**`는 이미 `.vscodeignore`에 있어 probe가 VSIX에 포함되지 않는 것을 재패키징으로 확인했다
   (28 files 유지).
 - 검증: Extension 34/34, CLI 46/46 통과.
+
+### 2026-08-26 — 읽기 전용 파일시스템 분류 추가
+
+- 변경 파일: `plugins/impact-lens/scripts/run-impact-lens`, `cli/src/test/runner.test.ts`,
+  `docs/development-management/user-tests/m0-environment-setup.md`, `CHANGELOG.md`
+- 보고 환경(Codex `workspace-write` 샌드박스, WSL2)에서 release fallback이 실패했고,
+  `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough`로 원인이 드러났다.
+
+  ```text
+  npm error code EROFS
+  npm error rofs EROFS: read-only file system, mkdtemp '/home/<user>/.npm/_cacache/tmp/...'
+  ```
+
+  exit code는 226이었다. 기존 분류표에 `EROFS`가 없어 `npm_release_fallback_failed`(일반)로 떨어졌다.
+- `EROFS`와 "read-only file system" 문구를 `npm_filesystem_read_only`로 분리했다. 권한 문제(`EACCES`,
+  `EPERM`)와 복구 방법이 다르기 때문이다. 권한은 소유권을 고치면 되지만, 읽기 전용 마운트는 고칠 수 없고
+  전역 설치나 쓰기 가능한 cache로 우회해야 한다.
+- 로컬에서 `chmod 555` cache로 실제 npm을 돌리면 `EACCES`가 나와 `npm_permission_denied`로 분류된다.
+  두 분류가 각각 맞게 동작하는 것을 확인했고, `EROFS` 경로는 관측된 실제 메시지를 그대로 쓰는 단위
+  테스트로 고정했다.
+- 환경 가이드에 확정된 제약을 반영했다. **샌드박스 안에서는 시나리오 A(release fallback)를 쓸 수 없다.**
+  네트워크를 열어도 해결되지 않는다. agent 맥락 검증은 시나리오 B(전역 CLI)로 하고, 설치는 샌드박스 밖
+  shell에서 한다.
+- 검증: CLI 46/46 통과.

@@ -123,6 +123,19 @@ runner의 우선순위 때문에, 두 경로를 동시에 설치하면 무엇을
 M0 명세의 S1(clean install)이 이 경우다. **전역 CLI를 설치하지 않는다.** runner가 실제로 release
 fallback까지 내려가는지 검증하는 것이 목적이다.
 
+> **샌드박스 안에서는 이 시나리오를 쓸 수 없다.** release fallback은 `npm exec`으로 tarball을 받아
+> 설치하므로 npm cache에 쓸 수 있어야 한다. Codex의 `workspace-write` 샌드박스는 workspace 밖을 읽기
+> 전용으로 마운트하므로 `$HOME/.npm`에 쓸 수 없고, 다음이 관측된다.
+>
+> ```text
+> npm error code EROFS
+> npm error rofs EROFS: read-only file system, mkdtemp '/home/<user>/.npm/_cacache/tmp/...'
+> ```
+>
+> 이때 runner는 `npm_filesystem_read_only`를 반환한다. 네트워크를 열어도 해결되지 않는다. agent 맥락을
+> 검증할 때는 시나리오 B(전역 CLI)를 사용한다. 샌드박스 밖 shell에서 전역 설치를 먼저 해두면 runner가
+> `global` 경로를 선택해 네트워크와 cache 쓰기가 모두 불필요해진다.
+
 ```sh
 # Codex
 codex plugin marketplace add moelee835/Impact-Lens --ref main
@@ -134,6 +147,9 @@ claude plugin install impact-lens@impact-lens
 ```
 
 ### 시나리오 B — 전역 CLI 직접 사용
+
+**agent 맥락(Codex, Claude Code 등 샌드박스 안)에서 검증할 때는 이 시나리오를 사용한다.** 설치는 샌드박스
+밖 shell에서 수행한다.
 
 ```sh
 npm install --global \
