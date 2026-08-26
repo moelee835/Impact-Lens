@@ -221,7 +221,10 @@ impact-lens doctor bundled-typescript --smoke; echo "exit=$?"
    | `20초 경과: 언어 서버가 살아 있습니다` | 서버는 정상. 문제는 Impact Lens와 서버 사이 |
    | `initialize 응답 수신` 후 곧 종료 | 서버가 응답 뒤 스스로 종료. `[server stderr]` 로그가 이유를 말한다 |
    | 응답 없이 종료, stdout 0 bytes | 프로토콜을 말하기 전에 죽음. 실행 환경 문제 |
-4. **실행 맥락을 함께 기록한다.** 같은 명령이 사용자 shell에서는 성공하고 agent 세션에서는 실패하는
+4. **`provider_ipc_unavailable`이면 환경 제약이다.** 해당 샌드박스가 자식 프로세스의 stdio를 전달하지
+   않는다는 뜻이고, 재설치나 version 변경으로 해결되지 않는다. 그 맥락에서는 M0 과업을 수행할 수 없으므로
+   샌드박스 밖에서 진행하거나 실행 권한을 올린다.
+5. **실행 맥락을 함께 기록한다.** 같은 명령이 사용자 shell에서는 성공하고 agent 세션에서는 실패하는
    경우가 있으므로, 어디에서 실행했는지(대화형 shell / agent / CI / container)와 `PATH`를 남긴다.
 
 `msSinceSpawn`, `bytesFromServer`, `requestsSent`, `providerLog`와 `IMPACT_LENS_PROVIDER_LOG_LEVEL`은

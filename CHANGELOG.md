@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.3
+
+- Identify environments that start child processes but never deliver their stdio, which restricted
+  agent sandboxes and containers do, and report `provider_ipc_unavailable` instead of an unexplained
+  Language Server failure.
+
 ## 0.6.2
 
 - Report how long a Language Server lived, how much protocol it spoke, and how many requests were sent

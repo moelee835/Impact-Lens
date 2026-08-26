@@ -26,13 +26,13 @@ status for human debugging; that mode does not produce a parseable envelope.
 Success is one compact JSON document on stdout:
 
 ```json
-{"schemaVersion":1,"operation":"impact.analyze","ok":true,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.6.2"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"release-fallback"}},"data":{},"capabilities":{},"limitations":[],"timings":{}}
+{"schemaVersion":1,"operation":"impact.analyze","ok":true,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.6.3"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"release-fallback"}},"data":{},"capabilities":{},"limitations":[],"timings":{}}
 ```
 
 Failure is one compact JSON document on stderr with a non-zero exit status:
 
 ```json
-{"schemaVersion":1,"operation":"impact.analyze","ok":false,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.6.2"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"global"}},"error":{"code":"provider_initialize_failed","message":"...","retryable":true}}
+{"schemaVersion":1,"operation":"impact.analyze","ok":false,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.6.3"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"global"}},"error":{"code":"provider_initialize_failed","message":"...","retryable":true}}
 ```
 
 Do not parse human-oriented tables or depend on whitespace. Node and edge arrays are deterministically ordered. `complete` means only that the provider completed the requested static traversal. Inspect `data.provider` and `data.coverage`; check traversal, semantic and indexing coverage as well as the compatibility `limitations` and truncation fields.
@@ -228,6 +228,11 @@ at anything the server did. `providerLog` holds the server's own redacted `windo
 `window/showMessage` output; many servers, including the bundled TypeScript one, never write to stderr
 at all, so this is where their explanation appears. `IMPACT_LENS_PROVIDER_LOG_LEVEL=1..4` raises the
 bundled server's log level for one run.
+
+`provider_ipc_unavailable` means the environment starts child processes but does not deliver their
+stdio, so no Language Server can be reached from here. It is reported only when the provider produced
+no output at all and a trivial echo child is also unreachable. Do not treat it as a provider or
+installation fault; the recovery is to run outside the sandbox or to allow child process I/O.
 Runner exit-127 errors distinguish Node missing/unreadable/unsupported, selected CLI artifact
 missing/not executable, npm unavailable, and a failed release-fallback download. Read
 `runtime.runner.source` and the stable recovery code in `error.details`; do not infer provider failure

@@ -7,7 +7,7 @@ Impact Lens는 다음 네 구성 요소를 제공합니다. 필요한 것만 설
 - **Codex Plugin**: Codex가 Agent CLI를 발견하고 안전한 분석·노트 workflow로 사용하는 repository plugin
 - **Claude Code Plugin**: Claude Code가 같은 skill과 CLI runner를 slash command와 함께 사용하는 repository plugin
 
-최신 배포 파일은 [GitHub Releases](https://github.com/moelee835/Impact-Lens/releases/latest)에서 받습니다. 아래 예시는 현재 안정 버전인 v0.6.2을 기준으로 합니다.
+최신 배포 파일은 [GitHub Releases](https://github.com/moelee835/Impact-Lens/releases/latest)에서 받습니다. 아래 예시는 현재 안정 버전인 v0.6.3을 기준으로 합니다.
 
 ## 1. 요구 사항
 
@@ -53,14 +53,14 @@ claude plugin --help
 
 ## 2. VS Code Extension 설치
 
-v0.6.2 VSIX를 [직접 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.6.2/impact-lens-0.6.2.vsix)하거나 Release의 `impact-lens-0.6.2.vsix` asset을 받습니다.
+v0.6.3 VSIX를 [직접 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.6.3/impact-lens-0.6.3.vsix)하거나 Release의 `impact-lens-0.6.3.vsix` asset을 받습니다.
 
 ### `code` CLI로 설치
 
 다운로드한 디렉터리에서 다음을 실행합니다.
 
 ```sh
-code --install-extension ./impact-lens-0.6.2.vsix --force
+code --install-extension ./impact-lens-0.6.3.vsix --force
 ```
 
 설치 후 VS Code에서 `Developer: Reload Window`를 실행합니다.
@@ -69,7 +69,7 @@ code --install-extension ./impact-lens-0.6.2.vsix --force
 
 1. VS Code의 Extensions 화면을 엽니다.
 2. 우측 상단 `…` 메뉴에서 `Install from VSIX...`를 선택합니다.
-3. 다운로드한 `impact-lens-0.6.2.vsix`를 선택합니다.
+3. 다운로드한 `impact-lens-0.6.3.vsix`를 선택합니다.
 4. 설치가 끝나면 VS Code 창을 reload합니다.
 
 ### 설치 확인
@@ -80,7 +80,7 @@ code --install-extension ./impact-lens-0.6.2.vsix --force
 code --list-extensions --show-versions
 ```
 
-목록에 `local.impact-lens@0.6.2`이 있어야 합니다. VS Code UI에서는 Extensions의 Impact Lens 상세 화면에서 버전을 확인합니다.
+목록에 `local.impact-lens@0.6.3`이 있어야 합니다. VS Code UI에서는 Extensions의 Impact Lens 상세 화면에서 버전을 확인합니다.
 
 함수가 있는 파일을 열었을 때 선언 위에 `Show impact` CodeLens가 표시되는지 확인합니다. CodeLens가 없다면 해당 언어 확장이 Call Hierarchy를 지원하는지와 `impactLens.showCodeLens` 설정을 확인합니다.
 
@@ -89,17 +89,17 @@ code --list-extensions --show-versions
 ### Release URL에서 전역 설치
 
 ```sh
-npm install --global https://github.com/moelee835/Impact-Lens/releases/download/v0.6.2/impact-lens-cli-0.6.2.tgz
+npm install --global https://github.com/moelee835/Impact-Lens/releases/download/v0.6.3/impact-lens-cli-0.6.3.tgz
 ```
 
 ### tarball을 받은 뒤 전역 설치
 
-CLI tarball을 [직접 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.6.2/impact-lens-cli-0.6.2.tgz)하거나 다음 명령으로 받습니다.
+CLI tarball을 [직접 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.6.3/impact-lens-cli-0.6.3.tgz)하거나 다음 명령으로 받습니다.
 
 ```sh
 curl --location --remote-name \
-  https://github.com/moelee835/Impact-Lens/releases/download/v0.6.2/impact-lens-cli-0.6.2.tgz
-npm install --global ./impact-lens-cli-0.6.2.tgz
+  https://github.com/moelee835/Impact-Lens/releases/download/v0.6.3/impact-lens-cli-0.6.3.tgz
+npm install --global ./impact-lens-cli-0.6.3.tgz
 ```
 
 ### 전역 설치 없이 실행
@@ -108,7 +108,7 @@ npm install --global ./impact-lens-cli-0.6.2.tgz
 
 ```sh
 npm exec --yes \
-  --package=https://github.com/moelee835/Impact-Lens/releases/download/v0.6.2/impact-lens-cli-0.6.2.tgz \
+  --package=https://github.com/moelee835/Impact-Lens/releases/download/v0.6.3/impact-lens-cli-0.6.3.tgz \
   -- impact-lens analyze \
   --workspace /path/to/project \
   --file src/order.ts \
@@ -176,7 +176,7 @@ codex plugin list --json
 
 목록에서 `impact-lens` plugin이 설치 상태인지 확인합니다. 새 대화에서 "Impact Lens로 이 함수의 변경 영향도를 분석해줘"처럼 요청합니다. 기존 대화는 설치 전에 구성된 plugin snapshot을 유지할 수 있으므로 설치 직후에는 새 대화를 사용합니다.
 
-plugin runner는 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.6.2 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
+plugin runner는 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.6.3 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
 
 ## 5. Claude Code Plugin 설치
 
@@ -218,29 +218,29 @@ Impact Lens로 이 함수의 변경 영향도를 분석해줘.
 /impact-lens:notes list
 ```
 
-plugin runner는 Codex plugin과 동일하게 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.6.2 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
+plugin runner는 Codex plugin과 동일하게 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.6.3 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
 
 ## 6. 다운로드 파일 검증
 
-다운로드한 파일의 SHA-256을 계산하고 [v0.6.2 Release](https://github.com/moelee835/Impact-Lens/releases/tag/v0.6.2)의 각 asset에 표시된 digest와 비교합니다. Release 페이지의 digest를 기준값으로 사용하므로 문서에 복사된 값이 새 artifact와 달라지는 문제를 피할 수 있습니다.
+다운로드한 파일의 SHA-256을 계산하고 [v0.6.3 Release](https://github.com/moelee835/Impact-Lens/releases/tag/v0.6.3)의 각 asset에 표시된 digest와 비교합니다. Release 페이지의 digest를 기준값으로 사용하므로 문서에 복사된 값이 새 artifact와 달라지는 문제를 피할 수 있습니다.
 
 macOS:
 
 ```sh
-shasum -a 256 impact-lens-0.6.2.vsix impact-lens-cli-0.6.2.tgz
+shasum -a 256 impact-lens-0.6.3.vsix impact-lens-cli-0.6.3.tgz
 ```
 
 Linux:
 
 ```sh
-sha256sum impact-lens-0.6.2.vsix impact-lens-cli-0.6.2.tgz
+sha256sum impact-lens-0.6.3.vsix impact-lens-cli-0.6.3.tgz
 ```
 
 Windows PowerShell:
 
 ```powershell
-Get-FileHash .\impact-lens-0.6.2.vsix -Algorithm SHA256
-Get-FileHash .\impact-lens-cli-0.6.2.tgz -Algorithm SHA256
+Get-FileHash .\impact-lens-0.6.3.vsix -Algorithm SHA256
+Get-FileHash .\impact-lens-cli-0.6.3.tgz -Algorithm SHA256
 ```
 
 계산 결과가 GitHub Release asset의 digest와 다르면 설치하지 말고 파일을 다시 다운로드합니다.
@@ -416,6 +416,22 @@ initialization option이 필요한 경우 현재 generic adapter로 동작하지
 
 Bundled TypeScript/JavaScript 오류라면 위 doctor 절차를 먼저 사용합니다. Python/C/C++/Swift/Kotlin 등은
 아직 자동 preset이 없으므로 `provider_required_for_language`가 provider artifact 손상을 뜻하지 않습니다.
+
+### `provider_ipc_unavailable`: 샌드박스 안에서 분석이 동작하지 않음
+
+일부 agent 샌드박스와 컨테이너는 자식 프로세스를 실행은 시키지만 그 stdio를 전달하지 않습니다. 이 경우
+Language Server는 요청을 받지 못해 조용히 종료하고, 서버가 쓴 내용도 도착하지 않습니다. CLI는 이 상태를
+자체 점검으로 식별해 `provider_ipc_unavailable`로 알립니다.
+
+이것은 설치나 provider 문제가 아니므로 재설치로 해결되지 않습니다. 다음 중 하나를 선택합니다.
+
+- 샌드박스 밖의 터미널에서 Impact Lens를 실행합니다.
+- agent 설정에서 해당 workspace의 실행 권한을 올립니다. Codex는 `~/.codex/config.toml`의 `sandbox_mode`와
+  관련 설정을 사용합니다.
+- 같은 분석을 VS Code Extension에서 수행합니다. Extension은 자식 CLI 프로세스를 쓰지 않습니다.
+
+`note` 조회·수정과 `doctor bundled-typescript`(preflight)는 자식 프로세스를 쓰지 않으므로 이 환경에서도
+정상 동작합니다. 따라서 "노트는 되는데 분석만 안 된다"는 증상은 이 상황과 일치합니다.
 
 ### 실행된 CLI가 예상과 다름, 또는 결과가 실행할 때마다 다름
 
