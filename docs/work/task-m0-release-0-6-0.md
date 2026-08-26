@@ -166,10 +166,10 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
 
 ## 테스트 및 완료 기준
 
-- [ ] 1단계: version 소유 위치, 발행 순서와 rollback이 문서화되고 commit/push됐다.
-- [ ] 2단계: `0.5.0` 잔존 참조가 CHANGELOG의 과거 절과 이 문서를 제외하고 없다.
-- [ ] 2단계: `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
-- [ ] 2단계: CLI tarball 파일 목록이 `dist/**`, `README.md`, `schemas/**`만 포함한다.
+- [x] 1단계: version 소유 위치, 발행 순서와 rollback이 문서화되고 commit/push됐다.
+- [x] 2단계: `0.5.0` 잔존 참조가 CHANGELOG의 과거 절과 이 문서를 제외하고 없다.
+- [x] 2단계: `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
+- [x] 2단계: CLI tarball 파일 목록이 `dist/**`, `README.md`, `schemas/**`만 포함한다.
 - [ ] 2단계: PR #16 head의 Ubuntu/macOS/Windows Node 22 check가 모두 성공한다.
 - [ ] 3단계: `v0.6.0` tag가 merge commit을 가리키고 release가 draft/prerelease가 아니다.
 - [ ] 3단계: 두 asset의 공개 digest가 local checksum과 같다.
@@ -192,3 +192,37 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
   asset의 digest를 바꾸지 않기 위해 재발행 대신 새 tag를 사용하기로 했다.
 - 상태 재확인: HEAD `0978913`, PR #16 `MERGEABLE`/`CLEAN`, 최신 3-OS run 32828571293 전부 성공,
   local `npm run test:all` 통과, 두 host에 plugin `0.1.0`이 설치·활성화된 상태.
+
+### 2026-08-26 — 2단계 0.6.0 version 정합성 구현
+
+- 변경 파일: `package.json`, `cli/package.json`, `plugins/impact-lens/scripts/run-impact-lens`,
+  `cli/src/test/contract.test.ts`, `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`,
+  `README.md`, `INSTALL.md`, `docs/DEVELOPMENT.md`, `CHANGELOG.md`,
+  `plugins/impact-lens/.claude-plugin/plugin.json`, `plugins/impact-lens/.codex-plugin/plugin.json`,
+  `.vscodeignore`
+- 조사 표의 모든 `0.5.0` 위치를 `0.6.0`으로 바꾸고 plugin manifest 2개를 `0.2.0`으로 올렸다. `CHANGELOG.md`의
+  `Unreleased` 절은 `0.6.0`으로 확정했다. 잔존 `0.5.0` 참조는 CHANGELOG의 과거 절과 이미 발행된 결과를 기록한
+  work document/story뿐이며, 과거 기록은 사실이므로 고치지 않았다.
+- `contract.test.ts`의 `runtime.cli.version` assertion은 literal `'0.6.0'`으로 유지했다. package.json에서 값을
+  읽어오면 assertion이 자기 자신을 검증하게 되고, 다음 bump에서 test가 실패하는 편이 pin 누락을 더 빨리 드러낸다.
+- **발견한 결함**: branch VSIX를 만들자 31 files가 나왔고 `.github/workflows/plugin-artifact-e2e.yml`,
+  `scripts/test-plugin-artifact-e2e.mjs`, 그리고 untracked `.claude/settings.local.json`이 포함됐다. 마지막
+  파일에는 이 host의 절대 경로 `/Users/woony6/dev/Impact-Lens`가 들어 있어 그대로 발행하면 사용자 환경 정보가
+  공개 artifact에 실린다. 이번 branch가 `.github/`, `scripts/`, `.claude/`를 새로 추가하면서 `.vscodeignore`가
+  따라가지 못한 회귀다.
+- `.vscodeignore`에 `.claude/**`, `.github/**`, `scripts/**`를 추가하고 재패키징해 28 files, 1.08 MB로
+  줄었으며 leak 검사에서 `.claude`, `.github`, `scripts/`, `cli/`, `plugins/` 항목이 모두 사라졌다.
+  27 files였던 v0.5.0 대비 증가분은 새 `out/coverage.js` 하나뿐이다.
+- 검증 결과
+  - `npm run test:all`: Extension 34/34, CLI 40/40 통과
+  - `npm run test:plugin-artifact`: clean install과 Codex/Claude TS/TSX/JS/JSX release fallback 통과
+  - CLI tarball `impact-lens-cli-0.6.0.tgz`: 15 entries로 `dist/*.js` 10개, `schemas/**` 2개,
+    `package.json`, `README.md`, `LICENSE`만 포함. SHA-256
+    `0852e7f1ef1fe7d37611ecd33ecf8ca63bf2fb2feb209be990a2b533ecafe4e4` (branch 기준 값이며 release asset은
+    merge 후 main에서 다시 생성한다)
+  - branch VSIX: 28 files, 1.08 MB
+- 이 환경에는 `pnpm`이 PATH에 없어 `docs/DEVELOPMENT.md`의 `pnpm --dir cli pack` 대신 `npm pack`을 사용했다.
+  두 명령 모두 `cli/package.json`의 `files` 목록만 담으며, CI E2E(`scripts/test-plugin-artifact-e2e.mjs`)도
+  `npm pack`을 사용하므로 tarball 내용은 동일하다.
+- 이 Mac의 기본 `~/.npm` cache는 root 소유 파일 때문에 실패하므로 모든 pack/install 검증은 세션 전용
+  `npm_config_cache`로 실행했다. 사용자 홈 권한은 바꾸지 않았다.

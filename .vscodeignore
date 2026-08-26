@@ -4,6 +4,9 @@ AGENTS.md
 .vscode/**
 .agents/**
 .claude-plugin/**
+.claude/**
+.github/**
+scripts/**
 docs/**
 .pnpm-store/**
 node_modules/**

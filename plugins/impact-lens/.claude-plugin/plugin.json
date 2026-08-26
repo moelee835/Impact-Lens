@@ -1,7 +1,7 @@
 {
   "name": "impact-lens",
   "description": "Analyze incoming-call impact and manage function notes through the Impact Lens Agent CLI. Use for change impact radius, affected callers and tests, and shared, source, or local function notes.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Impact Lens contributors",
     "url": "https://github.com/moelee835/Impact-Lens"
