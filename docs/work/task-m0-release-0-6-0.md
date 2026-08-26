@@ -170,12 +170,12 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
 - [x] 2단계: `0.5.0` 잔존 참조가 CHANGELOG의 과거 절과 이 문서를 제외하고 없다.
 - [x] 2단계: `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
 - [x] 2단계: CLI tarball 파일 목록이 `dist/**`, `README.md`, `schemas/**`만 포함한다.
-- [ ] 2단계: PR #16 head의 Ubuntu/macOS/Windows Node 22 check가 모두 성공한다.
-- [ ] 3단계: `v0.6.0` tag가 merge commit을 가리키고 release가 draft/prerelease가 아니다.
-- [ ] 3단계: 두 asset의 공개 digest가 local checksum과 같다.
-- [ ] 4단계: override 없는 Codex/Claude cache runner의 doctor smoke가 성공한다.
-- [ ] 4단계: 같은 조건에서 TypeScript와 JavaScript 분석이 성공한다.
-- [ ] 4단계: M0 gate와 관련 story 상태가 실제 결과로 갱신된다.
+- [x] 2단계: PR #16 head의 Ubuntu/macOS/Windows Node 22 check가 모두 성공한다.
+- [x] 3단계: `v0.6.0` tag가 merge commit을 가리키고 release가 draft/prerelease가 아니다.
+- [x] 3단계: 두 asset의 공개 digest가 local checksum과 같다.
+- [x] 4단계: override 없는 Codex/Claude cache runner의 doctor smoke가 성공한다.
+- [x] 4단계: 같은 조건에서 TypeScript와 JavaScript 분석이 성공한다.
+- [x] 4단계: M0 gate와 관련 story 상태가 실제 결과로 갱신된다.
 
 ## 작업 로그
 
@@ -226,3 +226,46 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
   `npm pack`을 사용하므로 tarball 내용은 동일하다.
 - 이 Mac의 기본 `~/.npm` cache는 root 소유 파일 때문에 실패하므로 모든 pack/install 검증은 세션 전용
   `npm_config_cache`로 실행했다. 사용자 홈 권한은 바꾸지 않았다.
+
+### 2026-08-26 — 3단계 PR merge와 v0.6.0 release 발행
+
+- version bump commit `3cdf77a`에서 PR #16의 3-OS gate를 재실행해
+  [run 32915527971](https://github.com/moelee835/Impact-Lens/actions/runs/32915527971)이 Ubuntu 36초,
+  macOS 33초, Windows 1분 31초로 모두 성공했고 PR 상태는 `CLEAN`이었다.
+- 저장소 관례대로 squash가 아니라 merge commit으로 병합했다. merge commit은
+  `4e1403b80b3fee18cc18983c6e0cb3f7ea9111c7`이다.
+- 병합된 `main`을 checkout해 그 tree에서 artifact를 다시 생성했다. `origin/main`과 개발 branch의 tree hash가
+  `d5f132b`로 동일한 것을 먼저 확인했고, CLI tarball SHA-256도 branch 빌드와 같은
+  `0852e7f1ef1fe7d37611ecd33ecf8ca63bf2fb2feb209be990a2b533ecafe4e4`로 재현됐다.
+- `v0.6.0` tag를 merge commit에 붙이고 draft/prerelease가 아닌 release로 발행했다. 공개 asset의 digest는
+  local checksum과 정확히 일치한다.
+  - `impact-lens-0.6.0.vsix` 1,129,489 bytes, `3afa31de3f2cfbf2baa0a96f4cbfacc4768d220169ad922ec310c272047a55cc`
+  - `impact-lens-cli-0.6.0.tgz` 22,770 bytes, `0852e7f1ef1fe7d37611ecd33ecf8ca63bf2fb2feb209be990a2b533ecafe4e4`
+- release note는 CHANGELOG의 `0.6.0` 절과 두 asset의 digest 표로 구성했다.
+
+### 2026-08-26 — 4단계 공개 default-path 사후 검증
+
+- Claude Code는 `claude plugin update impact-lens@impact-lens --scope local`로 `0.1.0` → `0.2.0` update에
+  성공했다. 기본 `--scope user`는 이 plugin이 local scope로 설치돼 있어 실패하므로 scope를 명시해야 한다.
+- Codex CLI에는 `plugin update`가 없어 `codex plugin remove` 후 `codex plugin add`로 재설치했고
+  cache root가 `~/.codex/plugins/cache/personal/impact-lens/0.2.0`으로 갱신됐다.
+- 검증은 `IMPACT_LENS_CLI_PATH`와 `IMPACT_LENS_CLI_PACKAGE`가 없는 상태에서 두 host의 cache runner를 직접
+  실행했다. 전역 `impact-lens`도 설치돼 있지 않아 runner가 실제로 release fallback까지 내려간다.
+- 결과: 두 runner 모두 `runtime.runner.source` `release-fallback`, `runtime.cli.version` `0.6.0`으로
+  doctor preflight와 `--smoke`가 `status: ready`를 반환했다. checks는 `node-engine`, `cli-package`,
+  `bundled-provider-artifact`, `initialize-capability-smoke` 전부 `pass`다.
+- 같은 조건에서 분석 4건이 성공했다.
+  - TypeScript `cli/src/doctor.ts`의 `doctorBundledTypeScript`: direct caller `run`과 transitive `main`을
+    `cli/src/index.ts`에서 찾았다.
+  - JavaScript `scripts/test-plugin-artifact-e2e.mjs`의 `runNpm`: 같은 파일의 direct caller를 찾았다.
+- 응답 metadata: `provider.host` `lsp`, `selectedBy` `bundled`, `languageMatch` true,
+  `lifecycle.stage` `query` / `status` `ready`, `coverage.traversal.status` `complete`
+  (requestedDepth 5, reachedDepth 3), `coverage.semantic.status` `static-only`,
+  limitations `dynamic_calls_not_inferred`, `unsaved_buffers_unavailable`.
+- 확인 runtime: Node 25.8.1, typescript-language-server 6.0.0, TypeScript 5.9.3.
+- 이번 검증에서는 `~/.npm` cache 권한 문제가 재현되지 않아 release fallback이 사용자 기본 npm cache로
+  정상 동작했다. pack/E2E 단계에서만 세션 전용 cache를 사용했다.
+- 문서 갱신: M0 마일스톤의 공개 fallback gate를 충족으로 바꾸고 release 검증 기록을 추가했다.
+  `IL-LIM-003`은 `Done`으로 전환했고, `IL-LIM-017`은 사용자 검증만 남아 `In progress`를 유지했다.
+  이전 handover 문서 상단에는 blocker 해소 사실과 이 문서 link를 추가했다.
+- 남은 작업: `user-tests/m0-user-test-spec.md` 작성과 실제 사용자 검증. 별도 승인 후 수행한다.

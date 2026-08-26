@@ -55,7 +55,7 @@ capability/query 단계와 해결 가능한 진단을 제공한다.
 - [x] Python no-provider fixture는 process launch 없이 actionable discovery error를 반환한다.
 - [x] code 1·빈 stderr 실패가 재현되면 최소한 실제 lifecycle stage와 artifact provenance가 보존된다.
 - [x] release 문서가 source test와 packed artifact 검증 결과를 구분한다.
-- [ ] 실제 Plugin의 기본 fallback이 이번 runtime/doctor 계약을 포함한 공개 CLI release와 일치한다.
+- [x] 실제 Plugin의 기본 fallback이 이번 runtime/doctor 계약을 포함한 공개 CLI release와 일치한다.
 - [ ] `user-tests/m0-user-test-spec.md`가 release candidate 기준으로 검토됐으며, 실제 사용자 검증 결과 또는
   실행 보류 사유가 release decision에 기록된다.
 
@@ -78,3 +78,20 @@ capability/query 단계와 해결 가능한 진단을 제공한다.
 
 M1은 이 마일스톤의 안정된 lifecycle/error 계약 위에 external provider transport, Auto와 doctor를 추가한다.
 M0가 끝나기 전에는 새 언어 preset을 verified로 승격하지 않는다.
+
+## Release 검증 기록 — 2026-08-26
+
+- 작업 문서: [`docs/work/task-m0-release-0-6-0.md`](../../work/task-m0-release-0-6-0.md)
+- [PR #16](https://github.com/moelee835/Impact-Lens/pull/16)을 merge commit
+  `4e1403b80b3fee18cc18983c6e0cb3f7ea9111c7`로 병합하고 같은 commit에 `v0.6.0` tag와 공개 release를 발행했다.
+- 공개 asset digest는 local checksum과 일치한다.
+  `impact-lens-0.6.0.vsix` `3afa31de3f2cfbf2baa0a96f4cbfacc4768d220169ad922ec310c272047a55cc`,
+  `impact-lens-cli-0.6.0.tgz` `0852e7f1ef1fe7d37611ecd33ecf8ca63bf2fb2feb209be990a2b533ecafe4e4`
+- Codex `impact-lens@personal`과 Claude Code `impact-lens@impact-lens`를 plugin `0.2.0`으로 update한 뒤,
+  `IMPACT_LENS_CLI_PATH`와 `IMPACT_LENS_CLI_PACKAGE` 없이 두 host cache runner에서 doctor preflight,
+  doctor `--smoke`와 TypeScript/JavaScript 분석이 모두 성공했다.
+- 확인한 runtime: `runtime.cli.version` `0.6.0`, `runtime.runner.source` `release-fallback`,
+  Node 25.8.1, typescript-language-server 6.0.0 / TypeScript 5.9.3, `provider.lifecycle.stage` `query`,
+  `coverage.traversal.status` `complete`, `coverage.semantic.status` `static-only`.
+- 남은 gate는 `user-tests/m0-user-test-spec.md` 작성과 실제 사용자 검증이다. 이 단계는 별도 승인 후
+  수행하므로 마일스톤 상태는 `In progress`를 유지한다.

@@ -1,5 +1,9 @@
 # M0 Provider Runtime 신뢰성 세션 Handover
 
+> **후속 처리 완료 (2026-08-26)**: 아래에 기록된 공개 `v0.5.0` 계약 불일치는 `v0.6.0` release로 해소됐다.
+> 진행 결과는 [`task-m0-release-0-6-0.md`](task-m0-release-0-6-0.md)를 참고한다. 이 문서는 그 시점의
+> 상태 기록으로 남긴다.
+
 ## 배경과 해결할 문제
 
 이 문서는 `IL-LIM-003` provider coverage transparency와 `IL-LIM-017` Plugin provider runtime reliability를
