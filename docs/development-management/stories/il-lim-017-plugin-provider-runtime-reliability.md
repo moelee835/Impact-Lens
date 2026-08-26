@@ -222,3 +222,5 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
   않고, `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough` opt-in으로만 노출한다.
 - runner 단위 테스트 4건을 추가했고 실제 npm 404 재현과 3-OS matrix로 검증했다.
   [PR #18](https://github.com/moelee835/Impact-Lens/pull/18)로 병합됐다. Plugin payload는 `0.2.1`이다.
+- 병합 후 Codex와 Claude Code Plugin을 `0.2.1`로 update해 override 없는 실제 cache runner에서 정상 doctor와
+  강제 실패의 `cli_release_unavailable` 분류를 모두 확인했다.
