@@ -1,7 +1,7 @@
 # M0 사용자 테스트 명세 — Provider 실행 신뢰성
 
 - 대상 마일스톤: [M0 — Provider 실행 신뢰성](../milestones/m0-provider-runtime-trust.md)
-- 작성 기준 release candidate: 공개 `v0.6.0` CLI/Extension, Plugin payload `0.2.1`
+- 작성 기준 release candidate: 공개 `v0.6.1` CLI/Extension, Plugin payload `0.2.2`
 - 상태: 작성 완료, 검토 대기. **아직 실행하지 않았다.**
 - 작성 규칙: [마일스톤별 사용자 테스트 명세 계획](../milestones/user-validation-planning.md)
 

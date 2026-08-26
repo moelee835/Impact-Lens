@@ -126,3 +126,14 @@ watchdog을 없애면 부모가 비정상 종료했을 때 언어 서버가 남�
   아니지만, 응답하지 않는 서버에서 종료가 지연되는 점은 후속 검토 대상으로 남긴다.
 - 검증: Extension 34/34, CLI 45/45, packed Plugin E2E 통과. 실제 번들 언어 서버 smoke `ready`, TS 분석에서
   direct caller `run`과 transitive `main` 확인.
+
+### 2026-08-26 — v0.6.1 release 준비
+
+- 사용자 결정에 따라 이 수정을 `v0.6.1`로 발행한다. plugin runner의 fallback이 `v0.6.0` tarball에
+  고정돼 있어 병합만으로는 전역 CLI와 release-fallback 사용자에게 도달하지 않기 때문이다.
+- version 소유 위치(`package.json`, `cli/package.json`, runner pin, contract test, skill 계약 예시,
+  `README.md`, `INSTALL.md`, `docs/DEVELOPMENT.md`)를 `0.6.1`로 맞추고 `CHANGELOG.md`의 `Unreleased`를
+  `0.6.1` 절로 확정했다. Plugin payload manifest는 `0.2.2`다.
+- M0 사용자 테스트 명세의 기준 release candidate도 `v0.6.1` / payload `0.2.2`로 갱신했다. 명세가 가리키는
+  오류 문구 계층이 이번 수정으로 바뀌지는 않지만, 참여자가 설치할 대상이 달라지기 때문이다.
+- 재검증: Extension 34/34, CLI 45/45, packed Plugin E2E 통과.
