@@ -107,8 +107,8 @@ watchdog을 없애면 부모가 비정상 종료했을 때 언어 서버가 남�
 - [x] 실제 번들 언어 서버로 doctor smoke와 TS 분석이 성공한다.
 - [x] 부모 프로세스를 `SIGKILL`해도 언어 서버가 고아로 남지 않는다.
 - [x] `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
-- [ ] 3-OS matrix가 통과하고 병합된다.
-- [ ] 수정이 공개 release로 사용자에게 도달한다.
+- [x] 3-OS matrix가 통과하고 병합된다.
+- [x] 수정이 공개 release로 사용자에게 도달한다.
 
 ## 작업 로그
 
@@ -137,3 +137,19 @@ watchdog을 없애면 부모가 비정상 종료했을 때 언어 서버가 남�
 - M0 사용자 테스트 명세의 기준 release candidate도 `v0.6.1` / payload `0.2.2`로 갱신했다. 명세가 가리키는
   오류 문구 계층이 이번 수정으로 바뀌지는 않지만, 참여자가 설치할 대상이 달라지기 때문이다.
 - 재검증: Extension 34/34, CLI 45/45, packed Plugin E2E 통과.
+
+### 2026-08-26 — 병합과 v0.6.1 발행, 실제 검증
+
+- [PR #20](https://github.com/moelee835/Impact-Lens/pull/20)이 Ubuntu 38초, macOS 36초, Windows 1분 21초로
+  3-OS gate를 통과한 뒤 merge commit `0866aff`로 병합됐다.
+- 같은 commit에 `v0.6.1` tag와 non-draft, non-prerelease release를 발행했다. 공개 asset digest는 local
+  checksum과 일치한다.
+  - `impact-lens-0.6.1.vsix` `084800be393b2e352385ea8ed9dae60a76b8b3b7b2e1ce7facad1773dc3c7dbf`
+  - `impact-lens-cli-0.6.1.tgz` `19ec4497d32f0532d080831bcb8284c20d227087452769e60022acb24ce5ea11`
+- VSIX는 28 files이고 `.claude`, `.github`, `scripts/`, `cli/`, `plugins/` 항목이 없다. CLI tarball은
+  15 entries다.
+- Codex와 Claude Code Plugin을 `0.2.2`로 갱신한 뒤 override 없이 두 cache runner에서 확인했다.
+  doctor smoke `ready`, TypeScript 분석 성공, `runtime.cli.version` `0.6.1`,
+  `runtime.runner.source` `release-fallback`.
+- 보고자 환경에서의 최종 확인은 남아 있다. 이 세션에서는 해당 sandbox/container를 재현할 수 없어
+  `kill(pid, 0)` 프로브 실패를 모사한 fixture와 실제 언어 서버 실증으로 검증했다.

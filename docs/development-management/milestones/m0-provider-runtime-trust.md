@@ -95,6 +95,18 @@ M0가 끝나기 전에는 새 언어 preset을 verified로 승격하지 않는�
   `coverage.traversal.status` `complete`, `coverage.semantic.status` `static-only`.
 - 남은 gate는 `user-tests/m0-user-test-spec.md` 작성과 실제 사용자 검증이었다.
 
+## v0.6.1 후속 수정 — 2026-08-26
+
+- 작업 문서: [`docs/work/task-lsp-parent-watchdog.md`](../../work/task-lsp-parent-watchdog.md)
+- `v0.6.0` 배포 후, 전역 CLI를 쓰는 외부 환경에서 `provider_initialize_failed`(`stage: initialize`,
+  `exitCode: 1`, stderr 없음)가 보고됐다. 원인은 CLI가 `initialize`에 `processId`를 넘겨 언어 서버가
+  `kill(부모PID, 0)`로 부모를 감시하다가, 그 프로브가 허용되지 않는 sandbox·container에서 스스로 종료한
+  것이었다. Node version, 전역 설치 형태, stdin 상태는 모두 원인이 아님을 재현으로 배제했다.
+- `processId: null`로 바꾸고 회귀 fixture를 추가해 [PR #20](https://github.com/moelee835/Impact-Lens/pull/20)
+  으로 병합했으며 `v0.6.1`로 발행했다. Plugin payload는 `0.2.2`다.
+- 이 수정은 M0의 "실패해도 원인이 구분된다"가 아니라 "지원 언어가 배포 환경에서 동작한다" gate에 직접
+  영향을 준다. agent host 다수가 sandbox 환경이므로 M0 사용자 검증은 `v0.6.1` 기준으로 수행한다.
+
 ## 사용자 테스트 명세 — 2026-08-26
 
 - 명세: [`user-tests/m0-user-test-spec.md`](../user-tests/m0-user-test-spec.md)
