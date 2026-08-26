@@ -1,6 +1,6 @@
 {
   "name": "impact-lens",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Analyze incoming-call impact and manage function notes through the Impact Lens Agent CLI.",
   "author": {
     "name": "Impact Lens contributors",

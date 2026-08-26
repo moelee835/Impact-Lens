@@ -36,6 +36,7 @@ export class JsonRpcClient {
   private readonly executable: string;
   private readonly spawnedAt = Date.now();
   private serverBytes = 0;
+  private serverLog = '';
 
   constructor(command: string, args: readonly string[], private readonly timeoutMs: number) {
     this.executable = path.basename(command);
@@ -191,10 +192,25 @@ export class JsonRpcClient {
       return;
     }
     if (message.method) {
+      this.recordServerLog(message.method, message.params);
       for (const handler of this.notificationHandlers.get(message.method) ?? []) {
         handler(message.params);
       }
     }
+  }
+
+  // A Language Server reports its own diagnostics over window/logMessage rather than stderr, so a
+  // server that dies mid-handshake leaves nothing behind unless these notifications are kept.
+  private recordServerLog(method: string, params: unknown): void {
+    if (method !== 'window/logMessage' && method !== 'window/showMessage') {
+      return;
+    }
+    const value = params as { readonly type?: unknown; readonly message?: unknown } | undefined;
+    if (typeof value?.message !== 'string' || value.message.length === 0) {
+      return;
+    }
+    const severity = LOG_MESSAGE_SEVERITY[Number(value.type)] ?? 'log';
+    this.serverLog = `${this.serverLog}${severity}: ${value.message}\n`.slice(-8000);
   }
 
   private failAll(error: Error): void {
@@ -238,6 +254,7 @@ export class JsonRpcClient {
         ? `signal ${this.exitSignal}`
         : 'process error';
     const stderr = redactProviderText(this.stderr.trim());
+    const providerLog = redactProviderText(this.serverLog.trim());
     const cause = this.processError
       ? ((this.processError as NodeJS.ErrnoException).code ?? this.processError.name)
       : undefined;
@@ -258,11 +275,14 @@ export class JsonRpcClient {
         bytesFromServer: this.serverBytes,
         requestsSent: this.nextId - 1,
         ...(stderr ? { stderr } : {}),
+        ...(providerLog ? { providerLog } : {}),
         ...(cause ? { cause } : {}),
       },
     ));
   }
 }
+
+const LOG_MESSAGE_SEVERITY: Record<number, string> = { 1: 'error', 2: 'warning', 3: 'info', 4: 'log', 5: 'debug' };
 
 export function redactProviderText(value: string): string {
   const home = os.homedir();

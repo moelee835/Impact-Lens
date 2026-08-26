@@ -26,13 +26,13 @@ status for human debugging; that mode does not produce a parseable envelope.
 Success is one compact JSON document on stdout:
 
 ```json
-{"schemaVersion":1,"operation":"impact.analyze","ok":true,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.6.1"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"release-fallback"}},"data":{},"capabilities":{},"limitations":[],"timings":{}}
+{"schemaVersion":1,"operation":"impact.analyze","ok":true,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.6.2"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"release-fallback"}},"data":{},"capabilities":{},"limitations":[],"timings":{}}
 ```
 
 Failure is one compact JSON document on stderr with a non-zero exit status:
 
 ```json
-{"schemaVersion":1,"operation":"impact.analyze","ok":false,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.6.1"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"global"}},"error":{"code":"provider_initialize_failed","message":"...","retryable":true}}
+{"schemaVersion":1,"operation":"impact.analyze","ok":false,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.6.2"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"global"}},"error":{"code":"provider_initialize_failed","message":"...","retryable":true}}
 ```
 
 Do not parse human-oriented tables or depend on whitespace. Node and edge arrays are deterministically ordered. `complete` means only that the provider completed the requested static traversal. Inspect `data.provider` and `data.coverage`; check traversal, semantic and indexing coverage as well as the compatibility `limitations` and truncation fields.
@@ -221,6 +221,13 @@ Use the same target and scope with `note delete`. Preview first without `apply` 
 Provider exit-5 errors distinguish `provider_launch_failed`, `provider_initialize_failed`,
 `provider_capability_missing`, and `provider_query_failed`. Use `error.details.stage` and the
 redacted stderr tail when present; these errors mean analysis was not established, not zero callers.
+
+Provider failures also carry `msSinceSpawn`, `bytesFromServer`, and `requestsSent`. A server that dies
+with `bytesFromServer: 0` never spoke the protocol, which points at the launch environment rather than
+at anything the server did. `providerLog` holds the server's own redacted `window/logMessage` and
+`window/showMessage` output; many servers, including the bundled TypeScript one, never write to stderr
+at all, so this is where their explanation appears. `IMPACT_LENS_PROVIDER_LOG_LEVEL=1..4` raises the
+bundled server's log level for one run.
 Runner exit-127 errors distinguish Node missing/unreadable/unsupported, selected CLI artifact
 missing/not executable, npm unavailable, and a failed release-fallback download. Read
 `runtime.runner.source` and the stable recovery code in `error.details`; do not infer provider failure
