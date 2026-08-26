@@ -93,5 +93,14 @@ M0가 끝나기 전에는 새 언어 preset을 verified로 승격하지 않는�
 - 확인한 runtime: `runtime.cli.version` `0.6.0`, `runtime.runner.source` `release-fallback`,
   Node 25.8.1, typescript-language-server 6.0.0 / TypeScript 5.9.3, `provider.lifecycle.stage` `query`,
   `coverage.traversal.status` `complete`, `coverage.semantic.status` `static-only`.
-- 남은 gate는 `user-tests/m0-user-test-spec.md` 작성과 실제 사용자 검증이다. 이 단계는 별도 승인 후
-  수행하므로 마일스톤 상태는 `In progress`를 유지한다.
+- 남은 gate는 `user-tests/m0-user-test-spec.md` 작성과 실제 사용자 검증이었다.
+
+## 사용자 테스트 명세 — 2026-08-26
+
+- 명세: [`user-tests/m0-user-test-spec.md`](../user-tests/m0-user-test-spec.md)
+- 작업 문서: [`docs/work/task-m0-user-test-spec.md`](../../work/task-m0-user-test-spec.md)
+- `v0.6.0` release와 runner npm 오류 정규화로 사용자 노출 문구가 확정된 뒤 작성했다. clean install, update,
+  Node/CLI artifact/npm 다운로드 실패 복구, preset 없는 언어 해석, 정적 결과 과신 여부를 과업으로 다룬다.
+- 합격 수치는 확정하지 않고 pilot baseline 측정 절차를 두었다.
+- **아직 검토·실행하지 않았다.** 구현자가 아닌 검토자의 검토와 별도 승인된 실행이 남아 있으므로 종료
+  gate는 여전히 미충족이고 마일스톤 상태는 `In progress`를 유지한다.
