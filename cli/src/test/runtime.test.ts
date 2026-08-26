@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import test from 'node:test';
 import {
   assertSupportedNode,
+  bundledTypeScriptCommand,
   inspectBundledTypeScriptArtifact,
   runtimeMetadata,
 } from '../runtime';
@@ -77,4 +78,30 @@ test('bundled artifact inspection distinguishes unreadable entry and corrupt pac
       && error.code === 'bundled_provider_artifact_corrupt'
       && !JSON.stringify(error.details).includes(temporary),
   );
+});
+
+test('raises the bundled provider log level only for an allowed opt-in value', () => {
+  const original = process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL;
+  try {
+    delete process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL;
+    assert.deepEqual(bundledTypeScriptCommand('typescript').args?.slice(1), ['--stdio']);
+
+    process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL = '4';
+    assert.deepEqual(bundledTypeScriptCommand('typescript').args?.slice(1), ['--stdio', '--log-level', '4']);
+
+    for (const rejected of ['0', '5', 'debug', '--inject', '4 4', '']) {
+      process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL = rejected;
+      assert.deepEqual(
+        bundledTypeScriptCommand('typescript').args?.slice(1),
+        ['--stdio'],
+        `expected ${JSON.stringify(rejected)} to be ignored`,
+      );
+    }
+  } finally {
+    if (original === undefined) {
+      delete process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL;
+    } else {
+      process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL = original;
+    }
+  }
 });
