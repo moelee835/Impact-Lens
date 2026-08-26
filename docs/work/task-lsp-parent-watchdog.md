@@ -151,5 +151,15 @@ watchdog을 없애면 부모가 비정상 종료했을 때 언어 서버가 남�
 - Codex와 Claude Code Plugin을 `0.2.2`로 갱신한 뒤 override 없이 두 cache runner에서 확인했다.
   doctor smoke `ready`, TypeScript 분석 성공, `runtime.cli.version` `0.6.1`,
   `runtime.runner.source` `release-fallback`.
-- 보고자 환경에서의 최종 확인은 남아 있다. 이 세션에서는 해당 sandbox/container를 재현할 수 없어
-  `kill(pid, 0)` 프로브 실패를 모사한 fixture와 실제 언어 서버 실증으로 검증했다.
+- 이 세션에서는 보고자의 sandbox/container를 재현할 수 없어 `kill(pid, 0)` 프로브 실패를 모사한 fixture와
+  실제 언어 서버 실증으로 검증했다.
+
+### 2026-08-26 — 보고 환경에서 수정 확인
+
+- 원래 실패하던 Linux 환경(Node 24.19.0)에서 전역 CLI를 `0.6.1`로 올린 뒤 같은 명령을 다시 실행해
+  `doctor bundled-typescript --smoke`가 통과했다. `runner.source`는 `direct`이고 4개 check가 모두 `pass`,
+  `initialize-capability-smoke`도 `pass`다.
+- 이 결과는 우연한 회피가 아니다. watchdog은 3초 간격으로 프로브하므로 같은 환경에서 이전에 smoke가
+  실패했다는 사실 자체가 초기화가 3초를 넘겼다는 뜻이다. 따라서 통과는 watchdog이 제거된 결과로 해석된다.
+- 이로써 원인 규명이 실제 실패 환경에서 확인됐다. 남은 것은 원 보고의 사용자 시나리오(JavaScript 함수
+  `formatDateOnly` 영향도 분석)를 같은 환경에서 재실행해 사용자 관점 결과까지 닫는 일이다.
