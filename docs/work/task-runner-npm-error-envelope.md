@@ -113,7 +113,7 @@ runner UX 과제로 남겨 두었다. 이 작업은 그 구간을 나머지 실�
 - [x] 2단계: `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough`가 원본 npm 출력과 exit code를 유지한다.
 - [x] 2단계: envelope에 release package URL, 절대 경로, credential이 포함되지 않는다.
 - [x] 2단계: `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
-- [ ] 3단계: PR의 Ubuntu/macOS/Windows Node 22 check가 모두 성공하고 병합된다.
+- [x] 3단계: PR의 Ubuntu/macOS/Windows Node 22 check가 모두 성공하고 병합된다.
 
 ## 작업 로그
 
@@ -155,3 +155,13 @@ runner UX 과제로 남겨 두었다. 이 작업은 그 구간을 나머지 실�
   - `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough`로 같은 명령을 실행하면 `npm error code E404`를 포함한
     원본 출력이 그대로 보인다.
   - 공개 `v0.6.0` fallback은 정규화 구조에서도 doctor `ready`를 반환한다.
+
+### 2026-08-26 — 3단계 병합과 실제 host 확인
+
+- [PR #18](https://github.com/moelee835/Impact-Lens/pull/18)이 Ubuntu 35초, macOS 36초, Windows 1분 20초로
+  3-OS gate를 통과한 뒤 merge commit `331833f`로 병합됐다. Windows job은 Git Bash로 runner를 실행하므로
+  새 file descriptor 처리가 세 platform에서 모두 검증됐다.
+- 병합 후 Codex와 Claude Code의 Plugin을 `0.2.1`로 update하고 override 없이 두 cache runner를 확인했다.
+  - 정상 경로: `runtime.cli.version` `0.6.0`, `runner.source` `release-fallback`, doctor `ready`
+  - 강제 실패 경로: 존재하지 않는 package를 pin하면 두 host 모두 `cli_release_unavailable`,
+    `recovery: verify_release_or_set_cli_path`, `npmOutput: suppressed`를 반환한다.

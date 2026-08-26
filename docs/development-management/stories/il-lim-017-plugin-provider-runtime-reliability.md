@@ -178,8 +178,8 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
 - global binary를 포함한 Plugin 경로는 runner가 먼저 Node 22를 검사하고, 직접 CLI 실행은 CLI startup guard가
   소유한다. 두 계층 모두 같은 minimum을 적용한다.
 - network가 제한된 첫 release fallback은 CLI가 시작되기 전 npm 오류이고, 설치된 provider crash는 JSON의
-  lifecycle code/runtime으로 구분한다. npm stderr를 하나의 구조화된 runner envelope로 감싸는 기능은 아직
-  없으므로 후속 runner UX 과제로 남긴다.
+  lifecycle code/runtime으로 구분한다. npm stderr를 하나의 구조화된 runner envelope로 감싸는 후속 과제는
+  2026-08-26에 구현했다(아래 참고).
 
 ## 구현 결과 — 2026-08-25
 
@@ -209,5 +209,18 @@ Plugin을 설치한 사용자로서 지원 언어인 TypeScript/JavaScript 분�
   `runtime.cli.version`은 `0.6.0`이다. 이로써 공개 artifact와 runner 계약 불일치라는 release blocker는 해소됐다.
 - VSIX 패키징 회귀도 함께 고쳤다. `.vscodeignore`가 이번 branch에서 추가된 `.github/`, `scripts/`,
   `.claude/`를 따라가지 못해 CI workflow, release E2E script와 host-local plugin 설정이 VSIX에 포함되고 있었다.
-- 남은 항목은 M0 사용자 검증뿐이므로 상태는 `In progress`를 유지한다. runner가 CLI 시작 전 npm 오류를 단일
-  JSON envelope로 감싸는 UX 과제도 후속으로 남는다.
+- 남은 항목은 M0 사용자 검증뿐이므로 상태는 `In progress`를 유지한다.
+
+## 후속 과제 완료 — runner npm envelope, 2026-08-26
+
+- 작업 문서: [`docs/work/task-runner-npm-error-envelope.md`](../../work/task-runner-npm-error-envelope.md)
+- release fallback에서 CLI가 시작되기 전 npm이 실패하는 마지막 비정규화 구간을 단일 JSON envelope로 맞췄다.
+  원인은 `npm_network_unreachable`(retryable), `cli_release_unavailable`, `npm_permission_denied`,
+  `npm_disk_space_unavailable`, `npm_release_fallback_failed`로 분류된다.
+- CLI가 이미 시작돼 자체 envelope를 낸 경우에는 이중 wrapping 없이 원문과 exit code를 보존한다.
+- npm 원본 텍스트는 절대 경로·release package URL·registry/proxy credential이 섞일 수 있어 envelope에 담지
+  않고, `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough` opt-in으로만 노출한다.
+- runner 단위 테스트 4건을 추가했고 실제 npm 404 재현과 3-OS matrix로 검증했다.
+  [PR #18](https://github.com/moelee835/Impact-Lens/pull/18)로 병합됐다. Plugin payload는 `0.2.1`이다.
+- 병합 후 Codex와 Claude Code Plugin을 `0.2.1`로 update해 override 없는 실제 cache runner에서 정상 doctor와
+  강제 실패의 `cli_release_unavailable` 분류를 모두 확인했다.
