@@ -2,6 +2,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { childIpcStatus, childIpcUnavailableError, looksLikeSilentProviderFailure } from './childIpc';
 import { doctorBundledTypeScript } from './doctor';
 import { analyzeImpact, canonicalWorkspace, resolveWorkspaceFileSecure, selectRoot } from './impact';
 import { LspCallHierarchyProvider } from './lspProvider';
@@ -91,9 +92,12 @@ async function main(): Promise<void> {
     const response = await run(process.argv.slice(2));
     process.stdout.write(`${JSON.stringify(response)}\n`);
   } catch (error) {
-    const value = error instanceof CliError
+    let value = error instanceof CliError
       ? error
       : new CliError('internal_error', error instanceof Error ? error.message : String(error), 10);
+    if (looksLikeSilentProviderFailure(value) && await childIpcStatus() === 'unavailable') {
+      value = childIpcUnavailableError(value);
+    }
     const response = {
       schemaVersion: 1,
       operation,

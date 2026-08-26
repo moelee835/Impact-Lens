@@ -1,6 +1,6 @@
 {
   "name": "@impact-lens/cli",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Machine-readable impact analysis and function-note CLI for code agents.",
   "license": "MIT",
   "repository": {
