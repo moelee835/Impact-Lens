@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Report how long a Language Server lived, how much protocol it spoke, and how many requests were sent
+  when it exits without any diagnostics, and add `IMPACT_LENS_PROVIDER_LOG_LEVEL` to make a silent
+  server explain itself.
+- Separate a read-only filesystem from a permission problem when the plugin runner release fallback
+  cannot write the npm cache, which is what agent sandboxes and containers produce.
+
 ## 0.6.1
 
 - Report a failed plugin runner release fallback as one structured JSON error that separates network,

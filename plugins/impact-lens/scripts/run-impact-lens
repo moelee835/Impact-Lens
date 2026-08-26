@@ -183,6 +183,11 @@ case "$impact_lens_npm_stderr" in
     impact_lens_npm_recovery=verify_release_or_set_cli_path
     impact_lens_npm_message='The pinned Impact Lens CLI release package was not found. Reinstall the plugin, or set IMPACT_LENS_CLI_PATH to a local CLI artifact.'
     ;;
+  *EROFS*|*'read-only file system'*|*'read-only filesystem'*)
+    impact_lens_npm_code=npm_filesystem_read_only
+    impact_lens_npm_recovery=install_cli_globally_or_use_writable_npm_cache
+    impact_lens_npm_message='npm cannot write its cache because the filesystem is read-only, which is common inside agent sandboxes and containers. Install @impact-lens/cli globally outside the sandbox, set IMPACT_LENS_CLI_PATH, or point npm_config_cache at a writable directory.'
+    ;;
   *EACCES*|*EPERM*)
     impact_lens_npm_code=npm_permission_denied
     impact_lens_npm_recovery=fix_npm_cache_permissions_or_install_cli
