@@ -34,10 +34,55 @@ export interface IncomingCall {
 }
 
 export interface ProviderCapabilities {
+  readonly host: 'lsp';
   readonly name: string;
   readonly version?: string;
+  readonly requestedLanguageId: string;
+  readonly detectedLanguageId: string;
+  readonly selectedBy: 'bundled' | 'custom';
+  readonly languageMatch: boolean | 'unknown';
   readonly callHierarchy: boolean;
   readonly diagnostics: boolean;
+  readonly advertised: {
+    readonly callHierarchy: boolean;
+    readonly diagnostics: boolean | 'unknown';
+  };
+  readonly observed: {
+    readonly prepareCallHierarchy: boolean;
+    readonly incomingCalls: boolean;
+    readonly diagnostics: boolean;
+  };
+  readonly lifecycle: ProviderLifecycle;
+}
+
+export type ProviderLifecycleStage =
+  | 'discovery'
+  | 'launch'
+  | 'initialize'
+  | 'indexing'
+  | 'capability'
+  | 'query';
+
+export interface ProviderLifecycle {
+  readonly stage: ProviderLifecycleStage;
+  readonly status: 'working' | 'ready' | 'failed' | 'unknown';
+}
+
+export interface Coverage {
+  readonly traversal: {
+    readonly status: 'complete' | 'depth-limited' | 'node-limited';
+    readonly requestedDepth: number;
+    readonly reachedDepth: number;
+    readonly maxNodes: number;
+  };
+  readonly semantic: {
+    readonly status: 'static-only' | 'augmented';
+    readonly evidenceSources: readonly string[];
+  };
+  readonly indexing: {
+    readonly status: 'ready' | 'working' | 'unknown';
+  };
+  readonly reasons: readonly string[];
 }
 
 export interface ProviderDiagnostic {

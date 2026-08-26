@@ -3,7 +3,7 @@
   "displayName": "Impact Lens",
   "description": "Explore the potential impact of changing a function using VS Code language services.",
   "icon": "media/impact-lens.png",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "local",
   "license": "MIT",
   "repository": {
@@ -173,6 +173,7 @@
     "test": "tsc -p ./ && node --test out/test/*.test.js",
     "cli:build": "npm --prefix cli run build",
     "cli:test": "npm --prefix cli test",
+    "test:plugin-artifact": "node scripts/test-plugin-artifact-e2e.mjs",
     "test:all": "npm test && npm run cli:test",
     "vscode:prepublish": "npm run compile"
   },

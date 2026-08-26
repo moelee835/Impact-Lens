@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/moelee835/Impact-Lens/releases/tag/v0.5.0"><img src="https://img.shields.io/badge/Release-v0.5.0-F5B942?style=for-the-badge" alt="Release v0.5.0"></a>
+  <a href="https://github.com/moelee835/Impact-Lens/releases/tag/v0.6.0"><img src="https://img.shields.io/badge/Release-v0.6.0-F5B942?style=for-the-badge" alt="Release v0.6.0"></a>
   <a href="INSTALL.md"><img src="https://img.shields.io/badge/VS_Code-1.96%2B-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.96+"></a>
   <a href="INSTALL.md#3-agent-cli-설치"><img src="https://img.shields.io/badge/Agent_CLI-Node_22%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Agent CLI Node.js 22+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2EA44F?style=for-the-badge" alt="MIT License"></a>
@@ -49,10 +49,10 @@ Impact Lens는 함수 변경의 잠재 영향 범위를 탐색하는 **local-fir
 
 ### VS Code Extension
 
-[v0.5.0 VSIX](https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-0.5.0.vsix)를 내려받아 설치합니다.
+[v0.6.0 VSIX](https://github.com/moelee835/Impact-Lens/releases/download/v0.6.0/impact-lens-0.6.0.vsix)를 내려받아 설치합니다.
 
 ```sh
-code --install-extension ./impact-lens-0.5.0.vsix --force
+code --install-extension ./impact-lens-0.6.0.vsix --force
 ```
 
 VS Code를 reload한 뒤 함수 선언 위의 `Show impact`를 선택합니다.
@@ -61,7 +61,7 @@ VS Code를 reload한 뒤 함수 선언 위의 `Show impact`를 선택합니다.
 
 ```sh
 npm install --global \
-  https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-cli-0.5.0.tgz
+  https://github.com/moelee835/Impact-Lens/releases/download/v0.6.0/impact-lens-cli-0.6.0.tgz
 ```
 
 ```sh
@@ -174,6 +174,7 @@ Agent CLI는 사람용 table이나 interactive prompt 대신 stdout에 compact J
 
 ```sh
 impact-lens analyze --stdin < analyze-request.json
+impact-lens doctor bundled-typescript --smoke
 impact-lens note get --stdin < note-get-request.json
 impact-lens note list --workspace /path/to/project --scope shared
 impact-lens note set --stdin < note-set-request.json
@@ -198,7 +199,7 @@ Claude Code에서는 slash command로도 직접 실행할 수 있습니다.
 /impact-lens:notes list
 ```
 
-plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.5.0 release package 순서로 실행 대상을 찾습니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요합니다.
+plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.6.0 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요합니다.
 
 | Host | Manifest | Marketplace |
 | --- | --- | --- |
@@ -215,8 +216,15 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 - VS Code Extension은 대상 언어 확장이 제공하는 Call Hierarchy 범위에서 동작합니다.
 - JavaScript/TypeScript CLI에는 `typescript-language-server`가 포함됩니다.
 - 다른 언어의 CLI 분석은 표준 LSP Call Hierarchy server command와 `languageId` 설정이 필요합니다.
+- CLI는 대상 파일 언어와 맞지 않는 bundled provider를 실행하지 않으며, provider의 discovery/launch/
+  initialize/capability/query 실패를 서로 다른 오류로 반환합니다.
 - Python/FastAPI의 일반 import 호출은 provider 지원 범위에서 나타날 수 있지만 `Depends()`와 decorator routing은 누락될 수 있습니다.
-- `complete: true`는 요청한 provider 탐색이 완료되었다는 뜻이며, 런타임 호출이 없다는 보장이 아닙니다.
+- `provider`에는 선택 근거와 advertised/observed capability가, `coverage`에는 traversal/semantic/indexing
+  범위가 기록됩니다. Extension은 VS Code 공개 API가 실제 provider identity를 노출하지 않으므로 이름을
+  `unknown`으로 표시합니다.
+- CLI/Plugin 응답의 `runtime`은 CLI·Node version과 runner 선택 source를 경로·credential 없이 기록합니다.
+- `complete: true`는 `coverage.traversal`이 완료됐다는 뜻이며, `semantic: static-only` 또는
+  `indexing: unknown`을 무효화하지 않습니다.
 - 저장하지 않은 editor buffer는 Extension live analysis에는 반영되지만 독립 CLI에서는 사용할 수 없습니다.
 
 ## 설정

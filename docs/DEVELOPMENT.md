@@ -35,11 +35,31 @@ pnpm install --frozen-lockfile
 
 ```sh
 git status --short --branch
-git pull --ff-only
-git switch -c <branch-name>
+git fetch origin
+git switch -c <branch-name> origin/main
 ```
 
-`AGENTS.md`의 저장소 규칙에 따라 코드 또는 설정을 바꾸기 전에 `docs/work/<task-name>.md`에 계획과 완료 기준을 작성한다. 구현 중에는 같은 문서에 변경 파일, 설계 결정, 테스트 결과와 제한 사항을 계속 기록한다.
+`main`/`master`에서는 파일 변경, commit과 push를 하지 않는다. `feat/`, `fix/`, `docs/`, `refactor/`,
+`test/`, `chore/` 또는 `release/` 전용 branch를 사용하고 main 반영은 Pull Request로만 진행한다.
+
+`AGENTS.md`의 저장소 규칙에 따라 코드 또는 설정을 바꾸기 전에 `docs/work/<task-name>.md`에 계획과 완료 기준을 작성한다. 구현 중에는 같은 문서에 변경 파일, 설계 결정, 테스트 결과와 제한 사항을 계속 기록한다. 장기 개선 후보와 알려진 한계는 [`docs/development-management/`](development-management/README.md)에서 우선순위와 개별 스토리로 관리한다.
+
+작업 문서의 각 최상위 구현 단계는 독립적으로 검증 가능한 commit 단위다. 단계마다 다음 cycle을 완료한다.
+
+```sh
+# 단계 구현과 문서 로그 갱신 후
+pnpm run test:all              # 변경 범위에 맞는 실제 검증으로 대체 가능
+git diff --check
+git status --short --branch
+git add <stage-files>
+git diff --cached --check
+git commit -m "<imperative stage summary>"
+git push -u origin <branch-name>  # 첫 단계
+git push                         # 이후 단계
+```
+
+push가 성공하기 전에는 다음 단계로 넘어가지 않는다. 검증 실패나 미완료 단계는 commit/push하지 않고 작업
+로그에 원인과 위험을 남긴다. force push와 main 직접 push는 이 workflow에 포함되지 않는다.
 
 ## 3. 주요 코드 위치
 
@@ -61,6 +81,7 @@ git switch -c <branch-name>
   - `scripts/run-impact-lens`: 셸 평가 없이 CLI를 찾아 실행하는 runner
 - `.agents/plugins/marketplace.json`: Codex marketplace 정의
 - `.claude-plugin/marketplace.json`: Claude Code marketplace 정의
+- `docs/development-management/`: 알려진 한계, 우선순위와 개별 개발 스토리
 - `package.json`: 명령, 설정, 버전, Extension manifest
 - `CHANGELOG.md`: 버전별 사용자 변경 내역
 
@@ -89,7 +110,9 @@ VS Code에서 저장소를 연 다음 `F5`를 누르면 Extension Development Ho
 5. 코드를 연 뒤 기존 Graph root가 유지되는지 확인한다.
 6. Analysis/Visible depth, zoom, fit/reset 및 drag pan을 확인한다.
 7. source edit 후 stale/analyzing/current 상태와 diagnostics가 갱신되는지 확인한다.
-8. light/dark/high contrast theme에서 선택과 diagnostic 표시를 확인한다.
+8. Graph summary와 Explorer root tooltip이 `static Call Hierarchy`, provider host/language,
+   traversal/indexing 상태를 표시하는지 확인한다.
+9. light/dark/high contrast theme에서 선택과 diagnostic 표시를 확인한다.
 
 Python/FastAPI는 설치된 Python extension과 language server가 제공하는 Call Hierarchy 범위 안에서 확인한다. `Depends()`, decorator route 및 런타임 연결이 provider 결과에 없으면 Impact Lens에도 표시되지 않을 수 있다.
 
@@ -162,12 +185,12 @@ git diff --check
 
 ```json
 {
-  "version": "0.5.0"
+  "version": "0.6.0"
 }
 ```
 
 ```md
-## 0.5.0
+## 0.6.0
 
 - Fix or feature summary.
 ```
@@ -182,7 +205,7 @@ git diff --check
 pnpm test
 pnpm run compile
 git diff --check
-pnpm exec vsce package --out /tmp/impact-lens-0.5.0.vsix
+pnpm exec vsce package --out /tmp/impact-lens-0.6.0.vsix
 ```
 
 `vsce package`는 `vscode:prepublish` script를 실행한 뒤 VSIX에 포함된 파일 목록을 출력한다. 최소한 다음 항목을 확인한다.
@@ -201,13 +224,13 @@ pnpm exec vsce package --out /tmp/impact-lens-0.5.0.vsix
 필요하면 압축 파일 목록을 직접 확인한다.
 
 ```sh
-unzip -l /tmp/impact-lens-0.5.0.vsix
+unzip -l /tmp/impact-lens-0.6.0.vsix
 ```
 
 artifact checksum을 생성한다.
 
 ```sh
-shasum -a 256 /tmp/impact-lens-0.5.0.vsix
+shasum -a 256 /tmp/impact-lens-0.6.0.vsix
 ```
 
 릴리스에 첨부한 파일의 digest와 이 값을 비교한다.
@@ -217,7 +240,7 @@ shasum -a 256 /tmp/impact-lens-0.5.0.vsix
 `code` CLI가 PATH에 있다면 기존 설치를 덮어쓴다.
 
 ```sh
-code --install-extension /tmp/impact-lens-0.5.0.vsix --force
+code --install-extension /tmp/impact-lens-0.6.0.vsix --force
 ```
 
 설치 후 VS Code에서 `Developer: Reload Window`를 실행한다.
@@ -270,4 +293,4 @@ VS Code의 명령 팔레트에서 `Shell Command: Install 'code' command in PATH
 
 ### 호출 관계 일부가 보이지 않음
 
-대상 언어 extension이 Call Hierarchy를 제공하는지 먼저 확인한다. Impact Lens는 provider가 반환한 incoming call을 프로젝트 URI 제한 없이 수집하지만 런타임 DI, reflection, event 및 framework 연결을 임의로 추론하지 않는다. Graph header의 requested/reached depth와 depth/node limit 표시도 함께 확인한다.
+대상 언어 extension이 Call Hierarchy를 제공하는지 먼저 확인한다. Impact Lens는 provider가 반환한 incoming call을 프로젝트 URI 제한 없이 수집하지만 런타임 DI, reflection, event 및 framework 연결을 임의로 추론하지 않는다. Graph header의 requested/reached depth, `static Call Hierarchy`와 depth/node limit 표시도 함께 확인한다. CLI에서는 `provider`와 `coverage`를 확인하고 `complete: true`만으로 runtime 영향이 없다고 판단하지 않는다.

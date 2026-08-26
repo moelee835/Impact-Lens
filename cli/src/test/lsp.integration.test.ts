@@ -15,7 +15,7 @@ test('analyzes a real cross-file TypeScript incoming call', { timeout: 30000 }, 
   }));
   await fs.writeFile(path.join(workspace, 'target.ts'), 'export function target(value: number): number { return value + 1; }\n');
   await fs.writeFile(path.join(workspace, 'caller.ts'), "import { target } from './target';\nexport function caller(): number { return target(1); }\n");
-  const provider = new LspCallHierarchyProvider(workspace, undefined, 15000);
+  const provider = new LspCallHierarchyProvider(workspace, 'target.ts', undefined, 15000);
   try {
     const result = await analyzeImpact({
       workspace,
@@ -32,6 +32,13 @@ test('analyzes a real cross-file TypeScript incoming call', { timeout: 30000 }, 
       JSON.stringify(nodes),
     );
     assert.equal((result.edges as unknown[]).length, 1);
+    const metadata = result.provider as Record<string, unknown>;
+    assert.equal(metadata.host, 'lsp');
+    assert.equal(metadata.selectedBy, 'bundled');
+    assert.equal(metadata.detectedLanguageId, 'typescript');
+    assert.equal(metadata.languageMatch, true);
+    assert.equal((metadata.observed as Record<string, unknown>).prepareCallHierarchy, true);
+    assert.equal((metadata.observed as Record<string, unknown>).incomingCalls, true);
   } finally {
     await provider.dispose();
   }

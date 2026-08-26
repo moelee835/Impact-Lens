@@ -30,10 +30,18 @@ function item(workspace: string, file: string, name: string, line: number): Call
 
 class FakeProvider implements CallHierarchyProvider {
   readonly capabilities: ProviderCapabilities = {
+    host: 'lsp',
     name: 'fake-provider',
     version: '1.0.0',
+    requestedLanguageId: 'typescript',
+    detectedLanguageId: 'typescript',
+    selectedBy: 'custom',
+    languageMatch: true,
     callHierarchy: true,
     diagnostics: true,
+    advertised: { callHierarchy: true, diagnostics: true },
+    observed: { prepareCallHierarchy: true, incomingCalls: true, diagnostics: true },
+    lifecycle: { stage: 'query', status: 'ready' },
   };
 
   constructor(
@@ -96,6 +104,12 @@ test('returns deterministic direct, transitive, and test relationships', async t
   assert.equal((result.edges as unknown[]).length, 3);
   assert.equal(result.truncated, false);
   assert.deepEqual(result.limitations, ['dynamic_calls_not_inferred', 'unsaved_buffers_unavailable']);
+  assert.deepEqual(result.coverage, {
+    traversal: { status: 'complete', requestedDepth: 2, reachedDepth: 2, maxNodes: 10 },
+    semantic: { status: 'static-only', evidenceSources: ['lsp-call-hierarchy'] },
+    indexing: { status: 'unknown' },
+    reasons: ['dynamic_calls_not_inferred', 'unsaved_buffers_unavailable'],
+  });
 });
 
 test('reports depth truncation and retains cycle edges', async t => {
@@ -152,4 +166,21 @@ test('rejects ambiguous provider roots instead of selecting one', async t => {
     analyzeImpact({ workspace, file: 'root.ts', line: 1, column: 1 }, provider),
     (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'target_ambiguous'),
   );
+});
+
+test('returns a successful complete graph when the root has no callers', async t => {
+  const workspace = await workspaceFixture(t, 'root.ts');
+  const root = item(workspace, 'root.ts', 'root', 0);
+  const provider = new FakeProvider(root, new Map());
+  const result = await analyzeImpact({
+    workspace,
+    file: 'root.ts',
+    line: 1,
+    column: 1,
+  }, provider);
+
+  assert.equal((result.nodes as unknown[]).length, 1);
+  assert.equal((result.edges as unknown[]).length, 0);
+  assert.equal(result.complete, true);
+  assert.equal((result.coverage as { traversal: { status: string } }).traversal.status, 'complete');
 });

@@ -3,13 +3,131 @@
   "$id": "https://github.com/moelee835/Impact-Lens/cli/schemas/response.schema.json",
   "title": "Impact Lens Agent CLI response envelope",
   "type": "object",
-  "required": ["schemaVersion", "operation", "ok"],
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "required": [
+        "host", "name", "requestedLanguageId", "detectedLanguageId", "selectedBy",
+        "languageMatch", "callHierarchy", "diagnostics", "advertised", "observed", "lifecycle"
+      ],
+      "properties": {
+        "host": { "enum": ["lsp", "vscode"] },
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "requestedLanguageId": { "type": "string" },
+        "detectedLanguageId": { "type": "string" },
+        "selectedBy": { "enum": ["bundled", "auto", "preset", "project", "custom", "vscode"] },
+        "languageMatch": { "oneOf": [{ "type": "boolean" }, { "const": "unknown" }] },
+        "callHierarchy": { "type": "boolean" },
+        "diagnostics": { "type": "boolean" },
+        "advertised": {
+          "type": "object",
+          "required": ["callHierarchy", "diagnostics"],
+          "properties": {
+            "callHierarchy": { "oneOf": [{ "type": "boolean" }, { "const": "unknown" }] },
+            "diagnostics": { "oneOf": [{ "type": "boolean" }, { "const": "unknown" }] }
+          },
+          "additionalProperties": false
+        },
+        "observed": {
+          "type": "object",
+          "required": ["prepareCallHierarchy", "incomingCalls", "diagnostics"],
+          "properties": {
+            "prepareCallHierarchy": { "type": "boolean" },
+            "incomingCalls": { "type": "boolean" },
+            "diagnostics": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "lifecycle": {
+          "type": "object",
+          "required": ["stage", "status"],
+          "properties": {
+            "stage": { "enum": ["discovery", "launch", "initialize", "indexing", "capability", "query"] },
+            "status": { "enum": ["working", "ready", "failed", "unknown"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["traversal", "semantic", "indexing", "reasons"],
+      "properties": {
+        "traversal": {
+          "type": "object",
+          "required": ["status", "requestedDepth", "reachedDepth", "maxNodes"],
+          "properties": {
+            "status": { "enum": ["complete", "depth-limited", "node-limited", "timeout", "failed"] },
+            "requestedDepth": { "type": "integer", "minimum": 1 },
+            "reachedDepth": { "type": "integer", "minimum": 0 },
+            "maxNodes": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "semantic": {
+          "type": "object",
+          "required": ["status", "evidenceSources"],
+          "properties": {
+            "status": { "enum": ["static-only", "augmented"] },
+            "evidenceSources": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        },
+        "indexing": {
+          "type": "object",
+          "required": ["status"],
+          "properties": { "status": { "enum": ["ready", "working", "unknown"] } },
+          "additionalProperties": false
+        },
+        "reasons": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["cli", "node", "runner"],
+      "properties": {
+        "cli": {
+          "type": "object",
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "const": "@impact-lens/cli" },
+            "version": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "node": {
+          "type": "object",
+          "required": ["version", "major", "executable"],
+          "properties": {
+            "version": { "type": "string" },
+            "major": { "type": "integer" },
+            "executable": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "runner": {
+          "type": "object",
+          "required": ["source"],
+          "properties": {
+            "source": { "enum": ["direct", "explicit", "checkout", "global", "release-fallback"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["schemaVersion", "operation", "ok", "runtime"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "operation": {
-      "enum": ["impact.analyze", "note.get", "note.list", "note.set", "note.delete", "unknown"]
+      "enum": ["impact.analyze", "note.get", "note.list", "note.set", "note.delete", "provider.doctor", "unknown"]
     },
     "ok": { "type": "boolean" },
+    "runtime": { "$ref": "#/$defs/runtime" },
     "data": { "type": "object" },
     "capabilities": { "type": "object" },
     "limitations": {
@@ -32,8 +150,41 @@
   "allOf": [
     {
       "if": { "properties": { "ok": { "const": true } } },
-      "then": { "required": ["data", "capabilities", "limitations", "timings"] },
-      "else": { "required": ["error"] }
+      "then": {
+        "required": ["data", "capabilities", "limitations", "timings"],
+        "properties": {
+          "data": {},
+          "capabilities": {},
+          "limitations": {},
+          "timings": {}
+        }
+      },
+      "else": {
+        "required": ["error"],
+        "properties": { "error": {} }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ok": { "const": true },
+          "operation": { "const": "impact.analyze" }
+        },
+        "required": ["ok", "operation"]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": ["provider", "coverage"],
+            "properties": {
+              "provider": { "$ref": "#/$defs/provider" },
+              "coverage": { "$ref": "#/$defs/coverage" }
+            }
+          },
+          "capabilities": { "$ref": "#/$defs/provider" }
+        }
+      }
     }
   ],
   "additionalProperties": false

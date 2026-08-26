@@ -7,7 +7,7 @@ Impact Lens는 다음 네 구성 요소를 제공합니다. 필요한 것만 설
 - **Codex Plugin**: Codex가 Agent CLI를 발견하고 안전한 분석·노트 workflow로 사용하는 repository plugin
 - **Claude Code Plugin**: Claude Code가 같은 skill과 CLI runner를 slash command와 함께 사용하는 repository plugin
 
-최신 배포 파일은 [GitHub Releases](https://github.com/moelee835/Impact-Lens/releases/latest)에서 받습니다. 아래 예시는 현재 안정 버전인 v0.5.0을 기준으로 합니다.
+최신 배포 파일은 [GitHub Releases](https://github.com/moelee835/Impact-Lens/releases/latest)에서 받습니다. 아래 예시는 현재 안정 버전인 v0.6.0을 기준으로 합니다.
 
 ## 1. 요구 사항
 
@@ -53,14 +53,14 @@ claude plugin --help
 
 ## 2. VS Code Extension 설치
 
-v0.5.0 VSIX를 [직접 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-0.5.0.vsix)하거나 Release의 `impact-lens-0.5.0.vsix` asset을 받습니다.
+v0.6.0 VSIX를 [직접 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.6.0/impact-lens-0.6.0.vsix)하거나 Release의 `impact-lens-0.6.0.vsix` asset을 받습니다.
 
 ### `code` CLI로 설치
 
 다운로드한 디렉터리에서 다음을 실행합니다.
 
 ```sh
-code --install-extension ./impact-lens-0.5.0.vsix --force
+code --install-extension ./impact-lens-0.6.0.vsix --force
 ```
 
 설치 후 VS Code에서 `Developer: Reload Window`를 실행합니다.
@@ -69,7 +69,7 @@ code --install-extension ./impact-lens-0.5.0.vsix --force
 
 1. VS Code의 Extensions 화면을 엽니다.
 2. 우측 상단 `…` 메뉴에서 `Install from VSIX...`를 선택합니다.
-3. 다운로드한 `impact-lens-0.5.0.vsix`를 선택합니다.
+3. 다운로드한 `impact-lens-0.6.0.vsix`를 선택합니다.
 4. 설치가 끝나면 VS Code 창을 reload합니다.
 
 ### 설치 확인
@@ -80,7 +80,7 @@ code --install-extension ./impact-lens-0.5.0.vsix --force
 code --list-extensions --show-versions
 ```
 
-목록에 `local.impact-lens@0.5.0`이 있어야 합니다. VS Code UI에서는 Extensions의 Impact Lens 상세 화면에서 버전을 확인합니다.
+목록에 `local.impact-lens@0.6.0`이 있어야 합니다. VS Code UI에서는 Extensions의 Impact Lens 상세 화면에서 버전을 확인합니다.
 
 함수가 있는 파일을 열었을 때 선언 위에 `Show impact` CodeLens가 표시되는지 확인합니다. CodeLens가 없다면 해당 언어 확장이 Call Hierarchy를 지원하는지와 `impactLens.showCodeLens` 설정을 확인합니다.
 
@@ -89,17 +89,17 @@ code --list-extensions --show-versions
 ### Release URL에서 전역 설치
 
 ```sh
-npm install --global https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-cli-0.5.0.tgz
+npm install --global https://github.com/moelee835/Impact-Lens/releases/download/v0.6.0/impact-lens-cli-0.6.0.tgz
 ```
 
 ### tarball을 받은 뒤 전역 설치
 
-CLI tarball을 [직접 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-cli-0.5.0.tgz)하거나 다음 명령으로 받습니다.
+CLI tarball을 [직접 다운로드](https://github.com/moelee835/Impact-Lens/releases/download/v0.6.0/impact-lens-cli-0.6.0.tgz)하거나 다음 명령으로 받습니다.
 
 ```sh
 curl --location --remote-name \
-  https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-cli-0.5.0.tgz
-npm install --global ./impact-lens-cli-0.5.0.tgz
+  https://github.com/moelee835/Impact-Lens/releases/download/v0.6.0/impact-lens-cli-0.6.0.tgz
+npm install --global ./impact-lens-cli-0.6.0.tgz
 ```
 
 ### 전역 설치 없이 실행
@@ -108,7 +108,7 @@ npm install --global ./impact-lens-cli-0.5.0.tgz
 
 ```sh
 npm exec --yes \
-  --package=https://github.com/moelee835/Impact-Lens/releases/download/v0.5.0/impact-lens-cli-0.5.0.tgz \
+  --package=https://github.com/moelee835/Impact-Lens/releases/download/v0.6.0/impact-lens-cli-0.6.0.tgz \
   -- impact-lens analyze \
   --workspace /path/to/project \
   --file src/order.ts \
@@ -126,6 +126,17 @@ impact-lens note list --workspace /path/to/project
 ```
 
 두 번째 명령은 stdout에 `schemaVersion`, `operation`, `ok`, `data`를 포함한 compact JSON 한 줄을 출력해야 합니다.
+
+기본 TypeScript/JavaScript provider까지 점검합니다.
+
+```sh
+impact-lens doctor bundled-typescript
+impact-lens doctor bundled-typescript --smoke
+```
+
+첫 명령은 Node·CLI·provider package/version과 entry 접근을 빠르게 확인합니다. `--smoke`는 실제 Language
+Server를 시작해 initialize와 Call Hierarchy capability까지 확인하므로 설치 검증이나 장애 진단 때만
+실행합니다. 일반 분석마다 별도 설정하거나 실행할 필요는 없습니다.
 
 기본 분석 예시:
 
@@ -165,7 +176,7 @@ codex plugin list --json
 
 목록에서 `impact-lens` plugin이 설치 상태인지 확인합니다. 새 대화에서 "Impact Lens로 이 함수의 변경 영향도를 분석해줘"처럼 요청합니다. 기존 대화는 설치 전에 구성된 plugin snapshot을 유지할 수 있으므로 설치 직후에는 새 대화를 사용합니다.
 
-plugin runner는 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.5.0 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
+plugin runner는 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.6.0 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
 
 ## 5. Claude Code Plugin 설치
 
@@ -207,29 +218,29 @@ Impact Lens로 이 함수의 변경 영향도를 분석해줘.
 /impact-lens:notes list
 ```
 
-plugin runner는 Codex plugin과 동일하게 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.5.0 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
+plugin runner는 Codex plugin과 동일하게 source checkout의 `cli/dist/index.js`, 전역 `impact-lens`, v0.6.0 Release tarball 순서로 CLI를 찾습니다. 마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다.
 
 ## 6. 다운로드 파일 검증
 
-다운로드한 파일의 SHA-256을 계산하고 [v0.5.0 Release](https://github.com/moelee835/Impact-Lens/releases/tag/v0.5.0)의 각 asset에 표시된 digest와 비교합니다. Release 페이지의 digest를 기준값으로 사용하므로 문서에 복사된 값이 새 artifact와 달라지는 문제를 피할 수 있습니다.
+다운로드한 파일의 SHA-256을 계산하고 [v0.6.0 Release](https://github.com/moelee835/Impact-Lens/releases/tag/v0.6.0)의 각 asset에 표시된 digest와 비교합니다. Release 페이지의 digest를 기준값으로 사용하므로 문서에 복사된 값이 새 artifact와 달라지는 문제를 피할 수 있습니다.
 
 macOS:
 
 ```sh
-shasum -a 256 impact-lens-0.5.0.vsix impact-lens-cli-0.5.0.tgz
+shasum -a 256 impact-lens-0.6.0.vsix impact-lens-cli-0.6.0.tgz
 ```
 
 Linux:
 
 ```sh
-sha256sum impact-lens-0.5.0.vsix impact-lens-cli-0.5.0.tgz
+sha256sum impact-lens-0.6.0.vsix impact-lens-cli-0.6.0.tgz
 ```
 
 Windows PowerShell:
 
 ```powershell
-Get-FileHash .\impact-lens-0.5.0.vsix -Algorithm SHA256
-Get-FileHash .\impact-lens-cli-0.5.0.tgz -Algorithm SHA256
+Get-FileHash .\impact-lens-0.6.0.vsix -Algorithm SHA256
+Get-FileHash .\impact-lens-cli-0.6.0.tgz -Algorithm SHA256
 ```
 
 계산 결과가 GitHub Release asset의 digest와 다르면 설치하지 말고 파일을 다시 다운로드합니다.
@@ -359,14 +370,45 @@ global executable 디렉터리가 `PATH`에 포함돼 있어야 합니다. 권�
 ### Node.js version 오류
 
 CLI는 Node.js 22 이상이 필요합니다. `node --version`을 확인하고 오래된 Node.js를 업그레이드합니다.
+runner는 모든 CLI 선택 경로 전에 이 조건을 검사하며 `node_runtime_unavailable`,
+`node_version_unreadable`, `node_version_unsupported`를 구분합니다.
+
+### Plugin의 JavaScript/TypeScript provider가 시작되지 않음
+
+TypeScript/JavaScript에는 provider command, args 또는 `languageId`를 직접 설정하지 마세요. 먼저 실패 JSON의
+`runtime`과 `error.details`를 확인합니다.
+
+1. `runtime.cli.version`, `runtime.node.version`과 `runtime.runner.source`를 확인합니다.
+2. 같은 runner 또는 설치된 CLI로 `doctor bundled-typescript --smoke`를 실행합니다.
+3. `bundled_provider_artifact_missing|unreadable|corrupt`이면 CLI 또는 Plugin을 다시 설치합니다. permission만
+   임의로 넓히기 전에 package가 정상 release에서 왔는지 확인합니다.
+4. source가 `checkout`이면 저장소 root에서 `npm run cli:build` 후 다시 검사합니다.
+5. source가 `global`이면 `npm list --global @impact-lens/cli --depth=0`으로 version을 확인하고 최신 release로
+   다시 설치합니다.
+6. source가 `release-fallback`이고 npm download 자체가 실패하면 GitHub/npm 접근, proxy와 certificate를
+   확인하거나 release tarball을 내려받아 전역 설치합니다. 이 경우 CLI가 시작되기 전이라 npm 오류가 먼저
+   보일 수 있으며, 설치된 provider의 initialize/query 실패와는 다른 문제입니다.
+
+runner source는 `explicit`, `checkout`, `global`, `release-fallback` 중 하나입니다. 전체 executable path,
+registry URL, credential과 argv는 진단 JSON에 포함되지 않습니다. stale source를 발견해도 runner가 조용히
+다음 후보로 넘어가지 않으므로, 선택된 설치를 수정하거나 explicit override를 제거한 뒤 재시도합니다.
 
 ### Extension에서 caller가 나타나지 않음
 
 대상 언어 확장의 Call Hierarchy 지원 여부를 확인합니다. Impact Lens는 provider가 반환하지 않은 reflection, runtime dependency injection, decorator route 및 동적 호출을 추정하지 않습니다.
 
-### CLI에서 `provider_capability_missing` 또는 `provider_unavailable`
+### CLI에서 provider 오류
 
-기본 provider는 TypeScript/JavaScript용입니다. 다른 언어는 표준 LSP Call Hierarchy를 제공하는 language server command, argument와 `languageId`를 CLI request에 명시해야 합니다. server별 initialization option이 필요한 경우 현재 generic adapter로 동작하지 않을 수 있습니다.
+기본 provider는 TypeScript/JavaScript용이며 다른 파일 형식으로 자동 fallback하지 않습니다.
+`provider_required_for_language`이면 해당 언어의 표준 LSP Call Hierarchy server command, argument와
+`languageId`를 CLI request에 명시합니다. `provider_language_mismatch`이면 파일과 `languageId`를 맞춥니다.
+`provider_launch_failed`, `provider_initialize_failed`, `provider_capability_missing`,
+`provider_query_failed`는 각각 process 실행, initialize, Call Hierarchy capability와 실제 query 단계를
+가리킵니다. `error.details`의 stage, exit code/signal과 redacted stderr를 확인합니다. server별
+initialization option이 필요한 경우 현재 generic adapter로 동작하지 않을 수 있습니다.
+
+Bundled TypeScript/JavaScript 오류라면 위 doctor 절차를 먼저 사용합니다. Python/C/C++/Swift/Kotlin 등은
+아직 자동 preset이 없으므로 `provider_required_for_language`가 provider artifact 손상을 뜻하지 않습니다.
 
 ### 이전 Extension 동작이 계속 보임
 

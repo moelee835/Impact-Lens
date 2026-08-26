@@ -341,12 +341,13 @@ export class ImpactLensController implements vscode.Disposable {
         return undefined;
       }
       if (!rootItem) {
+        const unavailableMessage = 'No Call Hierarchy root was returned. Verify that this language has a Call Hierarchy provider and that the cursor is on a callable declaration.';
         if (!options.quiet) {
-          void vscode.window.showInformationMessage('No call hierarchy is available at this position.');
+          void vscode.window.showInformationMessage(unavailableMessage);
         }
         this.currentResult = undefined;
         this.currentSymbolKey = undefined;
-        this.tree.setResult(undefined);
+        this.tree.setResult(undefined, unavailableMessage);
         this.updateStatus(undefined);
         return undefined;
       }
@@ -552,7 +553,7 @@ export class ImpactLensController implements vscode.Disposable {
     }
     result.delta = EMPTY_IMPACT_DELTA;
     result.changedAt = undefined;
-    result.analysisState = 'current';
+    result.analysisState = result.truncated ? 'partial' : 'current';
     for (const node of result.nodes) {
       node.changed = false;
       node.reviewed = false;
@@ -614,6 +615,10 @@ export class ImpactLensController implements vscode.Disposable {
       `reached depth ${result.reachedDepth} of ${result.requestedDepth}`,
       result.traversalLimits.includes('depth') ? 'depth limit reached' : '',
       result.traversalLimits.includes('nodes') ? 'node limit reached' : '',
+      `static Call Hierarchy via ${result.provider.host}/${result.provider.name}`,
+      `language ${result.provider.detectedLanguageId}`,
+      `indexing ${result.coverage.indexing.status}`,
+      'dynamic and framework calls may be missing',
     ].filter(Boolean).join(' · ');
   }
 

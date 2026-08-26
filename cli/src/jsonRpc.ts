@@ -1,5 +1,7 @@
 import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
-import { CliError } from './types';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { CliError, ProviderLifecycleStage } from './types';
 
 interface JsonRpcResponse {
   readonly jsonrpc: '2.0';
@@ -24,20 +26,51 @@ export class JsonRpcClient {
   private nextId = 1;
   private stderr = '';
   private closed = false;
+  private terminalError: Error | undefined;
+  private spawned = false;
+  private lifecycleStage: ProviderLifecycleStage = 'launch';
+  private processError: Error | undefined;
+  private exitCode: number | null = null;
+  private exitSignal: NodeJS.Signals | null = null;
+  private closeTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly executable: string;
 
   constructor(command: string, args: readonly string[], private readonly timeoutMs: number) {
+    this.executable = path.basename(command);
     this.child = spawn(command, [...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+    this.child.once('spawn', () => {
+      this.spawned = true;
+    });
     this.child.stdout.on('data', chunk => this.consume(Buffer.from(chunk)));
     this.child.stderr.on('data', chunk => {
       this.stderr = `${this.stderr}${String(chunk)}`.slice(-8000);
     });
-    this.child.stdin.on('error', error => this.closeWithError(error));
-    this.child.on('error', error => this.closeWithError(error));
-    this.child.on('exit', (code, signal) => {
-      if (!this.closed) {
-        this.closeWithError(new Error(`Language Server exited (${code ?? signal ?? 'unknown'}): ${this.stderr.trim()}`));
+    this.child.stdin.on('error', error => {
+      if (!this.closed && !this.processError) {
+        this.processError = error;
+        this.scheduleCloseFallback();
       }
     });
+    this.child.on('error', error => {
+      this.processError = error;
+      this.scheduleCloseFallback();
+    });
+    this.child.on('exit', (code, signal) => {
+      if (!this.closed) {
+        this.exitCode = code;
+        this.exitSignal = signal;
+        this.scheduleCloseFallback();
+      }
+    });
+    this.child.on('close', (code, signal) => {
+      this.exitCode = code;
+      this.exitSignal = signal;
+      this.finalizeProcessFailure();
+    });
+  }
+
+  setLifecycleStage(stage: ProviderLifecycleStage): void {
+    this.lifecycleStage = stage;
   }
 
   onNotification(method: string, handler: (params: unknown) => void): void {
@@ -51,7 +84,13 @@ export class JsonRpcClient {
     const promise = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new CliError('timeout', `Language Server request timed out: ${method}`, 6, true));
+        reject(new CliError(
+          'timeout',
+          `Language Server request timed out: ${method}`,
+          6,
+          true,
+          { stage: this.lifecycleStage, method },
+        ));
       }, this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
     });
@@ -72,24 +111,30 @@ export class JsonRpcClient {
     this.send({ jsonrpc: '2.0', method, params });
   }
 
-  async dispose(): Promise<void> {
+  async dispose(graceful = true): Promise<void> {
     if (this.closed) {
       return;
     }
-    try {
-      await this.request('shutdown', null);
-      this.notify('exit', null);
-    } catch {
-      // The child is terminated below even when graceful shutdown fails.
+    if (graceful) {
+      try {
+        await this.request('shutdown', null);
+        this.notify('exit', null);
+      } catch {
+        // The child is terminated below even when graceful shutdown fails.
+      }
     }
     this.closed = true;
+    if (this.closeTimer) {
+      clearTimeout(this.closeTimer);
+      this.closeTimer = undefined;
+    }
     this.child.kill();
     this.failAll(new Error('Language Server client disposed'));
   }
 
   private send(message: unknown): void {
     if (this.closed) {
-      throw new Error('Language Server client is closed');
+      throw this.terminalError ?? new Error('Language Server client is closed');
     }
     const body = Buffer.from(JSON.stringify(message));
     this.child.stdin.write(`Content-Length: ${body.length}\r\n\r\n`);
@@ -156,6 +201,62 @@ export class JsonRpcClient {
 
   private closeWithError(error: Error): void {
     this.closed = true;
+    this.terminalError = error;
     this.failAll(error);
   }
+
+  private scheduleCloseFallback(): void {
+    if (this.closed || this.closeTimer) {
+      return;
+    }
+    this.closeTimer = setTimeout(() => this.finalizeProcessFailure(), 100);
+  }
+
+  private finalizeProcessFailure(): void {
+    if (this.closed) {
+      return;
+    }
+    if (this.closeTimer) {
+      clearTimeout(this.closeTimer);
+      this.closeTimer = undefined;
+    }
+    const stage: ProviderLifecycleStage = this.spawned ? this.lifecycleStage : 'launch';
+    const code = stage === 'launch'
+      ? 'provider_launch_failed'
+      : stage === 'initialize'
+        ? 'provider_initialize_failed'
+        : 'provider_query_failed';
+    const reason = this.exitCode !== null
+      ? `exit code ${this.exitCode}`
+      : this.exitSignal
+        ? `signal ${this.exitSignal}`
+        : 'process error';
+    const stderr = redactProviderText(this.stderr.trim());
+    const cause = this.processError
+      ? ((this.processError as NodeJS.ErrnoException).code ?? this.processError.name)
+      : undefined;
+    this.closeWithError(new CliError(
+      code,
+      `Language Server ${this.executable} failed during ${stage} (${reason}).`,
+      5,
+      true,
+      {
+        stage,
+        executable: this.executable,
+        exitCode: this.exitCode,
+        signal: this.exitSignal,
+        ...(stderr ? { stderr } : {}),
+        ...(cause ? { cause } : {}),
+      },
+    ));
+  }
+}
+
+export function redactProviderText(value: string): string {
+  const home = os.homedir();
+  return value
+    .replace(/\b(Bearer)\s+[^\s]+/gi, '$1 [REDACTED]')
+    .replace(/\b(token|password|secret|api[-_]?key)\s*[:=]\s*[^\s]+/gi, '$1=[REDACTED]')
+    .split(home).join('~')
+    .slice(-4000);
 }

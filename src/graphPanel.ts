@@ -16,6 +16,16 @@ interface GraphPayload {
   readonly requestedDepth: number;
   readonly reachedDepth: number;
   readonly analysisState: string;
+  readonly provider: {
+    readonly host: string;
+    readonly name: string;
+    readonly languageId: string;
+  };
+  readonly coverage: {
+    readonly traversal: string;
+    readonly semantic: string;
+    readonly indexing: string;
+  };
   readonly changedAt?: number;
   readonly canGoBack: boolean;
   readonly delta: {
@@ -129,6 +139,16 @@ function toPayload(result: ImpactResult, canGoBack: boolean): GraphPayload {
     requestedDepth: result.requestedDepth,
     reachedDepth: result.reachedDepth,
     analysisState: result.analysisState,
+    provider: {
+      host: result.provider.host,
+      name: result.provider.name,
+      languageId: result.provider.detectedLanguageId,
+    },
+    coverage: {
+      traversal: result.coverage.traversal.status,
+      semantic: result.coverage.semantic.status,
+      indexing: result.coverage.indexing.status,
+    },
     changedAt: result.changedAt,
     canGoBack,
     delta: result.delta,
@@ -263,7 +283,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
 
     title.textContent = 'Root: ' + graph.rootName;
     const diagnosticCount = graph.nodes.reduce((sum, node) => sum + node.diagnostics.length, 0);
-    const details = [graph.nodes.length + ' symbols', 'reached ' + graph.reachedDepth + ' / requested ' + graph.requestedDepth];
+    const details = [graph.nodes.length + ' symbols', 'reached ' + graph.reachedDepth + ' / requested ' + graph.requestedDepth, 'static Call Hierarchy'];
     if (graph.delta.addedNodeIds.length) details.push('+' + graph.delta.addedNodeIds.length + ' affected');
     if (graph.delta.removedNodeIds.length) details.push('-' + graph.delta.removedNodeIds.length + ' affected');
     if (diagnosticCount) details.push(diagnosticCount + ' diagnostics');
@@ -274,7 +294,12 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     summary.classList.toggle('warning', graph.truncated);
     state.textContent = stateLabel(graph.analysisState);
     state.classList.add(graph.analysisState);
-    state.title = 'Static Call Hierarchy only; framework and dynamic calls may be missing';
+    state.title = 'Provider: ' + graph.provider.host + '/' + graph.provider.name
+      + ' · language: ' + graph.provider.languageId
+      + ' · traversal: ' + graph.coverage.traversal
+      + ' · semantic: ' + graph.coverage.semantic
+      + ' · indexing: ' + graph.coverage.indexing
+      + ' · framework and dynamic calls may be missing';
 
     for (let depth = 1; depth <= 20; depth += 1) addOption(analysisDepth, depth, depth === graph.requestedDepth);
     for (let depth = 1; depth <= graph.requestedDepth; depth += 1) addOption(visibleDepthSelect, depth, depth === visibleDepth);

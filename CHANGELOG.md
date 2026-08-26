@@ -1,11 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
+- Add structured provider identity, language selection, lifecycle, and traversal/semantic/indexing
+  coverage metadata while preserving the schema v1 compatibility fields.
+- Prevent the bundled TypeScript provider from running for other languages and distinguish provider
+  discovery, language mismatch, launch, initialize, capability, and query failures.
+- Preserve redacted Language Server exit diagnostics after stderr closes and expose static coverage
+  in the Extension graph, explorer, and status tooltips.
+- Add runner resolution provenance, common Node startup checks, bundled TypeScript provider doctor,
+  and clean-install Codex/Claude Plugin E2E across the release OS matrix.
 - Add a repository-backed Claude Code plugin that shares the existing Impact Lens skill and CLI runner with the Codex plugin.
 - Add `/impact-lens:analyze` and `/impact-lens:notes` slash commands that follow the preview-then-apply note contract.
 - Add Claude Code marketplace metadata and installation, update, and removal instructions.
 - Exclude the Claude Code marketplace directory from VSIX packages.
+- Pin the plugin runner release fallback to the v0.6.0 CLI package so installed plugins reach the runtime and doctor contract without an override.
+- Exclude the CI workflow, the release E2E script, and host-local plugin settings from VSIX packages.
 
 ## 0.5.0
 

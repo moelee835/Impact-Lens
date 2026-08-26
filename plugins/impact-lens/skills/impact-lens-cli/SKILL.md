@@ -16,7 +16,10 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
 - Include `expectedSymbol` when the symbol name or kind is known so an ambiguous target fails instead of silently selecting another declaration.
 - Start with the depth needed by the task; do not assume an empty or truncated result means no impact.
 - Request source only when it helps the task. Prefer `declaration`; use `body` only when implementation context is necessary.
-- Parse the single JSON response and inspect `ok`, `complete`, `capabilities`, `limitations`, and truncation metadata before reporting conclusions.
+- Parse the single JSON response and inspect `ok`, `runtime`, `provider`, `coverage`, `complete`, `capabilities`,
+  `limitations`, and truncation metadata before reporting conclusions.
+- Treat `complete: true` only as `coverage.traversal.status: complete`. Check semantic and indexing
+  coverage separately; `static-only` or `unknown` prevents claims of complete runtime impact.
 - Treat incoming-call results as static evidence from the configured Call Hierarchy provider. Do not claim coverage of reflection, dependency injection, decorators, events, generated code, or runtime-only links.
 
 ## Work with notes
@@ -32,4 +35,13 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
 
 - Read JSON from stderr when the exit status is non-zero.
 - A provider unavailable or capability-missing response means the analysis could not be established; it is not an empty graph.
+- Distinguish provider discovery, language mismatch, launch, initialize, capability, and query errors
+  using the error code and `details.stage`. Do not retry a language mismatch with the bundled
+  TypeScript provider.
+- For bundled TypeScript/JavaScript startup failures, inspect `runtime.runner.source` and run
+  `<plugin-root>/scripts/run-impact-lens doctor bundled-typescript --smoke` once. Use its package,
+  entry, initialize, and capability checks before suggesting reinstall/update; do not ask the user
+  for a provider command for a bundled language.
+- Treat runner Node/npm/CLI resolution errors as installation failures, not provider failures. Do not
+  silently fall through from a selected stale explicit/global artifact to another source.
 - Preserve the user's authorization boundary. A CLI capability to edit notes does not authorize unrelated source or shared-note changes.

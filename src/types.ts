@@ -6,6 +6,45 @@ export type ImpactAnalysisState = 'current' | 'stale' | 'analyzing' | 'partial' 
 export type TestFreshness = 'notRun' | 'outdated';
 export type TraversalLimit = 'depth' | 'nodes';
 
+export interface ImpactProviderMetadata {
+  readonly host: 'vscode';
+  readonly name: 'unknown';
+  readonly requestedLanguageId: string;
+  readonly detectedLanguageId: string;
+  readonly selectedBy: 'vscode';
+  readonly languageMatch: 'unknown';
+  readonly callHierarchy: boolean;
+  readonly diagnostics: boolean;
+  readonly advertised: {
+    readonly callHierarchy: 'unknown';
+    readonly diagnostics: 'unknown';
+  };
+  readonly observed: {
+    readonly prepareCallHierarchy: boolean;
+    readonly incomingCalls: boolean;
+    readonly diagnostics: boolean;
+  };
+  readonly lifecycle: {
+    readonly stage: 'query';
+    readonly status: 'ready';
+  };
+}
+
+export interface ImpactCoverage {
+  readonly traversal: {
+    readonly status: 'complete' | 'depth-limited' | 'node-limited';
+    readonly requestedDepth: number;
+    readonly reachedDepth: number;
+    readonly maxNodes: number;
+  };
+  readonly semantic: {
+    readonly status: 'static-only';
+    readonly evidenceSources: readonly ['vscode-call-hierarchy'];
+  };
+  readonly indexing: { readonly status: 'unknown' };
+  readonly reasons: readonly string[];
+}
+
 export interface ImpactDiagnostic {
   readonly severity: 'error' | 'warning';
   readonly message: string;
@@ -48,6 +87,10 @@ export interface ImpactResult {
   readonly traversalLimits: readonly TraversalLimit[];
   readonly requestedDepth: number;
   readonly reachedDepth: number;
+  readonly maxNodes: number;
+  readonly provider: ImpactProviderMetadata;
+  readonly coverage: ImpactCoverage;
+  readonly limitations: readonly string[];
   readonly analyzedAt: number;
   analysisState: ImpactAnalysisState;
   delta: ImpactDelta;

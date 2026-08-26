@@ -41,7 +41,7 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
 
   setResult(result: ImpactResult | undefined, message?: string): void {
     this.result = result;
-    this.status = message ?? 'No call hierarchy is available at the current cursor position.';
+    this.status = message ?? 'No Call Hierarchy root was returned. Verify the language provider and cursor position.';
     this.changeEmitter.fire(undefined);
   }
 
@@ -64,6 +64,18 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
       item.iconPath = new vscode.ThemeIcon(
         this.result?.analysisState === 'analyzing' ? 'sync~spin' : 'target',
       );
+      if (this.result) {
+        item.tooltip = new vscode.MarkdownString([
+          `**Static Call Hierarchy coverage**`,
+          '',
+          `Provider: ${this.result.provider.host}/${this.result.provider.name}`,
+          `Language: ${this.result.provider.detectedLanguageId}`,
+          `Traversal: ${this.result.coverage.traversal.status}`,
+          `Indexing: ${this.result.coverage.indexing.status}`,
+          '',
+          'Dynamic, framework and runtime-only calls may be missing.',
+        ].join('\n'));
+      }
       item.contextValue = 'impactLens.root';
       return item;
     }

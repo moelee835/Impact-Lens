@@ -2,9 +2,11 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { doctorBundledTypeScript } from './doctor';
 import { analyzeImpact, canonicalWorkspace, resolveWorkspaceFileSecure, selectRoot } from './impact';
 import { LspCallHierarchyProvider } from './lspProvider';
 import { NoteService } from './notes';
+import { assertSupportedNode, runtimeMetadata } from './runtime';
 import {
   AnalyzeRequest,
   CliError,
@@ -24,14 +26,22 @@ interface ParsedCommand {
 }
 
 export async function run(argv: readonly string[]): Promise<Record<string, unknown>> {
+  assertSupportedNode();
   const parsed = parseCommand(argv);
   const input = parsed.options.has('stdin') ? await readStdinJson() : undefined;
+  if (parsed.operation === 'provider.doctor') {
+    return envelope(parsed.operation, await doctorBundledTypeScript(
+      parsed.options.get('smoke') === true,
+      optionalPositiveInteger(optionNumber(parsed.options, 'timeout-ms', false), 'timeout-ms'),
+    ));
+  }
   if (parsed.operation === 'impact.analyze') {
     const request = await analyzeRequest(parsed.options, input);
     const workspace = await canonicalWorkspace(request.workspace);
     const normalizedRequest = { ...request, workspace };
     const provider = new LspCallHierarchyProvider(
       workspace,
+      request.file,
       request.provider,
       request.timeoutMs ?? 30000,
     );
@@ -55,6 +65,7 @@ export async function run(argv: readonly string[]): Promise<Record<string, unkno
     const normalizedRequest = { ...request, workspace };
     const provider = new LspCallHierarchyProvider(
       workspace,
+      request.target.file,
       request.provider,
       request.timeoutMs ?? 30000,
     );
@@ -87,6 +98,7 @@ async function main(): Promise<void> {
       schemaVersion: 1,
       operation,
       ok: false,
+      runtime: runtimeMetadata(),
       error: {
         code: value.code,
         message: value.message,
@@ -106,6 +118,7 @@ function envelope(operation: string, data: object): Record<string, unknown> {
     schemaVersion: 1,
     operation,
     ok: true,
+    runtime: runtimeMetadata(),
     data,
     capabilities: fields.provider ?? (noteOperation ? {
       sharedNotes: true,
@@ -120,7 +133,7 @@ function envelope(operation: string, data: object): Record<string, unknown> {
 
 function parseCommand(argv: readonly string[]): ParsedCommand {
   const operation = operationName(argv);
-  const consumed = operation.startsWith('note.') ? 2 : 1;
+  const consumed = operation.startsWith('note.') || operation === 'provider.doctor' ? 2 : 1;
   const options = new Map<string, string | true>();
   for (let index = consumed; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -131,7 +144,7 @@ function parseCommand(argv: readonly string[]): ParsedCommand {
     if (options.has(key)) {
       throw new CliError('invalid_request', `Option --${key} was provided more than once.`, 2);
     }
-    if (['stdin', 'apply'].includes(key)) {
+    if (['stdin', 'apply', 'smoke'].includes(key)) {
       options.set(key, true);
       continue;
     }
@@ -169,6 +182,9 @@ function allowedOptions(operation: string): ReadonlySet<string> {
   if (operation === 'note.delete') {
     return new Set(['workspace', 'file', 'line', 'column', 'scope', 'apply', 'expected-token', 'timeout-ms', 'provider-config', 'stdin']);
   }
+  if (operation === 'provider.doctor') {
+    return new Set(['smoke', 'timeout-ms']);
+  }
   return new Set();
 }
 
@@ -178,6 +194,9 @@ function operationName(argv: readonly string[]): string {
   }
   if (argv[0] === 'note' && ['get', 'list', 'set', 'delete'].includes(argv[1] ?? '')) {
     return `note.${argv[1]}`;
+  }
+  if (argv[0] === 'doctor' && argv[1] === 'bundled-typescript') {
+    return 'provider.doctor';
   }
   return 'unknown';
 }
