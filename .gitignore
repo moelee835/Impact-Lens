@@ -3,6 +3,7 @@ out/
 *.vsix
 .pnpm-store/
 .DS_Store
+.claude/settings.local.json
 .vscode-test/
 .impact-lens/notes.local.json
 cli/dist/

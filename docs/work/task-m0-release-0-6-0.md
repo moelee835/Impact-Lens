@@ -54,7 +54,7 @@ default-path 첫 실행은 새 CLI release가 발행되고 runner pin이 그 rel
 ### 설치된 host 상태
 
 - Codex `codex plugin list`: `impact-lens@personal` version `0.1.0`, installed·enabled,
-  marketplace root `/Users/woony6/dev/Impact-Lens`
+  marketplace root `~/dev/Impact-Lens`
 - Claude Code `claude plugin list`: `impact-lens@impact-lens` version `0.1.0`, local scope, enabled
 - 두 host 모두 repository local marketplace를 사용하므로, plugin manifest version을 올리면 host의 update
   경로로 새 payload를 받을 수 있다.
@@ -207,7 +207,7 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
   읽어오면 assertion이 자기 자신을 검증하게 되고, 다음 bump에서 test가 실패하는 편이 pin 누락을 더 빨리 드러낸다.
 - **발견한 결함**: branch VSIX를 만들자 31 files가 나왔고 `.github/workflows/plugin-artifact-e2e.yml`,
   `scripts/test-plugin-artifact-e2e.mjs`, 그리고 untracked `.claude/settings.local.json`이 포함됐다. 마지막
-  파일에는 이 host의 절대 경로 `/Users/woony6/dev/Impact-Lens`가 들어 있어 그대로 발행하면 사용자 환경 정보가
+  파일에는 이 host의 절대 경로 `~/dev/Impact-Lens`가 들어 있어 그대로 발행하면 사용자 환경 정보가
   공개 artifact에 실린다. 이번 branch가 `.github/`, `scripts/`, `.claude/`를 새로 추가하면서 `.vscodeignore`가
   따라가지 못한 회귀다.
 - `.vscodeignore`에 `.claude/**`, `.github/**`, `scripts/**`를 추가하고 재패키징해 28 files, 1.08 MB로
