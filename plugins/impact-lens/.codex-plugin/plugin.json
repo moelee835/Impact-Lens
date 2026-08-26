@@ -1,6 +1,6 @@
 {
   "name": "impact-lens",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Analyze incoming-call impact and manage function notes through the Impact Lens Agent CLI.",
   "author": {
     "name": "Impact Lens contributors",
@@ -27,6 +27,11 @@
       "Write"
     ],
     "websiteURL": "https://github.com/moelee835/Impact-Lens",
-    "defaultPrompt": "Analyze the change impact of a function with Impact Lens."
+    "brandColor": "#F5B942",
+    "defaultPrompt": [
+      "Analyze the change impact of a function with Impact Lens."
+    ],
+    "composerIcon": "./assets/impact-lens-icon.svg",
+    "logo": "./assets/app-icon.png"
   }
 }

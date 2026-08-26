@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Match the current Codex plugin manifest schema and ship the plugin's own icons, so the listing shows
+  the intended name, colour, and artwork.
+
 ## 0.6.3
 
 - Identify environments that start child processes but never deliver their stdio, which restricted
