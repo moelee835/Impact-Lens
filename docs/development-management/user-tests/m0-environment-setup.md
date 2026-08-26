@@ -153,7 +153,7 @@ claude plugin install impact-lens@impact-lens
 
 ```sh
 npm install --global \
-  https://github.com/moelee835/Impact-Lens/releases/download/v0.6.1/impact-lens-cli-0.6.1.tgz
+  https://github.com/moelee835/Impact-Lens/releases/download/v0.6.2/impact-lens-cli-0.6.2.tgz
 ```
 
 버전은 테스트 대상 release로 바꾼다. 시나리오 A와 섞지 않는다.
@@ -224,8 +224,12 @@ impact-lens doctor bundled-typescript --smoke; echo "exit=$?"
 4. **실행 맥락을 함께 기록한다.** 같은 명령이 사용자 shell에서는 성공하고 agent 세션에서는 실패하는
    경우가 있으므로, 어디에서 실행했는지(대화형 shell / agent / CI / container)와 `PATH`를 남긴다.
 
-`msSinceSpawn`, `bytesFromServer`, `requestsSent`와 `IMPACT_LENS_PROVIDER_LOG_LEVEL`은 이 진단 보강이
-포함된 release부터 제공된다. 그 이전 버전에서는 3번 probe와 4번 맥락 기록으로 대체한다.
+`msSinceSpawn`, `bytesFromServer`, `requestsSent`, `providerLog`와 `IMPACT_LENS_PROVIDER_LOG_LEVEL`은
+`0.6.2` 이상에서 제공된다. 그 이전 버전에서는 3번 probe와 4번 맥락 기록으로 대체한다.
+
+`providerLog`가 특히 중요하다. 번들 TypeScript Language Server는 `process.stderr`를 **한 번도 사용하지
+않는다.** 모든 진단을 LSP `window/logMessage` 알림으로 보낸다. 따라서 `stderr` 필드가 없다는 사실만으로
+"서버가 아무 말도 하지 않았다"고 해석하면 안 된다. `providerLog`를 함께 본다.
 
 ## 6단계 — 다시 테스트할 수 있는 상태로 되돌린다
 

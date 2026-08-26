@@ -121,3 +121,28 @@ stderr가 없을 때 field를 생략하는 기존 계약은 유지했다. 빈 �
   네트워크를 열어도 해결되지 않는다. agent 맥락 검증은 시나리오 B(전역 CLI)로 하고, 설치는 샌드박스 밖
   shell에서 한다.
 - 검증: CLI 46/46 통과.
+
+### 2026-08-26 — 진단이 빈 채널만 보고 있었다
+
+- 변경 파일: `cli/src/jsonRpc.ts`, `cli/src/test/fixtures/loggingExitServer.ts` (신규),
+  `cli/src/test/contract.test.ts`, 계약/설치/환경 문서, version 정합성(`0.6.2`, payload `0.2.3`)
+- 보고 환경에서 커스텀 provider로 `--log-level 4`를 붙여 CLI의 동일한 spawn 경로를 태웠는데도
+  `error.details.stderr`가 비어 있었다. 이유를 번들 서버에서 확인했다.
+
+  ```text
+  grep -c "process.stderr.write" typescript-language-server/lib/cli.mjs  →  0
+  grep -c "logMessage"           typescript-language-server/lib/cli.mjs  →  5
+  ```
+
+  이 서버는 stderr를 **한 번도 쓰지 않는다.** 모든 진단을 LSP `window/logMessage`로 보낸다. 우리
+  클라이언트는 그 알림에 handler가 등록돼 있지 않으면 그냥 버렸다. 즉 진단이 처음부터 빈 채널만 보고
+  있었고, "stderr 없음"은 서버가 침묵했다는 뜻이 아니라 우리가 듣지 않았다는 뜻이었다.
+- `window/logMessage`와 `window/showMessage`를 severity 접두사와 함께 보존하고, 실패 시 redaction을 거쳐
+  `error.details.providerLog`로 노출한다. 기존 stderr 캡처와 handler 등록 동작은 그대로 둔다.
+- 회귀 fixture는 실제 서버와 같은 방식으로 동작한다. stderr는 건드리지 않고 `window/logMessage`만 보낸 뒤
+  exit 1로 죽는다. 테스트는 `stderr` field가 없고 `providerLog`에 두 줄이 남으며 token과 홈 경로가
+  redaction되는 것까지 확인한다.
+- 강제 실패로 새 필드의 실효성을 확인했다. 존재하지 않는 entry를 지정하면
+  `msSinceSpawn: 65`, `bytesFromServer: 0`, `requestsSent: 1`이 나온다. "65ms 만에 한 마디도 못 하고 죽음"이
+  바로 읽히며, 이것이 실행 환경 문제와 서버 동작 문제를 가르는 판별자다.
+- 검증: Extension 34/34, CLI 47/47 통과.

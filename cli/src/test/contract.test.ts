@@ -25,7 +25,7 @@ test('reports bundled TypeScript runtime preflight as compact JSON', () => {
   assert.equal(result.stderr, '');
   const response = JSON.parse(result.stdout);
   assert.equal(response.operation, 'provider.doctor');
-  assert.equal(response.runtime.cli.version, '0.6.1');
+  assert.equal(response.runtime.cli.version, '0.6.2');
   assert.equal(response.data.status, 'ready');
   assert.equal(response.data.mode, 'preflight');
   assert.equal(response.data.checks[2].version, '6.0.0');
@@ -204,6 +204,31 @@ test('does not hand the provider a parent processId to police', () => {
   // the Call Hierarchy capability handshake completed instead.
   assert.equal(result.status, 3, result.stderr);
   assert.equal(JSON.parse(result.stderr).error.code, 'target_not_found');
+});
+
+test('keeps the provider log when a Language Server never writes to stderr', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'loggingExitServer.js');
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 5);
+  const details = JSON.parse(result.stderr).error.details;
+  assert.equal(details.stage, 'initialize');
+  assert.equal(details.stderr, undefined);
+  assert.match(details.providerLog, /info: Using Typescript version/);
+  assert.match(details.providerLog, /error: tsserver exited unexpectedly/);
+  assert.match(details.providerLog, /token=\[REDACTED\]/);
+  assert.doesNotMatch(details.providerLog, /super-secret/);
+  assert.doesNotMatch(details.providerLog, new RegExp(process.env.HOME ?? '/definitely-not-home'));
+  assert.ok(details.bytesFromServer > 0);
 });
 
 test('reports missing Call Hierarchy capability instead of an empty graph', () => {
