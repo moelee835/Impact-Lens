@@ -144,3 +144,91 @@ posixOnly('runner distinguishes missing explicit artifacts and missing npm', asy
   assert.equal(JSON.parse(missingNpm.stderr).error.details.source, 'release-fallback');
   assert.equal(JSON.parse(missingNpm.stderr).runtime.runner.source, 'release-fallback');
 });
+
+posixOnly('runner reports a release fallback network failure as one redacted JSON envelope', async t => {
+  const harness = await createHarness(t);
+  await executable(path.join(harness.bin, 'npm'), `#!/bin/sh
+printf 'npm error code ENOTFOUND\\n' >&2
+printf 'npm error network request to https://user:secret@example.invalid/private.tgz failed\\n' >&2
+exit 1
+`);
+  const result = run(harness, ['analyze', '--stdin']);
+  assert.equal(result.status, 127);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr.trim().split('\n').length, 1);
+  const response = JSON.parse(result.stderr);
+  assert.equal(response.operation, 'impact.analyze');
+  assert.equal(response.error.code, 'npm_network_unreachable');
+  assert.equal(response.error.retryable, true);
+  assert.equal(response.error.details.stage, 'resolution');
+  assert.equal(response.error.details.component, 'npm');
+  assert.equal(response.error.details.source, 'release-fallback');
+  assert.equal(response.error.details.exitCode, 1);
+  assert.equal(response.error.details.npmOutput, 'suppressed');
+  assert.equal(response.runtime.runner.source, 'release-fallback');
+  assert.doesNotMatch(result.stderr, /secret|example\.invalid|ENOTFOUND/);
+});
+
+posixOnly('runner classifies permission, missing release, and unknown npm failures', async t => {
+  const harness = await createHarness(t);
+  await executable(path.join(harness.bin, 'npm'), `#!/bin/sh
+printf '%s\\n' "\$IMPACT_LENS_TEST_NPM_STDERR" >&2
+exit "\${IMPACT_LENS_TEST_NPM_STATUS:-1}"
+`);
+  const cases = [
+    { stderr: 'npm error code EACCES', code: 'npm_permission_denied', recovery: 'fix_npm_cache_permissions_or_install_cli' },
+    { stderr: 'npm error code E404 Not Found', code: 'cli_release_unavailable', recovery: 'verify_release_or_set_cli_path' },
+    { stderr: 'npm error code ENOSPC', code: 'npm_disk_space_unavailable', recovery: 'free_disk_space_and_retry' },
+    { stderr: 'npm error something unexpected', code: 'npm_release_fallback_failed', recovery: 'inspect_npm_output_or_install_cli' },
+  ];
+  for (const expectation of cases) {
+    const result = run(harness, ['note', 'list'], {
+      IMPACT_LENS_TEST_NPM_STDERR: expectation.stderr,
+      IMPACT_LENS_TEST_NPM_STATUS: '9',
+    });
+    assert.equal(result.status, 127, expectation.code);
+    const response = JSON.parse(result.stderr);
+    assert.equal(response.operation, 'note.list');
+    assert.equal(response.error.code, expectation.code);
+    assert.equal(response.error.retryable, false);
+    assert.equal(response.error.details.recovery, expectation.recovery);
+    assert.equal(response.error.details.exitCode, 9);
+  }
+});
+
+posixOnly('runner passes a started CLI envelope through without wrapping it again', async t => {
+  const harness = await createHarness(t);
+  const envelope = '{"schemaVersion":1,"operation":"impact.analyze","ok":false,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.6.0"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"release-fallback"}},"error":{"code":"provider_initialize_failed","message":"...","retryable":true}}';
+  await executable(path.join(harness.bin, 'npm'), `#!/bin/sh
+printf '%s\\n' '${envelope}' >&2
+exit 4
+`);
+  const result = run(harness, ['analyze', '--stdin']);
+  assert.equal(result.status, 4);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr.trim(), envelope);
+  assert.equal(JSON.parse(result.stderr).error.code, 'provider_initialize_failed');
+});
+
+posixOnly('runner keeps release fallback stdout and supports the npm output passthrough opt-in', async t => {
+  const harness = await createHarness(t);
+  await executable(path.join(harness.bin, 'npm'), `#!/bin/sh
+if [ "\${IMPACT_LENS_TEST_NPM_FAIL:-}" = 1 ]; then
+  printf 'npm error raw human output\\n' >&2
+  exit 3
+fi
+printf '{"ok":true}\\n'
+`);
+  const success = run(harness, ['note', 'list']);
+  assert.equal(success.status, 0, success.stderr);
+  assert.equal(success.stdout, '{"ok":true}\n');
+  assert.equal(success.stderr, '');
+
+  const passthrough = run(harness, ['note', 'list'], {
+    IMPACT_LENS_TEST_NPM_FAIL: '1',
+    IMPACT_LENS_RUNNER_NPM_OUTPUT: 'passthrough',
+  });
+  assert.equal(passthrough.status, 3);
+  assert.match(passthrough.stderr, /npm error raw human output/);
+  assert.doesNotMatch(passthrough.stderr, /schemaVersion/);
+});

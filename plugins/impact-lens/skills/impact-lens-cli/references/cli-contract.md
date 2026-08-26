@@ -17,6 +17,10 @@ IMPACT_LENS_CLI_PATH=/absolute/path/to/impact-lens \
 
 `IMPACT_LENS_CLI_PATH` may point to an executable or a JavaScript entrypoint. `IMPACT_LENS_CLI_PACKAGE` may override the pinned release package used by the final npm fallback.
 
+When the release fallback fails before the CLI starts, the runner reports one JSON envelope instead of
+raw npm output. Set `IMPACT_LENS_RUNNER_NPM_OUTPUT=passthrough` to see the original npm text and exit
+status for human debugging; that mode does not produce a parseable envelope.
+
 ## Response envelope
 
 Success is one compact JSON document on stdout:
@@ -218,5 +222,13 @@ Provider exit-5 errors distinguish `provider_launch_failed`, `provider_initializ
 `provider_capability_missing`, and `provider_query_failed`. Use `error.details.stage` and the
 redacted stderr tail when present; these errors mean analysis was not established, not zero callers.
 Runner exit-127 errors distinguish Node missing/unreadable/unsupported, selected CLI artifact
-missing/not executable, and npm unavailable. Read `runtime.runner.source` and the stable recovery code
-in `error.details`; do not infer provider failure when the CLI never started.
+missing/not executable, npm unavailable, and a failed release-fallback download. Read
+`runtime.runner.source` and the stable recovery code in `error.details`; do not infer provider failure
+when the CLI never started.
+
+Release-fallback download failures use `npm_network_unreachable` (retryable), `cli_release_unavailable`,
+`npm_permission_denied`, `npm_disk_space_unavailable`, and `npm_release_fallback_failed`. Their
+`error.details` carry `stage: resolution`, `component: npm`, `source: release-fallback`, the npm
+`exitCode`, a recovery code, and `npmOutput: suppressed`. The raw npm text is withheld because it can
+contain absolute paths, the release package URL, and registry or proxy credentials. An error raised
+after the CLI started keeps the CLI's own envelope and exit status unchanged.
