@@ -40,6 +40,41 @@
         "languageId": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
+    },
+    "providerPreset": {
+      "$comment": "Shape only. Whether the id exists in the preset catalog is answered at provider selection, not here. The character rule keeps path separators and whitespace out of a value used as a catalog lookup key.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "jsonValue": {
+      "$comment": "Plain JSON only. Provider configuration carries no references, dates or class instances.",
+      "anyOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+        { "$ref": "#/$defs/configObject" }
+      ]
+    },
+    "configObject": {
+      "$comment": "__proto__, constructor and prototype are rejected at every depth: these trees are deep-merged (preset < project < request), and a deep merge over attacker-controlled keys is the prototype pollution sink.",
+      "type": "object",
+      "propertyNames": {
+        "not": { "enum": ["__proto__", "constructor", "prototype"] }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "configTreeLimits": {
+      "$comment": "Not referenced by any rule: JSON Schema cannot express a nesting depth, a serialized byte budget or a total key count across a tree. These limits are enforced by cli/src/configTree.ts and declared here so they stay part of the published contract; cli/src/test/requestSchema.test.ts fails if the two sides disagree. A tree is level 1, so maxDepth allows 16 nested containers.",
+      "type": "object",
+      "properties": {
+        "maxDepth": { "const": 16 },
+        "maxSerializedBytes": { "const": 65536 },
+        "maxKeys": { "const": 1000 }
+      }
     }
   },
   "oneOf": [
@@ -57,9 +92,16 @@
         "includeSource": { "enum": ["none", "declaration", "body"] },
         "timeoutMs": { "type": "integer", "minimum": 1 },
         "expectedSymbol": { "$ref": "#/$defs/expectedSymbol" },
-        "provider": { "$ref": "#/$defs/provider" }
+        "provider": { "$ref": "#/$defs/provider" },
+        "providerPreset": { "$ref": "#/$defs/providerPreset" },
+        "initializationOptions": { "$ref": "#/$defs/configObject" },
+        "settings": { "$ref": "#/$defs/configObject" }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "not": {
+        "$comment": "provider and providerPreset are mutually exclusive. The raw-custom-beats-preset order in IL-LIM-004 ranks selection sources; inside one request it would silently discard a preset the caller named.",
+        "required": ["provider", "providerPreset"]
+      }
     },
     {
       "title": "note.get or note mutation",

@@ -326,7 +326,46 @@ C1이 드러낸 공백을 이 lane에서 메운다. `cli/src/test/requestSchema.
 
 ### 2026-08-27 — 2단계: 요청 계약 추가
 
-(작성 예정)
+**변경한 파일**
+
+| 파일 | 변경 |
+| --- | --- |
+| `cli/src/configTree.ts` (신규) | D8 상수(`CONFIG_TREE_LIMITS`, `FORBIDDEN_CONFIG_KEYS`, `PRESET_ID_*`), 위반을 **데이터로** 돌려주는 `findConfigTreeViolation`, 요청 출처 전용 `requestConfigTree`/`requestPresetId` |
+| `cli/src/types.ts` | `AnalyzeRequest`에 optional 3필드, `JsonValue`/`JsonObject`, `SOURCE_MODES`/`NOTE_SCOPES` 런타임 배열화 |
+| `cli/schemas/request.schema.json` | analyze 분기에 3필드, `$defs`에 `providerPreset`/`jsonValue`/`configObject`/`configTreeLimits`, `provider`↔`providerPreset` 상호 배타 `not` |
+| `cli/src/index.ts` | **4곳만.** import 2줄, `rejectUnknown` 허용 목록에 3필드, R6 상호 배타 검사, 반환 객체에 3필드. 덧붙여 `includeSource`/`noteScope`의 리터럴 비교를 `SOURCE_MODES`/`NOTE_SCOPES`로 바꿔 파서와 parity 테스트가 같은 배열을 보게 했다 |
+| `cli/src/test/requestOverrides.test.ts` (신규) | 수용·거부·prototype pollution·실제 CLI 실행 |
+
+`cli/src/index.ts`는 W1-B가 doctor dispatch를 동시에 고치고 있어 최소 범위로만 손댔다. 위 네 곳은 모두
+`validateAnalyzeObject`와 그 주변이며 doctor dispatch 블록은 건드리지 않았다.
+
+**설계 결정 (구현 중 확정)**
+
+- `findConfigTreeViolation`은 던지지 않고 `ConfigTreeViolation`을 **반환**한다. 같은 규칙을 두 출처가
+  공유하지만 code가 다르기 때문이다(R3). W1-B는 이 함수를 그대로 쓰고 `provider_config_invalid`로
+  던지면 된다. 이 lane이 그 code를 던지면 W1-C가 세운 `CONTRACT_ONLY_ERROR_CODES` 검사가 깨진다.
+- 검사 순서는 "형태·금지 키 → 트리 예산"이다. 앞쪽 위반은 **값 하나를 지목**할 수 있어 더 실행 가능한
+  진단이고, 키 카운터가 순회를 1000키에서 끊으므로 적대적 입력이 순회를 늘릴 수 없다.
+- `isPlainObject`는 prototype이 `Object.prototype`이거나 `null`인 경우만 통과시킨다. `Date`·`Map`은
+  직렬화하면 자기 자신이 아니게 되므로 통과시키면 server가 받는 값이 조용히 달라진다.
+- 금지 키는 **제거가 아니라 거부**다(R4). 제거하면 작성자가 쓴 설정과 실제 전송된 설정이 달라지고
+  그 차이가 어디에도 보고되지 않는다.
+- `error.details`에 `{ field, rule, path, limit, observed }`를 싣는다. 새 실패 경로에만 붙으므로 기존
+  응답 바이트에 영향이 없다(아래 캡처로 확인).
+
+**검증**
+
+| 명령 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm --prefix cli test` | 통과 (116건, 실패 0) |
+| `npm test` (루트) | 통과 (35건, 실패 0) |
+| 캡처 `base1` vs `after1` (34 시나리오) | **`diff -r` 비었음 — 바이트 동일** |
+
+거부 테스트는 D8 네 제한(type/depth/bytes/keys)과 금지 키를 각각 실제 CLI로 확인하고, 매 건
+`details.rule`·`details.field`·`details.path`가 채워지는지와 stdout이 비어 있는지를 함께 본다.
+prototype pollution은 top-level·중첩 3단·배열 원소 안 세 위치에서 `__proto__`/`constructor`/`prototype`
+전부를 거부하는지 확인하고, 거부 직후 `Object.prototype`이 오염되지 않았음을 같은 테스트에서 본다.
 
 ### 2026-08-27 — 3단계: 스키마 계약 테스트와 무변경 증명
 

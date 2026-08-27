@@ -249,7 +249,18 @@ export interface CallHierarchyProvider {
 }
 
 export type ImpactRelation = 'root' | 'direct' | 'transitive' | 'test';
-export type SourceMode = 'none' | 'declaration' | 'body';
+// Request-side vocabularies are runtime arrays for the same reason the response ones above are: only a
+// value that exists at runtime can be compared against `cli/schemas/request.schema.json`. Until this
+// change nothing read the request schema at all, so the published request contract and the parser could
+// drift with no test failing. `cli/src/test/requestSchema.test.ts` closes that.
+export const SOURCE_MODES = ['none', 'declaration', 'body'] as const;
+export type SourceMode = (typeof SOURCE_MODES)[number];
+
+/** Plain JSON, which is all a provider configuration override may contain (decision D8). */
+export type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject;
+export interface JsonObject {
+  readonly [key: string]: JsonValue;
+}
 
 export interface AnalyzeRequest {
   readonly workspace: string;
@@ -262,6 +273,24 @@ export interface AnalyzeRequest {
   readonly timeoutMs?: number;
   readonly expectedSymbol?: ExpectedSymbol;
   readonly provider?: ProviderCommand;
+  // ---------------------------------------------------------------------------
+  // Request-level provider overrides (schemaVersion 1, additive, all optional).
+  //
+  // The names are fixed by decision D9 of docs/work/task-m1-preset-manifest-contract.md and the split of
+  // this work into its own lane is lead decision L6. Merge order is `preset < project < request`: these
+  // values win over both the preset catalog default and the project configuration file. The merge itself
+  // is implemented in `cli/src/providers` (lane W1-B), not here - this contract only decides what a
+  // request may say and what shape it has to be in when it says it.
+  //
+  // `initializationOptions` and `settings` are two different transports and neither is derived from the
+  // other (D5). A server that reads the same logical setting from both has to be given both.
+  // ---------------------------------------------------------------------------
+  /** Preset id from the catalog. Validated for shape only; existence is checked by the preset lane (R5). */
+  readonly providerPreset?: string;
+  /** Merged into the `initialize` request's `initializationOptions`. */
+  readonly initializationOptions?: JsonObject;
+  /** Merged into the workspace settings tree answered to `workspace/configuration` (D3). */
+  readonly settings?: JsonObject;
 }
 
 /**
@@ -309,7 +338,8 @@ export interface SymbolTarget {
   readonly expectedSymbol?: ExpectedSymbol;
 }
 
-export type NoteScope = 'shared' | 'source' | 'local';
+export const NOTE_SCOPES = ['shared', 'source', 'local'] as const;
+export type NoteScope = (typeof NOTE_SCOPES)[number];
 
 export interface NoteGetRequest {
   readonly workspace: string;
