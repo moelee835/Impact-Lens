@@ -24,7 +24,8 @@
     "onCommand:impactLens.showImpact",
     "onCommand:impactLens.showGraph",
     "onCommand:impactLens.editNote",
-    "onCommand:impactLens.clearLiveChanges"
+    "onCommand:impactLens.clearLiveChanges",
+    "onCommand:impactLens.runProviderDoctor"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -61,6 +62,11 @@
       {
         "command": "impactLens.openLocation",
         "title": "Impact Lens: Open Symbol"
+      },
+      {
+        "command": "impactLens.runProviderDoctor",
+        "title": "Impact Lens: Run Provider Doctor",
+        "icon": "$(stethoscope)"
       }
     ],
     "viewsContainers": {
@@ -148,6 +154,25 @@
           "type": "boolean",
           "default": true,
           "description": "Show function notes and Impact Lens actions above functions."
+        },
+        "impactLens.provider.detailLevel": {
+          "type": "string",
+          "enum": [
+            "summary",
+            "verbose"
+          ],
+          "enumDescriptions": [
+            "Show the result count, the traversal state and the semantic scope. Provider identity and reason codes stay in tooltips.",
+            "Also show the provider identity, its lifecycle stage and every coverage reason code in the visible header."
+          ],
+          "default": "summary",
+          "description": "How much provider and coverage detail Impact Lens puts on the visible surfaces instead of tooltips."
+        },
+        "impactLens.provider.doctorCommandLine": {
+          "type": "string",
+          "scope": "machine",
+          "default": "",
+          "markdownDescription": "Command line that **Impact Lens: Run Provider Doctor** offers to run in a terminal for the Agent CLI check. Running it is always your explicit choice: Impact Lens never runs it on its own and never reads its output. This setting can only be changed in your user settings, so a workspace you open cannot supply a command line for you. Leave empty to run host-side checks only."
         },
         "impactLens.defaultNoteStorage": {
           "type": "string",
