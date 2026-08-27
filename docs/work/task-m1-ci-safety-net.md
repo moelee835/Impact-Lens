@@ -101,7 +101,7 @@ LSP에서 서버는 `workspace/configuration`, `client/registerCapability` 같�
 
 ## 테스트 및 완료 기준
 
-- [ ] 1단계: 새 워크플로가 PR에서 실행되고 `npm test`, `npm run cli:test`가 CI에서 통과한다.
+- [x] 1단계: 새 워크플로가 PR에서 실행되고 `npm test`, `npm run cli:test`가 CI에서 통과한다.
 - [x] 1단계: `npm run test:all`의 범위가 이름과 일치하고, 빠른 offline 경로가 별도 script로 남는다.
 - [x] 2단계: `npm run cli:test`가 리팩터링 전후로 동일한 결과(51/51)를 낸다.
 - [x] 2단계: `npm run test:plugin-artifact`가 리팩터링 전후로 동일하게 통과한다.
@@ -331,3 +331,18 @@ frame 분할과 한 chunk 다중 frame 시나리오를 넣은 이유는 추출�
   테스트를 `cli/src/test/contract.test.ts`에 추가한다.
 - 단위 테스트 워크플로는 현재 `ubuntu-latest` 단일 OS다. Windows에서만 깨지는 단위 테스트(경로 구분자,
   symlink 권한)가 나오면 그때 matrix로 넓힌다. packaged artifact 경로는 이미 3-OS로 덮여 있다.
+
+### PR과 CI 확인
+
+PR [#31](https://github.com/moelee835/Impact-Lens/pull/31) (base `main`). 4개 check 전부 통과했다.
+
+| check | 워크플로 | 결과 |
+| --- | --- | --- |
+| `Node 22 / ubuntu-latest` | **Unit tests (신규)** | pass, 15s |
+| `ubuntu-latest / Node 22` | Plugin artifact E2E | pass, 38s |
+| `macos-latest / Node 22` | Plugin artifact E2E | pass, 32s |
+| `windows-latest / Node 22` | Plugin artifact E2E | pass, 1m46s |
+
+새 job이 실제로 테스트를 실행했는지 run log로 확인했다. `# tests 34 / # pass 34 / # fail 0`(Extension)과
+`# tests 51 / # pass 51 / # fail 0`(CLI)이 모두 찍혔다. 15초는 pnpm 설치까지 포함한 시간이라,
+main push 트리거를 붙인 판단(결정 2)의 비용 근거가 실측으로 확인됐다.
