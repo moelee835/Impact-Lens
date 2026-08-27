@@ -280,18 +280,18 @@ C1이 드러낸 공백을 이 lane에서 메운다. `cli/src/test/requestSchema.
 
 ## 테스트 및 완료 기준
 
-- [ ] `npm run cli:build` 통과
-- [ ] `npm run cli:test` 통과
-- [ ] `npm test`(루트) 통과
-- [ ] `npm run test:plugin-artifact` 통과 — 네트워크 필요. 실패·미실행이면 사유를 로그에 남긴다
-- [ ] 기존 요청 34 시나리오(성공·부분·provider 실패·요청 표면 실패·doctor·note)의 응답이 **바이트 동일**
-- [ ] 새 필드를 담은 요청이 실제 CLI에서 통과한다
-- [ ] D8의 네 제한(타입/depth/바이트/키 수)을 각각 위반하는 요청이 실제 CLI에서 거부된다
-- [ ] `__proto__`/`constructor`/`prototype`이 **중첩 depth에서도** 거부된다
-- [ ] 요청 스키마 enum ↔ TS union parity 테스트가 새 필드를 덮는다
-- [ ] `stdout`은 여전히 JSON 한 줄이다
-- [ ] `schemaVersion`은 1이다. 필드 제거·이름 변경 없음
-- [ ] `V1_WITHHELD_REASON_CODES`를 비우지 않았다
+- [x] `npm run cli:build` 통과
+- [x] `npm run cli:test` 통과
+- [x] `npm test`(루트) 통과
+- [x] `npm run test:plugin-artifact` 통과
+- [x] 기존 요청 34 시나리오(성공·부분·provider 실패·요청 표면 실패·doctor·note)의 응답이 **바이트 동일**
+- [x] 새 필드를 담은 요청이 실제 CLI에서 통과한다
+- [x] D8의 네 제한(타입/depth/바이트/키 수)을 각각 위반하는 요청이 실제 CLI에서 거부된다
+- [x] `__proto__`/`constructor`/`prototype`이 **중첩 depth에서도** 거부된다
+- [x] 요청 스키마 enum ↔ TS union parity 테스트가 새 필드를 덮는다
+- [x] `stdout`은 여전히 JSON 한 줄이다
+- [x] `schemaVersion`은 1이다. 필드 제거·이름 변경 없음
+- [x] `V1_WITHHELD_REASON_CODES`를 비우지 않았다
 
 ## 작업 로그
 
@@ -369,8 +369,41 @@ prototype pollution은 top-level·중첩 3단·배열 원소 안 세 위치에�
 
 ### 2026-08-27 — 3단계: 스키마 계약 테스트와 무변경 증명
 
-(작성 예정)
+**변경한 파일**
+
+| 파일 | 변경 |
+| --- | --- |
+| `cli/src/test/jsonSchema.ts` | request schema가 쓰는 `propertyNames`·문자열 길이/패턴·`maximum`을 검사하도록 지원 키워드 확장 |
+| `cli/src/test/requestSchema.test.ts` (신규) | 지원 키워드, enum/상수 parity, D8 선언값 parity, schema↔실제 CLI 수용/거부 corpus 검사 |
+| `docs/development-management/provider-coverage-contract.md` | 요청 override 필드, merge 순서, D8 한계와 출처별 error code 계약 기록 |
+
+**설계와 검증**
+
+- JSON Schema가 표현하지 못하는 depth/총 byte/총 key 제한은 의도된 비대칭으로 corpus에 명시했다.
+  그 외에는 실제 CLI가 받는 요청이 schema를 위반하는 경우를 허용하지 않는다.
+- `propertyNames`는 모든 객체 depth에서 재귀 적용한다. 계약 테스트가 금지 키 상수와 schema enum을
+  직접 비교하므로 한쪽만 바뀌면 실패한다.
+- 2단계의 runtime 변경 직후 `base1`과 `after1` 34개 시나리오는 `diff -r`가 비었다. 3단계는 test helper와
+  계약 문서만 변경하므로 runtime 응답을 추가로 바꾸지 않는다.
+
+| 검사 | 결과 |
+| --- | --- |
+| targeted request override/schema tests | 19/19 통과 |
+| `npm run cli:test` | 121/121 통과 |
+| `npm test` | 35/35 통과 |
+| `npm run test:plugin-artifact` | 통과 |
+| 기존 요청 캡처 `base1` ↔ `after1` | 34/34 바이트 동일 |
+
+계획과 실제의 차이는 C1 때문에 3단계에 request schema 검사 자체가 추가된 것뿐이다. 구현 전에 계획과
+범위를 이 문서에 먼저 갱신했고, runtime dependency는 추가하지 않았다.
 
 ## W1-B 인계 사항
 
-(3단계에서 확정해 정리한다)
+- 이 branch는 요청 세 필드를 검증·파싱해 `AnalyzeRequest`에 보존하는 데까지다. `providerPreset` 선택과
+  `initializationOptions`/`settings`를 실제 LSP session에 배선하는 것은 W1-A·W1-B가 합쳐진 뒤 수행한다.
+- W1-B의 `resolveProvider`에는 요청의 `providerPreset`과 override를 받을 seam이 이미 있다. W1-A의
+  `LspCallHierarchyProvider`에는 resolved session과 직접 session 값을 합치는 seam이 있으므로, 최신 main을
+  merge한 뒤 `AnalyzeRequest` 세 필드를 두 seam에 연결하고 end-to-end 선택·설정 전송 검사를 추가한다.
+- project/preset/request를 합친 최종 트리가 D8 byte/key 예산을 넘는 경우는 `provider_config_invalid`로
+  실패해야 한다(R7). 각 입력이 개별로 유효해도 조합이 넘을 수 있으므로 request validator만으로 닫히지 않는다.
+- note 명령에는 세 필드를 추가하지 않았다. 소비 경로가 생길 때 additive로 추가한다(R1).
