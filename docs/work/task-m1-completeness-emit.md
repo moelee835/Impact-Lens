@@ -322,8 +322,8 @@ lead 승인 형태는 `{ signal, detail }`이다. 벽시계 값을 넣으면 이
 - [x] 캡처 29 시나리오에서 **추가 필드를 제거하면 baseline과 바이트 동일** (최소 15개, 성공·실패·부분 포함)
 - [x] 스키마 enum ↔ TS union parity 테스트가 새 필드까지 덮는다
 - [x] S1~S13 각 행이 실제로 도달 가능함을 보이는 테스트가 있다
-- [ ] X1~X11이 타입 또는 schema `allOf`로 표현 불가능하다
-- [ ] 금지 문구 6종이 어떤 상태에서도 생성되지 않는다
+- [x] X1~X11이 타입 또는 schema `allOf`로 표현 불가능하다
+- [x] 금지 문구 6종이 어떤 상태에서도 생성되지 않는다
 - [x] `npm run test:plugin-artifact` 통과, `selectedBy === 'bundled'`·`complete === true` assert 유지
 - [x] `schemaVersion`은 1 그대로
 - [ ] 미결 1·2·3·4·5의 결론과 근거가 이 문서와 계약 문서에 있다
@@ -426,6 +426,45 @@ lead 승인 형태는 `{ signal, detail }`이다. 벽시계 값을 넣으면 이
 코드 변경 후에 기준선이 필요했으므로 `git stash push -- cli/`로 되돌려 빌드·캡처하고 `git stash pop`했다.
 `cli/dist/coverage.js`에 `projectCompletion`이 없고 `coverageForTraversal`이 있음을 확인해 기준선 빌드임을
 검증한 뒤 3회 캡처해 결정성을 먼저 확인했다.
+
+### 2026-08-27 — 3단계: 금지 조합과 금지 문구 강제
+
+**변경한 파일**
+
+| 파일 | 핵심 변경 |
+| --- | --- |
+| `cli/schemas/response.schema.json` | X1·X2·X3·X4·X5·X6·X7·X8·X9·X10·X11 규칙 추가. `$defs/coverage/properties/indexing`(X3), `$defs/provider`(X4), `data`의 `allOf` 9항목, 실패 envelope 분기(X2 후반) |
+| `cli/src/test/jsonSchema.ts` | `contains`와 `$comment` 키워드 지원 추가 |
+| `cli/src/test/forbidden.test.ts` | 신규. schema 거부 16 fixture, 도달 가능 상태 14종 통과 확인, 타입 거부 6 fixture, 금지 문구 스캔 |
+
+**설계 결정과 이유**
+
+1. **`contains` 키워드를 checker에 추가했다.** X11("두 reason code가 함께 있으면 안 된다")은 `contains` 없이는
+   schema로 쓸 수 없다. 대안은 규칙을 주석으로 남기는 것인데, 그것이 이 계약이 벗어나려는 상태다.
+   `assertSupportedKeywords`가 있어서 키워드 추가가 검사를 약화시키지 않는다.
+2. **타입 거부는 `@ts-expect-error`가 아니라 실제 `tsc` 실행으로 증명했다.** `@ts-expect-error`는 "무언가
+   거부됐다"만 남기고 어떤 조합이 왜 거부됐는지 테스트 이름에 남지 않는다. fixture마다 `tsconfig.json`을
+   만들어 `types: []`로 컴파일한다. 이 설정이 없으면 ambient `@types/node`의 무관한 오류로 모든 fixture가
+   "거부됨"이 되어 검사가 거짓 통과한다(실제로 처음에 그렇게 실패했고, 통과해야 할 control fixture가 함께
+   실패한 덕에 발견했다). **control fixture가 없었으면 이 거짓 통과를 못 잡았다.**
+3. **X1·X7·X10은 타입 fixture에 넣지 않았다.** 이 셋은 "값의 모양"이 아니라 "누가 그 필드를 쓸 수 있는가"에
+   대한 규칙이고, projection 함수가 유일한 writer라는 구조로 이미 보장된다. 타입 fixture로 흉내 내면
+   실제로는 막지 않는 것을 막는 것처럼 보이게 된다. X2·X4도 뺐다 — 전자는 분석 결과가 아직
+   `Record<string, unknown>`이고, 후자의 선택 함수 타입은 W1-B 소유다. 각각 schema로만 막고 이유를
+   테스트 주석에 남겼다.
+4. **금지 문구 검사는 직렬화된 envelope 전체를 훑는다.** code 목록만 검사하면 `message`나 `action`에 들어간
+   표현을 놓친다. 검사기가 실제로 위반을 볼 수 있는지도 함께 테스트한다(심어둔 문장을 잡는지).
+5. `completion`에 `stage`를 넣은 envelope가 schema에서 거부되는 것을 fixture로 넣었다. D2 결론이 문서 문장이
+   아니라 검사 가능한 규칙이 됐다.
+
+**검증**
+
+| 검사 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm run cli:test` | 통과 (101 tests, 이전 96) |
+| `npm test` | 통과 (35 tests) |
+| 캡처 strip 비교 | **완전 동일** (3단계는 schema와 테스트만 바꾸므로 응답 무변경) |
 
 ## 부록 A — 캡처 스크립트 변경점
 
