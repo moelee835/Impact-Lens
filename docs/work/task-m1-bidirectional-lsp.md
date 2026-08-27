@@ -455,3 +455,41 @@ L2만 미결이었고, **이 단계에서 그 관측을 수행했다.**
 | `npm run test:plugin-artifact` | 통과 |
 | 캡처 2단계 ↔ 3단계 | 29 시나리오 바이트 동일 |
 | sentinel 검증 | `IL-SENTINEL-…`이 오류 message·details 어디에도 없고 `[REDACTED]`가 들어간 것을 확인 |
+
+## handover 6절 미결 4번 — 실제 동작 관측과 권고
+
+lead가 이미 (a)"문서를 코드에 맞춘다"로 닫았고 계약 문서는 `details.stage ∈ {launch, initialize, query}`로
+갱신됐다. 이 lane은 지시대로 **실제 동작을 확인**했고, 그 결과 **한 가지 좁힐 여지를 발견했다.**
+
+### 관측
+
+빌드한 CLI와 `cli/src/childIpc.ts`의 함수를 직접 구동했다.
+
+| 시나리오 | code | `details.stage` | `bytesFromServer` | `stderr` | `providerLog` |
+| --- | --- | --- | --- | --- | --- |
+| `silentExitServer` | `provider_initialize_failed` | `initialize` | 0 | 없음 | 없음 |
+| `queryExitServer` | `provider_query_failed` | `query` | 164 | 있음 | 없음 |
+
+`looksLikeSilentProviderFailure`에 세 stage를 각각 넣으면 전부 `true`이고,
+`childIpcUnavailableError`는 `launch`/`initialize`/`query`를 **그대로 보존**한다.
+
+즉 **코드는 계약 표의 `launch` 고정과 어긋나며, lead가 채택한 갱신이 옳다.** 확인 완료.
+
+### 추가 발견 — `query`는 실제로 도달할 수 없다
+
+`looksLikeSilentProviderFailure`는 `bytesFromServer === 0`을 요구한다. 그런데 lifecycle이 `query`가
+되려면 `doInitialize`가 끝나야 하고, 그러려면 **initialize 응답을 받아야 하므로 `bytesFromServer > 0`이다.**
+위 표의 `queryExitServer` 행이 그것을 그대로 보여준다(164 바이트).
+
+따라서 `provider_ipc_unavailable`이 실제로 가질 수 있는 stage는 **`launch`와 `initialize` 둘뿐이다.**
+
+- `launch` — spawn 자체가 실패해 `spawned`가 false인 경우.
+- `initialize` — child는 떴지만 한 바이트도 말하지 않은 경우. **sandbox stdio 미전달의 전형적 모양이다.**
+
+**권고**: 계약 표를 `{launch, initialize}`로 좁히거나, `query`를 남긴다면 "현재 코드에서는 도달 불가이며
+`looksLikeSilentProviderFailure`의 조건이 완화되면 열린다"는 단서를 함께 적는다. 좁히는 쪽을 권한다 —
+도달 불가능한 값을 계약에 남기는 것은 미결 4번을 닫은 근거("관측할 수 없는 값을 계약에 적으면 그 값은
+추측이 된다")와 같은 문제다.
+
+**계약 문서는 수정하지 않았다.** `provider-coverage-contract.md`는 W1-C 소유다.
+`cli/src/childIpc.ts`도 건드리지 않았다 — 지금 동작이 맞다고 판정된 코드다.
