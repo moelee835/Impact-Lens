@@ -10,6 +10,12 @@ import { notify, request, respond, serve } from './mockServer';
 
 const token = 'impact-lens-mock-index';
 
+// The Call Hierarchy answer is withheld until the progress notifications have been written. Both
+// travel the same stream, so writing them first is what makes the client's read order fixed; without
+// this the client can finish the analysis and tear the session down before the cycle even starts.
+let progressReported = false;
+let deferredPrepareId: number | undefined;
+
 serve(message => {
   if (message.method === 'initialize' && message.id !== undefined) {
     respond(message.id, {
@@ -25,6 +31,11 @@ serve(message => {
         notify('$/progress', { token, value: { kind: 'begin', title: 'Indexing project', percentage: 0 } });
         notify('$/progress', { token, value: { kind: 'report', percentage: 50 } });
         notify('$/progress', { token, value: { kind: 'end', message: 'done' } });
+        progressReported = true;
+        if (deferredPrepareId !== undefined) {
+          respond(deferredPrepareId, []);
+          deferredPrepareId = undefined;
+        }
       },
       onTimeout: () => {
         process.stderr.write('progress-server: no client answer to window/workDoneProgress/create\n', () => process.exit(1));
@@ -33,7 +44,11 @@ serve(message => {
     return;
   }
   if (message.method === 'textDocument/prepareCallHierarchy' && message.id !== undefined) {
-    respond(message.id, []);
+    if (progressReported) {
+      respond(message.id, []);
+    } else {
+      deferredPrepareId = message.id;
+    }
     return;
   }
   if (message.method === 'shutdown' && message.id !== undefined) {

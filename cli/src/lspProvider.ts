@@ -2,8 +2,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JsonRpcClient, redactProviderText } from './jsonRpc';
-import { EMPTY_SETTINGS, JsonObject } from './lsp/configuration';
+import { JsonObject } from './lsp/configuration';
 import { CapabilityRegistration, createServerRequestHandlers } from './lsp/serverRequests';
+import { ProviderSessionConfig, resolveSession, SettingsDelivery } from './lsp/session';
 import { languageId, resolveProvider } from './providers/resolve';
 import {
   CallHierarchyItem,
@@ -66,6 +67,9 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
   };
   private readonly languageIdOverride: string | undefined;
   private readonly settings: JsonObject;
+  private readonly initializationOptions: JsonObject;
+  private readonly settingsDelivery: readonly SettingsDelivery[];
+  private readonly redactionValues: readonly string[];
   /** Dynamic registrations the server announced. Wave 2 merges these into observed capabilities. */
   private readonly registrations = new Map<string, CapabilityRegistration>();
   /** Progress tokens the server asked us to create. A token is not evidence that indexing finished. */
@@ -81,12 +85,17 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     file: string,
     command: ProviderCommand | undefined,
     timeoutMs: number,
-    // The protocol layer never reads a preset manifest. It receives an already-resolved, plain JSON
-    // settings tree, because reference resolution and override merging belong to `providers/`.
-    session: { readonly settings?: JsonObject } = {},
+    // The protocol layer never reads a preset manifest. It receives already-resolved plain JSON,
+    // because reference resolution and override merging belong to `providers/`. The default is an
+    // empty session, which produces exactly the frames this client sent before configuration existed.
+    session: ProviderSessionConfig = {},
   ) {
     const resolved = resolveProvider(file, command);
-    this.settings = session.settings ?? EMPTY_SETTINGS;
+    const resolvedSession = resolveSession(session);
+    this.settings = resolvedSession.settings;
+    this.initializationOptions = resolvedSession.initializationOptions;
+    this.settingsDelivery = resolvedSession.settingsDelivery;
+    this.redactionValues = resolvedSession.redactionValues;
     this.timeoutMs = timeoutMs;
     this._capabilities = {
       ...this._capabilities,
@@ -98,6 +107,8 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     };
     this.languageIdOverride = resolved.requestedLanguageId;
     this.client = new JsonRpcClient(resolved.command.command, resolved.command.args ?? [], timeoutMs);
+    // Installed before anything can fail, so a secret cannot escape through an early launch error.
+    this.client.setRedactionValues(resolvedSession.redactionValues);
     // Installed before `initialize` is written on purpose: a server may ask for configuration before
     // it answers `initialize`, and a client that resolves its answers lazily deadlocks right there.
     this.client.setRequestHandlers(createServerRequestHandlers({
@@ -268,7 +279,7 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
           token,
           kind: state.kind,
           // A title is server-authored text; it goes through the same redaction as any other.
-          ...(state.title ? { title: redactProviderText(state.title) } : {}),
+          ...(state.title ? { title: redactProviderText(state.title, this.redactionValues) } : {}),
           serverCreated: state.serverCreated,
         })),
         diagnosticsPublishedFor: this.published.size,
@@ -310,12 +321,24 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
         workspaceFolders: [{ uri: pathToFileURL(this.workspace).toString(), name: path.basename(this.workspace) }],
         capabilities: {
           textDocument: {
+            // Left off in Wave 1. Turning it on lets a server advertise Call Hierarchy through a
+            // dynamic registration instead of the static capability, and the check below reads only
+            // the static one — so the run would fail as `provider_capability_missing` against a
+            // server that does support it. It goes on once static and dynamic are merged.
             callHierarchy: { dynamicRegistration: false },
             publishDiagnostics: { relatedInformation: true },
           },
-          workspace: { workspaceFolders: true },
+          workspace: {
+            workspaceFolders: true,
+            // A spec-abiding server never sends `workspace/configuration` unless the client says it
+            // can answer. Without this line the answer implemented in `lsp/serverRequests.ts` would
+            // only ever run against a mock, and settings could not reach a real server at all.
+            configuration: true,
+          },
+          // We now answer `window/workDoneProgress/create` and record `$/progress`.
+          window: { workDoneProgress: true },
         },
-        initializationOptions: {},
+        initializationOptions: this.initializationOptions,
       });
     } catch (error) {
       if (error instanceof CliError) {
@@ -357,6 +380,7 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     }
     try {
       this.client.notify('initialized', {});
+      this.pushSettings();
     } catch (error) {
       if (error instanceof CliError) {
         throw error;
@@ -371,6 +395,30 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     }
     this.initialized = true;
     this.lifecycle('indexing', 'unknown');
+  }
+
+  /**
+   * Pushes settings only when the preset asked for it and there is something to push.
+   *
+   * Some servers read configuration only from `workspace/didChangeConfiguration` and never ask for
+   * it, so the path has to exist. Sending it unconditionally would be the easy choice and the wrong
+   * one: this client sends no such notification today, and adding a frame to the bundled TypeScript
+   * handshake to serve a server that is not bundled TypeScript changes working behaviour for no
+   * benefit. The empty-tree guard is what keeps the bundled wire identical, since the reference
+   * preset carries no settings.
+   *
+   * Ordering is a requirement, not a preference: the notification follows `initialized`, and the
+   * settings tree itself is resolved in the constructor because a server may ask for configuration
+   * before it even answers `initialize`.
+   */
+  private pushSettings(): void {
+    if (!this.settingsDelivery.includes('did-change-configuration')) {
+      return;
+    }
+    if (Object.keys(this.settings).length === 0) {
+      return;
+    }
+    this.client.notify('workspace/didChangeConfiguration', { settings: this.settings });
   }
 
   private async open(file: string, uri: string): Promise<void> {

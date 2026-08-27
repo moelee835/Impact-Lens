@@ -5,6 +5,7 @@ import test from 'node:test';
 import { clone, lookupSection, resolveConfiguration } from '../lsp/configuration';
 import { classifyIncoming } from '../lsp/protocol';
 import { createServerRequestHandlers, methodNotFound } from '../lsp/serverRequests';
+import { collectSecrets, resolveSession } from '../lsp/session';
 
 test('every shipped source directory is listed in the package files', () => {
   // `files` matches one path segment at a time, so `dist/*.js` silently excludes `dist/lsp/*.js`.
@@ -136,4 +137,54 @@ test('records capability registrations and progress tokens without treating them
   // A token without one is not a token at all, and inventing one would let a later `$/progress` be
   // attributed to work nobody asked for.
   assert.equal(handlers.get('window/workDoneProgress/create')!({}).kind, 'error');
+});
+
+test('an empty session produces exactly the frames the client sent before configuration existed', () => {
+  const session = resolveSession();
+  assert.deepEqual(session.initializationOptions, {});
+  assert.deepEqual(session.settings, {});
+  // The default never pushes. A server that reads only didChangeConfiguration has to opt in, because
+  // sending it by default would add a frame to the bundled TypeScript handshake for no gain.
+  assert.deepEqual(session.settingsDelivery, ['on-request']);
+  assert.deepEqual(session.redactionValues, []);
+});
+
+test('collects declared secrets and backstops them with a key-name rule', () => {
+  const secrets = collectSecrets([
+    {
+      tree: { licenseServer: { credential: 'declared-only-value' }, plain: 'visible' },
+      declared: ['licenseServer.credential'],
+    },
+    {
+      // Not declared anywhere. Only the key name gives it away, which is why the heuristic stays on.
+      tree: { vendor: { apiKey: 'heuristic-value' }, nested: { deep: { authToken: 'token-value' } } },
+      declared: undefined,
+    },
+  ]);
+  assert.deepEqual([...secrets].sort(), ['declared-only-value', 'heuristic-value', 'token-value']);
+});
+
+test('leaves short and non-string values out of the redaction table', () => {
+  // Substituting `1` or `on` would shred every log line that happens to contain them, and neither
+  // identifies anything on its own.
+  const secrets = collectSecrets([
+    { tree: { token: 'ab', apiKey: 1234, secretFlag: true, password: 'long-enough' }, declared: undefined },
+  ]);
+  assert.deepEqual(secrets, ['long-enough']);
+});
+
+test('treats every string under a declared subtree as a secret', () => {
+  const secrets = collectSecrets([
+    { tree: { auth: { headers: ['first-value', 'second-value'], nested: { k: 'third-value' } } }, declared: ['auth'] },
+  ]);
+  assert.deepEqual([...secrets].sort(), ['first-value', 'second-value', 'third-value']);
+});
+
+test('orders the redaction table longest first', () => {
+  // A short secret contained in a longer one would otherwise be replaced first, leaving the rest of
+  // the longer value in the text.
+  const secrets = collectSecrets([
+    { tree: { token: 'abcd', apiKey: 'abcdefgh' }, declared: undefined },
+  ]);
+  assert.deepEqual(secrets, ['abcdefgh', 'abcd']);
 });

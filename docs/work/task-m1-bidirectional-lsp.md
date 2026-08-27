@@ -152,15 +152,27 @@ W0-4의 캡처 스크립트를 코드 변경 **없이** 5회 실행했다.
 
 ## 테스트 및 완료 기준
 
-- [ ] `npm run cli:build`, `npm run cli:test`, `npm test` 통과
-- [ ] `configurationRequestServer`의 두 phase 모두에서 client가 응답하고 initialize가 완료된다
-- [ ] `registerCapabilityServer`가 `REQUIRE_REGISTRATION=1`에서도 통과한다
-- [ ] server request id가 1부터인 fixture에서 client의 pending `initialize`가 오염되지 않는다
-- [ ] 모르는 server request에 MethodNotFound로 답한다 (침묵하지 않는다)
-- [ ] 민감 값이 stdout·stderr 어디에도 없다 (sentinel grep)
-- [ ] 정상 경로 응답의 무변경(또는 관측된 차이의 명시적 기록)
-- [ ] `npm run test:plugin-artifact` 통과 또는 미실행 사유 기록
-- [ ] stdout은 정확히 JSON 한 줄
+- [x] `npm run cli:build`, `npm run cli:test`(95), `npm test`(35) 통과
+- [x] `configurationRequestServer`의 두 phase 모두에서 client가 응답하고 initialize가 완료된다
+- [x] `registerCapabilityServer`가 `REQUIRE_REGISTRATION=1`에서도 통과한다
+      (단 이 fixture는 경주로도 통과 가능하다. 엄격한 증명은 `clientAnswerServer`다 — 1단계 로그 3번 참조)
+- [x] server request id가 1부터인 fixture에서 client의 pending `initialize`가 오염되지 않는다
+- [x] 모르는 server request에 MethodNotFound로 답한다 (침묵하지 않는다)
+- [x] 민감 값이 오류 message·details 어디에도 없다 (sentinel 검증)
+- [x] `observed.diagnostics`가 같은 입력에 대해 결정적이다 (4회 반복 테스트)
+- [x] 정상 경로 응답의 무변경 — **2단계 ↔ 3단계 0줄. base ↔ 2단계는 16줄이며 그 내용을 그대로 기록했다**
+- [x] `npm run test:plugin-artifact` 통과
+- [x] stdout은 정확히 JSON 한 줄 (transcript를 켜도 stdout은 그대로)
+
+### 남은 작업 (이 lane 밖)
+
+| 항목 | 담당 |
+| --- | --- |
+| 요청 최상위 `providerPreset`/`initializationOptions`/`settings` 스키마 추가 | W1-C merge 직후 별도 contract lane (L6) |
+| `provider_config_invalid` code 추가와 D8 크기·depth 검증 | W1-C(code) + W1-B(검증 지점) |
+| readiness 신호 관측과 `coverage.indexing.status` 실측화 | Wave 2 W2-A |
+| `textDocument.callHierarchy.dynamicRegistration: true` | Wave 2 W2-A (static/dynamic 병합 이후) |
+| 분석 전체 예산(세션 budget) | Wave 2 W2-A (readiness budget과 함께) |
 
 ## 작업 로그
 
@@ -346,3 +358,100 @@ capabilities.observed.diagnostics       false -> true   (같은 값의 mirror)
 budget 상한(2000ms, 세션 timeout으로 다시 상한)만큼 기다린다. bundled TypeScript는 신호에서
 빠져나오므로 해당되지 않는다. preset이 이 값을 선언하는 것은 Wave 2 readiness budget의 일이다.
 
+
+### 2026-08-27 — 3단계: 설정 주입 경로와 secret redaction
+
+lead가 확정한 `task-m1-preset-manifest-contract.md`의 D2·D3·D4·D5·D6·D11에 맞춰 구현했다.
+L2만 미결이었고, **이 단계에서 그 관측을 수행했다.**
+
+**변경한 파일**
+
+| 파일 | 내용 |
+| --- | --- |
+| `cli/src/lsp/session.ts` (신규) | `ProviderSessionConfig`/`resolveSession`, `SettingsDelivery`, 세션 redaction 표 수집 |
+| `cli/src/lspProvider.ts` | client capability 2개 선언, `initializationOptions` 주입, `didChangeConfiguration` push, transcript redaction |
+| `cli/src/jsonRpc.ts` | `setRedactionValues`, `redactProviderText(value, secrets)` |
+| `cli/src/test/fixtures/settingsRequiredServer.ts` (신규) | 선언·옵션·조회 결과를 자기가 검증하는 oracle |
+| `cli/src/test/fixtures/secretEchoServer.ts` (신규) | 받은 설정을 자기 말로 stderr·logMessage에 되뱉는다 |
+| `cli/src/test/lsp.integration.test.ts` | 설정 주입·push 억제·secret·결정성 4건 추가 |
+| `cli/src/test/lspProtocol.test.ts` | 세션·secret 수집 단위 5건 추가 |
+
+**설계 결정과 이유**
+
+- **세션 설정은 생성자의 선택적 인자로 받는다.** `providers/`(W1-B)와 `index.ts`를 건드리지 않고도
+  주입 경로가 열리고, 기본값이 빈 세션이라 bundled 경로의 wire가 그대로다. `$ref`도 `ProviderPreset`도
+  이 계층에서 import 하지 않는다(D2).
+- **요청 최상위 `providerPreset`/`initializationOptions`/`settings`는 배선하지 않았다.** lead가 이름을
+  고정했지만 스키마 추가는 후속 lane이고, 지금 요청에 넣으면 `invalid_request`로 거부된다.
+  **그래서 3단계의 end-to-end 검증은 CLI 프로세스가 아니라 provider API 수준에서 한다.**
+- **`didChangeConfiguration`은 preset이 요구할 때만, 그리고 트리가 비어 있지 않을 때만 보낸다.**
+  무조건 push는 bundled TypeScript handshake에 프레임을 하나 더한다. 기존 동작 무변경 제약과 충돌한다.
+- **redaction은 값 치환을 패턴 치환보다 **먼저** 적용한다.** 패턴 규칙이 줄을 먼저 고쳐 쓰면 그 안의
+  비밀이 리터럴로 더 이상 발견되지 않을 수 있다.
+- **키 이름 휴리스틱을 단어 경계에서 부분 문자열로 바꿨다.** 처음에 쓴 `(^|[._-])token($|[._-])` 형태는
+  `authToken` 같은 **camelCase 키를 통째로 놓쳤고**, 실제 설정 키는 대부분 camelCase다. 대가는 가끔의
+  오탐(`tokenizer` 설정이 가려짐)이고, 그 교환은 의도적이다. 가려진 로그 한 줄은 불편이지만 유출된
+  credential은 되돌릴 수 없다.
+- **표는 긴 문자열부터 치환한다.** 짧은 비밀이 긴 비밀의 부분 문자열이면 순서가 뒤집힐 때 긴 값의
+  나머지가 남는다.
+- **길이 4 미만과 비문자열은 표에 넣지 않는다.** `1`이나 `on`을 치환하면 무관한 로그가 파괴되고,
+  그 값 자체로는 식별력도 없다.
+- **D8의 크기·depth·금지 키 검증은 이 lane에서 구현하지 않았다.** 그 검증의 실패 code
+  `provider_config_invalid`가 아직 `errors.ts`에 없고(L1에 따라 W1-C가 추가한다), 검증이 걸릴 지점은
+  manifest·override를 읽는 `providers/`(W1-B)다. 프로토콜 계층에서는 `lookupSection`이
+  `hasOwnProperty`만 따라가고 `clone`이 평범한 객체만 만들므로 prototype 오염 경로는 닫혀 있다.
+
+#### L2 관측 결과 — **차이 없음**
+
+`workspace.configuration: true`와 `window.workDoneProgress: true` 선언, 그리고 하드코딩 `{}` 대신 해석된
+`initializationOptions` 전달을 켠 전후로 캡처를 비교했다.
+
+| 비교 | 결과 |
+| --- | --- |
+| 3단계 직전(2단계 HEAD) 2회끼리 | 29 시나리오 **전부 동일** |
+| 3단계 2회끼리 | 29 시나리오 **전부 동일** |
+| **3단계 직전 ↔ 3단계** | **29 시나리오 전부 바이트 동일** |
+
+즉 **`workspace.configuration` 선언은 bundled TypeScript의 응답을 바꾸지 않는다.** typescript-language-server가
+이 선언으로 `workspace/configuration`을 보내기 시작하더라도 우리가 `[null]`을 답하고 server가 기본값을
+쓰므로 결과가 같다는 가정이 관측으로 확인됐다. L2의 (a)·(b) 어느 대응도 필요하지 않다.
+
+#### 캡처 디렉터리 충돌 확인 (lead 요청)
+
+**충돌은 실재했고, 이 lane에서도 관측됐다.** scratchpad에 두었던 캡처 스크립트 사본이
+`m1-preset-catalog` lane의 편집으로 바뀌어 있었다(workspace 기본 경로가
+`il-m1-preset-catalog-capture-fixed`로, `VOLATILE_PATHS` 마스킹이 추가된 상태). W0-4 문서 원문과
+`diff`해서 발견했다.
+
+대응:
+
+1. 캡처 스크립트를 **문서에서 다시 추출**하고, workspace 경로만
+   `il-w1a-bidirectional-lsp-capture-fixed`로 바꿔 lane 전용 파일명
+   (`scratchpad/w1a-lsp/capture-w1a.mjs`)으로 저장했다. 그 외에는 원문과 동일하다.
+2. 출력 디렉터리도 `scratchpad/w1a-lsp/` 아래로 옮겼다.
+3. **모든 비교를 처음부터 다시 수행했다.** 각 side를 2회씩 떠서 side 내부가 동일한 것을 먼저 확인한 뒤에만
+   기준선으로 인정했다.
+
+재수행 결과는 이전 결과와 같았다(base ↔ 2단계 16줄, 2단계 ↔ 3단계 0줄). 즉 이전 비교가 오염되지는
+않았지만, **오염 여부를 확인할 수단이 없었던 것이 문제였고 지금은 있다.**
+
+#### `observed.diagnostics` 결정성 (lead 요청)
+
+같은 입력으로 4회 반복해 같은 값이 나오는 것을 테스트로 고정했다
+(`lsp.integration.test.ts`의 "reports the same diagnostics observation for the same input every time").
+고정 100ms 대기에서는 이 값이 부하에 따라 갈렸다. 이제 열어둔 문서마다 publish를 기다리므로 값이
+관측에서 나온다.
+
+**주의로 기록한다**: 이 lane의 캡처 비교에서 base ↔ 2단계의 16줄 차이는 **진짜 회귀가 아니라 이 필드의
+경쟁이 사라진 결과**다. 캡처를 "같게 만들려고" 코드를 되돌리지 않았고, 차이를 그대로 보고했다.
+
+**실행한 검사**
+
+| 검사 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm run cli:test` | 95/95 통과 |
+| `npm test` | 35/35 통과 |
+| `npm run test:plugin-artifact` | 통과 |
+| 캡처 2단계 ↔ 3단계 | 29 시나리오 바이트 동일 |
+| sentinel 검증 | `IL-SENTINEL-…`이 오류 message·details 어디에도 없고 `[REDACTED]`가 들어간 것을 확인 |

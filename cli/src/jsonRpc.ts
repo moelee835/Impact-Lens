@@ -36,6 +36,7 @@ export class JsonRpcClient {
   private readonly notificationHandlers = new Map<string, Array<(params: unknown) => void>>();
   private requestHandlers: ReadonlyMap<string, ServerRequestHandler> = new Map();
   private readonly unhandledServerRequests: UnhandledServerRequest[] = [];
+  private redactionValues: readonly string[] = [];
   private serverRequestsAnswered = 0;
   private cancelled = 0;
   private readonly cancelSweeps = new Set<ReturnType<typeof setTimeout>>();
@@ -113,6 +114,16 @@ export class JsonRpcClient {
    */
   setRequestHandlers(handlers: ReadonlyMap<string, ServerRequestHandler>): void {
     this.requestHandlers = handlers;
+  }
+
+  /**
+   * Literal strings to blank out of every piece of provider-authored text this client reports.
+   *
+   * A server that logs the configuration it received rewrites it in its own words, so no pattern for
+   * `token=...` is guaranteed to match. Replacing the value itself is what survives that.
+   */
+  setRedactionValues(values: readonly string[]): void {
+    this.redactionValues = values;
   }
 
   /**
@@ -441,8 +452,8 @@ export class JsonRpcClient {
       : this.exitSignal
         ? `signal ${this.exitSignal}`
         : 'process error';
-    const stderr = redactProviderText(this.stderr.trim());
-    const providerLog = redactProviderText(this.serverLog.trim());
+    const stderr = redactProviderText(this.stderr.trim(), this.redactionValues);
+    const providerLog = redactProviderText(this.serverLog.trim(), this.redactionValues);
     const cause = this.processError
       ? ((this.processError as NodeJS.ErrnoException).code ?? this.processError.name)
       : undefined;
@@ -484,9 +495,18 @@ export class JsonRpcClient {
 
 const LOG_MESSAGE_SEVERITY: Record<number, string> = { 1: 'error', 2: 'warning', 3: 'info', 4: 'log', 5: 'debug' };
 
-export function redactProviderText(value: string): string {
+export function redactProviderText(value: string, secrets: readonly string[] = []): string {
   const home = os.homedir();
-  return value
+  // Value substitution runs first. Once a pattern rule has rewritten a line, the secret it contained
+  // may no longer be findable as a literal, and a secret that slipped past the pattern would then be
+  // beyond reach of both rules.
+  let text = value;
+  for (const secret of secrets) {
+    if (secret.length >= 4) {
+      text = text.split(secret).join('[REDACTED]');
+    }
+  }
+  return text
     .replace(/\b(Bearer)\s+[^\s]+/gi, '$1 [REDACTED]')
     .replace(/\b(token|password|secret|api[-_]?key)\s*[:=]\s*[^\s]+/gi, '$1=[REDACTED]')
     .split(home).join('~')
