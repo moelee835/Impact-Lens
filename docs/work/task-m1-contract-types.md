@@ -254,12 +254,15 @@ Extension 어휘도 schema와 parity 검사한다.
 
 ## 테스트 및 완료 기준
 
-- [ ] `npm run test:all` 통과
-- [ ] `npm run test:plugin-artifact`가 변경 전후 동일
-- [ ] CLI 응답 16종 캡처가 변경 전후 byte 단위로 동일(휘발성 필드만 정규화)
-- [ ] parity 테스트가 드리프트 3건을 실제로 잡는지 확인(타입을 되돌려 실패를 관측)
-- [ ] `data.completion`/`limitationDetails`를 추가하지 않았다
-- [ ] 다른 lane 소유 파일을 변경하지 않았다
+- [x] `npm run test:all` 통과 — Extension 35 pass, CLI 60 pass, 0 fail (기준선 34 + 51)
+- [x] `npm run test:plugin-artifact`가 변경 전후 동일 — exit 0, 출력 문자열 동일
+- [x] CLI 응답 16종 캡처가 변경 전후 byte 단위로 동일(휘발성 필드만 정규화) — 2~6단계 매 단계 확인
+- [x] parity 테스트가 드리프트 3건을 실제로 잡는지 확인 — 타입을 되돌리자 3건을 한 번에 보고
+- [x] 응답 검증만으로는 3건을 못 잡는다는 것도 실측 확인 — 되돌린 상태에서도 응답 검증 3건은 통과
+- [x] `data.completion`/`limitationDetails`를 추가하지 않았다
+- [x] 다른 lane 소유 파일을 변경하지 않았다 — `cli/src/lspProvider.ts`, `cli/src/jsonRpc.ts`,
+      `cli/src/providers/**`, `cli/src/doctor*`, `.github/**`, `scripts/**`,
+      `cli/src/test/fixtures/**`, `provider-coverage-contract.md`, `src/**`의 UI 파일 모두 무변경
 
 ## 작업 로그
 
@@ -440,3 +443,25 @@ field: 'coverage.traversal.status',  missingFromTypes: ['failed', 'timeout']
 마지막 행이 실측으로 확인됐다.
 
 **검증**: `npm run test:all` 60 pass / 0 fail. 고정 캡처 16종 기준선과 완전 동일.
+
+### 2026-08-27 — 6단계: Extension 타입 리터럴 해제
+
+**변경한 파일**: `src/types.ts`, `src/test/coverage.test.ts`
+
+- `ImpactProviderMetadata`의 `host`, `name`, `selectedBy`, `languageMatch`, `advertised.*`,
+  `lifecycle.stage`, `lifecycle.status`와 `ImpactCoverage`의 `traversal.status`, `semantic.status`,
+  `semantic.evidenceSources`, `indexing.status`를 CLI와 같은 union으로 넓혔다.
+- `version?: string`을 추가했다. CLI의 `ProviderCapabilities`와 schema `#/$defs/provider`에 이미 있고,
+  Extension이 provider identity를 알아내게 되는 순간 필요한 자리다. optional이므로 지금 생산하지 않는
+  것이 계약 위반이 아니다.
+- CLI와 같은 `as const` 배열 7개를 두고 `src/test/coverage.test.ts`가 `cli/schemas/response.schema.json`과
+  직접 비교하게 했다. 두 벌 구현이 남아 있는 동안 Extension 쪽 어휘가 조용히 갈라지는 것을 막는다.
+  단일 출처 공유는 truth table 4.3절 v2 승격 조건 4번으로 남아 있다.
+
+**값은 바꾸지 않았다.** `src/coverage.ts`는 여전히 `vscode`/`unknown`/`static-only`/
+`vscode-call-hierarchy`를 생산한다. `src/test/coverage.test.ts:6-19`의 `deepEqual`이 객체 전체를 고정하고
+있고 **수정 없이 통과**했다. 이 통과가 값 무변경의 증거다.
+
+**검증**: `npm run test:all` — Extension 35 pass, CLI 60 pass, 0 fail.
+`npm run test:plugin-artifact` exit 0, 출력이 기준선과 **한 글자도 다르지 않다**.
+고정 캡처 16종도 기준선과 완전 동일.

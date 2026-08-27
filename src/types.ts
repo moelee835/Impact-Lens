@@ -6,18 +6,57 @@ export type ImpactAnalysisState = 'current' | 'stale' | 'analyzing' | 'partial' 
 export type TestFreshness = 'notRun' | 'outdated';
 export type TraversalLimit = 'depth' | 'nodes';
 
+// This vocabulary is the same contract the Agent CLI serializes, declared by
+// `cli/schemas/response.schema.json`. It is duplicated rather than imported because the Extension and the
+// CLI are separate TypeScript projects with separate packaging; `src/test/coverage.test.ts` compares these
+// arrays against that schema so the two copies cannot drift apart.
+//
+// The values are deliberately wider than what `src/coverage.ts` produces today. Narrowing each field to the
+// single literal the VS Code broker emits made the type a statement about one call site instead of about the
+// contract, so every new state value broke compilation in the type layer before any UI could be written to
+// handle it. Widening them costs nothing here: `src/graphPanel.ts` reads all of these as plain strings.
+
+export const PROVIDER_HOSTS = ['lsp', 'vscode'] as const;
+export type ProviderHost = (typeof PROVIDER_HOSTS)[number];
+
+export const PROVIDER_SELECTED_BY = ['bundled', 'auto', 'preset', 'project', 'custom', 'vscode'] as const;
+export type ProviderSelectedBy = (typeof PROVIDER_SELECTED_BY)[number];
+
+export const PROVIDER_LIFECYCLE_STAGES = [
+  'discovery',
+  'launch',
+  'initialize',
+  'indexing',
+  'capability',
+  'query',
+] as const;
+export type ProviderLifecycleStage = (typeof PROVIDER_LIFECYCLE_STAGES)[number];
+
+export const PROVIDER_LIFECYCLE_STATUSES = ['working', 'ready', 'failed', 'unknown'] as const;
+export type ProviderLifecycleStatus = (typeof PROVIDER_LIFECYCLE_STATUSES)[number];
+
+export const TRAVERSAL_STATUSES = ['complete', 'depth-limited', 'node-limited', 'timeout', 'failed'] as const;
+export type TraversalStatus = (typeof TRAVERSAL_STATUSES)[number];
+
+export const SEMANTIC_STATUSES = ['static-only', 'augmented'] as const;
+export type SemanticStatus = (typeof SEMANTIC_STATUSES)[number];
+
+export const INDEXING_STATUSES = ['ready', 'working', 'unknown'] as const;
+export type IndexingStatus = (typeof INDEXING_STATUSES)[number];
+
 export interface ImpactProviderMetadata {
-  readonly host: 'vscode';
-  readonly name: 'unknown';
+  readonly host: ProviderHost;
+  readonly name: string;
+  readonly version?: string;
   readonly requestedLanguageId: string;
   readonly detectedLanguageId: string;
-  readonly selectedBy: 'vscode';
-  readonly languageMatch: 'unknown';
+  readonly selectedBy: ProviderSelectedBy;
+  readonly languageMatch: boolean | 'unknown';
   readonly callHierarchy: boolean;
   readonly diagnostics: boolean;
   readonly advertised: {
-    readonly callHierarchy: 'unknown';
-    readonly diagnostics: 'unknown';
+    readonly callHierarchy: boolean | 'unknown';
+    readonly diagnostics: boolean | 'unknown';
   };
   readonly observed: {
     readonly prepareCallHierarchy: boolean;
@@ -25,23 +64,23 @@ export interface ImpactProviderMetadata {
     readonly diagnostics: boolean;
   };
   readonly lifecycle: {
-    readonly stage: 'query';
-    readonly status: 'ready';
+    readonly stage: ProviderLifecycleStage;
+    readonly status: ProviderLifecycleStatus;
   };
 }
 
 export interface ImpactCoverage {
   readonly traversal: {
-    readonly status: 'complete' | 'depth-limited' | 'node-limited';
+    readonly status: TraversalStatus;
     readonly requestedDepth: number;
     readonly reachedDepth: number;
     readonly maxNodes: number;
   };
   readonly semantic: {
-    readonly status: 'static-only';
-    readonly evidenceSources: readonly ['vscode-call-hierarchy'];
+    readonly status: SemanticStatus;
+    readonly evidenceSources: readonly string[];
   };
-  readonly indexing: { readonly status: 'unknown' };
+  readonly indexing: { readonly status: IndexingStatus };
   readonly reasons: readonly string[];
 }
 
