@@ -135,14 +135,14 @@ workspace 경로를 쓴다.
 
 "테스트 통과"가 아니라 "무변경 증명"이 완료 기준이다.
 
-- [ ] `npm run cli:build` 통과
-- [ ] `npm run cli:test` 통과 (기준선과 동일한 pass 수)
-- [ ] `npm test` 통과 (기준선과 동일한 pass 수)
-- [ ] 고정 workspace 캡처 시나리오 전부가 변경 전후 **byte 단위 동일**. 휘발성 필드만 정규화한다.
+- [x] `npm run cli:build` 통과
+- [x] `npm run cli:test` 통과 (기준선 60 pass → 최종 63 pass. 늘어난 3건은 3단계가 추가한 기본값
+      고정 테스트이고, 기존 60건은 전부 그대로 통과한다)
+- [x] `npm test` 통과 (35 pass, 기준선과 동일)
+- [x] 고정 workspace 캡처 시나리오 전부가 변경 전후 **byte 단위 동일**. 휘발성 필드만 정규화한다.
       성공 경로와 실패 경로를 모두 포함하고, bundled/custom 양쪽을 포함한다.
-- [ ] `npm run test:plugin-artifact` 결과가 변경 전후 동일 (네트워크 필요. 실행 못 하면 성공으로
-      간주하지 않고 사유를 로그에 남긴다)
-- [ ] `main`에서 어떤 파일도 변경하지 않았다
+- [x] `npm run test:plugin-artifact` 결과가 변경 전후 동일 (네트워크가 있어 실제로 실행했다)
+- [x] `main`에서 어떤 파일도 변경하지 않았다
 
 ### 캡처 시나리오
 
@@ -278,6 +278,82 @@ requireStack: [
 | `npm test` | 35 pass / 0 fail | 35 pass / 0 fail |
 | 고정 캡처 29종 `diff -r` | — | **완전 동일** |
 | `npm run test:plugin-artifact` | exit 0 | exit 0, 동일 메시지 |
+
+
+### 2026-08-27 — 3단계: `coverage.ts` 파라미터화
+
+**변경한 파일**: `cli/src/coverage.ts`, `cli/src/test/coverage.test.ts`
+
+`coverageForTraversal()`에 6번째 인자 `observations: CoverageObservations = {}`를 추가했다. 하드코딩
+상수 3개는 두 개의 export 상수로 나갔다.
+
+- `STATIC_ONLY_SEMANTIC_COVERAGE = { status: 'static-only', evidenceSources: ['lsp-call-hierarchy'] }`
+- `UNKNOWN_INDEXING_COVERAGE = { status: 'unknown' }`
+
+`observations.semantic`/`observations.indexing`가 없으면 각각 위 상수를 쓴다. 즉 인자를 넘기지 않는
+현재 유일한 호출부(`cli/src/impact.ts`)는 수정 없이 이전과 완전히 같은 값을 만든다.
+
+**positional 인자 2개 대신 옵션 객체를 쓴 이유**: 이미 positional 인자가 5개라 6·7번째를 더하면
+호출부에서 `coverageForTraversal(limits, d, r, n, reasons, undefined, { status: 'ready' })` 같은
+구멍 뚫린 호출이 생긴다. W1-C는 semantic과 indexing을 서로 다른 시점에 실측하게 되므로, 한쪽만
+넘기는 것이 자연스러워야 한다. 객체 하나면 그게 된다.
+
+**상수를 export한 이유**: W1-C가 "실측하지 못했을 때의 값"을 다시 손으로 적으면 두 벌이 된다.
+`indexing`을 실측하지 못한 채 `ready`로 적는 것은 계약이 금지하는 주장이므로, 보수적 기본값은 한
+곳에만 있어야 한다.
+
+**추가한 테스트 3개** (`cli:test` 60 → 63)
+
+- 인자를 생략했을 때의 `JSON.stringify` 결과가 이전 하드코딩 리터럴과 **문자열로 정확히 같은지**
+  비교한다. `deepEqual`이 아니라 문자열 비교인 이유는 키 순서가 바뀌어도 `deepEqual`은 통과하지만
+  저장된 응답의 바이트는 달라지기 때문이다.
+- `{}`를 넘기는 것과 아무것도 넘기지 않는 것이 같은지 확인한다.
+- `semantic`만, `indexing`만 넘겼을 때 나머지 한쪽이 기본값으로 남는지 확인한다.
+
+**검증**
+
+| 검증 | 기준선 | 3단계 후 |
+| --- | --- | --- |
+| `npm run cli:build` | 통과 | 통과 |
+| `npm run cli:test` | 60 pass / 0 fail | 63 pass / 0 fail (신규 3건) |
+| `npm test` | 35 pass / 0 fail | 35 pass / 0 fail |
+| 고정 캡처 29종 `diff -r` | — | **완전 동일** |
+| `npm run test:plugin-artifact` | exit 0 | exit 0, 동일 메시지 |
+
+### 2026-08-27 — 완료 판정
+
+**완료 기준 대조**
+
+- [x] `npm run cli:build` 통과
+- [x] `npm run cli:test` 통과 — 기준선 60 pass, 최종 63 pass. 늘어난 3건은 3단계가 추가한
+      기본값 고정 테스트이고 기존 60건은 전부 그대로 통과한다.
+- [x] `npm test` 통과 — 35 pass, 기준선과 동일
+- [x] 고정 캡처 29 시나리오가 1·2·3단계 내내 기준선과 byte 단위 동일. 성공 9, 실패 18, 기타 2를
+      포함하고 bundled/custom 양쪽을 지난다.
+- [x] `npm run test:plugin-artifact` — 기준선·2단계 후·3단계 후 모두 exit 0에 동일 메시지.
+      네트워크가 있어 실제로 실행했다.
+- [x] `main`에서 어떤 파일도 변경하지 않았다. 전 작업이 `refactor/m1-provider-seam`에서 이뤄졌다.
+
+**Wave 1에 넘기는 것**
+
+- `cli/src/providers/resolve.ts`가 W1-B의 preset catalog가 자랄 자리다. `ResolvedProvider`가 선택
+  결과의 계약이고, `resolveProvider()`가 우선순위
+  `raw custom > explicit preset > trusted project > verified auto > unsupported`를 구현할 지점이다.
+  지금은 그 중 첫 단계와 마지막 단계만 있다.
+- `coverageForTraversal()`의 `observations` 인자가 W1-C가 실측값을 흘려보낼 통로다.
+- `cli/package.json`의 `files`는 **디렉터리를 명시적으로 나열한다.** W1-B가 `cli/src/doctor/`를
+  만들면 `"dist/doctor/*.js"`를 같은 커밋에서 추가해야 한다. 잊으면 단위 테스트는 전부 녹색인 채
+  릴리스 tarball만 깨진다.
+
+**후속 과제로 남긴 것**
+
+- `scripts/test-plugin-artifact-e2e.mjs`의 `provider.selectedBy === 'bundled'`와 `complete === true`
+  하드 assert는 손대지 않았다. 이 lane은 두 값을 바꾸지 않으므로 지금은 통과한다. W1-B가 Auto/preset을
+  넣는 순간 깨지며, 인계 문서 10절대로 Wave 3에서 갱신한다.
+- 새 모듈에 대한 단위 테스트를 따로 추가하지 않았다. `resolveProvider()`의 모든 분기는 이미
+  `cli/src/test/contract.test.ts`가 CLI 표면에서 덮고 있고, 순수 이동 단계에서 테스트를 새로 쓰면
+  "무엇이 이동 전과 같은지"의 기준이 두 벌이 된다. preset 선택 규칙이 실제 로직을 갖게 되는 W1-B에서
+  `providers/` 단위 테스트를 추가하는 것이 맞다.
 
 ## 부록 A — 재현용 캡처 스크립트
 
