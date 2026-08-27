@@ -174,7 +174,8 @@
     "cli:build": "npm --prefix cli run build",
     "cli:test": "npm --prefix cli test",
     "test:plugin-artifact": "node scripts/test-plugin-artifact-e2e.mjs",
-    "test:all": "npm test && npm run cli:test",
+    "test:unit": "npm test && npm run cli:test",
+    "test:all": "npm run test:unit && npm run test:plugin-artifact",
     "vscode:prepublish": "npm run compile"
   },
   "devDependencies": {

@@ -1,0 +1,37 @@
+name: Unit tests
+
+# The packed-artifact E2E is a 3-OS, 15-minute integration gate; these are the fast in-repo suites
+# that guard src/** and cli/src/** logic. They are kept in their own workflow so a logic regression
+# and a packaging regression never share a check name, and so this one can also run on main pushes
+# without paying for the E2E matrix again.
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unit:
+    name: Node 22 / ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pnpm
+        run: npm install --global pnpm@10.34.5
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run Extension unit tests
+        run: npm test
+      - name: Run Agent CLI tests
+        run: npm run cli:test
