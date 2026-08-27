@@ -536,3 +536,35 @@ Windows가 통과한 것이 특히 중요하다. 이 lane이 추가한 fixture�
 있어서(취소 로그 파일, 진단 대기 예산) 로컬 macOS만으로는 확인되지 않는 위험이 있었다.
 
 **merge는 하지 않았다.** lead가 결정한다.
+
+### 2026-08-27 — 중단된 PR #38 merge 재개
+
+다음 세션이 이 worktree를 확인했을 때 `origin/main`의 PR #38(`b914395`)을 merge하던 중간 상태였다.
+`cli/src/errors.ts` 충돌은 수동 해소 내용이 파일에 반영됐지만 아직 stage되지 않았고, preset 선택 결과를
+LSP 세션으로 잇는 `cli/src/lsp/session.ts`·`cli/src/lspProvider.ts` 변경도 unstaged로 남아 있었다.
+
+**충돌과 통합 결정**
+
+- `CLI_ERROR_CODES`에는 W1-A가 실제로 던지는 `provider_protocol_incompatible`과 W1-B가 실제로 던지는
+  `provider_executable_not_found`·`provider_selection_ambiguous`·`provider_config_invalid`를 모두 남겼다.
+  네 값은 `CONTRACT_ONLY_ERROR_CODES`에서 제거했다.
+- `LspCallHierarchyProvider`는 `resolveProvider(file, command, { workspace })`를 호출한다. trusted project
+  선택이 shell의 `cwd`가 아니라 분석 대상 workspace에 고정돼야 한다는 handover 후속을 닫는다.
+- provider lane이 이미 해석한 preset/project session 값을 프로토콜 lane의 직접 session 인자와 합쳤다.
+  직접 인자는 필드별로 이기지만 redaction 값은 양쪽 합집합으로 유지해 덮어쓴 값도 로그에서 새지 않게 했다.
+- provider manifest와 protocol session에 의도적으로 중복된 settings delivery 어휘는 한쪽을 import해 seam을
+  무너뜨리지 않고, 두 배열의 parity 테스트로 drift를 막았다.
+
+**추가한 회귀 검사**
+
+- trusted project의 command와 session 설정이 실제 LSP fixture까지 전달되는 integration test
+- provider/protocol `SETTINGS_DELIVERIES` parity test
+- 직접 session override가 preset 값을 덮되 양쪽 redaction 값을 보존하는 단위 테스트
+
+**검증 상태**
+
+- `npm run cli:build`: 통과
+- `node --test cli/dist/test/lspProtocol.test.js cli/dist/test/lsp.integration.test.js`: 27/27 통과
+- `npm run cli:test`: 194/194 통과
+- `npm test`: 35/35 통과
+- `npm run test:plugin-artifact`: 통과

@@ -5,7 +5,8 @@ import * as path from 'node:path';
 import test from 'node:test';
 import {
   assertSupportedNode,
-  bundledTypeScriptCommand,
+  bundledModuleEntryPath,
+  bundledProviderLogArgs,
   inspectBundledTypeScriptArtifact,
   runtimeMetadata,
 } from '../runtime';
@@ -81,27 +82,24 @@ test('bundled artifact inspection distinguishes unreadable entry and corrupt pac
 });
 
 test('raises the bundled provider log level only for an allowed opt-in value', () => {
-  const original = process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL;
-  try {
-    delete process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL;
-    assert.deepEqual(bundledTypeScriptCommand('typescript').args?.slice(1), ['--stdio']);
+  assert.deepEqual(bundledProviderLogArgs({}), []);
+  assert.deepEqual(bundledProviderLogArgs({ IMPACT_LENS_PROVIDER_LOG_LEVEL: '4' }), ['--log-level', '4']);
 
-    process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL = '4';
-    assert.deepEqual(bundledTypeScriptCommand('typescript').args?.slice(1), ['--stdio', '--log-level', '4']);
-
-    for (const rejected of ['0', '5', 'debug', '--inject', '4 4', '']) {
-      process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL = rejected;
-      assert.deepEqual(
-        bundledTypeScriptCommand('typescript').args?.slice(1),
-        ['--stdio'],
-        `expected ${JSON.stringify(rejected)} to be ignored`,
-      );
-    }
-  } finally {
-    if (original === undefined) {
-      delete process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL;
-    } else {
-      process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL = original;
-    }
+  for (const rejected of ['0', '5', 'debug', '--inject', '4 4', '']) {
+    assert.deepEqual(
+      bundledProviderLogArgs({ IMPACT_LENS_PROVIDER_LOG_LEVEL: rejected }),
+      [],
+      `expected ${JSON.stringify(rejected)} to be ignored`,
+    );
   }
+});
+
+test('the manifest module reference resolves only the bundled server entry', () => {
+  assert.ok(bundledModuleEntryPath('typescript-language-server/lib/cli.mjs').endsWith('lib/cli.mjs'));
+  // A manifest that could resolve any specifier would be a way to read where this package is
+  // installed, so the allowlist is one entry long and everything else is a configuration error.
+  assert.throws(
+    () => bundledModuleEntryPath('typescript/package.json'),
+    (error: unknown) => error instanceof CliError && error.code === 'provider_config_invalid',
+  );
 });

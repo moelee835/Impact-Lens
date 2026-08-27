@@ -15,6 +15,7 @@
   },
   "files": [
     "dist/*.js",
+    "dist/doctor/*.js",
     "dist/providers/*.js",
     "dist/lsp/*.js",
     "README.md",

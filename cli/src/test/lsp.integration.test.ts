@@ -53,6 +53,38 @@ async function scratch(t: TestContext, prefix: string): Promise<string> {
   return workspace;
 }
 
+test('uses the trusted project provider from the analyzed workspace', { timeout: 30000 }, async t => {
+  const workspace = await scratch(t, 'impact-lens-project-provider-');
+  const settingsLog = path.join(workspace, 'settings.log');
+  const settings = { impactLens: { source: 'project' } };
+  const initializationOptions = { source: 'project' };
+  await fs.mkdir(path.join(workspace, '.impact-lens'));
+  await fs.writeFile(path.join(workspace, '.impact-lens', 'provider.json'), JSON.stringify({
+    command: path.basename(process.execPath),
+    args: [path.resolve(__dirname, 'fixtures', 'settingsRequiredServer.js')],
+    languageId: 'typescript',
+    initializationOptions,
+    settings,
+  }));
+  withEnv(t, {
+    IMPACT_LENS_MOCK_EXPECT_INIT_OPTIONS: JSON.stringify(initializationOptions),
+    IMPACT_LENS_MOCK_CONFIG_ITEMS: JSON.stringify([{}]),
+    IMPACT_LENS_MOCK_EXPECT_CONFIG: JSON.stringify([settings]),
+    IMPACT_LENS_MOCK_SETTINGS_LOG: settingsLog,
+  });
+
+  // No command or direct session override is supplied. The constructor has to pass this exact
+  // workspace into provider selection for the committed project choice to be visible.
+  const provider = new LspCallHierarchyProvider(workspace, 'target.ts', undefined, 8000);
+  try {
+    const capabilities = await provider.initializeForDoctor();
+    assert.equal(capabilities.selectedBy, 'project');
+    assert.equal(capabilities.name, 'settings-required-server');
+  } finally {
+    await provider.dispose();
+  }
+});
+
 test('hands the server the settings it asks for and the options it was configured with', { timeout: 30000 }, async t => {
   const workspace = await scratch(t, 'impact-lens-settings-');
   const settingsLog = path.join(workspace, 'settings.log');

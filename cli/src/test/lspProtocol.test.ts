@@ -5,7 +5,13 @@ import test from 'node:test';
 import { clone, lookupSection, resolveConfiguration } from '../lsp/configuration';
 import { classifyIncoming } from '../lsp/protocol';
 import { createServerRequestHandlers, methodNotFound } from '../lsp/serverRequests';
-import { collectSecrets, resolveSession } from '../lsp/session';
+import {
+  collectSecrets,
+  mergeSessionValues,
+  resolveSession,
+  SETTINGS_DELIVERIES as LSP_SETTINGS_DELIVERIES,
+} from '../lsp/session';
+import { SETTINGS_DELIVERIES as PROVIDER_SETTINGS_DELIVERIES } from '../providers/preset';
 
 test('every shipped source directory is listed in the package files', () => {
   // `files` matches one path segment at a time, so `dist/*.js` silently excludes `dist/lsp/*.js`.
@@ -147,6 +153,29 @@ test('an empty session produces exactly the frames the client sent before config
   // sending it by default would add a frame to the bundled TypeScript handshake for no gain.
   assert.deepEqual(session.settingsDelivery, ['on-request']);
   assert.deepEqual(session.redactionValues, []);
+});
+
+test('the provider manifest and protocol session keep the same settings delivery vocabulary', () => {
+  assert.deepEqual(LSP_SETTINGS_DELIVERIES, PROVIDER_SETTINGS_DELIVERIES);
+});
+
+test('direct session values override resolved provider values without dropping secrets', () => {
+  const resolved = resolveSession({
+    initializationOptions: { from: 'preset' },
+    settings: { preset: 'preset-secret' },
+    settingsDelivery: ['on-request'],
+    sensitive: { settings: ['preset'] },
+  });
+  const merged = mergeSessionValues(resolved, {
+    settings: { request: 'request-secret' },
+    settingsDelivery: ['did-change-configuration'],
+    sensitive: { settings: ['request'] },
+  });
+
+  assert.deepEqual(merged.initializationOptions, { from: 'preset' });
+  assert.deepEqual(merged.settings, { request: 'request-secret' });
+  assert.deepEqual(merged.settingsDelivery, ['did-change-configuration']);
+  assert.deepEqual([...merged.redactionValues].sort(), ['preset-secret', 'request-secret']);
 });
 
 test('collects declared secrets and backstops them with a key-name rule', () => {

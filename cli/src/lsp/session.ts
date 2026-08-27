@@ -14,6 +14,11 @@ import { EMPTY_SETTINGS, JsonObject } from './configuration';
  * say nothing. Pushing `workspace/didChangeConfiguration` unconditionally would change the frames the
  * bundled TypeScript session sends today, for no benefit to a server that does not read them.
  */
+// Declared here rather than imported from `cli/src/providers/preset.ts` on purpose: this module must
+// stay free of the manifest vocabulary so a session can be built from a literal object. The two
+// declarations are kept in step by a parity test in `cli/src/test/lspProtocol.test.ts`, which is the
+// same technique the schema/union parity tests use — duplication that is checked, rather than an
+// import that would breach the seam.
 export const SETTINGS_DELIVERIES = ['on-request', 'did-change-configuration'] as const;
 export type SettingsDelivery = (typeof SETTINGS_DELIVERIES)[number];
 
@@ -38,6 +43,37 @@ export interface ResolvedSession {
   readonly settingsDelivery: readonly SettingsDelivery[];
   /** Literal strings to replace anywhere provider-authored text is reported. */
   readonly redactionValues: readonly string[];
+}
+
+/**
+ * Combines what provider selection resolved with what a direct caller passed in.
+ *
+ * Selection is the real source: the catalog preset, the trusted project file and the request
+ * overrides are merged in `cli/src/providers/` and arrive here already flattened. The second argument
+ * exists for callers that construct the session themselves — tests, and the doctor smoke path — and
+ * it wins field by field, following the same "later tier wins" rule the merge order already uses.
+ *
+ * Presence is read off the raw config, not off `resolveSession` of it, because `settingsDelivery` has
+ * a non-empty default: resolving first would make an unset field look set and silently outrank the
+ * preset's own choice.
+ *
+ * Redaction is the exception and is a union. A secret is a secret regardless of which tier named it,
+ * and dropping one side's values because the other side was more specific would leak exactly the
+ * value the more specific tier replaced.
+ */
+export function mergeSessionValues(
+  resolved: ResolvedSession,
+  config: ProviderSessionConfig = {},
+): ResolvedSession {
+  const direct = resolveSession(config);
+  const redactionValues = [...new Set([...resolved.redactionValues, ...direct.redactionValues])]
+    .sort((a, b) => b.length - a.length);
+  return {
+    initializationOptions: config.initializationOptions ?? resolved.initializationOptions,
+    settings: config.settings ?? resolved.settings,
+    settingsDelivery: config.settingsDelivery ?? resolved.settingsDelivery,
+    redactionValues,
+  };
 }
 
 export function resolveSession(config: ProviderSessionConfig = {}): ResolvedSession {

@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JsonRpcClient, redactProviderText } from './jsonRpc';
 import { JsonObject } from './lsp/configuration';
 import { CapabilityRegistration, createServerRequestHandlers } from './lsp/serverRequests';
-import { ProviderSessionConfig, resolveSession, SettingsDelivery } from './lsp/session';
+import { mergeSessionValues, ProviderSessionConfig, SettingsDelivery } from './lsp/session';
 import { languageId, resolveProvider } from './providers/resolve';
 import {
   CallHierarchyItem,
@@ -90,8 +90,12 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     // empty session, which produces exactly the frames this client sent before configuration existed.
     session: ProviderSessionConfig = {},
   ) {
-    const resolved = resolveProvider(file, command);
-    const resolvedSession = resolveSession(session);
+    // The workspace is passed explicitly because the trusted project tier has no `process.cwd()`
+    // fallback. Falling back would make the provider depend on the directory the CLI happened to be
+    // launched from, so a `.impact-lens/provider.json` in an unrelated tree could choose the provider
+    // for this one. A trust boundary that moves with the shell's working directory is not a boundary.
+    const resolved = resolveProvider(file, command, { workspace });
+    const resolvedSession = mergeSessionValues(resolved, session);
     this.settings = resolvedSession.settings;
     this.initializationOptions = resolvedSession.initializationOptions;
     this.settingsDelivery = resolvedSession.settingsDelivery;
