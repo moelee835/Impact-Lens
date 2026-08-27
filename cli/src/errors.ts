@@ -45,6 +45,10 @@ export const CLI_ERROR_CODES = [
   'provider_initialize_failed',
   'provider_capability_missing',
   'provider_query_failed',
+  // Produced by `cli/src/jsonRpc.ts:JsonRpcClient.stageFailure` when a stage fails after this client
+  // refused a server -> client request it does not implement. It replaces the stage's own code so the
+  // envelope names the cause instead of the symptom.
+  'provider_protocol_incompatible',
   'provider_ipc_unavailable',
   'bundled_provider_artifact_missing',
   'bundled_provider_artifact_unreadable',
@@ -78,8 +82,9 @@ export type CliErrorCode = (typeof CLI_ERROR_CODES)[number];
  * a partial success and an error code on a failure, and `cli/src/coverage.ts` writes the reason today.
  *
  * `provider_executable_not_found`, `provider_selection_ambiguous` and `provider_config_invalid` were on this
- * list until the preset catalog landed. They moved into `CLI_ERROR_CODES` in the change that started
- * throwing them, which is exactly the move this pair of lists exists to force.
+ * list until the preset catalog landed, and `provider_protocol_incompatible` until the bidirectional LSP
+ * session did. Each moved into `CLI_ERROR_CODES` in the change that started throwing it, which is exactly
+ * the move this pair of lists exists to force.
  *
  * `provider_version_unsupported`, `provider_version_unreadable`, `provider_capability_probe_failed` and
  * `provider_fixture_failed` are still here even though `cli/src/doctor/` mentions all four. Doctor puts them
@@ -89,7 +94,6 @@ export type CliErrorCode = (typeof CLI_ERROR_CODES)[number];
 export const CONTRACT_ONLY_ERROR_CODES = [
   'provider_version_unsupported',
   'provider_version_unreadable',
-  'provider_protocol_incompatible',
   'provider_capability_probe_failed',
   'provider_not_ready',
   'provider_project_metadata_missing',
