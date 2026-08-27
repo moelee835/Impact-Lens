@@ -170,8 +170,8 @@ PR #41을 merge한 최신 `origin/main`에서 `feat/m1-request-overrides-runtime
 - [x] 다음 세션의 첫 branch와 구현 목표, 제외 범위가 명시돼 있다.
 - [x] 로컬 Markdown link 대상이 모두 존재한다.
 - [x] `git diff --check`가 통과한다.
-- [ ] handover 문서만 독립 commit으로 남고 동일 이름 원격 branch에 push된다.
-- [ ] main 대상 PR이 생성되고 local HEAD가 upstream과 일치한다.
+- [x] handover 문서만 독립 commit으로 남고 동일 이름 원격 branch에 push된다.
+- [x] main 대상 PR이 생성되고 local HEAD가 upstream과 일치한다.
 
 ## 작업 로그
 
@@ -182,3 +182,7 @@ PR #41을 merge한 최신 `origin/main`에서 `feat/m1-request-overrides-runtime
 - 새 기능을 구현하지 않고, 종료 시점의 관측 사실과 다음 세션 실행 순서만 기록했다.
 - merge된 worktree의 미추적 lockfile은 사용자 데이터와 생성 산출물을 임의로 지우지 않기 위해 보존했다.
 - 로컬 Markdown link 3개의 대상 존재와 `git diff --check` 통과를 확인했다.
+- handover 본문을 `1a53ceb`(`Record the M1 Wave 1 resume state`)로 commit하고
+  `origin/docs/m1-wave1-resume-handover`에 push했다.
+- main 대상 PR [#42](https://github.com/moelee835/Impact-Lens/pull/42)를 열었다. 이 종료 로그 commit을 같은
+  branch에 push한 뒤 local HEAD와 upstream 일치를 최종 확인한다.
