@@ -322,3 +322,25 @@ doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자
   소스 스캔 테스트에서 걸렸다. 주석까지 스캔하는 것이 과하지 않다는 증거다 — 스캐너는 주석과 문자열을
   구분할 수 없고, 문구가 소스에 존재하면 복사되어 UI로 나갈 수 있다.
 - `npm test` 52 pass / 0 fail.
+
+### 2026-08-27 — 5단계: Graph payload 확장, header 재구성, `.state.partial`
+
+- `GraphPayload.coverage`가 문자열 3개에서 **`ImpactCoverage` 전체**로 바뀌었다(`coverage: result.coverage`).
+  `provider`도 `advertised` / `observed` / `lifecycle` / `selectedBy` / `languageMatch` / `version`을 모두
+  싣는다. state pill `title`이 이것들을 전부 보여준다.
+- `completeness` 블록(headline/action/severity/segments/providerLabel)을 payload에 추가했다.
+  **문구 생성은 Extension 쪽 `src/completeness.ts`에서만 일어난다.** webview는 조립된 문자열을 받는다.
+  이렇게 해야 webview에 두 번째 문구 사본이 생기지 않는다.
+- header 순서: `결과 수 → (delta·diagnostics) → traversal → semantic scope → (verbose면 provider·lifecycle·reasons) → action`.
+  delta와 diagnostics를 결과 수 옆에 둔 이유는 둘 다 "무엇이 돌아왔는가"에 대한 사실이고,
+  **traversal과 semantic scope 사이에 끼면 안 되기 때문**이다. 그 둘은 붙어 읽혀야 한다.
+- 제거한 문구: `'call hierarchy completed'`. `complete`를 runtime 완전성으로 읽히게 하는 정확히 그 형태다.
+  `'N symbols'`도 제거했다(root 포함 수라 caller 수와 혼동된다). `resultCountLabel()`로 대체했다.
+- `.state.partial` 규칙을 추가했다(경고색 + dashed border). `.state.failed`에 border 색을 더했다.
+- payload에서 `truncated` / `traversalLimits` / `requestedDepth` / `reachedDepth`를 **삭제**했다.
+  `coverage.traversal`에 같은 사실이 이미 있었고, 같은 사실의 두 표현이 이 lane이 없애려는 드리프트의
+  축소판이기 때문이다. webview는 `graph.coverage.traversal.requestedDepth`를 읽는다.
+- 신규 `src/test/graphPanel.test.ts` 3개. webview는 template string이라 import·호출이 불가능하므로
+  **소스 텍스트를 읽어 검사한다.** 두 결함 모두 눈에 띄지 않는 종류였기 때문이다 — 규칙 없는 state class는
+  기본색으로 렌더돼 "정상"처럼 보이고, label 함수 사본은 둘이 어긋날 때까지 발견되지 않는다.
+- `npm test` 55 pass / 0 fail.
