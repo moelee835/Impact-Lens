@@ -5,13 +5,19 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import {
+  COMPLETION_TRAVERSAL_STATUSES,
   INDEXING_STATUSES,
+  LIMITATION_SCOPES,
+  LIMITATION_SEVERITIES,
   PROVIDER_HOSTS,
   PROVIDER_LIFECYCLE_STAGES,
   PROVIDER_LIFECYCLE_STATUSES,
   PROVIDER_SELECTED_BY,
+  REQUEST_STATUSES,
   SCHEMA_VERSION,
+  SEMANTIC_SCOPES,
   SEMANTIC_STATUSES,
+  TRAVERSAL_LIMITS,
   TRAVERSAL_STATUSES,
 } from '../types';
 import { assertSupportedKeywords, JsonSchema, validate } from './jsonSchema';
@@ -71,6 +77,17 @@ test('type vocabulary matches the schema enums exactly', () => {
     ['coverage.traversal.status', TRAVERSAL_STATUSES, '$defs/coverage/properties/traversal/properties/status/enum'],
     ['coverage.semantic.status', SEMANTIC_STATUSES, '$defs/coverage/properties/semantic/properties/status/enum'],
     ['coverage.indexing.status', INDEXING_STATUSES, '$defs/coverage/properties/indexing/properties/status/enum'],
+    ['completion.requestStatus', REQUEST_STATUSES, '$defs/completion/properties/requestStatus/enum'],
+    ['completion.traversalStatus', COMPLETION_TRAVERSAL_STATUSES, '$defs/completion/properties/traversalStatus/enum'],
+    ['completion.semanticScope', SEMANTIC_SCOPES, '$defs/completion/properties/semanticScope/enum'],
+    ['completion.indexingStatus', INDEXING_STATUSES, '$defs/completion/properties/indexingStatus/enum'],
+    ['limitationDetail.severity', LIMITATION_SEVERITIES, '$defs/limitationDetail/properties/severity/enum'],
+    ['limitationDetail.scope', LIMITATION_SCOPES, '$defs/limitationDetail/properties/scope/enum'],
+    [
+      'data.traversalLimits[]',
+      TRAVERSAL_LIMITS,
+      'allOf/1/then/properties/data/properties/traversalLimits/items/enum',
+    ],
   ];
   // Report every mismatch at once. Failing on the first one hides how far the two sides have moved apart,
   // which is how this contract accumulated three separate drifts before anyone noticed.

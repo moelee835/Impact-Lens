@@ -39,6 +39,123 @@ export type SemanticStatus = (typeof SEMANTIC_STATUSES)[number];
 export const INDEXING_STATUSES = ['ready', 'working', 'unknown'] as const;
 export type IndexingStatus = (typeof INDEXING_STATUSES)[number];
 
+// ---------------------------------------------------------------------------
+// data.completion — the single source of result state (schemaVersion 1, additive)
+//
+// The approved decision (docs/work/task-m1-state-truth-table.md section 4) makes `completion` the value the
+// CLI actually decides, and `complete`, `truncated`, `traversalLimits` and `coverage.*` projections of it.
+// The unions below are shaped so that the contradictions listed as X5, X6, X8 and X9 in section 3 of that
+// document cannot be written down, not merely so that they are documented as forbidden.
+//
+// `stage` is deliberately absent. A successful envelope already carries the last lifecycle stage in
+// `data.provider.lifecycle.stage`, and a failed envelope carries it in `error.details.stage`; storing it a
+// second time inside `completion` would create exactly one more pair of fields that can disagree. See
+// docs/work/task-m1-completeness-emit.md decision D2.
+// ---------------------------------------------------------------------------
+
+export const REQUEST_STATUSES = ['succeeded', 'partial', 'failed'] as const;
+export type RequestStatus = (typeof REQUEST_STATUSES)[number];
+
+export const COMPLETION_TRAVERSAL_STATUSES = [
+  'exhausted',
+  'depth-limited',
+  'node-limited',
+  'timeout',
+  'cancelled',
+  'unknown',
+  'failed',
+  'not-started',
+] as const;
+export type CompletionTraversalStatus = (typeof COMPLETION_TRAVERSAL_STATUSES)[number];
+
+/** Traversal outcomes that leave a usable but bounded graph behind. */
+export type BoundedTraversalStatus = Exclude<CompletionTraversalStatus, 'exhausted' | 'not-started'>;
+
+/** Traversal outcomes that leave no usable graph. */
+export type UnusableTraversalStatus = 'not-started' | 'failed' | 'timeout' | 'cancelled';
+
+export const SEMANTIC_SCOPES = [
+  'provider-static',
+  'static-plus-inference',
+  'static-plus-observation',
+  'none',
+] as const;
+export type SemanticScope = (typeof SEMANTIC_SCOPES)[number];
+
+/** `none` says "there is no graph to describe", so it can only appear on a failed envelope (X8). */
+export type GraphSemanticScope = Exclude<SemanticScope, 'none'>;
+
+export const TRAVERSAL_LIMITS = ['depth', 'nodes'] as const;
+export type TraversalLimit = (typeof TRAVERSAL_LIMITS)[number];
+
+/**
+ * Why Impact Lens is allowed to say the provider's index was ready (X3).
+ *
+ * `ready` without evidence is the single most dangerous value in this contract: it turns "we found nothing"
+ * into "nothing exists". Making the evidence a required sibling means an unproven `ready` does not compile.
+ *
+ * There is deliberately no timestamp here. Wall-clock values in the response would defeat the byte-for-byte
+ * response comparison this repository uses to prove that a refactor changed nothing.
+ */
+export interface IndexingReadinessEvidence {
+  readonly signal: string;
+  readonly detail?: string;
+}
+
+export type IndexingCoverage =
+  | { readonly status: 'ready'; readonly evidence: IndexingReadinessEvidence }
+  | { readonly status: 'working' | 'unknown' };
+
+/** Indexing states compatible with a finished traversal. `working` means the graph cannot be exhausted. */
+export type SettledIndexingCoverage =
+  | { readonly status: 'ready'; readonly evidence: IndexingReadinessEvidence }
+  | { readonly status: 'unknown' };
+
+export interface SucceededCompletion {
+  readonly requestStatus: 'succeeded';
+  readonly traversalStatus: 'exhausted';
+  readonly semanticScope: GraphSemanticScope;
+  readonly indexingStatus: SettledIndexingCoverage['status'];
+}
+
+export interface PartialCompletion {
+  readonly requestStatus: 'partial';
+  readonly traversalStatus: BoundedTraversalStatus;
+  readonly semanticScope: GraphSemanticScope;
+  readonly indexingStatus: IndexingStatus;
+}
+
+export interface FailedCompletion {
+  readonly requestStatus: 'failed';
+  readonly traversalStatus: UnusableTraversalStatus;
+  readonly semanticScope: 'none';
+  readonly indexingStatus: IndexingStatus;
+}
+
+/** What an `ok: true` envelope can carry. `FailedCompletion` is absent on purpose (X6). */
+export type GraphCompletion = SucceededCompletion | PartialCompletion;
+
+export type Completion = GraphCompletion | FailedCompletion;
+
+export const LIMITATION_SEVERITIES = ['info', 'warning', 'error'] as const;
+export type LimitationSeverity = (typeof LIMITATION_SEVERITIES)[number];
+
+export const LIMITATION_SCOPES = ['traversal', 'semantic', 'indexing', 'provider', 'request'] as const;
+export type LimitationScope = (typeof LIMITATION_SCOPES)[number];
+
+/**
+ * The structured form of one `limitations` entry. The v1 string array stays a projection of `code`, so a
+ * consumer that only knows v1 keeps working while a new consumer gets the severity it needs to decide
+ * whether a conclusion may be stated at all.
+ */
+export interface LimitationDetail {
+  readonly code: string;
+  readonly severity: LimitationSeverity;
+  readonly scope: LimitationScope;
+  readonly message: string;
+  readonly action?: string;
+}
+
 export interface Position {
   readonly line: number;
   readonly column: number;
@@ -112,9 +229,7 @@ export interface Coverage {
     readonly status: SemanticStatus;
     readonly evidenceSources: readonly string[];
   };
-  readonly indexing: {
-    readonly status: IndexingStatus;
-  };
+  readonly indexing: IndexingCoverage;
   readonly reasons: readonly string[];
 }
 
@@ -147,6 +262,33 @@ export interface AnalyzeRequest {
   readonly timeoutMs?: number;
   readonly expectedSymbol?: ExpectedSymbol;
   readonly provider?: ProviderCommand;
+}
+
+/**
+ * Something that stopped the traversal before it ran out of incoming edges.
+ *
+ * These are observations, not statuses. A caller reports what happened; `cli/src/coverage.ts` decides what
+ * that means for `completion.traversalStatus`. Handing the status in directly would let a caller pair
+ * `exhausted` with a timeout.
+ *
+ * Nothing produces these values yet: sending `$/cancelRequest` and giving the whole analysis a budget is
+ * `IL-LIM-005` step 1 (lane W1-A). This lane opens the path so those lanes only have to report the event.
+ */
+export type TraversalInterruption = 'timeout' | 'cancelled' | 'provider-failed';
+
+export interface SemanticObservation {
+  readonly scope: GraphSemanticScope;
+  readonly evidenceSources: readonly string[];
+}
+
+/**
+ * Facts about the run that the traversal itself cannot see. Every field is optional and every default is the
+ * conservative one, which is what the only production caller passes today.
+ */
+export interface AnalysisObservations {
+  readonly interruption?: TraversalInterruption;
+  readonly indexing?: IndexingCoverage;
+  readonly semantic?: SemanticObservation;
 }
 
 export interface ProviderCommand {

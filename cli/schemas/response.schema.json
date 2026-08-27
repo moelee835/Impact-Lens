@@ -49,6 +49,51 @@
           "additionalProperties": false
         }
       },
+      "additionalProperties": false,
+      "$comment": "X4",
+      "if": {
+        "properties": { "selectedBy": { "enum": ["bundled", "auto", "preset"] } },
+        "required": ["selectedBy"]
+      },
+      "then": { "properties": { "languageMatch": { "not": { "const": false } } } }
+    },
+    "completion": {
+      "type": "object",
+      "required": ["requestStatus", "traversalStatus", "semanticScope", "indexingStatus"],
+      "properties": {
+        "requestStatus": { "enum": ["succeeded", "partial", "failed"] },
+        "traversalStatus": {
+          "enum": [
+            "exhausted", "depth-limited", "node-limited", "timeout",
+            "cancelled", "unknown", "failed", "not-started"
+          ]
+        },
+        "semanticScope": {
+          "enum": ["provider-static", "static-plus-inference", "static-plus-observation", "none"]
+        },
+        "indexingStatus": { "enum": ["ready", "working", "unknown"] }
+      },
+      "additionalProperties": false
+    },
+    "limitationDetail": {
+      "type": "object",
+      "required": ["code", "severity", "scope", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "scope": { "enum": ["traversal", "semantic", "indexing", "provider", "request"] },
+        "message": { "type": "string" },
+        "action": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "indexingEvidence": {
+      "type": "object",
+      "required": ["signal"],
+      "properties": {
+        "signal": { "type": "string" },
+        "detail": { "type": "string" }
+      },
       "additionalProperties": false
     },
     "coverage": {
@@ -78,8 +123,14 @@
         "indexing": {
           "type": "object",
           "required": ["status"],
-          "properties": { "status": { "enum": ["ready", "working", "unknown"] } },
-          "additionalProperties": false
+          "properties": {
+            "status": { "enum": ["ready", "working", "unknown"] },
+            "evidence": { "$ref": "#/$defs/indexingEvidence" }
+          },
+          "additionalProperties": false,
+          "$comment": "X3",
+          "if": { "properties": { "status": { "const": "ready" } }, "required": ["status"] },
+          "then": { "required": ["evidence"] }
         },
         "reasons": { "type": "array", "items": { "type": "string" } }
       },
@@ -160,8 +211,10 @@
         }
       },
       "else": {
+        "$comment": "X2 - a provider failure may not be reported as a successful empty graph",
         "required": ["error"],
-        "properties": { "error": {} }
+        "properties": { "error": {} },
+        "not": { "anyOf": [{ "required": ["data"] }, { "required": ["capabilities"] }] }
       }
     },
     {
@@ -176,11 +229,133 @@
         "properties": {
           "data": {
             "type": "object",
-            "required": ["provider", "coverage"],
+            "required": ["provider", "coverage", "completion", "complete", "truncated", "traversalLimits", "nodes", "limitationDetails"],
             "properties": {
               "provider": { "$ref": "#/$defs/provider" },
-              "coverage": { "$ref": "#/$defs/coverage" }
-            }
+              "coverage": { "$ref": "#/$defs/coverage" },
+              "completion": { "$ref": "#/$defs/completion" },
+              "complete": { "type": "boolean" },
+              "truncated": { "type": "boolean" },
+              "traversalLimits": { "type": "array", "items": { "enum": ["depth", "nodes"] } },
+              "nodes": { "type": "array" },
+              "limitationDetails": { "type": "array", "items": { "$ref": "#/$defs/limitationDetail" } }
+            },
+            "allOf": [
+              {
+                "$comment": "X1 - complete is the v1 spelling of an exhausted traversal, not an independent field",
+                "if": {
+                  "required": ["coverage"],
+                  "properties": { "coverage": { "properties": { "traversal": { "properties": { "status": { "const": "complete" } } } } } }
+                },
+                "then": { "properties": { "complete": { "const": true } } },
+                "else": { "properties": { "complete": { "const": false } } }
+              },
+              {
+                "$comment": "X1 - and the same tie in the other direction, against the completion",
+                "if": {
+                  "required": ["completion"],
+                  "properties": { "completion": { "properties": { "traversalStatus": { "const": "exhausted" } } } }
+                },
+                "then": {
+                  "properties": {
+                    "complete": { "const": true },
+                    "truncated": { "const": false },
+                    "completion": { "properties": { "requestStatus": { "const": "succeeded" } } }
+                  }
+                },
+                "else": { "properties": { "complete": { "const": false }, "truncated": { "const": true } } }
+              },
+              {
+                "$comment": "X2 - a successful analysis always contains the root, so an empty graph is unrepresentable",
+                "properties": { "nodes": { "minItems": 1 } }
+              },
+              {
+                "$comment": "X5 - a succeeded request cannot have a bounded traversal",
+                "if": {
+                  "required": ["completion"],
+                  "properties": { "completion": { "properties": { "requestStatus": { "const": "succeeded" } } } }
+                },
+                "then": { "properties": { "completion": { "properties": { "traversalStatus": { "const": "exhausted" } } } } }
+              },
+              {
+                "$comment": "X6 and X8 - a failed request state and a semantic scope of none belong to an ok:false envelope",
+                "properties": {
+                  "completion": {
+                    "properties": {
+                      "requestStatus": { "not": { "const": "failed" } },
+                      "semanticScope": { "not": { "const": "none" } }
+                    }
+                  }
+                }
+              },
+              {
+                "$comment": "X7 - an exhausted traversal cannot carry a reason that says it stopped early",
+                "if": {
+                  "required": ["coverage"],
+                  "properties": { "coverage": { "properties": { "traversal": { "properties": { "status": { "const": "complete" } } } } } }
+                },
+                "then": {
+                  "properties": {
+                    "coverage": {
+                      "properties": {
+                        "reasons": {
+                          "items": {
+                            "not": {
+                              "enum": [
+                                "depth_limit_reached", "node_limit_reached", "traversal_timeout",
+                                "traversal_cancelled", "provider_not_ready"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "limitationDetails": {
+                      "items": {
+                        "properties": {
+                          "code": {
+                            "not": {
+                              "enum": [
+                                "depth_limit_reached", "node_limit_reached", "traversal_timeout",
+                                "traversal_cancelled", "provider_not_ready"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "$comment": "X9 - an index that is still working cannot belong to a succeeded request",
+                "if": {
+                  "required": ["completion"],
+                  "properties": { "completion": { "properties": { "indexingStatus": { "const": "working" } } } }
+                },
+                "then": { "properties": { "completion": { "properties": { "requestStatus": { "enum": ["partial", "failed"] } } } } }
+              },
+              {
+                "$comment": "X10 - a graph that was not truncated cannot list a limit it hit",
+                "if": { "required": ["truncated"], "properties": { "truncated": { "const": false } } },
+                "then": { "properties": { "traversalLimits": { "maxItems": 0 } } }
+              },
+              {
+                "$comment": "X11 - provider_not_ready and no_incoming_callers make incompatible claims",
+                "not": {
+                  "allOf": [
+                    {
+                      "required": ["limitationDetails"],
+                      "properties": { "limitationDetails": { "contains": { "required": ["code"], "properties": { "code": { "const": "provider_not_ready" } } } } }
+                    },
+                    {
+                      "required": ["limitationDetails"],
+                      "properties": { "limitationDetails": { "contains": { "required": ["code"], "properties": { "code": { "const": "no_incoming_callers" } } } } }
+                    }
+                  ]
+                }
+              }
+            ]
           },
           "capabilities": { "$ref": "#/$defs/provider" }
         }
