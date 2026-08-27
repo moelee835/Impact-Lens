@@ -77,12 +77,24 @@ async function verifyPluginLayout(runner, tarball, npmCache, layout) {
   assert.equal(doctorResponse.ok, true, `${layout}: ${doctor.stdout}`);
   assert.equal(doctorResponse.runtime.runner.source, 'release-fallback');
   assert.equal(doctorResponse.data.mode, 'smoke');
+  // Doctor can now report a partial failure, so a packaged artifact that is missing something says so
+  // instead of looking healthy. Reading only `mode` would let every check fail unnoticed.
+  assert.equal(doctorResponse.data.preset.id, 'bundled-typescript');
+  assert.equal(
+    doctorResponse.data.status,
+    'ready',
+    `${layout}: ${JSON.stringify(doctorResponse.data.checks)}`,
+  );
+  assert.ok(
+    doctorResponse.data.checks.every(check => check.status === 'pass'),
+    `${layout}: ${JSON.stringify(doctorResponse.data.checks)}`,
+  );
 
   for (const fixture of [
-    { extension: 'ts', suffix: 'Ts' },
-    { extension: 'tsx', suffix: 'Tsx' },
-    { extension: 'js', suffix: 'Js' },
-    { extension: 'jsx', suffix: 'Jsx' },
+    { extension: 'ts', suffix: 'Ts', languageId: 'typescript' },
+    { extension: 'tsx', suffix: 'Tsx', languageId: 'typescriptreact' },
+    { extension: 'js', suffix: 'Js', languageId: 'javascript' },
+    { extension: 'jsx', suffix: 'Jsx', languageId: 'javascriptreact' },
   ]) {
     const workspace = path.join(path.dirname(runner), '..', 'e2e-workspaces', fixture.extension);
     await fs.mkdir(workspace, { recursive: true });
@@ -122,7 +134,18 @@ async function verifyPluginLayout(runner, tarball, npmCache, layout) {
     const response = parseEnvelope(analysis.stdout);
     assert.equal(response.ok, true, `${layout}/${fixture.extension}: ${analysis.stderr}`);
     assert.equal(response.runtime.runner.source, 'release-fallback');
+    // `bundled` survived the introduction of the preset catalog by design, not by accident: the
+    // catalog's TypeScript preset ships inside this tarball rather than being found on PATH, and
+    // selectedBy reports how a provider was chosen. `auto` here would mean the release started
+    // depending on something installed on the machine, which is exactly what this test exists to
+    // catch, so the assertion stays exact.
     assert.equal(response.data.provider.selectedBy, 'bundled');
+    // The rule the selection layer exists to protect: the server is told the language of the file it
+    // was given, and never another one. A provider answering for the wrong language returns an empty
+    // Call Hierarchy that is indistinguishable from "nothing calls this".
+    assert.equal(response.data.provider.detectedLanguageId, fixture.languageId);
+    assert.equal(response.data.provider.requestedLanguageId, fixture.languageId);
+    assert.equal(response.data.provider.languageMatch, true);
     assert.equal(response.data.complete, true);
     assert.ok(
       response.data.nodes.some(node => node.name === callerName && node.file === callerFile && node.relation === 'direct'),

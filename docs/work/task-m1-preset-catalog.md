@@ -2,7 +2,7 @@
 
 - 작성일: 2026-08-27
 - lane: `il-provider-platform` / M1 Wave 1 W1-B
-- branch: `feat/m1-preset-catalog` (기준 `origin/main` `dbc6c9b`, W0-4 merge 직후)
+- branch: `feat/m1-preset-catalog` (착수 기준 `origin/main` `dbc6c9b`, 진행 중 `f0cb40e`(W1-C merge)를 merge)
 - story: [`IL-LIM-004`](../development-management/stories/il-lim-004-first-class-language-presets.md) 1·2단계
 - 상위 계획: [`task-m1-agent-team-execution.md`](task-m1-agent-team-execution.md) Wave 1 W1-B
 - 선행 산출물: [`task-m1-provider-seam.md`](task-m1-provider-seam.md) (W0-4가 만든 seam)
@@ -187,19 +187,21 @@ L1·L3~L7을 그대로 타입으로 확정한다. 아래는 **그 문서와 달�
 
 ## 6. 테스트 및 완료 기준
 
-- [ ] `npm run cli:build` 통과
-- [ ] `npm run cli:test` 통과
-- [ ] `npm test` 통과
-- [ ] `npm run test:plugin-artifact` 통과 (네트워크 필요. 못 돌리면 성공으로 간주하지 않고 사유를 남긴다)
-- [ ] bundled TypeScript 경로의 응답이 기준선과 **byte 단위 동일**. 달라지는 것이 있으면 무엇이 왜
-      달라지는지 목록으로 남긴다
-- [ ] missing executable / unsupported version / language mismatch / missing capability / fixture 실패가
-      doctor 출력에서 서로 구분되고, **각각 테스트로 증명된다**
-- [ ] doctor가 첫 실패에서 중단하지 않고 나머지 check를 계속 실행한다 — 테스트로 증명
-- [ ] doctor의 stdout이 정확히 JSON 한 줄이고 진행 로그가 stderr로만 나간다 — 테스트로 증명
-- [ ] 선택 우선순위 5단계가 각각 테스트로 덮인다
-- [ ] PATH 탐색이 shell을 쓰지 않는다 — metacharacter를 담은 후보로 증명
-- [ ] `main`에서 어떤 파일도 변경하지 않는다
+- [x] `npm run cli:build` 통과
+- [x] `npm run cli:test` 통과 — 159 pass / 0 fail
+- [x] `npm test` 통과 — 35 pass / 0 fail
+- [x] `npm run test:plugin-artifact` 통과 — 네트워크가 있어 실제로 실행했다
+- [x] bundled TypeScript 경로의 응답이 기준선과 **byte 단위 동일** — analyze·note 27종 전부.
+      doctor 2종만 달라지고 그 차이는 전부 additive이며 4단계 로그에 목록으로 있다
+- [x] missing executable / unsupported version / language mismatch / missing capability / fixture 실패가
+      doctor 출력에서 서로 구분되고 각각 테스트로 증명된다 (`cli/src/test/doctor.test.ts`)
+- [x] doctor가 첫 실패에서 중단하지 않는다 — `every check runs even when earlier ones fail`이
+      한 응답에서 실패 3건과 경고 1건을 동시에 관측한다
+- [x] doctor의 stdout이 정확히 JSON 한 줄이고 진행 로그가 stderr로만 나간다 — 테스트로 증명
+- [x] 선택 우선순위 5단계가 각각 테스트로 덮인다 (`cli/src/test/providers.test.ts`)
+- [x] PATH 탐색이 shell을 쓰지 않는다 — `srv; touch pwned && echo $(whoami)` 이름의 실행 파일을
+      설치해 그것이 파일명으로 취급되고 `pwned`가 생기지 않음을 확인한다
+- [x] `main`에서 어떤 파일도 변경하지 않았다
 
 ## 7. 주요 위험과 대응
 
@@ -359,3 +361,149 @@ resolve 자체는 `inspectBundledTypeScriptArtifact()`를 통과하므로 artifa
 **중간에 실제로 고친 결함 1건**: version 파서의 첫 정규식이 `\b(\d+...)`였는데 `v3.0` 형태에서 `v`와 `3`
 사이에 word boundary가 없어 `0`을 뽑았다. dotted run을 우선 시도하고 없을 때만 단일 숫자로 내려가는
 형태로 바꿨다. 덕분에 `fixture-server-v2 1.4.0`도 제품명이 아니라 `1.4.0`을 고른다.
+
+
+### 2026-08-27 — 캡처 기준선 재수립 (병렬 lane 오염 대응)
+
+lead가 경고를 보냈다. **scratchpad와 `os.tmpdir()`의 고정 workspace 경로가 병렬 lane과 공유**되어 W1-C의
+첫 baseline이 다른 lane에 덮여썼다는 것이다. 확인 결과 **이 lane도 같은 위험에 노출돼 있었다.**
+
+- W0-4의 캡처 스크립트는 workspace를 `os.tmpdir()/il-provider-seam-capture-fixed`로 **lane 이름 없이**
+  고정한다. 이 milestone에서 같은 스크립트를 쓰는 lane이 최소 넷이므로, 두 lane이 동시에 캡처를 뜨면
+  같은 디렉터리를 서로 지우고 다시 만든다.
+- 공유 scratchpad에 실제로 다른 lane의 산출물(`base4`, `base5`, `stage3`, `w1c`, `v-before-*` 등)이
+  있었고, 내 출력 디렉터리 이름(`base1`~`base3`)은 그것들과 같은 관례를 쓰고 있었다.
+
+**대응**
+
+1. 캡처 workspace를 `il-m1-preset-catalog-capture-fixed`로 바꾸고 `IL_CAPTURE_WORKSPACE`로 덮어쓸 수
+   있게 했다. 출력도 전부 `scratchpad/m1-preset-catalog/` 아래로 옮겼다.
+2. **기준선을 처음부터 다시 떴다.** 오염 가능성이 있는 이전 캡처는 폐기했다.
+3. 기준선을 이 worktree가 아니라 **`git archive origin/main | tar -x`로 별도 디렉터리에 펼친 독립 트리**에서
+   빌드해 떴다. 내 작업 트리 상태에 전혀 의존하지 않는다.
+4. 기준선을 **두 번 떠서 `diff -r`이 빈 것을 먼저 확인**한 뒤에야 기준선으로 인정했다.
+
+**비교 기준을 `dbc6c9b`에서 `origin/main`(`f0cb40e`)로 올렸다.** 그 사이 W1-C(PR #36)가 merge되어 응답에
+`completion` 등이 추가됐다. 옛 commit과 비교하면 W1-C의 변경이 내 lane의 변경으로 섞여 보이므로,
+**이 lane만의 효과를 분리하려면 현재 `main`이 기준선이어야 한다.**
+
+**함정 하나를 더 밟고 고쳤다.** 처음에는 baseline과 after에 **서로 다른** workspace 경로
+(`ws-baseline` / `ws-after`)를 썼는데, 그 순간 29개 중 11개에서 diff가 났다. 원인은 `symbolId`가 파일
+URI를 해싱한다는 것 — 즉 **workspace 경로를 고정하는 것으로는 부족하고, 비교하는 두 캡처가 같은 경로를
+써야 한다.** 두 실행이 같은 경로를 순차로 쓰도록 바꾸자 diff가 정확히 의도한 2건으로 줄었다.
+handover 8절의 `mkdtemp` 경고는 "고정하라"까지만 적었는데, 정확히는 **"양쪽이 같은 값으로 고정하라"**다.
+
+
+### 2026-08-27 — 3단계: doctor 일반화
+
+**변경한 파일**
+
+| 파일 | 내용 |
+| --- | --- |
+| `cli/src/doctor.ts` | 삭제 |
+| `cli/src/doctor/index.ts` (신규) | `runDoctor(preset, options)` 오케스트레이션과 두 개의 프로세스 check |
+| `cli/src/doctor/checks.ts` (신규) | 던지지 않고 check를 돌려주는 개별 진단 |
+| `cli/src/index.ts` | doctor dispatch 블록만 변경 |
+| `cli/package.json` | `files`에 `dist/doctor/*.js` 추가 |
+| `cli/src/providers/resolve.ts` | `resolveSessionValues` export |
+| `cli/src/test/doctor.test.ts` (신규) | 15 테스트 |
+
+**doctor가 구분하는 실패 종류** — 전부 `data.checks[].code`이고, `error.code`가 아니다.
+
+| 실패 | check id | status | code |
+| --- | --- | --- | --- |
+| 실행 파일 부재 | `provider-executable` | `fail` | `provider_executable_not_found` (+ `install`) |
+| 지원 범위 밖 version | `provider-version` | `fail` | `provider_version_unsupported` (+ `detected`, `supported`) |
+| version 해석 불가 | `provider-version` | `warn` | `provider_version_unreadable` (+ `reason`) |
+| language mismatch | `language-support` | `fail` | `provider_language_mismatch` (+ `detectedLanguageId`) |
+| Call Hierarchy 미제공 | `initialize-capability-smoke` | `fail` | `provider_capability_missing` |
+| fixture 실패 | `fixture-call-hierarchy` | `fail` | `provider_fixture_failed` (+ `reason`, `observedCallers`) |
+| 설정 파일 손상 | `project-config` | `fail` | `provider_config_invalid` |
+| 도달 불가 settings 키 | `settings-keys` | `warn` | — (`unreachableSections`) |
+| Node 버전 미달 | `node-engine` | `fail` | `node_version_unsupported` |
+
+`provider_version_unsupported`를 `fail`로, `provider_version_unreadable`을 `warn`으로 나눈 이유:
+범위 밖이라는 것은 preset의 지원 선언에 근거한 사실이지만, version을 못 읽은 것은 서버만큼이나 우리
+파서에 대한 정보다. 후자를 근거로 막으면 우리가 가진 것보다 강한 주장을 하게 된다.
+
+**`--fixture`를 `--smoke`에서 분리했다.** capability probe는 initialize 한 번이고 fixture는 임시 workspace
+생성 + prepare + incoming이다. 한 플래그에 묶으면 싼 check의 비용이 조용히 몇 배가 된다. 부수 효과로
+`checks.at(-1).id === 'initialize-capability-smoke'`를 보는 기존 테스트가 그대로 통과한다.
+
+**`fixture`를 preset 필드로 넣은 이유**는 4절 M3에 적었다. TypeScript preset의 fixture는 실제
+bundled 서버로 통과하는 것을 확인했다(`observedCallers: ['fixtureCaller']`).
+
+**중간에 실제로 고친 결함 1건**: 처음 구현에서 settings 트리를 command 해석과 같은 `resolveProvider`
+호출에서 가져왔다. 그래서 **실행 파일이 없으면 settings check가 조용히 vacuous pass가 됐다.** "첫 실패가
+뒤 check를 무력화하지 않는다"는 이 설계의 존재 이유를 정확히 위반하는 버그이고, 테스트가 잡았다.
+settings 해석을 `resolveSessionValues`로 분리해 command 실패와 독립시켰다.
+
+**`cli/src/doctor.ts`를 지우고 디렉터리를 만들면서 두 가지를 함께 했다.**
+
+1. `cli/package.json`의 `files`에 `"dist/doctor/*.js"`를 추가했다. `"dist/**/*.js"`로 넓히지 않았다 —
+   그러면 `dist/test`가 tarball에 끌려 들어간다.
+2. `cli/src/index.ts`의 import를 `'./doctor'`가 아니라 **`'./doctor/index'`**로 적었다. 예전 빌드가 남긴
+   `dist/doctor.js`가 있으면 Node의 해석 순서상 그것이 `dist/doctor/index.js`를 **가린다.** 실제로 이
+   worktree에서 재빌드 후 `dist/doctor.js`가 남아 있는 것을 확인했다. 경로를 명시하면 그 해석 자체가
+   사라진다. 검증 빌드는 매번 `cli/dist`를 지우고 새로 했다.
+
+**`files` 한 줄이 load-bearing임을 실증했다.** `"dist/doctor/*.js"`를 뺀 상태로
+`npm run test:plugin-artifact`를 돌리면 릴리스 tarball에서 설치한 CLI가 **모든 명령에서** 이렇게 죽는다.
+
+```
+code: 'MODULE_NOT_FOUND',
+requireStack: [ '…/node_modules/@impact-lens/cli/dist/index.js' ]
+```
+
+되돌린 뒤 통과를 다시 확인했다. `npm run cli:test`와 `npm test`는 checkout의 `dist`를 직접 쓰므로
+159개·35개가 전부 녹색인 채로 이 회귀를 놓친다.
+
+
+### 2026-08-27 — 4단계: artifact E2E assert와 회귀 증명
+
+**`scripts/test-plugin-artifact-e2e.mjs`의 기존 assert는 깨지지 않았다.** 우연이 아니라 설계의 결과다.
+`selectedBy`를 tier가 아니라 "어떻게 골랐는가"로 정의했고, bundled preset은 PATH에서 **탐색되는 것이
+아니라 tarball에 들어 있는 것**이므로 auto 경로로 골라도 `bundled`이다.
+
+그래서 assert를 **느슨하게 바꾸지 않고 강화했다.** 새 계층에서 무엇이 참이어야 하는지를 추가로 적었다.
+
+| 추가한 assert | 왜 |
+| --- | --- |
+| `provider.detectedLanguageId === fixture.languageId` | 새 선택 계층이 지켜야 할 규칙 그 자체. 다른 언어 provider가 물리면 빈 Call Hierarchy가 "아무도 안 부른다"와 구분되지 않는다 |
+| `provider.requestedLanguageId === fixture.languageId` | 위와 같음. 서버에 **선언하는** 언어까지 고정한다 |
+| `provider.languageMatch === true` | 위 둘의 판정 결과 |
+| `doctor data.preset.id === 'bundled-typescript'` | doctor가 일반화됐으므로 어떤 preset을 진단했는지 고정한다 |
+| `doctor data.status === 'ready'` + 모든 check `pass` | **doctor가 이제 부분 실패를 보고할 수 있다.** `mode`만 읽으면 모든 check가 fail이어도 통과한다. 패키징된 아티팩트가 뭔가 빠뜨렸을 때 doctor가 그것을 말하게 만드는 것이 이 assert의 값이다 |
+
+기존 `selectedBy === 'bundled'`는 **정확 비교 그대로 뒀다.** 여기서 `auto`가 나온다면 릴리스가 사용자
+머신에 설치된 무언가에 의존하기 시작했다는 뜻이고, 그것이 이 테스트가 잡아야 할 회귀다. 주석으로 그
+이유를 남겼다. `stdout은 정확히 JSON 한 줄` 불변식(`parseEnvelope`)은 손대지 않았다.
+
+**bundled 경로 응답 회귀 — 27/29 byte 단위 동일**
+
+| 시나리오 | 결과 |
+| --- | --- |
+| analyze 성공 9종, 실패 12종, note 3종, CLI 표면 3종 (27개) | **byte 단위 동일** |
+| `doctor-preflight`, `doctor-smoke` (2개) | 의도된 차이. 아래 |
+
+doctor 응답의 차이는 **전부 additive**다. 제거되거나 의미가 바뀐 필드가 없다.
+
+| 달라진 것 | 내용 |
+| --- | --- |
+| `data.preset` (신규) | `id`, `displayName`, `tier`, `languageIds`, `limitations` |
+| `checks`에 3건 추가 | `language-support`, `settings-keys`, `project-config`. 전부 `pass` |
+| stderr (smoke) | `impact-lens doctor: initializing bundled-typescript` 진행 로그 1줄 |
+
+그대로 유지된 것: `data.status: 'ready'`, `data.mode`, 기존 check 3건의 id·순서·필드, `stdoutLines=1`,
+exit 0, preflight의 **빈 stderr**.
+
+**검증**
+
+| 검증 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm run cli:test` | tests 159 / pass 159 / fail 0 |
+| `npm test` | tests 35 / pass 35 / fail 0 |
+| `npm run test:plugin-artifact` | exit 0 (네트워크가 있어 실제로 실행) |
+| `npm pack --dry-run` | total files 24. `dist/doctor/*.js` 2개, `dist/providers/*.js` 6개 포함 |
+| 고정 캡처 29종 | 27 동일 / 2 의도된 doctor 차이 |
