@@ -355,6 +355,21 @@ requireStack: [
   "무엇이 이동 전과 같은지"의 기준이 두 벌이 된다. preset 선택 규칙이 실제 로직을 갖게 되는 W1-B에서
   `providers/` 단위 테스트를 추가하는 것이 맞다.
 
+
+### 2026-08-27 — PR #34 CI 결과
+
+[PR #34](https://github.com/moelee835/Impact-Lens/pull/34) 4종 check 전부 통과.
+
+| check | 결과 |
+| --- | --- |
+| `Unit tests / Node 22 / ubuntu-latest` | pass (20s) |
+| `Plugin artifact E2E / ubuntu-latest / Node 22` | pass (31s) |
+| `Plugin artifact E2E / macos-latest / Node 22` | pass (33s) |
+| `Plugin artifact E2E / windows-latest / Node 22` | pass (1m38s) |
+
+Windows까지 통과한 것이 `cli/package.json`의 `files` 보정에 대한 마지막 확인이다. tarball을 실제로
+packing·설치해 실행하는 job이므로, `dist/providers/*.js`가 세 OS 모두에서 아티팩트에 들어간다는 뜻이다.
+
 ## 부록 A — 재현용 캡처 스크립트
 
 이 스크립트는 **저장소에 커밋하지 않는다.** `cli/` 빌드 산출물과 테스트 fixture 경로에만 의존하는
