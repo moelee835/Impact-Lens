@@ -43,7 +43,7 @@ export function readProjectProviderChoice(workspace: string): ProjectProviderCho
     parsed = JSON.parse(text);
   } catch (error) {
     throw providerConfigInvalid(
-      `${PROJECT_PROVIDER_CONFIG_PATH} is not valid JSON.`,
+      'it is not valid JSON.',
       {
         origin: PROJECT_PROVIDER_CONFIG_PATH,
         // The parser message quotes offsets, not content, so it is safe to pass through and it is the
@@ -57,7 +57,7 @@ export function readProjectProviderChoice(workspace: string): ProjectProviderCho
 
 function validate(parsed: unknown): ProjectProviderChoice {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw providerConfigInvalid(`${PROJECT_PROVIDER_CONFIG_PATH} must contain a JSON object.`, {
+    throw providerConfigInvalid('it must contain a JSON object.', {
       origin: PROJECT_PROVIDER_CONFIG_PATH,
     });
   }
@@ -65,7 +65,7 @@ function validate(parsed: unknown): ProjectProviderChoice {
   const unknown = Object.keys(value).filter(key => !ALLOWED_FIELDS.includes(key));
   if (unknown.length > 0) {
     throw providerConfigInvalid(
-      `${PROJECT_PROVIDER_CONFIG_PATH} has unknown fields: ${unknown.sort().join(', ')}`,
+      `it has unknown fields: ${unknown.sort().join(', ')}.`,
       { origin: PROJECT_PROVIDER_CONFIG_PATH, allowedFields: ALLOWED_FIELDS },
     );
   }
@@ -73,7 +73,7 @@ function validate(parsed: unknown): ProjectProviderChoice {
   const command = optionalString(value.command, 'command');
   if (presetId === undefined && command === undefined) {
     throw providerConfigInvalid(
-      `${PROJECT_PROVIDER_CONFIG_PATH} must name a presetId or a command.`,
+      'it must name a presetId or a command.',
       { origin: PROJECT_PROVIDER_CONFIG_PATH, allowedFields: ALLOWED_FIELDS },
     );
   }
@@ -82,7 +82,7 @@ function validate(parsed: unknown): ProjectProviderChoice {
     // absolute path in it is guaranteed to be wrong somewhere. The escape hatch is the request-level
     // provider block, which is per-invocation and not committed.
     throw providerConfigInvalid(
-      `${PROJECT_PROVIDER_CONFIG_PATH} may not use an absolute command path.`,
+      'a committed configuration may not use an absolute command path.',
       { origin: PROJECT_PROVIDER_CONFIG_PATH, field: 'command' },
     );
   }
@@ -103,7 +103,7 @@ function optionalString(value: unknown, field: string): string | undefined {
   }
   if (typeof value !== 'string' || value.length === 0) {
     throw providerConfigInvalid(
-      `${PROJECT_PROVIDER_CONFIG_PATH} field ${field} must be a non-empty string.`,
+      `field ${field} must be a non-empty string.`,
       { origin: PROJECT_PROVIDER_CONFIG_PATH, field },
     );
   }
@@ -116,7 +116,7 @@ function optionalStringArray(value: unknown, field: string): readonly string[] |
   }
   if (!Array.isArray(value) || !value.every(entry => typeof entry === 'string')) {
     throw providerConfigInvalid(
-      `${PROJECT_PROVIDER_CONFIG_PATH} field ${field} must be an array of strings.`,
+      `field ${field} must be an array of strings.`,
       { origin: PROJECT_PROVIDER_CONFIG_PATH, field },
     );
   }

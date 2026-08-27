@@ -51,10 +51,15 @@ manifest version은 host inventory가 소유하며 CLI runtime이 추측하지 �
 
 ## Coverage metadata
 
-- `data.completion`: 상태의 단일 출처다. `requestStatus`(`succeeded | partial | failed`),
+- `data.completion`: 상태의 단일 출처다. 필드는 정확히 네 개다 — `requestStatus`(`succeeded | partial | failed`),
   `traversalStatus`(`exhausted | depth-limited | node-limited | timeout | cancelled | unknown | failed | not-started`),
   `semanticScope`(`provider-static | static-plus-inference | static-plus-observation | none`),
-  `indexingStatus`(`ready | working | unknown`)와 마지막 `stage`를 담는다.
+  `indexingStatus`(`ready | working | unknown`).
+- **`completion`에는 `stage`가 없다.** stage는 한 envelope에 정확히 한 곳에만 둔다. 성공 응답은
+  `data.provider.lifecycle.stage`(= `capabilities.lifecycle.stage`)에, 실패 응답은 `error.details.stage`에
+  담는다. `completion`에 stage를 두면 성공 응답에서 `lifecycle.stage`와 어긋날 수 있는 두 번째 사본이 생긴다.
+  또한 stage는 *결과*가 아니라 *provider*의 속성이라 provider가 없는 결과에는 존재하지 않을 수 있다.
+  `response.schema.json`의 `completion`은 `additionalProperties: false`이므로 이 규칙은 검사된다.
 - `coverage.traversal.status`, `coverage.semantic.status`, `complete`, `truncated`, `traversalLimits`는
   `completion`에서 파생되는 v1 projection이며 직접 계산하지 않는다. projection 표는
   `docs/work/task-m1-state-truth-table.md` 4.1절과 4.2절에 있다.
@@ -67,9 +72,16 @@ manifest version은 host inventory가 소유하며 CLI runtime이 추측하지 �
   `vscode-call-hierarchy`를 기록한다. `semanticScope`가 `static-plus-inference`이면 `inferred-*` 항목이,
   `static-plus-observation`이면 `observed-*` 항목이 최소 1개 있어야 한다.
 - `coverage.indexing.status`: 명시적 provider 신호가 없으므로 기본값은 `unknown`이다. 단순 query 성공을
-  전체 workspace indexing 완료로 승격하지 않는다. `ready`는 근거 필드를 동반할 때만 만들 수 있다.
+  전체 workspace indexing 완료로 승격하지 않는다. `ready`는 `evidence`를 동반할 때만 만들 수 있고, 이는
+  타입 union과 schema `if/then`으로 강제된다. `evidence`는 `{ signal, detail? }`이며 **절대 시각 값을 담지
+  않는다.** 응답에 벽시계 값이 들어가면 응답 캡처 바이트 비교로 무변경을 증명하는 이 저장소의 검증 방식이
+  무력화된다.
 - `coverage.reasons`: machine-readable limitation code이다. top-level `limitations`는 v1에서 이 배열과 같은
-  projection을 유지한다.
+  projection을 유지한다(같은 배열 값이다).
+- `data.limitationDetails`: 같은 limitation을 `{ code, severity, scope, message, action? }` 객체로 담는
+  additive 배열이다. `coverage.reasons`는 이 배열의 `code` projection이며, 아래
+  [reason code](#reason-code) 표의 "v1 배열" 열이 예외를 명시한다. `severity`가 `info`가 아니면 `action`이
+  반드시 있다.
 
 `complete: true`는 `completion.traversalStatus === "exhausted"`의 v1 호환 표현일 뿐이다. 이는 요청한 정적
 Call Hierarchy 탐색이 limit 없이 끝났다는 의미이며, runtime caller가 없거나 workspace index가 완전하다는
@@ -77,7 +89,7 @@ Call Hierarchy 탐색이 limit 없이 끝났다는 의미이며, runtime caller�
 
 ### schema version 정책
 
-M1은 `schemaVersion: 1`을 유지한다. `completion`과 향후 `limitationDetails`는 optional additive 필드이며,
+M1은 `schemaVersion: 1`을 유지한다. `completion`과 `limitationDetails`는 optional additive 필드이며,
 값 추가와 optional 필드 추가는 v1에서 계속 허용한다. v2 승격은 **필드 제거 또는 기존 필드 의미 변경**이
 필요할 때만 한다. 승격 조건과 후보 변경 목록은 `docs/work/task-m1-state-truth-table.md` 4.3절에 있다.
 
@@ -88,7 +100,7 @@ M1은 `schemaVersion: 1`을 유지한다. `completion`과 향후 `limitationDeta
 | 상황 | `requestStatus` | `traversalStatus` | `complete` | v1 traversal | 필수 reason |
 | --- | --- | --- | ---: | --- | --- |
 | 자연 종료 | `succeeded` | `exhausted` | `true` | `complete` | `dynamic_calls_not_inferred` |
-| 자연 종료, caller 0건 | `succeeded` | `exhausted` | `true` | `complete` | 위 + `no_incoming_callers`, indexing 근거가 없으면 `index_state_unknown` |
+| 자연 종료, caller 0건 | `succeeded` | `exhausted` | `true` | `complete` | 위 + `no_incoming_callers`, indexing 근거가 없으면 `index_state_unknown` (둘 다 현재 `limitationDetails`에만 실린다 — [reason code](#reason-code) 참조) |
 | depth 제한 | `partial` | `depth-limited` | `false` | `depth-limited` | `depth_limit_reached` |
 | node 제한 | `partial` | `node-limited` | `false` | `node-limited` | `node_limit_reached` |
 | depth·node 동시 도달 | `partial` | `node-limited` | `false` | `node-limited` | `depth_limit_reached` + `node_limit_reached` |
@@ -113,7 +125,8 @@ M1은 `schemaVersion: 1`을 유지한다. `completion`과 향후 `limitationDeta
 - `indexingStatus: working`이면서 `requestStatus: succeeded`인 결과
 - `provider_not_ready`와 `no_incoming_callers`를 함께 담은 결과
 
-금지 조합은 문서 규칙이 아니라 타입 union과 schema `allOf`로 표현 불가능하게 만든다. 성공 응답의
+금지 조합은 문서 규칙이 아니라 타입 union과 schema `allOf`로 표현 불가능하게 만든다. **이 11건은
+`cli/src/test/forbidden.test.ts`에서 조합마다 fixture로 거부됨이 검증된다.** 성공 응답의
 `data.nodes`는 root를 항상 포함하므로 `minItems: 1`이며, 빈 그래프는 표현할 수 없다. 실제 caller 0건은
 `nodes.length === 1`과 `edges.length === 0`으로 나타난다. 각 금지 조합의 타입·schema 표현은 truth table
 문서 3절 X1~X11에 있다.
@@ -131,8 +144,9 @@ M1은 `schemaVersion: 1`을 유지한다. `completion`과 향후 `limitationDeta
 | `provider_version_unsupported` | discovery | version은 읽었으나 preset의 지원 범위 밖. 업그레이드 또는 명시적 override |
 | `provider_version_unreadable` | discovery | version command는 실행됐으나 출력에서 version을 해석하지 못함. 실행 파일 확인 |
 | `provider_selection_ambiguous` | discovery | 검증된 후보가 둘 이상이라 결정적으로 고를 수 없음. 명시 preset 선택 요구 |
+| `provider_config_invalid` | discovery | project 설정 파일의 provider 설정이 스키마 검증에 실패함. `invalid_request`를 재사용하지 않는다 — 요청은 유효하고 잘못된 것은 설정 파일이므로, 사용자가 고쳐야 할 대상을 잘못 지목하게 된다. `details`에 실패한 설정 파일과 필드를 담는다 |
 | `provider_launch_failed` | launch | 실행 파일을 시작하지 못함 |
-| `provider_ipc_unavailable` | launch | child process는 생성됐으나 환경이 stdio를 전달하지 않아 어떤 data도 주고받지 못함. sandbox 밖 실행, child process I/O 허용 또는 Extension 사용 |
+| `provider_ipc_unavailable` | `details.stage` ∈ {`launch`, `initialize`, `query`} | child process는 생성됐으나 환경이 stdio를 전달하지 않아 어떤 data도 주고받지 못함. **stage와 무관하게 "환경이 stdio를 전달하지 않았다"는 뜻이다.** sandbox 밖 실행, child process I/O 허용 또는 Extension 사용 |
 | `provider_initialize_failed` | initialize | process가 시작됐지만 initialize를 완료하지 못함 |
 | `provider_protocol_incompatible` | initialize | server가 요구하는 필수 request/notification을 지원할 수 없거나 표준 응답을 거부함. `details.method` 포함. silent ignore 금지 |
 | `provider_capability_missing` | capability | server가 Call Hierarchy를 제공하지 않음 |
@@ -150,13 +164,56 @@ provider lifecycle 밖에서 발생하는 실패도 같은 envelope로 보고한
 | `timeout` | `details.stage` | 요청이 timeout budget을 초과함. retryable. timeout을 높이거나 depth를 줄여 재실행 |
 | `request_cancelled` | `details.stage` | 사용자 또는 상위 host가 취소함. 실패가 아니라 중단으로 보고 |
 | `target_not_found` / `target_ambiguous` | query | 요청 위치에서 callable symbol을 특정하지 못함. 선언 이름을 지정하거나 `expectedSymbol`로 구분 |
-| `internal_error` | `details.stage` | adapter 또는 CLI 내부 실패. debug log와 함께 보고 |
+| `internal_error` | 없음 | adapter 또는 CLI 내부 실패. debug log와 함께 보고. generic catch는 어느 단계에서 실패했는지 알 수 없으므로 `details.stage`를 만들지 않는다 |
 
-`provider_not_ready`는 error code와 `coverage.reasons` 양쪽에 같은 이름으로 나타난다. 의미는 같고, `ok`
-필드가 사용 가능한 `data` 유무를 결정한다.
+`details.stage`는 **던지는 지점이 stage를 실제로 아는 경우에만** 존재한다. `timeout`은 in-flight request의
+lifecycle stage를 알고 있어 항상 담고, `provider_ipc_unavailable`은 원인이 된 오류의 stage를 그대로 물려받는다.
+generic catch가 만드는 `internal_error`는 stage를 지어내지 않는다. 없는 사실을 채우는 것은 이 계약이 금지하는
+"근거 없는 주장"과 같은 종류다.
+
+`provider_ipc_unavailable`의 stage가 고정값이 아닌 이유는 **stdio가 전달되지 않는 환경에서 "IPC가 죽은
+시점"이 관측 불가능하기 때문**이다. child는 정상적으로 spawn되고 실패는 언제나 다음 상호작용에서 드러난다.
+`details.stage`는 다른 모든 code에서와 같이 "마지막으로 도달한 lifecycle 단계", 즉 우리가 알아챈 시점을
+뜻하며 원인의 시점이 아니다. `initialize`에서 알아챈 것과 `query`에서 알아챈 것은 사용자에게 다른 정보다.
 
 process 실패의 `error.details`는 가능한 경우 executable basename, exit code/signal과 redacted stderr tail을
 제공한다. command 전체와 source 내용은 기록하지 않는다.
+
+## Reason code
+
+`coverage.reasons`와 `data.limitationDetails`에 쓰는 code다. **error code와 다른 이름공간이다.** reason은
+사용할 수 있는 `data`가 있는 `ok: true` 응답에 붙고, error code는 `data`가 없는 `ok: false` envelope를
+식별한다. 대부분의 reason에는 대응하는 error code가 없으며, 그것이 정상이다.
+
+| code | severity | scope | 대응 error code | v1 배열 |
+| --- | --- | --- | --- | --- |
+| `dynamic_calls_not_inferred` | info | semantic | 없음 | 포함 |
+| `unsaved_buffers_unavailable` | info | request | 없음 | 포함 |
+| `provider_diagnostics_unsupported` | info | provider | 없음 | 포함 |
+| `depth_limit_reached` | warning | traversal | 없음 | 포함 |
+| `node_limit_reached` | warning | traversal | 없음 | 포함 |
+| `traversal_timeout` | warning | traversal | `timeout` (부분 결과가 없을 때) | 포함 |
+| `traversal_cancelled` | warning | traversal | `request_cancelled` (부분 결과가 없을 때) | 포함 |
+| `provider_query_failed` | error | provider | 같은 이름 (부분 결과가 없을 때) | 포함 |
+| `provider_not_ready` | error | indexing | 같은 이름 (질의를 수행하지 못했을 때) | 포함 |
+| `no_incoming_callers` | warning | semantic | 없음 | **보류** |
+| `index_state_unknown` | warning | indexing | 없음 | **보류** |
+| `inferred_edges_included` | warning | semantic | 없음 | 포함 |
+| `observed_edges_included` | warning | semantic | 없음 | 포함 |
+| `identity_unavailable_through_vscode_api` | info | provider | 없음 | 포함 (Extension 경로 전용) |
+
+**이름 규칙.** `traversal_` 접두사가 붙은 reason은 "사용할 수 있는 부분 그래프가 있고 탐색이 중단됐다"를
+뜻한다. 접두사 없는 error code(`timeout`, `request_cancelled`)는 "그래프가 없다"를 뜻한다. 같은 사건의 두
+표현이며 **이름을 통일하지 않는다.** 통일하면 `limitations: ["dynamic_calls_not_inferred", "timeout"]`이
+요청 실패로 읽히는데, 실제로는 부분 결과가 있는 성공 응답이다. `provider_not_ready`와
+`provider_query_failed`는 양쪽에서 같은 이름을 쓰고, `ok` 필드가 사용 가능한 `data` 유무를 결정한다.
+
+**보류 2종.** `no_incoming_callers`와 `index_state_unknown`은 `data.limitationDetails`에만 싣고 v1
+`coverage.reasons`/`limitations`에는 아직 넣지 않는다. 두 code는 **이미 발생하는 상태**(caller 0건)를
+설명하므로, v1 배열에 넣으면 이미 배포된 필드의 값이 바뀐다. 편입은 `cli-contract.md` 예시, plugin summary
+template, plugin eval을 함께 갱신하는 릴리스에서 수행한다. 보류 목록은 `cli/src/coverage.ts`의
+`V1_WITHHELD_REASON_CODES` 한 곳에 있다.
+
 
 ## 기준 fixture
 
@@ -176,5 +233,8 @@ process 실패의 `error.details`는 가능한 경우 executable basename, exit 
 | capability는 있으나 fixture가 빈 결과 | doctor | `provider_fixture_failed`, preset 미승격 |
 | depth·node 동시 도달 그래프 | fake provider | `node-limited` 우선, reason 2종 동시 포함 |
 | 취소된 분석 | fake provider | `traversalStatus: cancelled`, 부분 결과 유지, `complete: false` |
+
+상태 fixture 중 `depth·node 동시 도달`, `취소된 분석`과 S1~S13 전 행은 `cli/src/test/completion.test.ts`와
+`cli/src/test/coverage.test.ts`에 있다. provider·doctor fixture는 아직 없으며 해당 lane이 추가한다.
 
 Python/C/C++/Swift/Kotlin의 정상 provider E2E fixture와 indexing adapter는 해당 언어별 스토리에서 추가한다.

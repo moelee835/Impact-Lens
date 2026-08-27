@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import test from 'node:test';
-import { CLI_ERROR_CODES, CliError, isCliErrorCode } from '../errors';
+import { CLI_ERROR_CODES, CONTRACT_ONLY_ERROR_CODES, CliError, isCliErrorCode } from '../errors';
 
 function sourceFiles(): readonly string[] {
   const root = path.resolve(__dirname, '..', '..', 'src');
@@ -36,6 +36,25 @@ test('every declared CLI error code is referenced by the implementation', () => 
   // addition, which is the failure mode seen in this contract so far.
   const unreferenced = CLI_ERROR_CODES.filter(code => !sources.includes(`'${code}'`));
   assert.deepEqual(unreferenced, [], `declared but never produced: ${unreferenced.join(', ')}`);
+});
+
+// The other half of the same invariant. The first test stops a code being declared before anything throws
+// it; this one stops a code being thrown while it is still declared as unthrown. Without it, the day W1-B
+// throws `provider_config_invalid` the union would silently be missing an exit status for it.
+test('a contract-only error code is declared exactly once and thrown nowhere', () => {
+  const declaredTwice = CONTRACT_ONLY_ERROR_CODES.filter(code => (CLI_ERROR_CODES as readonly string[]).includes(code));
+  assert.deepEqual(declaredTwice, [], `a code cannot be both thrown and unthrown: ${declaredTwice.join(', ')}`);
+  assert.equal(new Set(CONTRACT_ONLY_ERROR_CODES).size, CONTRACT_ONLY_ERROR_CODES.length);
+
+  const sources = sourceFiles().map(file => fs.readFileSync(file, 'utf8')).join('\n');
+  // Matching the construction, not the bare string: reason codes share names with error codes on purpose,
+  // and cli/src/coverage.ts writes 'provider_not_ready' as a reason today.
+  const thrown = CONTRACT_ONLY_ERROR_CODES.filter(code => new RegExp(`new CliError\\(\\s*'${code}'`).test(sources));
+  assert.deepEqual(thrown, [], `move these into CLI_ERROR_CODES with an exit status: ${thrown.join(', ')}`);
+
+  for (const code of CONTRACT_ONLY_ERROR_CODES) {
+    assert.equal(isCliErrorCode(code), false, code);
+  }
 });
 
 test('CLI error codes are unique and recognised by the guard', () => {

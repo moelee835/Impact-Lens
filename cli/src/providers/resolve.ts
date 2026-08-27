@@ -145,7 +145,7 @@ export function resolveProvider(
     );
   }
 
-  const session = sessionValues(preset, projectChoice, options);
+  const session = resolveSessionValues(preset, projectChoice, options);
   return {
     command: actual,
     selectedBy: choice.selectedBy,
@@ -319,7 +319,7 @@ function requirePreset(
       knownPresetIds: presetIds(catalog),
     });
   }
-  throw providerConfigInvalid(`${origin} names unknown provider preset ${id}.`, {
+  throw providerConfigInvalid(`it names the unknown provider preset ${id}.`, {
     origin,
     knownPresetIds: presetIds(catalog),
   });
@@ -440,7 +440,7 @@ function presetLanguageId(preset: ProviderPreset, detectedLanguageId: string): s
     : detectedLanguageId;
 }
 
-interface SessionValues {
+export interface SessionValues {
   readonly initializationOptions: JsonObject;
   readonly settings: JsonObject;
   readonly settingsDelivery: readonly SettingsDelivery[];
@@ -454,11 +454,15 @@ interface SessionValues {
  * `initializationOptions` and `settings` are merged independently and never derive from each other.
  * They travel different wires with different schemas, and copying one into the other would change a
  * frame the manifest author never touched.
+ *
+ * Exported because doctor needs the merged trees even when the command cannot be resolved. Folding
+ * this into the command path once made a missing executable blank out the settings check, which is
+ * the class of bug the whole "keep going after a failure" design exists to avoid.
  */
-function sessionValues(
+export function resolveSessionValues(
   preset: ProviderPreset | undefined,
   projectChoice: ProjectProviderChoice | undefined,
-  options: ProviderResolutionOptions,
+  options: ProviderResolutionOptions = {},
 ): SessionValues {
   const catalogOptions = (field: string) => ({
     origin: `preset ${preset?.id ?? 'custom'} ${field}`,

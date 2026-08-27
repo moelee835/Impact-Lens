@@ -208,7 +208,7 @@ S9~S11은 **현재 CLI에 없는 동작**이다. 지금은 timeout·query 실패
 | F6 | 검증된 후보가 둘 이상이라 결정 불가 | `discovery` | `provider_selection_ambiguous` | `not-started` | `unknown` | 신규 |
 | F7 | bundled artifact 손상·부재 | `discovery` | `bundled_provider_artifact_missing` / `_unreadable` / `_corrupt` | `not-started` | `unknown` | |
 | F8 | process를 시작하지 못함 | `launch` | `provider_launch_failed` | `not-started` | `unknown` | |
-| F9 | child stdio가 전달되지 않는 환경 | `launch` | `provider_ipc_unavailable` | `not-started` | `unknown` | |
+| F9 | child stdio가 전달되지 않는 환경 | `details.stage` ∈ {`launch`, `initialize`, `query`} | `provider_ipc_unavailable` | `not-started` 또는 `failed` | `unknown` | |
 | F10 | initialize 중 종료·오류 | `initialize` | `provider_initialize_failed` | `not-started` | `unknown` | |
 | F11 | 필수 server request/notification 미호환 | `initialize` | `provider_protocol_incompatible` | `not-started` | `unknown` | 신규 |
 | F12 | server가 Call Hierarchy 미제공 | `capability` | `provider_capability_missing` | `not-started` | `unknown` | |
@@ -220,11 +220,24 @@ S9~S11은 **현재 CLI에 없는 동작**이다. 지금은 timeout·query 실패
 | F18 | 사용자·상위 취소, 부분 결과 없음 | `details.stage` | `request_cancelled` | `cancelled` | `unknown` | 신규 |
 | F19 | 위치에 callable symbol 없음 | `query` | `target_not_found` | `not-started` | `unknown` | 표에 미기재 |
 | F20 | 위치에 후보가 둘 이상 | `query` | `target_ambiguous` | `not-started` | `unknown` | 표에 미기재 |
-| F21 | adapter·CLI 내부 실패 | `details.stage` | `internal_error` | `failed` | `unknown` | 표에 미기재 |
+| F21 | adapter·CLI 내부 실패 | 없음 | `internal_error` | `failed` | `unknown` | 표에 미기재 |
+| F23 | project 설정 파일의 provider 설정이 스키마 검증에 실패 | `discovery` | `provider_config_invalid` | `not-started` | `unknown` | 신규 |
 | F22 | doctor 기준 fixture가 기대 caller를 반환하지 않음 | `query` | `provider_fixture_failed` | `failed` | `unknown` | 신규, doctor 전용 |
 
 `표에 미기재`는 코드에 이미 있으나 `provider-coverage-contract.md`의 실패 코드 표에 없는 것을 뜻한다.
 5절 개정안에서 함께 문서화한다.
+
+**F9·F21·F23의 stage 열은 2026-08-27에 갱신됐다** (W1-C, `task-m1-completeness-emit.md` D5·D10).
+
+- F9: `provider_ipc_unavailable`을 `launch` 고정으로 적었던 것은 코드와 어긋난다.
+  `cli/src/childIpc.ts`의 `childIpcUnavailableError()`가 원래 오류의 `details`를 그대로 펼치고
+  `looksLikeSilentProviderFailure()`가 launch/initialize/query 세 code를 모두 받아들인다.
+  **stdio가 전달되지 않는 환경에서 "IPC가 죽은 시점"은 관측 불가능**하므로, `details.stage`는 다른 모든
+  code와 같이 "우리가 알아챈 마지막 lifecycle 단계"를 뜻한다. 문서를 코드에 맞췄다.
+- F21: `internal_error`의 generic catch는 stage를 알 수 없으므로 `details.stage`를 만들지 않는다.
+  없는 값을 계약에 적으면 그 값은 추측이 된다.
+- F23: `provider_config_invalid`는 2026-08-27 lead 결정으로 추가된 신규 code다. `invalid_request` 재사용은
+  기각됐다 — 요청은 유효하고 잘못된 것은 설정 파일이므로, 사용자가 고쳐야 할 대상을 잘못 지목하게 된다.
 
 ### 2.3 severity와 사용자 노출 문구
 
@@ -266,7 +279,8 @@ S9~S11은 **현재 CLI에 없는 동작**이다. 지금은 timeout·query 실패
 | F18 | `info` | `The analysis was cancelled.` | — |
 | F19 | `error` | `No callable symbol was found at the requested position.` | `Point at the declaration name, not the body.` |
 | F20 | `error` | `More than one callable symbol matched the requested position.` | `Pass expectedSymbol to disambiguate.` |
-| F21 | `error` | `Impact Lens failed unexpectedly during {stage}.` | `Report this with the debug log.` |
+| F21 | `error` | `Impact Lens failed unexpectedly.` | `Report this with the debug log.` |
+| F23 | `error` | `The provider configuration in {file} is not valid: {problem}.` | `Fix the provider configuration, or remove it to fall back to automatic selection.` |
 | F22 | `error` | `The provider initialized but the reference fixture returned no callers.` | `The preset is not usable for this project yet; use a custom provider.` |
 
 **금지 문구.** 어떤 행에서도 다음을 생성하지 않는다: `no impact`, `safe to change`, `unused`,

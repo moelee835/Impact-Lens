@@ -50,11 +50,31 @@ export interface ManifestResolveOptions {
   readonly refs?: ManifestRefContext;
 }
 
+/**
+ * The wording is fixed by row F23 of the state truth table, not invented here.
+ *
+ * `The provider configuration in {file} is not valid: {problem}.` with the recovery
+ * `Fix the provider configuration, or remove it to fall back to automatic selection.` Every failure in
+ * this file and in `projectConfig.ts` goes through it so the sentence cannot drift per call site.
+ *
+ * `{file}` is the origin the tree came from, which is a repository-relative path or a manifest field
+ * name. It is never an absolute path.
+ */
 export function providerConfigInvalid(
-  message: string,
-  details: Record<string, unknown>,
+  problem: string,
+  details: Record<string, unknown> & { readonly origin: string },
 ): CliError {
-  return new CliError('provider_config_invalid', message, 5, false, { stage: 'discovery', ...details });
+  return new CliError(
+    'provider_config_invalid',
+    `The provider configuration in ${details.origin} is not valid: ${problem}`,
+    5,
+    false,
+    {
+      stage: 'discovery',
+      ...details,
+      action: 'Fix the provider configuration, or remove it to fall back to automatic selection.',
+    },
+  );
 }
 
 /**
@@ -74,7 +94,7 @@ export function resolveManifestObject(
   const state = { keys: 0 };
   const resolved = resolveValue(value, [], options, state);
   if (!isPlainObject(resolved)) {
-    throw providerConfigInvalid(`${options.origin} must be a JSON object.`, { origin: options.origin });
+    throw providerConfigInvalid('it must be a JSON object.', { origin: options.origin });
   }
   assertSerializedSize(resolved, options.origin);
   return resolved;
@@ -95,7 +115,7 @@ export function resolveManifestStrings(
     const resolved = resolveValue(entry, [String(index)], options, state);
     if (typeof resolved !== 'string') {
       throw providerConfigInvalid(
-        `${options.origin} entry ${index} is not a string.`,
+        `entry ${index} is not a string.`,
         { origin: options.origin, path: String(index) },
       );
     }
@@ -120,7 +140,7 @@ function resolveValue(
 ): JsonValue {
   if (path.length > MANIFEST_LIMITS.maxDepth) {
     throw providerConfigInvalid(
-      `${options.origin} is nested deeper than ${MANIFEST_LIMITS.maxDepth} levels.`,
+      `it is nested deeper than ${MANIFEST_LIMITS.maxDepth} levels.`,
       { origin: options.origin, path: path.join('.'), maxDepth: MANIFEST_LIMITS.maxDepth },
     );
   }
@@ -132,7 +152,7 @@ function resolveValue(
       // NaN and Infinity do not survive a JSON round trip, so a tree containing one cannot mean the
       // same thing on both sides of the wire.
       throw providerConfigInvalid(
-        `${options.origin} contains a non-finite number.`,
+        'it contains a non-finite number.',
         { origin: options.origin, path: path.join('.') },
       );
     }
@@ -149,14 +169,14 @@ function resolveValue(
     for (const [key, entry] of Object.entries(value)) {
       if (FORBIDDEN_KEYS.has(key)) {
         throw providerConfigInvalid(
-          `${options.origin} uses the reserved key ${key}.`,
+          `it uses the reserved key ${key}.`,
           { origin: options.origin, path: [...path, key].join('.') },
         );
       }
       state.keys += 1;
       if (state.keys > MANIFEST_LIMITS.maxKeys) {
         throw providerConfigInvalid(
-          `${options.origin} declares more than ${MANIFEST_LIMITS.maxKeys} keys.`,
+          `it declares more than ${MANIFEST_LIMITS.maxKeys} keys.`,
           { origin: options.origin, maxKeys: MANIFEST_LIMITS.maxKeys },
         );
       }
@@ -165,7 +185,7 @@ function resolveValue(
     return out;
   }
   throw providerConfigInvalid(
-    `${options.origin} contains a value that is not valid JSON.`,
+    'it contains a value that is not valid JSON.',
     { origin: options.origin, path: path.join('.') },
   );
 }
@@ -174,27 +194,27 @@ function resolveRef(ref: ManifestRef, path: readonly string[], options: Manifest
   const where = path.join('.');
   if (!options.allowRefs) {
     throw providerConfigInvalid(
-      `${options.origin} may not use $ref; only the shipped catalog can.`,
+      'only the shipped catalog may use $ref.',
       { origin: options.origin, path: where, ref: ref.$ref },
     );
   }
   if (!isRefSource(ref.$ref)) {
     throw providerConfigInvalid(
-      `${options.origin} references unknown source ${ref.$ref}.`,
+      `it references the unknown source ${ref.$ref}.`,
       { origin: options.origin, path: where, knownRefSources: [...MANIFEST_REF_SOURCES] },
     );
   }
   const refs = options.refs;
   if (!refs) {
     throw providerConfigInvalid(
-      `${options.origin} uses $ref but no reference context was provided.`,
+      'it uses $ref but no reference context was provided.',
       { origin: options.origin, path: where, ref: ref.$ref },
     );
   }
   if (ref.$ref === 'nodeExecutable') {
     if (ref.module !== undefined) {
       throw providerConfigInvalid(
-        `${options.origin} passes module to a $ref that does not take one.`,
+        'it passes a module to a $ref that does not take one.',
         { origin: options.origin, path: where, ref: ref.$ref },
       );
     }
@@ -202,7 +222,7 @@ function resolveRef(ref: ManifestRef, path: readonly string[], options: Manifest
   }
   if (typeof ref.module !== 'string' || ref.module.length === 0) {
     throw providerConfigInvalid(
-      `${options.origin} uses $ref bundledModuleEntry without a module.`,
+      '$ref bundledModuleEntry requires a module.',
       { origin: options.origin, path: where, ref: ref.$ref },
     );
   }
@@ -222,7 +242,7 @@ function assertSerializedSize(value: JsonObject, origin: string): void {
   const bytes = Buffer.byteLength(JSON.stringify(value), 'utf8');
   if (bytes > MANIFEST_LIMITS.maxSerializedBytes) {
     throw providerConfigInvalid(
-      `${origin} serializes to more than ${MANIFEST_LIMITS.maxSerializedBytes} bytes.`,
+      `it serializes to more than ${MANIFEST_LIMITS.maxSerializedBytes} bytes.`,
       { origin, maxSerializedBytes: MANIFEST_LIMITS.maxSerializedBytes, bytes },
     );
   }

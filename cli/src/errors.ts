@@ -1,17 +1,15 @@
 // Every `error.code` the CLI can put in an `ok: false` envelope, in exit-status order.
 //
-// The list holds only codes that some line in `cli/src` actually throws today. The contract document
-// declares eight more (`provider_not_ready`, `provider_version_unsupported`, `provider_version_unreadable`,
-// `provider_protocol_incompatible`, `provider_capability_probe_failed`, `provider_project_metadata_missing`,
-// `provider_fixture_failed`, `request_cancelled`) that nothing throws yet. Adding them here would declare a
-// code no code produces, which is the same declaration/implementation drift this module exists to
-// prevent. The lane that implements each one adds it here in the same change.
-// `cli/src/test/errors.test.ts` enforces that.
+// The list holds only codes that some line in `cli/src` actually throws today. Codes the contract declares
+// but nothing throws live in `CONTRACT_ONLY_ERROR_CODES` below. Adding one of those here would declare a
+// code no code produces, which is the same declaration/implementation drift this module exists to prevent.
+// The lane that implements each one moves it between the two lists in the same change, and
+// `cli/src/test/errors.test.ts` enforces the move in both directions.
 //
-// Four of those eight appear in `cli/src/doctor/` as the `code` of a failing check. That is not the
-// same thing as throwing them, and it is why doctor can report five different problems in one
-// response: a check records its failure and the run continues, while a thrown code ends the process.
-// They enter this union when some path actually fails an envelope with them.
+// Several codes that are still contract-only appear in `cli/src/doctor/` as the `code` of a failing check.
+// That is not the same thing as throwing them, and the difference is why doctor can report five distinct
+// problems in one response: a check records its failure and the run continues, while a thrown code ends the
+// process. They move into this union when some path actually fails an envelope with them.
 //
 // Reason codes (`dynamic_calls_not_inferred`, `depth_limit_reached`, `no_incoming_callers`, ...) are a
 // different concept and deliberately stay out of this union. A reason is an entry in `coverage.reasons`
@@ -60,6 +58,46 @@ export const CLI_ERROR_CODES = [
 ] as const;
 
 export type CliErrorCode = (typeof CLI_ERROR_CODES)[number];
+
+/**
+ * Codes `docs/development-management/provider-coverage-contract.md` declares that no line of `cli/src`
+ * throws yet.
+ *
+ * This used to be a sentence in the comment above, which meant nothing checked it: a lane could start
+ * throwing one of these codes and the prose would stay true-looking while the union stayed wrong. As an
+ * array it is checkable in both directions, and `cli/src/test/errors.test.ts` does check it:
+ *
+ * - a code may not appear in both lists;
+ * - a code here may not be handed to `new CliError(...)` anywhere in `cli/src`.
+ *
+ * So the moment an implementing lane throws one of these, the build fails until the code is moved into
+ * `CLI_ERROR_CODES` — which is the change that also gives it an exit status.
+ *
+ * The check looks for the `new CliError('<code>'` construction rather than the bare string because reason
+ * codes and error codes deliberately share names: `provider_not_ready` is both a `coverage.reasons` entry on
+ * a partial success and an error code on a failure, and `cli/src/coverage.ts` writes the reason today.
+ *
+ * `provider_executable_not_found`, `provider_selection_ambiguous` and `provider_config_invalid` were on this
+ * list until the preset catalog landed. They moved into `CLI_ERROR_CODES` in the change that started
+ * throwing them, which is exactly the move this pair of lists exists to force.
+ *
+ * `provider_version_unsupported`, `provider_version_unreadable`, `provider_capability_probe_failed` and
+ * `provider_fixture_failed` are still here even though `cli/src/doctor/` mentions all four. Doctor puts them
+ * on a *check*, never on a `CliError`, so no envelope fails with them yet. That is why the test looks for the
+ * `new CliError('<code>'` construction rather than for the bare string.
+ */
+export const CONTRACT_ONLY_ERROR_CODES = [
+  'provider_version_unsupported',
+  'provider_version_unreadable',
+  'provider_protocol_incompatible',
+  'provider_capability_probe_failed',
+  'provider_not_ready',
+  'provider_project_metadata_missing',
+  'provider_fixture_failed',
+  'request_cancelled',
+] as const;
+
+export type ContractOnlyErrorCode = (typeof CONTRACT_ONLY_ERROR_CODES)[number];
 
 const KNOWN_CODES: ReadonlySet<string> = new Set(CLI_ERROR_CODES);
 

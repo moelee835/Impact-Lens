@@ -134,12 +134,18 @@ export function bundledModuleEntryPath(module: string): string {
   if (module === BUNDLED_TYPESCRIPT_MODULE) {
     return inspectBundledTypeScriptArtifact().entryPath;
   }
+  // Same sentence shape as every other provider_config_invalid, fixed by truth table row F23.
   throw new CliError(
     'provider_config_invalid',
-    `A preset may not reference the module ${module}.`,
+    `The provider configuration in the shipped preset catalog is not valid: it may not reference the module ${module}.`,
     5,
     false,
-    { stage: 'discovery', allowedModules: [BUNDLED_TYPESCRIPT_MODULE] },
+    {
+      stage: 'discovery',
+      origin: 'the shipped preset catalog',
+      allowedModules: [BUNDLED_TYPESCRIPT_MODULE],
+      action: 'Fix the provider configuration, or remove it to fall back to automatic selection.',
+    },
   );
 }
 
