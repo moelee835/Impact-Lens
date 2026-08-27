@@ -31,12 +31,27 @@ interface PendingServerRequest {
   readonly timer: ReturnType<typeof setTimeout> | undefined;
 }
 
-// The client numbers its own requests from 1 upwards (`JsonRpcClient.nextId`). Server request ids
-// live in a disjoint range so a client that mistakes one for the other fails loudly instead of
-// resolving its own pending `initialize` against our request.
+// The client numbers its own requests from 1 upwards (`JsonRpcClient.nextId`). The default server
+// request base sits far away from that so a *broken* client fails loudly instead of quietly resolving
+// its own pending `initialize` against our request, which would make a test reproduce an id clash
+// rather than the dispatch defect it is aiming at.
+//
+// The distance is a testing convenience, not a contract. In JSON-RPC each side numbers its own
+// requests and the two spaces are independent, so a correct client works when the server starts at 1.
+// `IMPACT_LENS_MOCK_SERVER_ID_BASE=1` forces exactly that collision, which is the only way to prove a
+// client routes by message shape instead of by id.
 const SERVER_REQUEST_ID_BASE = 1000;
 
-let nextServerRequestId = SERVER_REQUEST_ID_BASE;
+let nextServerRequestId = serverRequestIdBase();
+
+function serverRequestIdBase(): number {
+  const raw = process.env.IMPACT_LENS_MOCK_SERVER_ID_BASE;
+  if (raw === undefined) {
+    return SERVER_REQUEST_ID_BASE;
+  }
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : SERVER_REQUEST_ID_BASE;
+}
 const pendingServerRequests = new Map<number, PendingServerRequest>();
 
 /**

@@ -4,7 +4,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { childIpcStatus, childIpcUnavailableError, looksLikeSilentProviderFailure } from './childIpc';
 import { requestConfigTree, requestPresetId } from './configTree';
-import { doctorBundledTypeScript } from './doctor';
+// Imported by its explicit path rather than as './doctor'. A stale `dist/doctor.js` left over from
+// before this became a directory would otherwise shadow `dist/doctor/index.js` and be loaded instead.
+import { runDoctor } from './doctor/index';
 import { analyzeImpact, canonicalWorkspace, resolveWorkspaceFileSecure, selectRoot } from './impact';
 import { LspCallHierarchyProvider } from './lspProvider';
 import { NoteService } from './notes';
@@ -35,10 +37,14 @@ export async function run(argv: readonly string[]): Promise<Record<string, unkno
   const parsed = parseCommand(argv);
   const input = parsed.options.has('stdin') ? await readStdinJson() : undefined;
   if (parsed.operation === 'provider.doctor') {
-    return envelope(parsed.operation, await doctorBundledTypeScript(
-      parsed.options.get('smoke') === true,
-      optionalPositiveInteger(optionNumber(parsed.options, 'timeout-ms', false), 'timeout-ms'),
-    ));
+    return envelope(parsed.operation, await runDoctor(argv[1] ?? '', {
+      mode: parsed.options.get('fixture') === true
+        ? 'fixture'
+        : parsed.options.get('smoke') === true ? 'smoke' : 'preflight',
+      timeoutMs: optionalPositiveInteger(optionNumber(parsed.options, 'timeout-ms', false), 'timeout-ms'),
+      workspace: optionString(parsed.options, 'workspace'),
+      file: optionString(parsed.options, 'file'),
+    }));
   }
   if (parsed.operation === 'impact.analyze') {
     const request = await analyzeRequest(parsed.options, input);
@@ -152,7 +158,7 @@ function parseCommand(argv: readonly string[]): ParsedCommand {
     if (options.has(key)) {
       throw new CliError('invalid_request', `Option --${key} was provided more than once.`, 2);
     }
-    if (['stdin', 'apply', 'smoke'].includes(key)) {
+    if (['stdin', 'apply', 'smoke', 'fixture'].includes(key)) {
       options.set(key, true);
       continue;
     }
@@ -191,7 +197,7 @@ function allowedOptions(operation: string): ReadonlySet<string> {
     return new Set(['workspace', 'file', 'line', 'column', 'scope', 'apply', 'expected-token', 'timeout-ms', 'provider-config', 'stdin']);
   }
   if (operation === 'provider.doctor') {
-    return new Set(['smoke', 'timeout-ms']);
+    return new Set(['smoke', 'fixture', 'timeout-ms', 'workspace', 'file']);
   }
   return new Set();
 }
@@ -203,7 +209,9 @@ function operationName(argv: readonly string[]): string {
   if (argv[0] === 'note' && ['get', 'list', 'set', 'delete'].includes(argv[1] ?? '')) {
     return `note.${argv[1]}`;
   }
-  if (argv[0] === 'doctor' && argv[1] === 'bundled-typescript') {
+  // Any preset name, not one hard-coded id. The name is validated against the catalog by the doctor
+  // itself, which can then say which presets do exist.
+  if (argv[0] === 'doctor' && argv[1] !== undefined && !argv[1].startsWith('--')) {
     return 'provider.doctor';
   }
   return 'unknown';

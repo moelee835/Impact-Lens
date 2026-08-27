@@ -6,6 +6,11 @@
 // The lane that implements each one moves it between the two lists in the same change, and
 // `cli/src/test/errors.test.ts` enforces the move in both directions.
 //
+// Several codes that are still contract-only appear in `cli/src/doctor/` as the `code` of a failing check.
+// That is not the same thing as throwing them, and the difference is why doctor can report five distinct
+// problems in one response: a check records its failure and the run continues, while a thrown code ends the
+// process. They move into this union when some path actually fails an envelope with them.
+//
 // Reason codes (`dynamic_calls_not_inferred`, `depth_limit_reached`, `no_incoming_callers`, ...) are a
 // different concept and deliberately stay out of this union. A reason is an entry in `coverage.reasons`
 // and `limitations` on a *successful* response; an error code identifies a *failed* envelope. Mixing them
@@ -33,10 +38,17 @@ export const CLI_ERROR_CODES = [
   // exit 5 - provider unavailable or missing Call Hierarchy support
   'provider_required_for_language',
   'provider_language_mismatch',
+  'provider_executable_not_found',
+  'provider_selection_ambiguous',
+  'provider_config_invalid',
   'provider_launch_failed',
   'provider_initialize_failed',
   'provider_capability_missing',
   'provider_query_failed',
+  // Produced by `cli/src/jsonRpc.ts:JsonRpcClient.stageFailure` when a stage fails after this client
+  // refused a server -> client request it does not implement. It replaces the stage's own code so the
+  // envelope names the cause instead of the symptom.
+  'provider_protocol_incompatible',
   'provider_ipc_unavailable',
   'bundled_provider_artifact_missing',
   'bundled_provider_artifact_unreadable',
@@ -69,18 +81,19 @@ export type CliErrorCode = (typeof CLI_ERROR_CODES)[number];
  * codes and error codes deliberately share names: `provider_not_ready` is both a `coverage.reasons` entry on
  * a partial success and an error code on a failure, and `cli/src/coverage.ts` writes the reason today.
  *
- * `provider_config_invalid` is here for a different reason from the rest: it was added by lead decision on
- * 2026-08-27 because none of the eleven approved codes covers "the project configuration file failed schema
- * validation". Reusing `invalid_request` was rejected — the request is fine, and saying otherwise points the
- * user at the wrong file to fix. Lane W1-B throws it.
+ * `provider_executable_not_found`, `provider_selection_ambiguous` and `provider_config_invalid` were on this
+ * list until the preset catalog landed, and `provider_protocol_incompatible` until the bidirectional LSP
+ * session did. Each moved into `CLI_ERROR_CODES` in the change that started throwing it, which is exactly
+ * the move this pair of lists exists to force.
+ *
+ * `provider_version_unsupported`, `provider_version_unreadable`, `provider_capability_probe_failed` and
+ * `provider_fixture_failed` are still here even though `cli/src/doctor/` mentions all four. Doctor puts them
+ * on a *check*, never on a `CliError`, so no envelope fails with them yet. That is why the test looks for the
+ * `new CliError('<code>'` construction rather than for the bare string.
  */
 export const CONTRACT_ONLY_ERROR_CODES = [
-  'provider_executable_not_found',
   'provider_version_unsupported',
   'provider_version_unreadable',
-  'provider_selection_ambiguous',
-  'provider_config_invalid',
-  'provider_protocol_incompatible',
   'provider_capability_probe_failed',
   'provider_not_ready',
   'provider_project_metadata_missing',

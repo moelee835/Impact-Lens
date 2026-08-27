@@ -407,3 +407,15 @@ prototype pollution은 top-level·중첩 3단·배열 원소 안 세 위치에�
 - project/preset/request를 합친 최종 트리가 D8 byte/key 예산을 넘는 경우는 `provider_config_invalid`로
   실패해야 한다(R7). 각 입력이 개별로 유효해도 조합이 넘을 수 있으므로 request validator만으로 닫히지 않는다.
 - note 명령에는 세 필드를 추가하지 않았다. 소비 경로가 생길 때 additive로 추가한다(R1).
+
+### 2026-08-27 — PR #39 merge 이후 최신 main 통합
+
+PR #39 merge commit `478fa71`까지 포함한 `origin/main`을 이 branch에 `--no-commit`으로 병합했다.
+충돌은 `cli/src/index.ts` import 한 곳뿐이었다. 이 branch의 `requestConfigTree`·`requestPresetId`와
+main의 directory 기반 `runDoctor` import를 모두 유지했고, 낡은 `doctorBundledTypeScript` import는 제거했다.
+
+이 통합 commit은 요청 계약 lane을 최신 W1-A/W1-B 코드 위로 올리는 작업까지만 포함한다. 위 인계 사항의
+실제 소비 배선과 병합 후 D8 예산 검사는 별도 최상위 단계로 계획·검증·commit해야 한다.
+
+통합 검증은 `npm run cli:test` 213/213, `npm test` 58/58,
+`npm run test:plugin-artifact` 통과다.
