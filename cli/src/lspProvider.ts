@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JsonRpcClient } from './jsonRpc';
-import { bundledTypeScriptCommand } from './runtime';
+import { languageId, resolveProvider } from './providers/resolve';
 import {
   CallHierarchyItem,
   CallHierarchyProvider,
@@ -59,37 +59,17 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     command: ProviderCommand | undefined,
     timeoutMs: number,
   ) {
-    const detectedLanguageId = languageId(file);
-    const selectedBy = command ? 'custom' : 'bundled';
-    const actual = command ?? defaultTypeScriptServerCommand(detectedLanguageId);
-    const requestedLanguageId = actual.languageId ?? detectedLanguageId;
-    const languageMatch = detectedLanguageId === 'plaintext'
-      ? 'unknown'
-      : requestedLanguageId === detectedLanguageId;
-    if (languageMatch === false) {
-      throw new CliError(
-        'provider_language_mismatch',
-        `Configured provider languageId ${requestedLanguageId} does not match detected language ${detectedLanguageId}.`,
-        5,
-        false,
-        {
-          stage: 'discovery',
-          requestedLanguageId,
-          detectedLanguageId,
-          selectedBy,
-        },
-      );
-    }
+    const resolved = resolveProvider(file, command);
     this._capabilities = {
       ...this._capabilities,
-      requestedLanguageId,
-      detectedLanguageId,
-      selectedBy,
-      languageMatch,
+      requestedLanguageId: resolved.requestedLanguageId,
+      detectedLanguageId: resolved.detectedLanguageId,
+      selectedBy: resolved.selectedBy,
+      languageMatch: resolved.languageMatch,
       lifecycle: { stage: 'launch', status: 'working' },
     };
-    this.languageIdOverride = requestedLanguageId;
-    this.client = new JsonRpcClient(actual.command, actual.args ?? [], timeoutMs);
+    this.languageIdOverride = resolved.requestedLanguageId;
+    this.client = new JsonRpcClient(resolved.command.command, resolved.command.args ?? [], timeoutMs);
     this.client.onNotification('textDocument/publishDiagnostics', params => {
       const value = params as PublishDiagnostics | undefined;
       if (!value?.uri || !Array.isArray(value.diagnostics)) {
@@ -307,50 +287,4 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
   private lifecycle(stage: ProviderLifecycleStage, status: ProviderCapabilities['lifecycle']['status']): void {
     this._capabilities = { ...this._capabilities, lifecycle: { stage, status } };
   }
-}
-
-function defaultTypeScriptServerCommand(detectedLanguageId: string): ProviderCommand {
-  if (!isTypeScriptFamily(detectedLanguageId)) {
-    throw new CliError(
-      'provider_required_for_language',
-      `No bundled provider supports ${detectedLanguageId}; configure a Language Server provider for this language.`,
-      5,
-      false,
-      {
-        stage: 'discovery',
-        detectedLanguageId,
-        bundledLanguageIds: ['typescript', 'typescriptreact', 'javascript', 'javascriptreact'],
-      },
-    );
-  }
-  return bundledTypeScriptCommand(detectedLanguageId);
-}
-
-export function languageId(file: string): string {
-  switch (path.extname(file).toLowerCase()) {
-    case '.ts': return 'typescript';
-    case '.mts': return 'typescript';
-    case '.cts': return 'typescript';
-    case '.tsx': return 'typescriptreact';
-    case '.js': return 'javascript';
-    case '.jsx': return 'javascriptreact';
-    case '.mjs': return 'javascript';
-    case '.cjs': return 'javascript';
-    case '.py': return 'python';
-    case '.c': return 'c';
-    case '.cc': return 'cpp';
-    case '.cpp': return 'cpp';
-    case '.cxx': return 'cpp';
-    case '.hh': return 'cpp';
-    case '.hpp': return 'cpp';
-    case '.hxx': return 'cpp';
-    case '.swift': return 'swift';
-    case '.kt': return 'kotlin';
-    case '.kts': return 'kotlin';
-    default: return 'plaintext';
-  }
-}
-
-function isTypeScriptFamily(value: string): boolean {
-  return ['typescript', 'typescriptreact', 'javascript', 'javascriptreact'].includes(value);
 }

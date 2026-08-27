@@ -217,6 +217,68 @@ node 버전 문자열. 그 외(`rootId`, node id, `provider.*`, `coverage.*`, `l
 **stdout 불변식도 함께 캡처한다**: 각 캡처 파일 머리에 `stdoutLines`를 적는다. 성공 응답의 stdout이
 정확히 한 줄이고 실패 시 stdout이 비어 있다는 계약이 리팩터링으로 깨지면 diff에 나타난다.
 
+
+### 2026-08-27 — 2단계: `cli/src/providers/resolve.ts` 신설과 순수 이동
+
+**변경한 파일**: `cli/src/providers/resolve.ts`(신규), `cli/src/lspProvider.ts`, `cli/package.json`
+
+**옮긴 것**
+
+- `resolveProvider(file, command)`: 생성자에 있던 선택 로직 전체. `selectedBy` 삼항,
+  `defaultTypeScriptServerCommand()` 호출, `requestedLanguageId` fallback, `languageMatch` 삼항,
+  `provider_language_mismatch` throw까지 문자열·exit code·`details` 키 순서를 그대로 옮겼다.
+  반환 타입 `ResolvedProvider`는 `{ command, selectedBy, requestedLanguageId, detectedLanguageId,
+  languageMatch }` 5필드다.
+- `languageId()`: 확장자 switch 그대로.
+- `defaultTypeScriptServerCommand()`, `isTypeScriptFamily()`: export하지 않는 module-private로 옮겼다.
+
+`lspProvider.ts` 생성자는 이제 `const resolved = resolveProvider(file, command);` 한 줄로 시작하고,
+그 5필드를 `this._capabilities`, `this.languageIdOverride`, `new JsonRpcClient(...)`에 그대로 넘긴다.
+`languageId`는 `open()`이 계속 쓰므로 새 모듈에서 import한다. `lspProvider.ts`는 그것을
+re-export하지 않는다.
+
+**의도적으로 유지한 것**: `bundledLanguageIds` 배열 리터럴을 `BUNDLED_LANGUAGE_IDS` 상수로 묶었지만
+값과 순서는 동일하다. 원본은 `isTypeScriptFamily()`와 error `details`에 같은 4개 문자열을 두 번
+적어뒀는데, 한쪽만 바뀌면 "지원한다고 판정하지만 지원 목록에는 없는 언어"가 만들어진다. 상수 하나로
+묶어도 JSON 출력은 바이트 단위로 같다(캡처로 확인).
+
+**계획에 없던 `cli/package.json` 변경을 실증했다**
+
+`files`에 `"dist/providers/*.js"`를 추가하기 전후로 `npm pack ./cli --dry-run`을 돌려 비교했다.
+
+| `files` | tarball 파일 수 | `dist/providers/resolve.js` |
+| --- | --- | --- |
+| `dist/*.js` 만 | 17 | **없음** |
+| `dist/providers/*.js` 추가 | 18 | 있음 |
+
+추가 전 상태로 `npm run test:plugin-artifact`를 실행하면 다음과 같이 실패한다.
+
+```
+code: 'MODULE_NOT_FOUND',
+requireStack: [
+  '…/node_modules/@impact-lens/cli/dist/lspProvider.js',
+  '…/node_modules/@impact-lens/cli/dist/doctor.js',
+  '…/node_modules/@impact-lens/cli/dist/index.js'
+]
+```
+
+즉 이 한 줄이 없으면 릴리스 tarball에서 설치한 CLI가 **모든 명령에서 죽는다.** `npm run cli:test`와
+`npm test`는 checkout의 `dist`를 직접 쓰므로 60개·35개 테스트가 전부 통과하면서도 이 회귀를 놓친다.
+`test:plugin-artifact`만 잡는다. 실패를 실제로 재현한 뒤 되돌려 통과를 확인했다.
+
+`"dist/**/*.js"`로 넓히지 않았다. 그러면 `dist/test/*.js`까지 tarball에 들어가 아티팩트 내용이 이
+리팩터링과 무관하게 바뀐다. 지금 tarball의 변화는 파일 하나 추가뿐이다.
+
+**검증**
+
+| 검증 | 기준선 | 2단계 후 |
+| --- | --- | --- |
+| `npm run cli:build` | 통과 | 통과 |
+| `npm run cli:test` | 60 pass / 0 fail | 60 pass / 0 fail |
+| `npm test` | 35 pass / 0 fail | 35 pass / 0 fail |
+| 고정 캡처 29종 `diff -r` | — | **완전 동일** |
+| `npm run test:plugin-artifact` | exit 0 | exit 0, 동일 메시지 |
+
 ## 부록 A — 재현용 캡처 스크립트
 
 이 스크립트는 **저장소에 커밋하지 않는다.** `cli/` 빌드 산출물과 테스트 fixture 경로에만 의존하는
