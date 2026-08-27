@@ -243,3 +243,33 @@ doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자
 - handover 5절 Extension 항목을 심볼 이름으로 재확인했다(라인 번호는 이동했으나 결함 8건 모두 그대로 존재).
 - 추가 조사로 확인한 것 3가지를 "현재 구현 조사 결과"에 적었다. 특히 **F1과 F19를 Extension에서 구분할 수
   없다**는 사실이 문구 설계를 바꿨다.
+
+### 2026-08-27 — 2단계: `src/completeness.ts`와 `stateLabel` 중복 제거
+
+- 신규 `src/completeness.ts`. 런타임 `vscode` 의존 없음(그래서 `node --test`로 직접 검증된다).
+  - `analysisStateLabel` — 다섯 상태의 유일한 철자.
+  - `stateBadge` — `analysisState`와 coverage를 대조한다. `src/impactAnalyzer.ts:analyzeItem`이 truncated
+    결과에도 `'current'`를 쓰기 때문에 필드만 믿으면 경계 있는 결과가 `Current`로 렌더된다.
+    `stateBadge`는 그 경우 `Partial result` + class `partial`을 돌려준다.
+  - `summarizeCompleteness` — truth table S1~S9·S11 + Extension 전용 3상태.
+  - `noProviderSummary` — F1+F19 합본.
+  - `headerSegments` — 결과 수 → traversal → semantic scope → action.
+- `src/impactTreeProvider.ts`: 지역 `stateLabel` 삭제, `analysisStateLabel` 사용.
+- `src/graphPanel.ts`: webview 인라인 `stateLabel` **함수 자체를 삭제**하고 payload가 `state {label, className}`을
+  실어 보낸다. label 계산이 Extension 쪽에서만 일어나므로 두 벌이 다시 생길 자리가 없다.
+- 중복 제거 검증:
+
+  ```
+  $ grep -rni "statelabel" src/
+  src/completeness.ts:93:export function analysisStateLabel(...)   # 유일한 정의
+  src/completeness.ts:122,124                                       # 자기 호출
+  src/impactTreeProvider.ts:2,62                                    # import + 호출
+  src/test/*                                                        # 테스트
+  ```
+
+  `graphPanel.ts`에는 한 건도 남지 않았다.
+- 신규 테스트 11개. `npm test` 46 pass / 0 fail (기준선 35 + 11).
+- 설계 결정 하나: `traversalLabel`에 "limits가 있는데 status가 complete"인 모순을 방어하는 코드를 넣지
+  **않았다.** `src/coverage.ts:vscodeCoverage`가 두 값을 같은 `limits` 배열에서 파생시키므로 producer가
+  만들 수 없는 상태다. 방어 코드를 넣으면 producer 결함을 표현 계층이 숨기게 된다(truth table X1의 취지).
+  대신 그 사실을 테스트 주석으로 고정했다.

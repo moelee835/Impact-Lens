@@ -6,6 +6,7 @@ import {
   DEFAULT_GRAPH_LAYOUT,
   shouldRestoreViewport,
 } from './graphLayout';
+import { completenessInput, stateBadge } from './completeness';
 import { ImpactResult } from './types';
 
 interface GraphPayload {
@@ -15,7 +16,10 @@ interface GraphPayload {
   readonly traversalLimits: readonly string[];
   readonly requestedDepth: number;
   readonly reachedDepth: number;
-  readonly analysisState: string;
+  readonly state: {
+    readonly label: string;
+    readonly className: string;
+  };
   readonly provider: {
     readonly host: string;
     readonly name: string;
@@ -138,7 +142,16 @@ function toPayload(result: ImpactResult, canGoBack: boolean): GraphPayload {
     traversalLimits: result.traversalLimits,
     requestedDepth: result.requestedDepth,
     reachedDepth: result.reachedDepth,
-    analysisState: result.analysisState,
+    state: stateBadge(completenessInput({
+      nodeCount: result.nodes.length,
+      truncated: result.truncated,
+      traversalLimits: result.traversalLimits,
+      requestedDepth: result.requestedDepth,
+      reachedDepth: result.reachedDepth,
+      maxNodes: result.maxNodes,
+      analysisState: result.analysisState,
+      coverage: result.coverage,
+    })),
     provider: {
       host: result.provider.host,
       name: result.provider.name,
@@ -292,8 +305,8 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     if (!graph.truncated && graph.reachedDepth < graph.requestedDepth) details.push('call hierarchy completed');
     summary.textContent = details.join(' · ');
     summary.classList.toggle('warning', graph.truncated);
-    state.textContent = stateLabel(graph.analysisState);
-    state.classList.add(graph.analysisState);
+    state.textContent = graph.state.label;
+    state.classList.add(graph.state.className);
     state.title = 'Provider: ' + graph.provider.host + '/' + graph.provider.name
       + ' · language: ' + graph.provider.languageId
       + ' · traversal: ' + graph.coverage.traversal
@@ -584,13 +597,6 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       if (node.relation === 'test') return node.depth === 1 ? 'Test · direct caller' : 'Test · ' + node.depth + ' hops';
       if (node.relation === 'direct') return 'Direct caller';
       return 'Transitive · ' + node.depth + ' hops';
-    }
-    function stateLabel(value) {
-      if (value === 'stale') return 'Editing · stale';
-      if (value === 'analyzing') return 'Analyzing…';
-      if (value === 'partial') return 'Partial';
-      if (value === 'failed') return 'Analysis failed';
-      return 'Current';
     }
     render();
   </script>

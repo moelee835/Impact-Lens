@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { analysisStateLabel } from './completeness';
 import { ImpactNode, ImpactResult } from './types';
 
 type ImpactTreeElement = EmptyItem | RootItem | GroupItem | NodeItem;
@@ -58,7 +59,7 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
         vscode.TreeItemCollapsibleState.Expanded,
       );
       item.description = [
-        stateLabel(this.result?.analysisState),
+        analysisStateLabel(this.result?.analysisState),
         element.node.note || relativeLocation(element.node.item),
       ].filter(Boolean).join(' · ');
       item.iconPath = new vscode.ThemeIcon(
@@ -171,22 +172,6 @@ export class ImpactTreeProvider implements vscode.TreeDataProvider<ImpactTreeEle
       new GroupItem('Related tests', tests, 'beaker'),
     ].filter(group => group.nodes.length > 0);
   }
-}
-
-function stateLabel(state: ImpactResult['analysisState'] | undefined): string {
-  if (state === 'stale') {
-    return 'Editing · stale';
-  }
-  if (state === 'analyzing') {
-    return 'Analyzing…';
-  }
-  if (state === 'partial') {
-    return 'Partial result';
-  }
-  if (state === 'failed') {
-    return 'Analysis failed';
-  }
-  return '';
 }
 
 function noteSourceLabel(source: NonNullable<ImpactNode['noteSource']>): string {
