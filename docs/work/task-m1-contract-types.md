@@ -331,3 +331,54 @@ metadata, coverage, limitations, error code/message/details는 전부 원문 그
 
 **확인한 사실**: 이 단계만으로는 드리프트가 다시 생기는 것을 막지 못한다. union은 컴파일 후 사라지므로
 schema만 넓히는 변경을 아무도 못 잡는다. 5단계의 parity 테스트가 그 자물쇠다.
+
+### 2026-08-27 — 3단계: `cli/src/errors.ts` 신설
+
+**변경한 파일**: `cli/src/errors.ts`(신규), `cli/src/types.ts`, `cli/src/test/errors.test.ts`(신규),
+`cli/src/test/childIpc.test.ts`
+
+- `CLI_ERROR_CODES`(24종), `CliErrorCode`, `isCliErrorCode`, `CliErrorShape`, `CliError`를 `errors.ts`로
+  모았다. `CliError.code`와 `CliErrorShape.code`가 `string`에서 `CliErrorCode`로 좁혀졌다.
+- 배열은 exit status 순서로 정렬하고 구간마다 주석을 달았다. 정렬 기준을 알파벳이 아니라 exit status로
+  잡은 이유는, code를 추가하는 사람이 "이 code의 exit status는 무엇인가"를 먼저 결정하게 만들기
+  위해서다. 이 질문을 건너뛰면 `internal_error`(10)로 흘러간다.
+- `types.ts`는 `errors.ts`를 재수출만 한다(결정 4). 덕분에 `lspProvider.ts`, `jsonRpc.ts`,
+  `childIpc.ts`, `runtime.ts`, `notes.ts`, `impact.ts`, `index.ts`의 import를 한 줄도 고치지 않았다.
+- 계획에는 error code 전수 검사를 5단계에 뒀지만 3단계로 당겼다. 이 검사는 schema가 아니라 `errors.ts`의
+  불변식을 지키는 것이고, 모듈과 그 자물쇠는 같은 commit에 있어야 한다.
+
+**union 좁히기가 실제로 잡아낸 것**: `cli/src/test/childIpc.test.ts:6`의 helper가 `code`를 추론된
+`string`으로 받고 있어서 컴파일이 깨졌다. 좁히기 전에는 이 자리에 어떤 오타를 넣어도 통과했다.
+`code: CliErrorCode`로 명시해 고쳤다. 이 한 건이 "오타가 컴파일에 잡히지 않는다"의 실제 사례다.
+
+**검증**
+
+- `npm run test:all`: 54 pass / 0 fail (신규 3건 포함).
+- 전수 검사가 실제로 동작하는지 확인: `CLI_ERROR_CODES`에 아직 아무도 던지지 않는
+  `provider_not_ready`를 임시로 넣고 실행했더니
+  `declared but never produced: provider_not_ready`로 실패했다. 확인 후 되돌렸다.
+- 고정 캡처 16종: 기준선과 완전 동일. 실패 envelope 10종의 `error.code`/`message`/`details`가 그대로다.
+
+**exit code / retryable 일관성 점검 결과 (수정하지 않고 보고)**
+
+같은 code가 서로 다른 exit status나 retryable로 던져지는 자리는 **없다**. 위 전수 표의 24종 모두
+생산 지점이 여러 곳이어도 값이 일치한다. Plugin skill reference의 exit status 표
+(`cli-contract.md:209-219`)와도 어긋나지 않는다. 다만 계약과 코드 사이에 아래 3건의 틈이 있다.
+전부 동작 변경이 필요하므로 이 lane에서 고치지 않는다.
+
+1. **`provider_ipc_unavailable`의 stage가 계약 표와 어긋날 수 있다.** 계약 문서는 이 code를 `launch`
+   stage로 적었지만, `cli/src/childIpc.ts:68-80`은 원래 오류의 `details`를 그대로 펼쳐 담는다.
+   `looksLikeSilentProviderFailure`가 `provider_initialize_failed`와 `provider_query_failed`도
+   받아들이므로(`childIpc.ts:52-56`) `details.stage`가 `initialize`나 `query`로 나갈 수 있다.
+   실제로 어느 쪽이 옳은지는 "IPC가 죽은 시점"이 아니라 "죽은 것을 알아챈 시점"을 무엇으로 볼지의
+   문제다. 계약 표를 고칠지 code를 고칠지는 계약 문서 소유 lane과 IPC lane의 결정 사항이다.
+2. **`timeout`과 `internal_error`의 `details.stage`가 계약대로 항상 있지는 않다.** 계약 표는 두 code의
+   stage 열에 `details.stage`라고 적었는데, `internal_error`는 `cli/src/index.ts:97`에서 details 없이
+   만들어진다. truth table 4단계가 "`request_cancelled`와 `timeout`의 `details.stage`를 계약대로
+   정렬한다"로 이미 잡아 둔 과제다.
+3. **runner 계열 code는 TypeScript에서 중앙화할 수 없다.** `node_runtime_unavailable`,
+   `node_version_unreadable`, `cli_artifact_missing`, `cli_artifact_not_executable`,
+   `npm_runtime_unavailable`과 release fallback code 5종은 Node가 뜨기 전에
+   `plugins/impact-lens/scripts/run-impact-lens`(POSIX shell)가 직접 JSON을 쓴다. `errors.ts`에 넣으면
+   "TypeScript가 던진다"는 거짓 신호가 되므로 제외하고 그 이유를 파일 주석에 남겼다. 이 계열의 계약
+   준수는 `cli/src/test/runner.test.ts`가 실제 실행으로 검사한다.

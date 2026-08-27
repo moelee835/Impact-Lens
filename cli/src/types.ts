@@ -220,22 +220,7 @@ export interface ResolvedNote {
   };
 }
 
-export interface CliErrorShape {
-  readonly code: string;
-  readonly message: string;
-  readonly retryable: boolean;
-  readonly details?: unknown;
-}
-
-export class CliError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly exitCode: number,
-    readonly retryable = false,
-    readonly details?: unknown,
-  ) {
-    super(message);
-    this.name = 'CliError';
-  }
-}
+// `CliError` lives in ./errors together with the code union. It is re-exported here because every existing
+// import reaches for './types', including files this change is not allowed to touch.
+export { CLI_ERROR_CODES, CliError, isCliErrorCode } from './errors';
+export type { CliErrorCode, CliErrorShape } from './errors';
