@@ -500,6 +500,8 @@ lead 승인 형태는 `{ signal, detail }`이다. 벽시계 값을 넣으면 이
 | `npm run test:plugin-artifact` | 통과 |
 | 캡처 strip 비교 | 완전 동일 |
 
+**PR #36 CI**: 4종 전부 통과 (Node 22 unit / ubuntu·macos·windows plugin artifact E2E).
+
 ## 부록 A — 캡처 스크립트 변경점
 
 W0-4 부록 A의 스크립트를 그대로 쓰되 두 곳만 바꿨다. 전문은 그 문서에 있으므로 여기서는 delta만 남긴다.
