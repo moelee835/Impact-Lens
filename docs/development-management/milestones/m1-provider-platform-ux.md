@@ -5,6 +5,13 @@
 - 선행 기여: IL-LIM-004 1~2단계
 - 릴리스 성격: provider platform minor release
 
+## 실행 계획
+
+Agent Team 기반 wave 분해, 파일 소유권과 wave별 종료 gate는
+[`docs/work/task-m1-agent-team-execution.md`](../../work/task-m1-agent-team-execution.md)에 있다.
+착수 전 결정이 필요한 항목(M0 사용자 검증 병행 여부, traversal/semantic 용어 확정과 schema version 정책)도
+같은 문서에 정리했다.
+
 ## 목표
 
 일반 사용자는 command/args/languageId를 작성하지 않고 `Auto`와 doctor로 provider 준비 상태를 이해한다.
