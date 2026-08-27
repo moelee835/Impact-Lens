@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { STATIC_SCOPE_NOTICE } from './completeness';
 import { findDeclarationAnchorWithLineAt } from './declarationAnchor';
 import { NoteStore } from './noteStore';
 
@@ -68,7 +69,14 @@ export class ImpactCodeLensProvider implements vscode.CodeLensProvider {
           ? `$(note) ${truncate(note, 54)}  ·  $(references) impact`
           : '$(references) Show impact  ·  $(note) Add role note',
         arguments: [document.uri, range.start],
-        tooltip: note || 'Analyze incoming calls and potential impact',
+        // The title stays as it was. A code lens renders on every function in the file, so it is the one
+        // surface where per-result state would be noise rather than information; the provider state it
+        // could show is also not available here, because this provider never sees an analysis result.
+        // What does belong is the boundary that holds for every result, which is why it sits in the
+        // tooltip rather than in the lens itself.
+        tooltip: [note, 'Analyze incoming calls and potential impact.', STATIC_SCOPE_NOTICE]
+          .filter(Boolean)
+          .join('\n\n'),
       }));
     }
     return lenses;

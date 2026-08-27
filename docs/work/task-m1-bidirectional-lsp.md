@@ -568,3 +568,8 @@ LSP 세션으로 잇는 `cli/src/lsp/session.ts`·`cli/src/lspProvider.ts` 변�
 - `npm run cli:test`: 194/194 통과
 - `npm test`: 35/35 통과
 - `npm run test:plugin-artifact`: 통과
+
+그 merge commit을 원격 branch에 push한 뒤 최신 `origin/main` `061a647`도 `--no-commit`으로 병합했다.
+추가된 것은 PR #40의 handover 문서와 PR #37의 Extension UX 변경이라 W1-A 파일과 충돌하지 않았다.
+최종 통합 검증은 `npm run cli:test` 194/194, `npm test` 58/58,
+`npm run test:plugin-artifact` 통과다.

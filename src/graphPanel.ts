@@ -6,26 +6,75 @@ import {
   DEFAULT_GRAPH_LAYOUT,
   shouldRestoreViewport,
 } from './graphLayout';
+import {
+  completenessInput,
+  headerSegments,
+  providerLabel,
+  stateBadge,
+  summarizeCompleteness,
+} from './completeness';
 import { ImpactResult } from './types';
 
 interface GraphPayload {
   readonly rootId: string;
   readonly rootName: string;
-  readonly truncated: boolean;
-  readonly traversalLimits: readonly string[];
-  readonly requestedDepth: number;
-  readonly reachedDepth: number;
-  readonly analysisState: string;
+  readonly state: {
+    readonly label: string;
+    readonly className: string;
+  };
+  // Coverage used to arrive here as three bare strings, which meant the webview could not draw anything
+  // the Extension had not already decided. advertised, observed, lifecycle and the reason codes now reach
+  // the panel, which is the surface that has room for them.
   readonly provider: {
     readonly host: string;
     readonly name: string;
-    readonly languageId: string;
+    readonly version?: string;
+    readonly selectedBy: string;
+    readonly languageMatch: boolean | 'unknown';
+    readonly requestedLanguageId: string;
+    readonly detectedLanguageId: string;
+    readonly callHierarchy: boolean;
+    readonly diagnostics: boolean;
+    readonly advertised: {
+      readonly callHierarchy: boolean | 'unknown';
+      readonly diagnostics: boolean | 'unknown';
+    };
+    readonly observed: {
+      readonly prepareCallHierarchy: boolean;
+      readonly incomingCalls: boolean;
+      readonly diagnostics: boolean;
+    };
+    readonly lifecycle: {
+      readonly stage: string;
+      readonly status: string;
+    };
   };
   readonly coverage: {
-    readonly traversal: string;
-    readonly semantic: string;
-    readonly indexing: string;
+    readonly traversal: {
+      readonly status: string;
+      readonly requestedDepth: number;
+      readonly reachedDepth: number;
+      readonly maxNodes: number;
+    };
+    readonly semantic: {
+      readonly status: string;
+      readonly evidenceSources: readonly string[];
+    };
+    readonly indexing: { readonly status: string };
+    readonly reasons: readonly string[];
   };
+  readonly completeness: {
+    readonly outcome: string;
+    readonly severity: string;
+    readonly headline: string;
+    readonly action?: string;
+    readonly bounded: boolean;
+    readonly callerCount: number;
+    /** Result count, traversal, semantic scope, action - in that order. */
+    readonly segments: readonly string[];
+    readonly providerLabel: string;
+  };
+  readonly detailLevel: string;
   readonly changedAt?: number;
   readonly canGoBack: boolean;
   readonly delta: {
@@ -131,24 +180,50 @@ export class GraphPanel implements vscode.Disposable {
 }
 
 function toPayload(result: ImpactResult, canGoBack: boolean): GraphPayload {
-  return {
-    rootId: result.root.id,
-    rootName: result.root.item.name,
+  const input = completenessInput({
+    nodeCount: result.nodes.length,
     truncated: result.truncated,
     traversalLimits: result.traversalLimits,
     requestedDepth: result.requestedDepth,
     reachedDepth: result.reachedDepth,
+    maxNodes: result.maxNodes,
     analysisState: result.analysisState,
+    coverage: result.coverage,
+  });
+  const summary = summarizeCompleteness(input);
+  const detailLevel = vscode.workspace
+    .getConfiguration('impactLens')
+    .get<string>('provider.detailLevel', 'summary');
+  return {
+    rootId: result.root.id,
+    rootName: result.root.item.name,
+    state: stateBadge(input),
     provider: {
       host: result.provider.host,
       name: result.provider.name,
-      languageId: result.provider.detectedLanguageId,
+      version: result.provider.version,
+      selectedBy: result.provider.selectedBy,
+      languageMatch: result.provider.languageMatch,
+      requestedLanguageId: result.provider.requestedLanguageId,
+      detectedLanguageId: result.provider.detectedLanguageId,
+      callHierarchy: result.provider.callHierarchy,
+      diagnostics: result.provider.diagnostics,
+      advertised: result.provider.advertised,
+      observed: result.provider.observed,
+      lifecycle: result.provider.lifecycle,
     },
-    coverage: {
-      traversal: result.coverage.traversal.status,
-      semantic: result.coverage.semantic.status,
-      indexing: result.coverage.indexing.status,
+    coverage: result.coverage,
+    completeness: {
+      outcome: summary.outcome,
+      severity: summary.severity,
+      headline: summary.headline,
+      action: summary.action,
+      bounded: summary.bounded,
+      callerCount: input.callerCount,
+      segments: headerSegments(input, summary),
+      providerLabel: providerLabel(result.provider),
     },
+    detailLevel,
     changedAt: result.changedAt,
     canGoBack,
     delta: result.delta,
@@ -233,7 +308,9 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     .warning { color: var(--vscode-editorWarning-foreground); }
     .state { padding: 2px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 10px; color: var(--vscode-descriptionForeground); font-size: 10px; }
     .state.stale, .state.analyzing { color: var(--vscode-editorWarning-foreground); }
-    .state.failed { color: var(--vscode-errorForeground); }
+    .state.partial { color: var(--vscode-editorWarning-foreground); border-color: var(--vscode-editorWarning-foreground); border-style: dashed; }
+    .state.failed { color: var(--vscode-errorForeground); border-color: var(--vscode-errorForeground); }
+    .subtitle.error { color: var(--vscode-errorForeground); }
   </style>
 </head>
 <body>
@@ -262,7 +339,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     const shouldRestoreViewport = ${shouldRestoreViewport.toString()};
     const saved = vscode.getState() || {};
     const restoreViewport = shouldRestoreViewport(saved.rootId, graph.rootId, saved.zoom);
-    let visibleDepth = clamp(restoreViewport ? saved.visibleDepth ?? graph.requestedDepth : graph.requestedDepth, 1, graph.requestedDepth);
+    let visibleDepth = clamp(restoreViewport ? saved.visibleDepth ?? graph.coverage.traversal.requestedDepth : graph.coverage.traversal.requestedDepth, 1, graph.coverage.traversal.requestedDepth);
     let selectedNodeId = restoreViewport && graph.nodes.some(node => node.id === saved.selectedNodeId) ? saved.selectedNodeId : undefined;
     let zoom = clamp(restoreViewport ? saved.zoom : 1, .5, 2.5);
     let scrollLeft = restoreViewport ? saved.scrollLeft ?? 0 : 0;
@@ -283,26 +360,53 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
 
     title.textContent = 'Root: ' + graph.rootName;
     const diagnosticCount = graph.nodes.reduce((sum, node) => sum + node.diagnostics.length, 0);
-    const details = [graph.nodes.length + ' symbols', 'reached ' + graph.reachedDepth + ' / requested ' + graph.requestedDepth, 'static Call Hierarchy'];
+    // Fixed order: result count, traversal, semantic scope, action. The delta and diagnostic counts sit
+    // next to the result count because they describe the same thing - what came back - and must not come
+    // between the traversal state and the semantic scope, which have to be read together.
+    const segments = graph.completeness.segments;
+    const details = [segments[0]];
     if (graph.delta.addedNodeIds.length) details.push('+' + graph.delta.addedNodeIds.length + ' affected');
     if (graph.delta.removedNodeIds.length) details.push('-' + graph.delta.removedNodeIds.length + ' affected');
     if (diagnosticCount) details.push(diagnosticCount + ' diagnostics');
-    if (graph.traversalLimits.includes('depth')) details.push('depth limit reached');
-    if (graph.traversalLimits.includes('nodes')) details.push('node limit reached');
-    if (!graph.truncated && graph.reachedDepth < graph.requestedDepth) details.push('call hierarchy completed');
+    for (let index = 1; index < segments.length; index += 1) {
+      if (graph.completeness.action && segments[index] === graph.completeness.action) continue;
+      details.push(segments[index]);
+    }
+    if (graph.detailLevel === 'verbose') {
+      details.push('provider ' + graph.completeness.providerLabel);
+      details.push('lifecycle ' + graph.provider.lifecycle.stage + '/' + graph.provider.lifecycle.status);
+      if (graph.coverage.reasons.length) details.push(graph.coverage.reasons.join(', '));
+    }
+    if (graph.completeness.action) details.push(graph.completeness.action);
     summary.textContent = details.join(' · ');
-    summary.classList.toggle('warning', graph.truncated);
-    state.textContent = stateLabel(graph.analysisState);
-    state.classList.add(graph.analysisState);
-    state.title = 'Provider: ' + graph.provider.host + '/' + graph.provider.name
-      + ' · language: ' + graph.provider.languageId
-      + ' · traversal: ' + graph.coverage.traversal
-      + ' · semantic: ' + graph.coverage.semantic
-      + ' · indexing: ' + graph.coverage.indexing
-      + ' · framework and dynamic calls may be missing';
+    summary.classList.toggle('warning', graph.completeness.severity === 'warning');
+    summary.classList.toggle('error', graph.completeness.severity === 'error');
+    summary.title = graph.completeness.headline
+      + (graph.completeness.action ? '\n\n-> ' + graph.completeness.action : '');
+    state.textContent = graph.state.label;
+    state.classList.add(graph.state.className);
+    state.title = [
+      'Provider: ' + graph.completeness.providerLabel,
+      'selected by: ' + graph.provider.selectedBy,
+      'language: ' + graph.provider.detectedLanguageId
+        + ' (requested ' + graph.provider.requestedLanguageId + ', match ' + graph.provider.languageMatch + ')',
+      'lifecycle: ' + graph.provider.lifecycle.stage + ' / ' + graph.provider.lifecycle.status,
+      'call hierarchy: advertised ' + graph.provider.advertised.callHierarchy
+        + ', observed prepare ' + graph.provider.observed.prepareCallHierarchy
+        + ', observed incoming ' + graph.provider.observed.incomingCalls,
+      'diagnostics: advertised ' + graph.provider.advertised.diagnostics
+        + ', observed ' + graph.provider.observed.diagnostics,
+      'traversal: ' + graph.coverage.traversal.status
+        + ' (depth ' + graph.coverage.traversal.reachedDepth + '/' + graph.coverage.traversal.requestedDepth
+        + ', node budget ' + graph.coverage.traversal.maxNodes + ')',
+      'semantic: ' + graph.coverage.semantic.status
+        + ' from ' + (graph.coverage.semantic.evidenceSources.join(', ') || 'none'),
+      'indexing: ' + graph.coverage.indexing.status,
+      'reasons: ' + (graph.coverage.reasons.join(', ') || 'none'),
+    ].join('\n');
 
-    for (let depth = 1; depth <= 20; depth += 1) addOption(analysisDepth, depth, depth === graph.requestedDepth);
-    for (let depth = 1; depth <= graph.requestedDepth; depth += 1) addOption(visibleDepthSelect, depth, depth === visibleDepth);
+    for (let depth = 1; depth <= 20; depth += 1) addOption(analysisDepth, depth, depth === graph.coverage.traversal.requestedDepth);
+    for (let depth = 1; depth <= graph.coverage.traversal.requestedDepth; depth += 1) addOption(visibleDepthSelect, depth, depth === visibleDepth);
     analysisDepth.addEventListener('change', () => vscode.postMessage({ type: 'setAnalysisDepth', depth: Number(analysisDepth.value) }));
     visibleDepthSelect.addEventListener('change', () => {
       visibleDepth = Number(visibleDepthSelect.value);
@@ -584,13 +688,6 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       if (node.relation === 'test') return node.depth === 1 ? 'Test · direct caller' : 'Test · ' + node.depth + ' hops';
       if (node.relation === 'direct') return 'Direct caller';
       return 'Transitive · ' + node.depth + ' hops';
-    }
-    function stateLabel(value) {
-      if (value === 'stale') return 'Editing · stale';
-      if (value === 'analyzing') return 'Analyzing…';
-      if (value === 'partial') return 'Partial';
-      if (value === 'failed') return 'Analysis failed';
-      return 'Current';
     }
     render();
   </script>
