@@ -2,9 +2,10 @@
 
 - 마일스톤: [M1 — Provider 플랫폼과 무설정 UX 기반](../development-management/milestones/m1-provider-platform-ux.md)
 - 대응 스토리: `IL-LIM-009` 1단계, `IL-LIM-005` 3단계, `IL-LIM-004` 2단계
-- 성격: 계약 설계 문서. 이번 단계에서 코드와 schema 파일은 변경하지 않는다.
-- 승인 필요: [4. 용어 충돌 결정안](#4-용어-충돌-2건--결정안)과 [5. 계약 개정안](#5-provider-coverage-contractmd-개정안-승인-대기)은
-  제안 상태이며 사람이 승인하기 전에는 계약 문서와 코드에 반영하지 않는다.
+- 성격: 계약 설계 문서. 코드와 schema 파일은 이 문서 범위에서 변경하지 않는다.
+- 승인 상태: [4. 용어 충돌 결정안](#4-용어-충돌-2건--결정안)의 4.1/4.2/4.3 묶음이 **2026-08-27 승인됐다.**
+  [5. 계약 개정안](#5-provider-coverage-contractmd-개정안-적용-완료)은 `provider-coverage-contract.md`에
+  적용됐다. 타입·schema 반영(W0-3)과 `data.completion` 생산 구현(W1-C)은 별도 lane이 담당한다.
 
 ## 배경과 해결할 문제
 
@@ -297,8 +298,12 @@ X1~X4는 현재 계약이 이미 금지하는 4가지이고, X5~X11은 3축 도�
 
 ## 4. 용어 충돌 2건 — 결정안
 
-> **이 절은 제안이다.** 아래 권장안은 사람이 승인하기 전까지 확정이 아니며, 승인 전에는
-> `provider-coverage-contract.md`와 코드에 반영하지 않는다.
+> **이 절은 2026-08-27 승인됐다.** 승인 범위는 4.1(traversal 어휘), 4.2(semantic 어휘),
+> 4.3(schema version 정책)의 묶음 전체이며, 세 절 모두 권장안 (c) additive가 그대로 채택됐다.
+> `schemaVersion`은 1을 유지한다. 아래 비교 표는 결정 근거로 남겨둔 기록이다.
+>
+> 승인 결과는 `provider-coverage-contract.md`에 5절대로 반영됐다. 타입·schema 반영과
+> `data.completion`의 실제 생산은 아직 코드에 없다.
 
 ### 4.1 충돌 1 — traversal 어휘
 
@@ -404,9 +409,11 @@ v2 승격 사유로 인정하는 변경은 **필드 제거 또는 기존 필드 
 **승인 시 확정되는 것.** 4.1, 4.2, 4.3은 하나의 결정 묶음이다. 부분 승인(예: 충돌 1만 (c), 충돌 2는 (b))은
 4.2의 근거 1을 위반하므로 권장하지 않는다.
 
-## 5. `provider-coverage-contract.md` 개정안 (승인 대기)
+## 5. `provider-coverage-contract.md` 개정안 (적용 완료)
 
-4절이 승인되면 아래를 적용한다. 지금은 제안이며 계약 파일은 수정하지 않는다.
+4절 승인(2026-08-27)에 따라 아래 5.1~5.4를 `provider-coverage-contract.md`에 모두 적용했다.
+아래 diff는 적용 내용의 기록이며, 실제 문서와 어긋나면 계약 문서를 기준으로 한다.
+적용 중 추가로 발견한 사항은 5.5절에 있다.
 
 ### 5.1 `## Coverage metadata` 절 개정
 
@@ -501,6 +508,33 @@ v2 승격 사유로 인정하는 변경은 **필드 제거 또는 기존 필드 
 +| 취소된 분석 | fake provider | `traversalStatus: cancelled`, 부분 결과 유지, `complete: false` |
 ```
 
+### 5.5 적용하면서 추가로 처리한 것
+
+5.1~5.4 diff를 실제 문서에 옮기는 과정에서 원안에 없던 항목 4건을 함께 처리했다.
+
+1. **`provider_ipc_unavailable`이 실패 코드 표에 없었다.** `cli/src/childIpc.ts:71`이 실제로 던지는 code인데
+   계약 표에 한 줄도 없었다. 2.2절 F9로는 이미 열거돼 있었지만 5.3 diff에는 빠져 있었다. `launch` stage
+   행으로 추가했다. 부수 발견 code 목록에 이 항목을 추가한다.
+2. **doctor code 표와 provider code 표의 경계를 명시했다.** `node_version_unsupported`(Node engine)와
+   신규 `provider_version_unsupported`(외부 Language Server)가 이름이 비슷해 혼동되므로, 앞 표가 Impact Lens
+   자신의 runner/packaging을, 뒤 표가 사용자 환경의 외부 server를 다룬다는 문장을 두 표 사이에 넣었다.
+3. **`provider_` 접두사가 없는 code를 별도 표로 분리했다.** `timeout`, `request_cancelled`,
+   `target_not_found`/`target_ambiguous`, `internal_error`를 `## Provider 실패 코드` 절 안의 두 번째 표로
+   두고, 접두사를 쓰지 않는 이유(원인이 provider가 아니라 요청·위치·host 결정·Impact Lens 자신)를 적었다.
+   같은 표에 섞으면 "provider가 고장났다"는 잘못된 진단을 유도한다.
+4. **문서 상단에 truth table 참조와 우선순위 규칙을 넣었다.** 5.2가 "계약 문서에는 요약 표만 두고 전체 표는
+   작업 문서를 참조한다"고 정했으므로, 두 문서가 어긋날 때 truth table이 기준이라는 규칙을 명시했다.
+   또한 금지 문구 목록(`no impact`, `safe to change`, `unused` 등)을 요약해 계약 문서에도 남겼다.
+
+### 5.6 적용 후 검증
+
+| 확인 항목 | 결과 |
+| --- | --- |
+| `complete`의 정의가 "traversal exhausted의 v1 호환 표현"으로만 남아 있는가 | 통과. `## Coverage metadata` 말미 한 곳에서만 정의하고 `completion.traversalStatus === "exhausted"`를 기준으로 삼는다. 허용 상태 요약 표의 `complete` 열은 정의가 아니라 projection 값이다 |
+| 새 error code가 기존 표의 code와 중복되지 않는가 | 통과. provider 표 16행 + 비-provider 표 5행의 code 문자열이 모두 유일하고, doctor/runner 표(`node_*`, `cli_artifact_*`, `npm_*`, `bundled_provider_artifact_*`)와도 겹치지 않는다 |
+| 기존 금지 조합 4가지가 새 표에서 누락되지 않았는가 | 통과. 원문 4개 항목을 문자 그대로 유지하고 그 아래에 신규 5개를 덧붙였다 |
+| 실사용 중인데 표에 없던 code가 문서화됐는가 | 통과. `timeout`, `request_cancelled`, `target_not_found`/`target_ambiguous`, `internal_error`를 두 번째 표에, `provider_ipc_unavailable`을 provider 표에 추가했다 |
+
 ## 단계별 구현 계획
 
 각 단계는 독립적으로 검증·commit·push 가능하다.
@@ -516,16 +550,23 @@ v2 승격 사유로 인정하는 변경은 **필드 제거 또는 기존 필드 
 종료 조건: 구현자가 boolean 추론 없이 표만으로 결과 상태를 만들 수 있고, 사람이 4절만 보고 승인 여부를
 결정할 수 있다. **코드와 schema 파일은 변경하지 않는다.**
 
-### 2단계 — 결정 승인과 계약 문서 반영 (승인 후)
+### 2단계 — 결정 승인과 계약 문서 반영 (완료, 2026-08-27)
 
-1. 4절 권장안의 승인 여부를 받는다.
-2. 승인된 어휘로 5절 diff를 `provider-coverage-contract.md`에 적용한다.
+1. 4절 권장안의 승인 여부를 받는다. — 완료. 4.1/4.2/4.3 묶음 전체가 권장안 (c)로 승인됐다.
+2. 승인된 어휘로 5절 diff를 `provider-coverage-contract.md`에 적용한다. — 완료. 5.1~5.4 전부와
+   5.5의 추가 4건을 적용했다.
 3. `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`에 `completion` 예시와 금지 문구를
-   추가한다.
+   추가한다. — **보류.** Plugin reference는 실제 응답 예시를 담는 문서라, `data.completion`을 생산하는
+   구현(W1-C) 전에 예시를 넣으면 문서가 실제 출력과 어긋난다. W1-C와 함께 갱신한다.
 
-종료 조건: 계약 문서와 Plugin reference가 같은 어휘를 쓴다. 코드는 아직 변경하지 않는다.
+종료 조건: 계약 문서가 승인된 어휘를 쓰고, 코드·schema는 변경하지 않는다. Plugin reference 갱신은
+`data.completion` 구현 시점으로 이월했다.
 
-### 3단계 — additive contract 구현 (`IL-LIM-009` 2단계)
+### 3단계 — additive contract 구현 (`IL-LIM-009` 2단계, 별도 lane)
+
+> 1~2를 포함한 타입·schema 반영은 W0-3 lane이, `data.completion`을 실제로 생산하는 구현은 W1-C lane이
+> 맡는다. 이 문서는 두 lane의 입력 계약이며 직접 구현하지 않는다.
+
 
 1. `cli/src/types.ts`에 `Completion` discriminated union과 non-empty `nodes` 타입을 도입한다.
 2. `cli/src/coverage.ts`를 projection 함수로 바꾸고 `complete`/`truncated`/`traversalLimits` 계산을 단일
@@ -569,6 +610,20 @@ v2 승격 사유로 인정하는 변경은 **필드 제거 또는 기존 필드 
 - [x] schema version 정책이 같은 결정으로 묶여 제안됐다 — 4.3
 - [x] `provider-coverage-contract.md` 개정안이 별도 절에 제안 형태로 있다 — 5절
 - [x] 코드·schema 파일을 변경하지 않았다
+
+### 2단계 완료 기준
+
+- [x] 4절 상단 경고가 승인 사실(2026-08-27, 4.1/4.2/4.3 묶음 전체)로 갱신됐다
+- [x] 5절 제목의 `(승인 대기)`가 `(적용 완료)`로 갱신됐다
+- [x] 5.1 Coverage metadata 개정이 계약 문서에 적용됐다
+- [x] 5.2 허용/금지 상태 절이 요약 표 + 금지 조합 9개로 교체됐다
+- [x] 5.3 provider 실패 코드 표가 16행으로 확장되고 비-provider code 표가 추가됐다
+- [x] 5.4 기준 fixture 7행이 추가됐다
+- [x] `complete`의 정의가 "traversal exhausted의 v1 호환 표현" 한 곳에만 남아 있다
+- [x] 신규 code가 기존 표의 code와 문자열 중복이 없다
+- [x] 기존 금지 조합 4가지가 문자 그대로 유지됐다
+- [x] `timeout`, `request_cancelled`, `target_*`, `internal_error`, `provider_ipc_unavailable`이 문서화됐다
+- [x] `cli/src/**`, `src/**`, `cli/schemas/**`를 수정하지 않았다
 
 ### 후속 단계 테스트 계획
 
@@ -640,3 +695,73 @@ v2 승격 사유로 인정하는 변경은 **필드 제거 또는 기존 필드 
 - `limitationDetails`(code/severity/scope/message/action 객체 배열)의 정확한 필드 형태는 3단계에서 확정한다.
   이 문서는 severity 3단계와 문구·action 값만 확정했다.
 - Extension과 CLI의 상수 단일 출처화는 이 문서 범위 밖이다. 4.3절의 v2 승격 조건 4로 남겨뒀다.
+
+### 2026-08-27 — 2단계: 결정 승인과 계약 문서 반영
+
+**승인 내용**
+
+4.1(traversal 어휘), 4.2(semantic 어휘), 4.3(schema version 정책)이 묶음으로 승인됐다. 세 절 모두 권장안
+(c) additive가 그대로 채택됐고 `schemaVersion`은 1을 유지한다. 부분 승인은 없었다.
+
+**변경한 파일과 핵심 변경 내용**
+
+- `docs/work/task-m1-state-truth-table.md`
+  - 머리말의 "승인 필요"를 "승인 상태"로 바꾸고 승인 일자와 범위, 후속 lane(W0-3, W1-C)을 명시했다.
+  - 4절 상단의 "이 절은 제안이다" 경고를 승인 사실로 교체했다. 비교 표는 결정 근거 기록으로 남겼다.
+  - 5절 제목을 `(승인 대기)`에서 `(적용 완료)`로 바꾸고, 실제 문서와 어긋나면 계약 문서를 기준으로 한다는
+    규칙을 넣었다.
+  - 5.5(적용하며 추가 처리한 4건)와 5.6(적용 후 검증 4항목)을 새로 썼다.
+  - 단계별 계획의 2단계를 완료로, 3단계를 별도 lane 소유로 표시했다.
+  - 2단계 완료 기준 체크리스트를 추가했다.
+- `docs/development-management/provider-coverage-contract.md`
+  - 머리말에 truth table 참조와 "어긋나면 truth table 기준" 규칙 추가.
+  - `## Coverage metadata`: `data.completion`을 상태의 단일 출처로 선언하고, 나머지 5필드를 projection으로
+    재정의했다. `complete`의 정의를 `completion.traversalStatus === "exhausted"`의 v1 호환 표현으로 바꿨다.
+    `### schema version 정책` 소절을 추가했다.
+  - `## 허용 상태와 금지 상태`: 4행 표를 3축 요약 표 10행으로 교체하고, 금지 조합을 4개에서 9개로 늘렸다.
+    금지 문구 목록과 "타입 union + schema `allOf`로 표현 불가능하게 만든다"는 원칙을 덧붙였다.
+  - `## Provider 실패 코드`: 6행에서 16행으로 확장하고, `provider_` 접두사가 없는 code 4종을 별도 표로
+    분리했다.
+  - `## 기준 fixture`: 7행 추가.
+
+**설계 결정과 이유**
+
+1. **`provider_ipc_unavailable`을 provider 표에 추가했다.** 5.3 원안 diff에 빠져 있었지만 코드가 실제로
+   던지는 code이고 truth table F9에는 이미 있었다. 문서화하지 않으면 "표에 없는 code" 문제가 그대로 남는다.
+2. **비-provider code를 같은 표에 섞지 않았다.** `timeout`, `request_cancelled`, `target_*`,
+   `internal_error`는 원인이 provider가 아니다. 하나의 "Provider 실패 코드" 표에 넣으면 사용자와 Agent가
+   provider 설정을 의심하게 만든다. 절은 같게 두되 표를 나누고 이유를 적었다.
+3. **`node_version_unsupported`와 `provider_version_unsupported`의 경계를 명시했다.** 이름이 비슷해 혼동
+   위험이 있어 두 표 사이에 한 문장을 넣었다.
+4. **Plugin reference 갱신을 이월했다.** `cli-contract.md`는 실제 응답 예시를 담는 문서다. `data.completion`
+   생산 구현 전에 예시를 넣으면 문서가 실제 출력과 어긋난다. W1-C와 함께 갱신한다.
+
+**실행한 검사**
+
+- `git diff --check`: 통과.
+- 계약 문서 전체를 다시 읽어 4항목을 확인했다. 결과는 5.6절 표에 있다. 요약: `complete` 정의 1곳 유지,
+  code 문자열 중복 없음, 기존 금지 조합 4가지 문자 그대로 유지, 부수 발견 code 5종 문서화 완료.
+- `cli/src/**`, `src/**`, `cli/schemas/**`에 변경 없음을 `git status`로 확인했다.
+
+**아직 코드에 반영되지 않은 것**
+
+- `data.completion` 필드 자체가 존재하지 않는다. 계약 문서는 이 필드를 "상태의 단일 출처"로 선언했지만
+  CLI는 아직 생산하지 않는다. **문서가 구현보다 앞서 있는 구간이며 W1-C가 닫는다.**
+- `coverage.traversal.status`의 `timeout`과 `failed`는 여전히 schema에만 있고 `cli/src/coverage.ts`는
+  3값만 생산한다. 계약 문서는 5값을 모두 생산한다고 선언했다. W0-3/W1-C가 닫는다.
+- `cli/src/types.ts`의 union은 여전히 3값이고, `src/types.ts`는 리터럴 타입이라 새 값 도입 시 먼저 깨진다.
+- 신규 error code 10종(+ `provider_ipc_unavailable` 문서화)은 문서에만 있다. `provider_not_ready`,
+  `provider_project_metadata_missing`, `provider_protocol_incompatible`은 `IL-LIM-005` 3단계에,
+  doctor 5종은 `IL-LIM-004` 2단계에, `request_cancelled`는 `IL-LIM-005` 1단계 cancellation에 묶인다.
+- 5.4에 추가한 fixture 7종은 아직 존재하지 않는다.
+- `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`는 여전히 구어휘 예시만 담고 있다.
+
+**남은 모호함**
+
+- `data.completion`의 `stage` 값이 실패 envelope의 `error.details.stage`와 같은 필드인지, 별도로 두는지가
+  아직 정해지지 않았다. 두 곳에 같은 값을 중복 저장하면 X-계열 모순이 하나 더 생긴다. W0-3에서 결정해야
+  한다.
+- `no_incoming_callers`와 `index_state_unknown`은 이번에 새로 도입한 reason code인데, 기존 reason code와
+  달리 error code 표에 대응 항목이 없다. reason 전용 code의 목록을 계약 문서에 별도 표로 둘지 결정이 남았다.
+- `traversal_timeout` / `traversal_cancelled` reason과 `timeout` / `request_cancelled` error code가 같은
+  사건의 두 표현이다. 이름을 통일할지 지금처럼 분리할지는 W0-3에서 확정한다.
