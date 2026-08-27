@@ -4,6 +4,10 @@
 // the build when one side gains a value the other does not. A plain TypeScript union would disappear at compile
 // time and let the two drift apart unnoticed, which is exactly how the drift this file just fixed appeared.
 
+// The single source of the envelope's schemaVersion. It was two literals in index.ts, which the approved
+// schema-version policy lists as a precondition for ever promoting to v2 (task-m1-state-truth-table.md 4.3).
+export const SCHEMA_VERSION = 1;
+
 export const PROVIDER_HOSTS = ['lsp', 'vscode'] as const;
 export type ProviderHost = (typeof PROVIDER_HOSTS)[number];
 

@@ -382,3 +382,17 @@ schema만 넓히는 변경을 아무도 못 잡는다. 5단계의 parity 테스�
    `plugins/impact-lens/scripts/run-impact-lens`(POSIX shell)가 직접 JSON을 쓴다. `errors.ts`에 넣으면
    "TypeScript가 던진다"는 거짓 신호가 되므로 제외하고 그 이유를 파일 주석에 남겼다. 이 계열의 계약
    준수는 `cli/src/test/runner.test.ts`가 실제 실행으로 검사한다.
+
+### 2026-08-27 — 4단계: `schemaVersion` 상수화
+
+**변경한 파일**: `cli/src/types.ts`, `cli/src/index.ts`
+
+`SCHEMA_VERSION`을 `types.ts`에 두고 `index.ts`의 리터럴 2개(`:103` 실패 envelope, `:122` 성공 envelope)를
+대체했다. `types.ts`에 둔 이유는 `SCHEMA_VERSION`이 어휘 상수들과 같은 것 — 응답 계약 — 이기 때문이다.
+truth table 4.3절의 v2 승격 조건 5번을 만족시킨다.
+
+타입은 `1`이 아니라 `number`로 뒀다. 리터럴 타입으로 고정하면 v2 승격 시 이 파일 하나가 아니라 값을
+비교하는 모든 자리를 함께 고쳐야 한다. 지금 `schemaVersion`을 분기 조건으로 쓰는 코드는 없다.
+
+**검증**: `npm run test:all` 54 pass / 0 fail. 고정 캡처 16종 기준선과 완전 동일
+(`"schemaVersion":1`이 성공·실패 양쪽에서 그대로다).
