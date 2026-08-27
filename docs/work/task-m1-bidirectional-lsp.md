@@ -302,3 +302,47 @@ W0-4의 캡처 스크립트를 코드 변경 **없이** 5회 실행했다.
 | 취소 fixture | `$/cancelRequest`가 server에 도달함을 server 쪽 파일 기록으로 확인 |
 | 진단 대기 | 400ms 지연 publish를 잡아냄(옛 100ms 대기에서는 0건), 즉시 publish에서는 500ms 미만 반환 |
 
+#### 무변경 증명 — 관측된 차이 1건 (lead 결정 필요)
+
+캡처 도구의 신뢰성 문제를 없애기 위해 `docs/work/task-m1-provider-seam.md`에서 **매 실행마다 새로
+추출한 원문 스크립트**로 다시 수행했다. 같은 worktree에서 `git checkout dbc6c9b -- cli/src cli/package.json`
+으로 기준선 소스를 복원해 빌드·캡처하고, 다시 branch HEAD로 복원해 빌드·캡처했다.
+
+| 비교 | 결과 |
+| --- | --- |
+| 기준선 3회끼리 | 29 시나리오 **전부 동일** |
+| branch 3회끼리 | 29 시나리오 **전부 동일** |
+| 기준선 ↔ branch | **16줄 차이. 전부 같은 필드 한 개다.** |
+
+차이의 전체 목록은 다음 하나뿐이다.
+
+```
+data.provider.observed.diagnostics      false -> true
+capabilities.observed.diagnostics       false -> true   (같은 값의 mirror)
+```
+
+`ok-ts`, `ok-tsx`, `ok-js`, `ok-mts`, `ok-depth-limited`, `ok-node-limited`, `ok-include-source`,
+`ok-no-callers` 8개 성공 시나리오에서 각 2줄씩이다. **node의 `diagnostics` 배열 내용, 그래프, 노드 수,
+`coverage`, `limitations`, 모든 실패 envelope은 한 바이트도 다르지 않다.**
+
+원인은 진단 대기 교체다. `workspace.configuration` 선언(3단계)은 이 시점에 아직 없다.
+
+**이것을 "임의로 갱신"하지 않고 그대로 보고한다.** 판단 재료는 셋이다.
+
+1. **옛 코드도 `true`를 낸 적이 있다.** 착수 시 기준선 5벌 중 base1이 `true`였다(C1). 즉 `false`는
+   고정된 계약이 아니라 100ms 안에 `publishDiagnostics`가 도착했는지에 대한 경주 결과다.
+   이번 3벌이 모두 `false`로 일치한 것은 그 경주가 이 머신에서 대체로 한쪽으로 기운다는 뜻일 뿐이다.
+2. **`false`는 사실이 아니다.** transcript로 확인하면 bundled TypeScript는 열어둔 문서 4개 전부에
+   대해 진단을 publish한다(`diagnosticsPublishedFor: 4, openedDocuments: 4`). 옛 코드는 그것을
+   받고도 이미 듣기를 그만둔 뒤였다.
+3. **이 필드가 `false`인 동안 node의 `diagnostics`는 구조적으로 빈 배열이었다.** 오류가 있는
+   workspace였다면 옛 코드는 진단을 통째로 누락했을 것이다. 이번 캡처 workspace에 오류가 없어서
+   배열 내용에는 차이가 나지 않았을 뿐이다.
+
+되돌리는 선택지도 있다: 고정 100ms를 유지하면 이 16줄은 사라지지만 진단 누락과 비결정성이 함께 남는다.
+**결정은 lead에게 있다.** 이 lane은 값을 바꾸는 테스트나 기대값 파일을 만들지 않았다(그런 파일이 없다).
+
+**알려진 비용**: 문서를 열고도 `publishDiagnostics`를 전혀 보내지 않는 provider에서는 분석마다
+budget 상한(2000ms, 세션 timeout으로 다시 상한)만큼 기다린다. bundled TypeScript는 신호에서
+빠져나오므로 해당되지 않는다. preset이 이 값을 선언하는 것은 Wave 2 readiness budget의 일이다.
+
