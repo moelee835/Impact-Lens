@@ -396,3 +396,47 @@ truth table 4.3절의 v2 승격 조건 5번을 만족시킨다.
 
 **검증**: `npm run test:all` 54 pass / 0 fail. 고정 캡처 16종 기준선과 완전 동일
 (`"schemaVersion":1`이 성공·실패 양쪽에서 그대로다).
+
+### 2026-08-27 — 5단계: 계약 테스트
+
+**변경한 파일**: `cli/src/test/jsonSchema.ts`(신규), `cli/src/test/schema.test.ts`(전면 교체)
+
+`jsonSchema.ts`는 이 schema가 쓰는 keyword만 구현한 JSON Schema 2020-12 checker다. 지원하는 keyword는
+`$ref`, `$defs`, `type`, `const`, `enum`, `properties`, `required`, `additionalProperties`, `items`,
+`minItems`, `maxItems`, `minimum`, `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`else`다.
+결정 5에서 ajv 대신 자체 checker를 택했다.
+
+자체 checker의 유일한 실질 위험은 "모르는 구문을 조용히 통과"다. 두 겹으로 막았다.
+
+1. `assertSupportedKeywords`가 schema 전체를 훑어 미구현 keyword를 만나면 **던진다**. 나중에 누가
+   `patternProperties`나 `dependentRequired`를 추가하면 검사가 약해지는 게 아니라 빌드가 깨진다.
+2. schema가 금지하는 12가지 변형을 실제 응답에서 만들어 checker가 전부 거부하는지 확인한다
+   (enum 밖 값 2종, `additionalProperties` 위반 2종, 필수 필드 누락 2종, `ok:false`인데 `error` 없음,
+   `const` 위반, `oneOf` 위반, `minimum` 위반, runner source allowlist 위반).
+
+`schema.test.ts`가 검사하는 것은 4가지다.
+
+- **타입 어휘 ↔ schema enum parity** 7쌍. 드리프트를 잡는 검사다.
+- `SCHEMA_VERSION` 상수 ↔ schema의 `properties.schemaVersion.const`.
+- **실제 CLI 응답 3건**이 schema를 통과: 임시 workspace에서 실행한 `impact.analyze` 성공(`provider`,
+  `coverage` 분기를 실제로 태운다), `provider.doctor` 성공, 인자 없이 실행한 `invalid_command` 실패.
+- checker가 금지 변형 12종을 거부.
+
+**드리프트 3건을 실제로 잡는지 확인했다.** `PROVIDER_HOSTS`, `PROVIDER_SELECTED_BY`,
+`TRAVERSAL_STATUSES`를 변경 전 값으로 되돌리고 실행한 결과, parity 테스트가 세 건을 **한 번에** 보고했다.
+
+```
+field: 'provider.host',              missingFromTypes: ['vscode']
+field: 'provider.selectedBy',        missingFromTypes: ['auto', 'preset', 'project', 'vscode']
+field: 'coverage.traversal.status',  missingFromTypes: ['failed', 'timeout']
+```
+
+처음에는 쌍마다 `assert.deepEqual`을 걸었는데 첫 건에서 멈춰 나머지 두 건이 보이지 않았다. 이 계약이
+드리프트 3건을 동시에 쌓아 온 이유가 바로 그것이므로, 전부 모아 한 번에 보고하도록 고쳤다.
+
+**응답 검증만으로는 드리프트를 못 잡는다는 것도 확인했다.** 위 실험에서 실제 응답 3건은 좁힌 타입으로도
+전부 schema를 통과했다(`✔ a real impact.analyze response satisfies the response schema`). CLI가 생산하는
+값이 전부 schema의 더 넓은 enum 안에 있기 때문이다. ajv를 넣었어도 결과는 같았을 것이다. 결정 5의 표
+마지막 행이 실측으로 확인됐다.
+
+**검증**: `npm run test:all` 60 pass / 0 fail. 고정 캡처 16종 기준선과 완전 동일.
