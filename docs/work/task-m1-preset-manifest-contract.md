@@ -6,7 +6,8 @@
 - 관련 story: [`IL-LIM-005`](../development-management/stories/il-lim-005-custom-lsp-compatibility.md) 1~3단계,
   [`IL-LIM-004`](../development-management/stories/il-lim-004-first-class-language-presets.md) 1단계
 - 실행 계획: [`task-m1-agent-team-execution.md`](task-m1-agent-team-execution.md) Wave 1 "교차 의존 처리"
-- 상태: **제안. lead 승인 대기.** 승인 전에는 어떤 lane도 이 형태를 타입·스키마에 반영하지 않는다.
+- 상태: **lead 결정 반영 완료 (2026-08-27).** 아래 "lead 결정" 표의 7건 중 6건이 확정됐고 **L2 하나만
+  미결**이다. L2는 관측 전에 정할 수 없는 항목이며, 그때까지 "bundled 동작 무변경" 제약이 그대로 유지된다.
 
 ## 배경과 해결할 문제
 
@@ -66,8 +67,8 @@ handover가 `lspProvider.ts`에 있다고 적은 provider 선택 로직은 W0-4(
 
 ## 결정
 
-각 결정은 선택지 → 채택 → 기각 사유 순서로 적는다. 결정하지 못한 것은 "lead 결정 필요" 표에 있고,
-여기에 단정으로 적지 않는다.
+각 결정은 선택지 → 채택 → 기각 사유 순서로 적는다. W1-A가 단독으로 정할 수 없는 것은 아래 "lead 결정"
+표로 올렸고, 그 표는 2026-08-27 lead 결정으로 **L2 하나를 제외하고 전부 닫혔다.**
 
 ### D1. `initializationOptions`는 정적 리터럴만으로 표현할 수 없다
 
@@ -419,12 +420,13 @@ readiness: {
 | timeout 후 취소 | `timeout` / `request_cancelled` | **있다** |
 
 **readiness와 프로토콜 계약에 필요한 code는 전부 이미 계약에 있다. 새 code 요청은 없다.**
-단, 설정 검증 실패에 쓸 code는 없다. "lead 결정 필요" 표의 L1로 올린다.
+단, 설정 검증 실패에 쓸 code는 없다. lead가 **신규 code `provider_config_invalid` 추가**로 결정했다(L1).
+추가 자체는 `il-contract-architect`가 `provider-coverage-contract.md`와 `cli/src/errors.ts`에 넣는다.
 
 ### D8. 설정 값의 크기·형태 제한 (IL-LIM-005 미해결 질문에 대한 제안)
 
-story의 미해결 질문 "범용 JSON 설정의 최대 byte/depth와 허용 scalar type"에 대한 제안이다. 숫자는 lead
-확인 대상이지만(L5), 근거와 함께 구체값을 제시한다.
+story의 미해결 질문 "범용 JSON 설정의 최대 byte/depth와 허용 scalar type"에 대한 답이다.
+**아래 수치는 제안 그대로 lead 승인됐다(L5).**
 
 | 항목 | 제안값 | 근거 |
 | --- | --- | --- |
@@ -434,6 +436,10 @@ story의 미해결 질문 "범용 JSON 설정의 최대 byte/depth와 허용 sca
 | 총 키 개수 | 1000 | depth·byte만으로는 넓고 얕은 폭발을 막지 못한다 |
 | 금지 키 | `__proto__`, `constructor`, `prototype` (모든 depth) | prototype pollution. story의 명시 요구사항 |
 | 금지 값 | `NaN`, `Infinity` | JSON 왕복에서 보존되지 않는다 |
+
+수치를 이 정도로 **좁게** 잡은 근거는 비대칭성이다. 스키마 제한은 나중에 **완화**하는 것이 호환 변경이고
+**강화**가 파괴적 변경이다. 그래서 처음에는 좁은 쪽이 안전하며, 위 값은 알려진 정상 preset을 막을 만큼
+좁지 않다.
 
 `null`의 의미는 **"값이 `null`이다"**이며, 상위 tier가 하위 tier의 키를 **삭제하는 수단은 M1에 없다.**
 삭제 sentinel(`"$unset"` 등)을 만들면 어휘가 하나 더 늘고, 지금 그것을 필요로 하는 preset이 없다.
@@ -459,6 +465,19 @@ preset catalog 기본값  <  project 설정 파일 override  <  요청(one-shot)
 | scalar | 교체 | |
 
 override에는 `$ref`를 쓸 수 없다(D1). override는 평문 JSON만이다.
+
+**요청 수준 override의 필드 이름은 lead 결정으로 지금 고정됐다(L6).** 스키마 추가는 나중이지만 이름을
+지금 못박아서 W1-A와 W1-B가 서로 다른 이름을 가정하는 것을 막는다.
+
+| 요청 최상위 필드 | 값 |
+| --- | --- |
+| `providerPreset` | preset id 문자열 |
+| `initializationOptions` | 평문 JSON 객체 |
+| `settings` | 평문 JSON 객체 |
+
+W1-A와 W1-B는 이 이름에 맞춰 배관을 만들되 **스키마에 필드가 아직 없다는 전제로** 작업한다.
+`cli/schemas/request.schema.json` 추가는 W1-C merge 직후 별도 contract lane이 하며, **Wave 1 종료 gate를
+닫기 전에** 처리한다.
 
 ### D10. server→client 응답 전송 계약
 
@@ -497,8 +516,14 @@ manifest로 설정할 수 없는, 프로토콜 계층이 고정으로 소유하�
 (c)는 원인이 실제로 결과에 영향을 준 경우에만 code를 바꾸므로 두 실패를 다 피한다. 이 승격은 truth table
 F11(stage `initialize`, code `provider_protocol_incompatible`)과 그대로 일치한다.
 
-성공한 분석에서 미처리 request가 있었던 경우의 노출은 doctor JSON과 debug transcript로만 한다.
-성공 envelope에 새 reason code를 넣는 문제는 L3으로 올린다.
+성공한 분석에서 미처리 request가 있었던 경우의 노출은 **doctor JSON과 debug transcript로만 한다**(L3 결정).
+근거는 이 절의 (c) 자체다. 미지원 method에 MethodNotFound로 **답을 하므로** server가 침묵 속에 매달리지
+않고, 그 뒤 server가 실패하면 provider error로 드러난다. 즉 이 사건이 "조용한 불완전"으로 빠지는 경로가
+(c) 아래에서는 닫혀 있다.
+
+**조건부다.** (c)의 code 승격이 실제로 모든 경우를 덮는지는 W1-A 구현으로 확인돼야 한다. 덮지 못하는
+경우가 **하나라도 관측되면** 성공 envelope에 reason code(`unhandled_server_request`)를 추가하는 쪽으로
+뒤집는다. 그때는 reason code 추가라 `il-contract-architect` lane과 truth table 갱신이 필요하다.
 
 ### D11. client capability 선언은 코드가 소유한다
 
@@ -525,7 +550,11 @@ Wave 1에서 추가할 선언은 다음과 같다.
 typescript-language-server가 지금은 하지 않는 `workspace/configuration` 요청을 시작할 수 있다. 우리는
 `[null]`을 답하고 server는 기본값을 쓰므로 결과는 같아야 하지만, **같아야 한다는 것은 가정이지 사실이
 아니다.** W1-A는 이 변경 전후로 W0-3이 쓴 응답 캡처 바이트 비교를 실행해야 하며, workspace 경로를
-고정해서 캡처의 비결정성(symbolId 해싱, note conflict token)을 제거해야 한다. 차이가 나오면 L2로 간다.
+고정해서 캡처의 비결정성(symbolId 해싱, note conflict token)을 제거해야 한다.
+
+**L2는 이 문서에서 유일하게 열려 있는 항목이고, 규칙만 확정됐다.** "bundled 동작 무변경" 제약은 지금
+그대로 유지한다. W1-A가 캡처 차이를 실제로 관측하면 **기대값을 임의로 갱신하지 말고 차이의 정확한 내용을
+보고**해야 하며, 대응은 그 관측 뒤에 결정한다. 관측 전에 정하는 것은 추측이다.
 
 ### D12. server request id 네임스페이스
 
@@ -588,19 +617,20 @@ manifest와 무관하지만 응답 전송 계약과 같은 파일에서 움직�
    D12-3의 "알 수 없는 id"로 잘못 집계되지 않는다.
 3. dispose는 bounded로 유지한다. orphan process를 남기지 않는다.
 
-## lead 결정 필요
+## lead 결정
 
-억지로 정하지 않고 남긴 항목이다. 각 행에 "무엇을 정해야 하는가"와 "각 선택의 파급"을 적었다.
+2026-08-27 lead 결정이다. "파급" 열은 결정의 근거이므로 그대로 남겼다.
+**7건 중 6건이 확정됐고 미결은 L2 하나뿐이다.**
 
-| # | 항목 | 선택지 | 파급 |
-| --- | --- | --- | --- |
-| L1 | project 설정 파일의 provider 설정이 스키마 검증에 실패했을 때의 error code | (a) 기존 `invalid_request` 재사용 (b) 신규 code(`provider_config_invalid` 등) | (a)는 code 추가가 없지만 "요청은 멀쩡한데 요청이 잘못됐다"고 보고하게 된다. (b)는 `provider-coverage-contract.md`와 `cli/src/errors.ts` 변경이므로 `il-contract-architect` lane이 필요하다. 승인된 신규 11종에 이 상황을 덮는 code가 **없다**는 것은 확인했다 |
-| L2 | D11의 `workspace.configuration: true` 선언이 bundled TypeScript 캡처를 바꾸는 경우의 대응 | (a) 캡처 기대값을 갱신하고 진행 (b) manifest에 client capability opt-out 필드를 추가해 TS preset만 끈다 | (a)는 "bundled 동작 무변경" 제약을 명시적으로 완화하는 결정이라 lead 승인이 필요하다. (b)는 D11에서 기각한 "manifest가 capability를 건드린다"를 좁은 형태로 다시 여는 것이므로, 실제 차이가 관측된 뒤에만 검토할 가치가 있다 |
-| L3 | 성공 envelope이 미처리 server request를 machine-readable로 알려야 하는가 | (a) doctor JSON + debug transcript만 (b) 신규 reason code(`unhandled_server_request`) 추가 | (b)는 reason code 추가라 `il-contract-architect` lane과 truth table 갱신이 필요하다. (a)는 Plugin이 이 사실을 볼 수 없다 |
-| L4 | `coverage.indexing`의 `evidence` 필드 형태 | 이 문서의 제안: `{ signal, detail, observedAtMs }` | truth table 3절 X3이 "`ready`는 evidence 동반 필수"를 이미 고정했고 형태는 `IL-LIM-005` 3단계로 미뤘다. 필드가 사는 파일(`cli/src/types.ts`, `cli/schemas/**`)은 `il-contract-architect` 소유이므로 W1-A가 직접 추가하지 않는다. Wave 2 착수 전에 확정이 필요하다 |
-| L5 | D8의 제한 수치(depth 16 / 64 KiB / 1000키) | 제안값 확인 또는 조정 | 값이 너무 크면 초기화 프레임이 커지고, 너무 작으면 정상 preset이 막힌다. 스키마에 들어가면 완화만 가능하고 강화는 v2 변경이 된다 |
-| L6 | 요청·스키마 변경(`providerPreset`, 요청 수준 `initializationOptions`/`settings`)을 어느 lane이 어느 wave에 넣는가 | (a) W1-C가 Wave 1에 함께 (b) Wave 2로 미룸 | `cli/schemas/request.schema.json`은 `il-contract-architect` 소유다. W1-A와 W1-B 모두 이 필드가 없으면 override 경로를 end-to-end로 검증할 수 없다. 순서를 정하지 않으면 두 lane이 각자 "곧 생길 필드"를 가정하게 된다 |
-| L7 | handover 6절 미결 4번(`provider_ipc_unavailable`의 stage) | (a) 계약 문서를 코드에 맞춘다 (b) 코드를 문서에 맞춘다 | 아래 절에 조사 결과와 권고를 적었다. 계약 문서 수정은 `il-contract-architect` lane이다 |
+| # | 항목 | 선택지 | 파급(결정 근거) | **결정** |
+| --- | --- | --- | --- | --- |
+| L1 | project 설정 파일의 provider 설정이 스키마 검증에 실패했을 때의 error code | (a) 기존 `invalid_request` 재사용 (b) 신규 code(`provider_config_invalid` 등) | (a)는 code 추가가 없지만 "요청은 멀쩡한데 요청이 잘못됐다"고 보고하게 된다. (b)는 `provider-coverage-contract.md`와 `cli/src/errors.ts` 변경이므로 `il-contract-architect` lane이 필요하다. 승인된 신규 11종에 이 상황을 덮는 code가 **없다**는 것은 확인했다 | **(b) 신규 code `provider_config_invalid`.** `invalid_request` 재사용은 사용자가 고쳐야 할 파일을 잘못 지목한다. 상태를 정확히 보고하는 것이 이 도구의 존재 이유인데 진단 자체가 틀린 곳을 가리켜서는 안 된다. 추가는 W1-C |
+| L2 | D11의 `workspace.configuration: true` 선언이 bundled TypeScript 캡처를 바꾸는 경우의 대응 | (a) 캡처 기대값을 갱신하고 진행 (b) manifest에 client capability opt-out 필드를 추가해 TS preset만 끈다 | (a)는 "bundled 동작 무변경" 제약을 명시적으로 완화하는 결정이라 lead 승인이 필요하다. (b)는 D11에서 기각한 "manifest가 capability를 건드린다"를 좁은 형태로 다시 여는 것이므로, 실제 차이가 관측된 뒤에만 검토할 가치가 있다 | **미결. 이 문서에서 유일하다.** 캡처가 실제로 바뀌는지 아직 아무도 관측하지 않았고 관측 전 결정은 추측이다. 그때까지 "bundled 동작 무변경" 제약을 그대로 유지하고, 차이가 나오면 W1-A는 기대값을 갱신하지 말고 차이의 정확한 내용을 보고한다 |
+| L3 | 성공 envelope이 미처리 server request를 machine-readable로 알려야 하는가 | (a) doctor JSON + debug transcript만 (b) 신규 reason code(`unhandled_server_request`) 추가 | (b)는 reason code 추가라 `il-contract-architect` lane과 truth table 갱신이 필요하다. (a)는 Plugin이 이 사실을 볼 수 없다 | **(a) doctor JSON + debug transcript만.** D10이 MethodNotFound로 답하므로 이 사건이 "조용한 불완전"으로 빠지는 경로가 닫혀 있다. **조건부**: D10의 code 승격이 덮지 못하는 경우가 하나라도 관측되면 (b)로 뒤집는다 |
+| L4 | `coverage.indexing`의 `evidence` 필드 형태 | 이 문서의 제안: `{ signal, detail, observedAtMs }` | truth table 3절 X3이 "`ready`는 evidence 동반 필수"를 이미 고정했고 형태는 `IL-LIM-005` 3단계로 미뤘다. 필드가 사는 파일(`cli/src/types.ts`, `cli/schemas/**`)은 `il-contract-architect` 소유이므로 W1-A가 직접 추가하지 않는다. Wave 2 착수 전에 확정이 필요하다 | **`{ signal, detail }` 승인. `observedAtMs`는 제외.** 이 저장소의 리팩터링 검증은 전부 응답 바이트 비교에 의존한다(W0-2 16건, W0-3 16건, W0-4 29건). 응답에 벽시계 시각이 들어가면 그 수단이 통째로 무력화된다 — `mkdtemp` 함정과 같은 종류의 비결정성이고 이건 우리가 스스로 만드는 쪽이다. 시간이 정말 필요하면 **요청 시작 기준 경과 시간**으로 다시 제안한다. 절대 시각은 안 된다 |
+| L5 | D8의 제한 수치(depth 16 / 64 KiB / 1000키) | 제안값 확인 또는 조정 | 값이 너무 크면 초기화 프레임이 커지고, 너무 작으면 정상 preset이 막힌다. 스키마에 들어가면 완화만 가능하고 강화는 v2 변경이 된다 | **제안값 그대로 승인.** 완화가 호환 변경이고 강화가 파괴적 변경이라는 비대칭 때문에 처음에는 좁은 쪽이 안전하며, 제안값은 정상 preset을 막을 만큼 좁지 않다 |
+| L6 | 요청·스키마 변경(`providerPreset`, 요청 수준 `initializationOptions`/`settings`)을 어느 lane이 어느 wave에 넣는가 | (a) W1-C가 Wave 1에 함께 (b) Wave 2로 미룸 | `cli/schemas/request.schema.json`은 `il-contract-architect` 소유다. W1-A와 W1-B 모두 이 필드가 없으면 override 경로를 end-to-end로 검증할 수 없다. 순서를 정하지 않으면 두 lane이 각자 "곧 생길 필드"를 가정하게 된다 | **(b) Wave 1 후속 lane. 단 필드 이름은 지금 고정한다.** W1-C에 요청 스키마까지 얹으면 한 PR이 응답 계약과 요청 계약을 동시에 바꿔 무변경 증명의 기준선이 흐려진다. 이름(`providerPreset`/`initializationOptions`/`settings`)을 D9에 못박아 "곧 생길 필드" 가정 문제를 대신 해소했다. 스키마 추가는 W1-C merge 직후, Wave 1 종료 gate 이전 |
+| L7 | handover 6절 미결 4번(`provider_ipc_unavailable`의 stage) | (a) 계약 문서를 코드에 맞춘다 (b) 코드를 문서에 맞춘다 | 아래 절에 조사 결과와 권고를 적었다. 계약 문서 수정은 `il-contract-architect` lane이다 | **(a) 문서를 코드에 맞춘다. W1-A 권고 채택.** 결정적 근거는 두 번째다 — 관측 불가능한 값을 계약에 적으면 그 값은 추측이 되고, 이 저장소가 없애려는 것이 정확히 그런 거짓 확신이다. 수정은 W1-C. **이것으로 handover 6절 미결 4번이 닫힌다** |
 
 ## handover 미결 4번에 대한 조사 결과
 
@@ -620,8 +650,11 @@ manifest와 무관하지만 응답 전송 계약과 같은 파일에서 움직�
   "server가 한 번 답한 뒤 stdio가 끊겼다"는 사례를 표현할 수 없다.
 
 따라서 계약 표를 `launch` 고정에서 `details.stage ∈ {launch, initialize, query}`로 고치고, code의 의미를
-"stage와 무관하게, 환경이 stdio를 전달하지 않았다"로 적는 것을 제안한다. 최종 결정은 계약 lane과 lead에게
-있다(L7).
+"stage와 무관하게, 환경이 stdio를 전달하지 않았다"로 적는다.
+
+**lead가 이 권고를 채택했다(L7).** 두 번째 근거가 결정적이었다. 문서 수정은
+`provider-coverage-contract.md`를 잡고 있는 `il-contract-architect`가 수행하며, 이 문서에는 결정과 근거만
+남긴다. **이것으로 handover 6절 미결 4번이 닫힌다.**
 
 ## `ProviderPreset` 타입 스케치
 
@@ -814,13 +847,17 @@ export interface ResolvedProviderSession extends ResolvedProvider {
   readonly redactionValues: readonly string[];
 }
 
-// ---------- 제안: coverage.indexing.evidence (L4, il-contract-architect 소유 파일) ----------
+// ---------- coverage.indexing.evidence (L4 승인. 추가는 il-contract-architect가 한다) ----------
 
+/**
+ * 시각 필드를 의도적으로 두지 않는다. 이 저장소의 무변경 증명이 응답 바이트 비교에 의존하므로,
+ * 응답에 벽시계 시각이 들어가면 그 검증 수단이 무력화된다. 시간이 필요해지면 절대 시각이 아니라
+ * 요청 시작 기준 경과 시간으로 다시 제안한다.
+ */
 export interface IndexingReadinessEvidence {
   readonly signal: ReadinessSignalKind;
   /** redaction을 통과한 짧은 식별 문자열(method 이름 또는 progress title). */
   readonly detail: string;
-  readonly observedAtMs: number;
 }
 ```
 
@@ -854,16 +891,23 @@ const bundledTypeScript: ProviderPreset = {
 
 ## 단계별 구현 계획
 
-이 문서 자체는 단일 단계다. 아래는 **승인 이후** W1-A가 착수할 단계이며, 각각 독립 검증·commit·push가
-가능한 단위로 쪼갠 것이다. 이 branch에서는 수행하지 않는다.
+이 문서 자체는 단일 단계다. 아래는 W1-A가 착수할 단계이며, 각각 독립 검증·commit·push가 가능한 단위로
+쪼갠 것이다. 이 branch에서는 수행하지 않는다.
 
 1. **양방향 디스패치와 응답 전송** — D12의 shape 기반 판정, 두 개의 분리된 표, D10의 응답 표,
    MethodNotFound 기록. server id를 1부터 매기는 fixture 시나리오로 검증.
 2. **설정 주입** — D11의 capability 선언, D2의 seam 확장, D3의 조회 규칙, D4의 순서 제약.
-   bundled 응답 캡처 바이트 비교가 이 단계의 완료 조건이다.
+   bundled 응답 캡처 바이트 비교가 이 단계의 완료 조건이며, 차이가 나오면 기대값을 갱신하지 않고
+   차이 내용을 보고한다(L2).
 3. **redaction과 cancellation** — D6의 세션 redaction 표, sentinel grep 검증, D13.
 
-readiness(D7)의 실제 관측은 Wave 2 W2-A다. Wave 1은 필드를 받는 자리만 만든다.
+**lane 순서 제약(L6)**: 위 세 단계는 요청 스키마에 `providerPreset`/`initializationOptions`/`settings`가
+**아직 없다는 전제로** 진행한다. 필드 이름은 D9에서 고정됐으므로 배관은 그 이름으로 만든다.
+`cli/schemas/request.schema.json` 추가는 W1-C merge 직후 별도 contract lane이 **Wave 1 종료 gate 이전에**
+처리한다. W1-A가 스키마를 직접 건드리지 않는다.
+
+readiness(D7)의 실제 관측은 Wave 2 W2-A다. Wave 1은 필드를 받는 자리만 만든다. `coverage.indexing`의
+`evidence` 필드(`{ signal, detail }`, L4) 추가는 Wave 2 착수 전 `il-contract-architect`가 한다.
 
 ## 테스트 및 완료 기준
 
@@ -877,18 +921,19 @@ readiness(D7)의 실제 관측은 Wave 2 W2-A다. Wave 1은 필드를 받는 자
 - [x] secret 선언 지점과 강제 지점이 결정됐다 — D6
 - [x] server request id 네임스페이스 분리 방식이 결정되고, fixture의 1000 base가 계약이 아님을 명시했다 — D12
 - [x] `ProviderPreset` 타입 스케치가 있고 bundled TypeScript preset으로 표현 가능함을 확인했다
-- [x] 결정하지 못한 항목이 "lead 결정 필요" 표에 파급과 함께 남았다 — L1~L7
+- [x] W1-A가 단독으로 정할 수 없는 항목이 "lead 결정" 표에 파급과 함께 올라갔다 — L1~L7
+- [x] lead 결정 7건이 표에 근거와 함께 기록됐고, 미결이 L2 하나뿐임이 문서에서 분명하다
 - [x] 구현 파일을 하나도 변경하지 않았다
 
 문서 전용 변경이므로 컴파일·테스트는 이 단계의 검증 대상이 아니다. `git diff --check`만 실행한다.
-**승인 후 W1-A 구현 단계의 검증은 `npm run cli:test`와 `npm run test:plugin-artifact`이며, 특히
+**W1-A 구현 단계의 검증은 `npm run cli:test`와 `npm run test:plugin-artifact`이며, 특히
 "server request를 실제로 보내는 mock fixture 없이 이 계층의 변경을 완료로 표시하지 않는다"를 유지한다.**
 
 ## 주요 위험과 대응
 
 | 위험 | 대응 |
 | --- | --- |
-| `workspace.configuration: true` 선언이 bundled TypeScript의 동작을 바꾼다 | 응답 캡처 바이트 비교를 D11의 완료 조건으로 둔다. 차이가 나오면 L2 |
+| `workspace.configuration: true` 선언이 bundled TypeScript의 동작을 바꾼다 | 응답 캡처 바이트 비교를 D11의 완료 조건으로 둔다. "bundled 동작 무변경" 제약은 유지하고, 차이가 나오면 기대값을 갱신하지 말고 차이 내용을 보고한다(L2 미결) |
 | 캡처 비교가 코드 무변경에서도 diff를 낸다 | workspace 경로를 고정한다. `mkdtemp`를 쓰면 symbolId 해싱과 note conflict token이 경로를 담아 비결정적이 된다 (handover 8절) |
 | manifest 어휘가 조금씩 늘어 표현식 언어가 된다 | ref 집합을 실제 소비처가 생길 때만 additive로 늘린다. `join`·조건부 인자·재시도 전략을 M1에서 의도적으로 뺐다 |
 | readiness 필드만 만들고 Wave 2에서 채우지 않아 문서가 다시 코드를 앞선다 | handover 7절 "문서가 구현보다 앞선 구간" 표에 D7 행을 추가하고 W2-A를 닫는 lane으로 지정한다 |
@@ -944,7 +989,8 @@ readiness(D7)의 실제 관측은 Wave 2 W2-A다. Wave 1은 필드를 받는 자
 
 **발견 사항**
 
-- `provider-coverage-contract.md`의 신규 11종에 **설정 검증 실패용 code가 없다.** L1로 올렸다.
+- `provider-coverage-contract.md`의 신규 11종에 **설정 검증 실패용 code가 없다.** L1로 올렸고,
+  lead가 신규 code `provider_config_invalid` 추가로 결정했다.
 - `cli/src/childIpc.ts:childIpcUnavailableError`가 원래 `details`를 펼치므로 계약 표의
   "`provider_ipc_unavailable` = stage `launch`"는 코드와 어긋난다. handover 미결 4번의 답이며 권고를 적었다.
 - `cli/src/test/fixtures/configurationRequestServer.ts`가 요청하는 section은 `impactLens`이고 어떤 preset도
@@ -956,3 +1002,45 @@ readiness(D7)의 실제 관측은 Wave 2 W2-A다. Wave 1은 필드를 받는 자
 - L1~L7 결정. 특히 L6(요청 스키마 변경의 lane과 wave)은 W1-A·W1-B 착수 전에 정해야 한다.
 - `cli/src/test/fixtures/mockServer.ts`의 server id base 옵션 추가는 `il-test-release` 소유다.
   lead 경유로 요청한다.
+
+### 2026-08-27 — lead 결정 반영
+
+**변경한 파일**
+
+- `docs/work/task-m1-preset-manifest-contract.md`만. 구현 파일 변경은 여전히 0건이다.
+
+**정해진 것**
+
+"lead 결정 필요" 절을 "lead 결정" 절로 바꾸고 표에 **결정** 열을 추가했다. "파급" 열은 결정 근거이므로
+지우지 않고 그대로 뒀다. **7건 중 6건 확정, 미결은 L2 하나다.**
+
+- **L1**: 신규 code `provider_config_invalid`. `invalid_request` 재사용은 사용자가 고쳐야 할 파일을
+  잘못 지목한다. 계약·`errors.ts` 반영은 W1-C.
+- **L2**: 유일한 미결. 캡처가 실제로 바뀌는지 관측되지 않았으므로 결정하지 않는다. "bundled 동작 무변경"
+  제약을 유지하고, 차이가 관측되면 W1-A는 기대값을 갱신하지 말고 차이의 정확한 내용을 보고한다.
+- **L3**: doctor JSON + debug transcript만. D10이 MethodNotFound로 답하므로 조용한 불완전 경로가 닫혀
+  있다. D10의 code 승격이 덮지 못하는 경우가 하나라도 관측되면 뒤집는 조건부다.
+- **L4**: `{ signal, detail }` 승인, `observedAtMs` 제외. 타입 스케치에서 필드를 지우고 이유를 주석으로
+  남겼다. 응답 바이트 비교가 이 저장소의 무변경 증명 수단이므로 벽시계 시각을 응답에 넣지 않는다.
+- **L5**: 제안값 그대로 승인. 완화는 호환, 강화는 파괴적이라는 비대칭을 D8에 근거로 적었다.
+- **L6**: 스키마 추가는 Wave 1 후속 lane. 대신 요청 최상위 필드 이름
+  (`providerPreset`/`initializationOptions`/`settings`)을 D9에 못박아, 두 lane이 서로 다른 이름을
+  가정하는 문제를 이름 고정으로 해소했다. 스키마 추가는 W1-C merge 직후, Wave 1 종료 gate 이전.
+- **L7**: 문서를 코드에 맞춘다. **handover 6절 미결 4번이 닫혔다.** 수정은 W1-C.
+
+**함께 갱신한 절**
+
+- D7-2(L1), D8(L5 근거 문단), D9(L6 필드 이름 표), D10(L3 조건부), D11(L2 규칙), 타입 스케치(L4),
+  단계별 구현 계획(L6 순서와 L4 반영), 테스트 및 완료 기준, 주요 위험과 대응.
+
+**실행한 검사**
+
+- `git diff --check`: 통과.
+- `git status`: 이 문서 외 변경 없음. 구현 파일 무변경을 다시 확인했다.
+- 문서 전용 변경이므로 컴파일·테스트는 이 단계의 검증 대상이 아니다.
+
+**남은 작업**
+
+- L2는 W1-A 구현 중 캡처 비교로 관측한 뒤 lead가 닫는다. W1-A가 임의로 닫지 않는다.
+- L1·L4·L7의 계약 파일 반영은 `il-contract-architect`가 한다. W1-A는 하지 않는다.
+- 요청 스키마 필드 3종 추가는 W1-C merge 직후 contract lane이 Wave 1 종료 gate 이전에 처리한다.
