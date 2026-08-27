@@ -51,6 +51,45 @@
       },
       "additionalProperties": false
     },
+    "completion": {
+      "type": "object",
+      "required": ["requestStatus", "traversalStatus", "semanticScope", "indexingStatus"],
+      "properties": {
+        "requestStatus": { "enum": ["succeeded", "partial", "failed"] },
+        "traversalStatus": {
+          "enum": [
+            "exhausted", "depth-limited", "node-limited", "timeout",
+            "cancelled", "unknown", "failed", "not-started"
+          ]
+        },
+        "semanticScope": {
+          "enum": ["provider-static", "static-plus-inference", "static-plus-observation", "none"]
+        },
+        "indexingStatus": { "enum": ["ready", "working", "unknown"] }
+      },
+      "additionalProperties": false
+    },
+    "limitationDetail": {
+      "type": "object",
+      "required": ["code", "severity", "scope", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "severity": { "enum": ["info", "warning", "error"] },
+        "scope": { "enum": ["traversal", "semantic", "indexing", "provider", "request"] },
+        "message": { "type": "string" },
+        "action": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "indexingEvidence": {
+      "type": "object",
+      "required": ["signal"],
+      "properties": {
+        "signal": { "type": "string" },
+        "detail": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "coverage": {
       "type": "object",
       "required": ["traversal", "semantic", "indexing", "reasons"],
@@ -78,7 +117,10 @@
         "indexing": {
           "type": "object",
           "required": ["status"],
-          "properties": { "status": { "enum": ["ready", "working", "unknown"] } },
+          "properties": {
+            "status": { "enum": ["ready", "working", "unknown"] },
+            "evidence": { "$ref": "#/$defs/indexingEvidence" }
+          },
           "additionalProperties": false
         },
         "reasons": { "type": "array", "items": { "type": "string" } }
@@ -176,10 +218,16 @@
         "properties": {
           "data": {
             "type": "object",
-            "required": ["provider", "coverage"],
+            "required": ["provider", "coverage", "completion", "complete", "truncated", "traversalLimits", "nodes", "limitationDetails"],
             "properties": {
               "provider": { "$ref": "#/$defs/provider" },
-              "coverage": { "$ref": "#/$defs/coverage" }
+              "coverage": { "$ref": "#/$defs/coverage" },
+              "completion": { "$ref": "#/$defs/completion" },
+              "complete": { "type": "boolean" },
+              "truncated": { "type": "boolean" },
+              "traversalLimits": { "type": "array", "items": { "enum": ["depth", "nodes"] } },
+              "nodes": { "type": "array" },
+              "limitationDetails": { "type": "array", "items": { "$ref": "#/$defs/limitationDetail" } }
             }
           },
           "capabilities": { "$ref": "#/$defs/provider" }

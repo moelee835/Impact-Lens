@@ -88,7 +88,7 @@ truth table 3절의 X1·X7·X10이 지적하는 그대로다.
 `{ stage: this.lifecycleStage, method }`를 실제로 붙인다. 즉 계약 표의 `details.stage` 열은 `timeout`에서는
 참이고 `internal_error`에서는 거짓이다.
 
-### 캡처 비결정성 1건을 새로 발견했다
+### 캡처 비결정성을 새로 발견했다
 
 handover 8절이 경고한 `mkdtemp` 함정 외에 **두 번째 비결정 요인**이 있다. 고정 workspace로 코드를 하나도
 바꾸지 않고 캡처를 두 번 떴더니 `ok-ts.txt`만 달랐다.
@@ -107,6 +107,9 @@ top-level `provider.diagnostics`(advertised 기반)는 안정적이라 `limitati
 정규화했고, 정규화 후 3회 연속 캡처가 완전 동일함을 확인했다.
 
 이것은 이 lane의 변경과 무관한 **기존 결함**이다. W1-A(고정 100 ms 대기 제거)의 입력으로 넘긴다.
+
+구현 중에 비결정 요인 두 가지를 더 만났다(`os.tmpdir()`이 프로세스 간에 안정적이지 않다, scratchpad가 다른
+에이전트와 공유된다). 둘 다 2단계 작업 로그에 적었다.
 
 ## 설계 결정
 
@@ -315,17 +318,17 @@ lead 승인 형태는 `{ signal, detail }`이다. 벽시계 값을 넣으면 이
 
 ## 테스트 및 완료 기준
 
-- [ ] `npm run cli:build`, `npm run cli:test`, `npm test` 통과
-- [ ] 캡처 29 시나리오에서 **추가 필드를 제거하면 baseline과 바이트 동일** (최소 15개, 성공·실패·부분 포함)
-- [ ] 스키마 enum ↔ TS union parity 테스트가 새 필드까지 덮는다
-- [ ] S1~S13 각 행이 실제로 도달 가능함을 보이는 테스트가 있다
+- [x] `npm run cli:build`, `npm run cli:test`, `npm test` 통과
+- [x] 캡처 29 시나리오에서 **추가 필드를 제거하면 baseline과 바이트 동일** (최소 15개, 성공·실패·부분 포함)
+- [x] 스키마 enum ↔ TS union parity 테스트가 새 필드까지 덮는다
+- [x] S1~S13 각 행이 실제로 도달 가능함을 보이는 테스트가 있다
 - [ ] X1~X11이 타입 또는 schema `allOf`로 표현 불가능하다
 - [ ] 금지 문구 6종이 어떤 상태에서도 생성되지 않는다
-- [ ] `npm run test:plugin-artifact` 통과, `selectedBy === 'bundled'`·`complete === true` assert 유지
-- [ ] `schemaVersion`은 1 그대로
+- [x] `npm run test:plugin-artifact` 통과, `selectedBy === 'bundled'`·`complete === true` assert 유지
+- [x] `schemaVersion`은 1 그대로
 - [ ] 미결 1·2·3·4·5의 결론과 근거가 이 문서와 계약 문서에 있다
 - [ ] `provider_config_invalid`가 계약 문서와 `cli/src/errors.ts`에 선언되고, W0-3의 불변식이 약해지지 않았다
-- [ ] `coverage.indexing.evidence` 타입에 절대 시각 필드가 없다
+- [x] `coverage.indexing.evidence` 타입에 절대 시각 필드가 없다
 
 ## 작업 로그
 
@@ -365,6 +368,64 @@ lead 승인 형태는 `{ signal, detail }`이다. 벽시계 값을 넣으면 이
 
 - D1~D8을 설계 결정 절에 적었다. 미결 1·2·3·5의 결론은 각각 D2·D3·D4·D5다.
 - D6은 지시 충돌이라 **lead 결정 필요**로 남기고 기본값(보류)을 구현한다. 근거는 D6에 있다.
+
+### 2026-08-27 — 2단계: completion 모델과 v1 projection
+
+**변경한 파일**
+
+| 파일 | 핵심 변경 |
+| --- | --- |
+| `cli/src/types.ts` | `REQUEST_STATUSES`/`COMPLETION_TRAVERSAL_STATUSES`/`SEMANTIC_SCOPES`/`TRAVERSAL_LIMITS`/`LIMITATION_SEVERITIES`/`LIMITATION_SCOPES` 어휘 배열, `Completion` 3-variant union, `IndexingCoverage`·`SettledIndexingCoverage` union, `IndexingReadinessEvidence`, `LimitationDetail`, `TraversalInterruption`, `AnalysisObservations` 추가. `Coverage['indexing']`를 union으로 교체 |
+| `cli/src/coverage.ts` | `graphCompletion()`·`projectCompletion()` 도입. `coverageForTraversal()`을 대체. `V1_WITHHELD_REASON_CODES`, v1 projection 표 2개, reason 생성 함수 1개 |
+| `cli/src/impact.ts` | 반환 리터럴의 5개 상태 필드를 `projectCompletion()` 결과 하나로 교체. `analyzeImpact()`에 선택적 4번째 인자 `observations` 개설 |
+| `cli/schemas/response.schema.json` | `completion`/`limitationDetail`/`indexingEvidence` `$defs`, `coverage.indexing.evidence`, analyze 분기의 `data` 필드 선언 8종 (전부 additive) |
+| `cli/src/test/coverage.test.ts` | projection 단위 테스트로 재작성. S1~S13 + v1 무변경 + 규칙 5종 |
+| `cli/src/test/completion.test.ts` | 신규. S1~S13을 `analyzeImpact()` 실제 호출로 재현 |
+| `cli/src/test/schema.test.ts` | parity 표에 8행 추가 (새 enum 6종 + `data.traversalLimits`) |
+
+**설계 결정과 이유**
+
+1. `Completion`을 3-variant discriminated union으로 만들어 X5·X6·X8·X9를 컴파일 단계에서 막았다.
+   `graphCompletion()`의 반환 타입에 `FailedCompletion`이 없으므로 성공 envelope에 실패 상태를 실을 수 없다.
+2. `projectCompletion()`이 `complete`/`truncated`/`traversalLimits`/`coverage`/`limitations`/
+   `limitationDetails`를 **한 번에** 만든다. `impact.ts`에는 이 값들을 개별로 계산하는 코드가 남지 않았다.
+3. **X9를 코드 경로 제거로 해결했다.** 초안은 "indexing이 `working`인데 `exhausted`"를 런타임 예외로 막으려
+   했다. 그러면 도달 불가능한 dead branch가 생긴다. 대신 "index를 만드는 중이면 더 확장할 것이 없다는 사실
+   자체를 알 수 없다"는 관찰을 그대로 코드로 옮겨, `working`이면 `unknown`을 반환하고 함수를 빠져나가게 했다.
+   `succeeded`를 만드는 유일한 지점보다 앞에서 반환되므로 모순이 표현 불가능해진다. 부수 효과로 S7·S8이
+   별도 interruption 값 없이 indexing 관측만으로 도달 가능해졌고, `TraversalInterruption`에서
+   `provider-not-ready`를 뺄 수 있었다(한 사실을 한 곳에서만 표현).
+4. v1 배열 순서를 `limitationDetails` 생성 순서로 재현했다. 조건부 code 5종의 순서가 바이트 비교 대상이다.
+5. `limitations`와 `coverage.reasons`는 **같은 배열 객체**로 유지했다. 기존 코드도 그랬고, 두 벌을 만들면
+   서로 다를 수 있는 필드가 하나 더 생긴다. 테스트가 참조 동일성을 검사한다.
+6. `completion` `$def`에 `additionalProperties: false`를 넣었다. D2 결론(`stage`를 넣지 않는다)이 문서
+   문장이 아니라 schema 규칙이 된다.
+
+**검증**
+
+| 검사 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm run cli:test` | 통과 (96 tests, 이전 81) |
+| `npm test` (Extension) | 통과 (35 tests) |
+| 고정 workspace 캡처 29 시나리오, **strip 후 baseline 바이트 비교** | **완전 동일** |
+| 같은 캡처, strip 없이 | 성공·부분 응답 9종만 차이. 차이는 `data.completion`과 `data.limitationDetails` 두 필드뿐 |
+| `npm run test:plugin-artifact` | 통과 (`selectedBy === 'bundled'`, `complete === true` assert 유지) |
+
+**캡처 함정 2건 (둘 다 기존 결함이며 이 lane의 변경과 무관하다)**
+
+1. handover 8절의 `mkdtemp` 경고는 알고 있었으나, **`os.tmpdir()` 자체가 이 환경에서 프로세스 간에 안정적이지
+   않다.** 같은 이름의 고정 디렉터리를 써도 `TMPDIR`이 호출마다 달라져 `symbolId`(파일 URI 해시)와 note
+   conflict token이 바뀐다. 캡처 workspace 경로를 환경 변수 `IL_CAPTURE_WS`로 **명시**하도록 바꿨다.
+2. scratchpad 디렉터리가 다른 에이전트와 공유된다. 처음 뜬 baseline이 병렬 lane의 캡처 산출물로 덮여
+   비교가 거짓 실패했다. 캡처 출력을 전용 하위 디렉터리로 분리했다. 이 두 가지를 확인하지 않았다면
+   "무변경 증명"이 그냥 통과했을 수도, 거짓 실패했을 수도 있다.
+
+**baseline을 다시 뜬 방법**
+
+코드 변경 후에 기준선이 필요했으므로 `git stash push -- cli/`로 되돌려 빌드·캡처하고 `git stash pop`했다.
+`cli/dist/coverage.js`에 `projectCompletion`이 없고 `coverageForTraversal`이 있음을 확인해 기준선 빌드임을
+검증한 뒤 3회 캡처해 결정성을 먼저 확인했다.
 
 ## 부록 A — 캡처 스크립트 변경점
 
