@@ -17,6 +17,7 @@ import {
   NoteMutationRequest,
   NoteScope,
   ProviderCommand,
+  SCHEMA_VERSION,
   SourceMode,
   SymbolTarget,
 } from './types';
@@ -99,7 +100,7 @@ async function main(): Promise<void> {
       value = childIpcUnavailableError(value);
     }
     const response = {
-      schemaVersion: 1,
+      schemaVersion: SCHEMA_VERSION,
       operation,
       ok: false,
       runtime: runtimeMetadata(),
@@ -119,7 +120,7 @@ function envelope(operation: string, data: object): Record<string, unknown> {
   const fields = data as Record<string, unknown>;
   const noteOperation = operation.startsWith('note.');
   return {
-    schemaVersion: 1,
+    schemaVersion: SCHEMA_VERSION,
     operation,
     ok: true,
     runtime: runtimeMetadata(),

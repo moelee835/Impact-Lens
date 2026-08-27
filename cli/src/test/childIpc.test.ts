@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { childIpcStatus, childIpcUnavailableError, looksLikeSilentProviderFailure } from '../childIpc';
-import { CliError } from '../types';
+import { CliError, CliErrorCode } from '../types';
 
-function providerError(details: Record<string, unknown>, code = 'provider_initialize_failed'): CliError {
+function providerError(
+  details: Record<string, unknown>,
+  code: CliErrorCode = 'provider_initialize_failed',
+): CliError {
   return new CliError(code, 'Language Server node failed during initialize (exit code 1).', 5, true, details);
 }
 

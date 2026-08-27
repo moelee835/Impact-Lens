@@ -1,3 +1,44 @@
+// The vocabulary below is the response contract, not an implementation detail. `cli/schemas/response.schema.json`
+// ships in the npm tarball, so its enums are already public and cannot be narrowed inside schemaVersion 1.
+// These arrays exist at runtime so `cli/src/test/schema.test.ts` can compare them against the schema and fail
+// the build when one side gains a value the other does not. A plain TypeScript union would disappear at compile
+// time and let the two drift apart unnoticed, which is exactly how the drift this file just fixed appeared.
+
+// The single source of the envelope's schemaVersion. It was two literals in index.ts, which the approved
+// schema-version policy lists as a precondition for ever promoting to v2 (task-m1-state-truth-table.md 4.3).
+export const SCHEMA_VERSION = 1;
+
+export const PROVIDER_HOSTS = ['lsp', 'vscode'] as const;
+export type ProviderHost = (typeof PROVIDER_HOSTS)[number];
+
+export const PROVIDER_SELECTED_BY = ['bundled', 'auto', 'preset', 'project', 'custom', 'vscode'] as const;
+export type ProviderSelectedBy = (typeof PROVIDER_SELECTED_BY)[number];
+
+export const PROVIDER_LIFECYCLE_STAGES = [
+  'discovery',
+  'launch',
+  'initialize',
+  'indexing',
+  'capability',
+  'query',
+] as const;
+export type ProviderLifecycleStage = (typeof PROVIDER_LIFECYCLE_STAGES)[number];
+
+export const PROVIDER_LIFECYCLE_STATUSES = ['working', 'ready', 'failed', 'unknown'] as const;
+export type ProviderLifecycleStatus = (typeof PROVIDER_LIFECYCLE_STATUSES)[number];
+
+// `timeout` and `failed` have no producer yet. The approved decision adopts them as v1 projection targets for
+// `completion.traversalStatus` instead of deleting them, because deleting a declared value narrows the producer
+// contract and that is a v2-only change. See docs/work/task-m1-state-truth-table.md section 4.1.
+export const TRAVERSAL_STATUSES = ['complete', 'depth-limited', 'node-limited', 'timeout', 'failed'] as const;
+export type TraversalStatus = (typeof TRAVERSAL_STATUSES)[number];
+
+export const SEMANTIC_STATUSES = ['static-only', 'augmented'] as const;
+export type SemanticStatus = (typeof SEMANTIC_STATUSES)[number];
+
+export const INDEXING_STATUSES = ['ready', 'working', 'unknown'] as const;
+export type IndexingStatus = (typeof INDEXING_STATUSES)[number];
+
 export interface Position {
   readonly line: number;
   readonly column: number;
@@ -34,12 +75,12 @@ export interface IncomingCall {
 }
 
 export interface ProviderCapabilities {
-  readonly host: 'lsp';
+  readonly host: ProviderHost;
   readonly name: string;
   readonly version?: string;
   readonly requestedLanguageId: string;
   readonly detectedLanguageId: string;
-  readonly selectedBy: 'bundled' | 'custom';
+  readonly selectedBy: ProviderSelectedBy;
   readonly languageMatch: boolean | 'unknown';
   readonly callHierarchy: boolean;
   readonly diagnostics: boolean;
@@ -55,32 +96,24 @@ export interface ProviderCapabilities {
   readonly lifecycle: ProviderLifecycle;
 }
 
-export type ProviderLifecycleStage =
-  | 'discovery'
-  | 'launch'
-  | 'initialize'
-  | 'indexing'
-  | 'capability'
-  | 'query';
-
 export interface ProviderLifecycle {
   readonly stage: ProviderLifecycleStage;
-  readonly status: 'working' | 'ready' | 'failed' | 'unknown';
+  readonly status: ProviderLifecycleStatus;
 }
 
 export interface Coverage {
   readonly traversal: {
-    readonly status: 'complete' | 'depth-limited' | 'node-limited';
+    readonly status: TraversalStatus;
     readonly requestedDepth: number;
     readonly reachedDepth: number;
     readonly maxNodes: number;
   };
   readonly semantic: {
-    readonly status: 'static-only' | 'augmented';
+    readonly status: SemanticStatus;
     readonly evidenceSources: readonly string[];
   };
   readonly indexing: {
-    readonly status: 'ready' | 'working' | 'unknown';
+    readonly status: IndexingStatus;
   };
   readonly reasons: readonly string[];
 }
@@ -191,22 +224,7 @@ export interface ResolvedNote {
   };
 }
 
-export interface CliErrorShape {
-  readonly code: string;
-  readonly message: string;
-  readonly retryable: boolean;
-  readonly details?: unknown;
-}
-
-export class CliError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly exitCode: number,
-    readonly retryable = false,
-    readonly details?: unknown,
-  ) {
-    super(message);
-    this.name = 'CliError';
-  }
-}
+// `CliError` lives in ./errors together with the code union. It is re-exported here because every existing
+// import reaches for './types', including files this change is not allowed to touch.
+export { CLI_ERROR_CODES, CliError, isCliErrorCode } from './errors';
+export type { CliErrorCode, CliErrorShape } from './errors';
