@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { JsonRpcClient } from './jsonRpc';
+import { JsonRpcClient, redactProviderText } from './jsonRpc';
 import { EMPTY_SETTINGS, JsonObject } from './lsp/configuration';
 import { CapabilityRegistration, createServerRequestHandlers } from './lsp/serverRequests';
 import { languageId, resolveProvider } from './providers/resolve';
@@ -24,6 +24,17 @@ interface InitializeResult {
   };
   readonly serverInfo?: { readonly name?: string; readonly version?: string };
 }
+
+interface ProgressState {
+  readonly kind: 'begin' | 'report' | 'end';
+  readonly title: string | undefined;
+  /** True when the token came from a `window/workDoneProgress/create` this client answered. */
+  readonly serverCreated: boolean;
+}
+
+// Upper bound for the diagnostics wait, capped further by the session timeout. It is not a judgement
+// that the provider is done; it is how long we are willing to wait for a server that never publishes.
+const DIAGNOSTICS_BUDGET_MS = 2000;
 
 interface PublishDiagnostics {
   readonly uri?: string;
@@ -59,6 +70,11 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
   private readonly registrations = new Map<string, CapabilityRegistration>();
   /** Progress tokens the server asked us to create. A token is not evidence that indexing finished. */
   private readonly progressTokens = new Set<string>();
+  private readonly progress = new Map<string, ProgressState>();
+  /** URIs that have produced at least one `textDocument/publishDiagnostics`. */
+  private readonly published = new Set<string>();
+  private readonly diagnosticsWaiters = new Set<() => void>();
+  private readonly timeoutMs: number;
 
   constructor(
     private readonly workspace: string,
@@ -71,6 +87,7 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
   ) {
     const resolved = resolveProvider(file, command);
     this.settings = session.settings ?? EMPTY_SETTINGS;
+    this.timeoutMs = timeoutMs;
     this._capabilities = {
       ...this._capabilities,
       requestedLanguageId: resolved.requestedLanguageId,
@@ -116,7 +133,38 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
           message: diagnostic.message,
         }];
       }));
+      this.published.add(value.uri);
       this.observe({ diagnostics: true });
+      for (const waiter of [...this.diagnosticsWaiters]) {
+        waiter();
+      }
+    });
+    this.client.onNotification('$/progress', params => this.recordProgress(params));
+  }
+
+  /**
+   * Keeps what the server says about long-running work, and nothing more.
+   *
+   * An `end` means the operation behind that token finished. Whether that operation was indexing the
+   * workspace or checking one file is known only to the server that created the token, so this is
+   * recorded as an observation and never promoted to "the provider is ready". Turning it into a
+   * readiness signal needs a preset that declares which token means what, which is Wave 2.
+   */
+  private recordProgress(params: unknown): void {
+    const value = params as { readonly token?: unknown; readonly value?: Record<string, unknown> } | undefined;
+    if ((typeof value?.token !== 'string' && typeof value?.token !== 'number') || !value.value) {
+      return;
+    }
+    const token = String(value.token);
+    const kind = value.value.kind;
+    if (kind !== 'begin' && kind !== 'report' && kind !== 'end') {
+      return;
+    }
+    const previous = this.progress.get(token);
+    this.progress.set(token, {
+      kind,
+      title: kind === 'begin' && typeof value.value.title === 'string' ? value.value.title : previous?.title,
+      serverCreated: this.progressTokens.has(token),
     });
   }
 
@@ -154,12 +202,80 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
         // Invalid or inaccessible provider URIs simply have no collected diagnostics.
       }
     }
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await this.awaitPublishedDiagnostics(uris);
     return uris.flatMap(uri => this.diagnostics.get(uri) ?? []);
   }
 
+  /**
+   * Waits for the diagnostics of the documents this session opened.
+   *
+   * This used to be a flat 100ms sleep, which is wrong in both directions: it is dead time for a
+   * server that already answered, and it silently discards everything a slower server publishes
+   * afterwards. Worse, the result of that race reaches the response — `observed.diagnostics` flipped
+   * between runs of the *same* build — so the report depended on machine load rather than on the
+   * provider.
+   *
+   * The wait now ends on the event it was always waiting for: one `publishDiagnostics` per opened
+   * document. The budget is only an upper bound, for the servers that publish nothing at all.
+   */
+  private async awaitPublishedDiagnostics(uris: readonly string[]): Promise<void> {
+    const outstanding = (): boolean =>
+      uris.some(uri => this.opened.has(uri) && !this.published.has(uri));
+    if (!outstanding()) {
+      return;
+    }
+    const budgetMs = Math.min(this.timeoutMs, DIAGNOSTICS_BUDGET_MS);
+    await new Promise<void>(resolve => {
+      const finish = (): void => {
+        clearTimeout(timer);
+        this.diagnosticsWaiters.delete(waiter);
+        resolve();
+      };
+      const waiter = (): void => {
+        if (!outstanding()) {
+          finish();
+        }
+      };
+      const timer = setTimeout(finish, budgetMs);
+      this.diagnosticsWaiters.add(waiter);
+    });
+  }
+
   async dispose(): Promise<void> {
+    this.writeTranscript();
     await this.client.dispose(this.initialized);
+  }
+
+  /**
+   * Opt-in session transcript, on stderr, one JSON line, only when the environment asks for it.
+   *
+   * The successful envelope deliberately says nothing about refused server requests or progress
+   * tokens: adding a field to a success response is a contract change owned by another lane, and an
+   * agent cannot act on it in Wave 1 anyway. Silence in the default output is not the same as having
+   * nowhere to look, so the facts live here. stdout stays exactly one JSON line either way.
+   */
+  private writeTranscript(): void {
+    if (process.env.IMPACT_LENS_LSP_TRANSCRIPT !== '1') {
+      return;
+    }
+    const transcript = {
+      impactLensLspTranscript: {
+        provider: this._capabilities.name,
+        ...this.client.protocolCounters(),
+        dynamicRegistrations: [...this.registrations.values()].map(entry => entry.method),
+        workDoneProgressTokens: [...this.progressTokens],
+        progress: [...this.progress.entries()].map(([token, state]) => ({
+          token,
+          kind: state.kind,
+          // A title is server-authored text; it goes through the same redaction as any other.
+          ...(state.title ? { title: redactProviderText(state.title) } : {}),
+          serverCreated: state.serverCreated,
+        })),
+        diagnosticsPublishedFor: this.published.size,
+        openedDocuments: this.opened.size,
+      },
+    };
+    process.stderr.write(`${JSON.stringify(transcript)}\n`);
   }
 
   async initializeForDoctor(): Promise<ProviderCapabilities> {

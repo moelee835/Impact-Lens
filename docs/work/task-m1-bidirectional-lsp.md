@@ -246,9 +246,59 @@ W0-4의 캡처 스크립트를 코드 변경 **없이** 5회 실행했다.
    `dist/providers/*.js`를 추가해야 했던 것과 같은 함정이다. **단위 테스트는 checkout에서 돌기 때문에
    이것을 절대 잡지 못한다.** 한 줄을 추가하고, 같은 실수가 반복되지 않도록
    `lspProtocol.test.ts`에 `cli/src`의 디렉터리와 `files` 패턴을 대조하는 테스트를 넣었다.
-2. **`registerCapabilityServer`와 `configurationRequestServer`(phase=after)를 CLI로 돌리는 테스트는
+2. **W0-4 캡처 스크립트를 문서에서 그대로 추출해 쓰는 것 자체에 함정이 있었다.** scratchpad에 둔 사본이
+   문서 원문과 달랐던 것을 발견했다. 이후의 무변경 증명은 **문서에서 매번 새로 추출한 원문 스크립트**로
+   다시 수행했다(2단계 로그 참조). 캡처 도구를 손보면 그 도구가 증명하려는 대상을 정의하게 되므로,
+   도구 자체가 base와 after 양쪽에서 동일해야 한다.
+3. **`registerCapabilityServer`와 `configurationRequestServer`(phase=after)를 CLI로 돌리는 테스트는
    경주에서 이겨서 통과할 수 있다.** 두 fixture 모두 응답 여부와 무관하게 Call Hierarchy를 계속
    서비스하므로, client가 답하지 않아도 fixture의 무응답 타이머가 울리기 전에 분석이 끝난다.
    **응답 자체를 엄격하게 증명하는 것은 `clientAnswerServer`다.** 이 fixture는 모든 응답을 검증할
    때까지 `textDocument/prepareCallHierarchy` 응답을 보류하므로 client가 답하지 않으면 반드시 실패한다.
    두 기존 fixture는 소유가 다른 파일이라 수정하지 않았다.
+
+### 2026-08-27 — 2단계: cancellation, progress, 진단 대기 대체
+
+**변경한 파일**
+
+| 파일 | 내용 |
+| --- | --- |
+| `cli/src/jsonRpc.ts` | timeout 시 `$/cancelRequest` 전송, cancelled pending의 grace 유지, `protocolCounters()` |
+| `cli/src/lspProvider.ts` | `$/progress` 수신·기록, 신호 기반 진단 대기, opt-in transcript |
+| `cli/src/test/fixtures/cancelObservingServer.ts` (신규) | 취소 수신을 파일에 기록하고 늦은 RequestCancelled 응답을 보낸다 |
+| `cli/src/test/fixtures/progressServer.ts` (신규) | work-done progress 전체 주기 |
+| `cli/src/test/fixtures/slowDiagnosticsServer.ts` (신규) | 100ms보다 늦게 진단을 publish |
+| `cli/src/test/bidirectional.test.ts` | 취소·progress·stdout 불변식 3건 추가 |
+| `cli/src/test/lsp.integration.test.ts` | 진단 대기 2건 추가 |
+
+**설계 결정과 이유**
+
+- **취소한 pending을 즉시 지우지 않는다.** spec은 취소된 요청에도 server가 응답하는 것을 허용한다.
+  즉시 지우면 그 늦은 응답이 "알 수 없는 id"로 집계돼, 존재하지 않는 프로토콜 문제를 가리키는 증거가
+  만들어진다. `CANCEL_GRACE_MS = 2000` 동안 인식만 하고 아무것도 하지 않는다.
+- **고정 100ms 대기를 "신호"로 바꿨다. 시간 값을 늘린 것이 아니다.** 고정 대기의 결함은 값이 작다는
+  것이 아니라 **끝났다는 신호가 아니라 시계를 기준으로 판단한다**는 것이다. 이제 열어둔 문서마다
+  `publishDiagnostics`가 한 번씩 도착하면 즉시 진행하고, budget(2000ms, 세션 timeout으로 다시 상한)은
+  **아무것도 publish하지 않는 server를 위한 상한으로만** 쓴다.
+- **`$/progress`의 `end`를 준비 완료로 승격하지 않는다.** token이 무엇을 나타내는지는 그 token을 만든
+  server만 안다. 승격하면 색인하지 않은 workspace에 대해 자신 있는 empty 결과를 보고하게 된다.
+  Wave 1은 **관측만** 하고, 어떤 token이 무엇을 뜻하는지는 Wave 2의 preset 선언이 정한다.
+- **미처리 request와 progress를 성공 envelope에 넣지 않았다.** 성공 응답에 필드를 더하는 것은 다른 lane의
+  계약 변경이고, Wave 1의 agent가 그 값으로 할 수 있는 일도 없다. 대신 기본값이 꺼져 있는
+  `IMPACT_LENS_LSP_TRANSCRIPT=1` transcript를 **stderr에 JSON 한 줄로** 남긴다. stdout은 그대로
+  정확히 JSON 한 줄이다.
+- **분석 전체 예산(세션 budget)은 넣지 않았다.** 지금 per-request timeout은 `timeoutMs`(기본 30초)이고,
+  그 위에 세션 예산을 얹으면 **기존 성공 경로의 실패 조건이 하나 늘어난다.** 무변경 제약과 정면으로
+  충돌하며, 값의 근거가 될 관측도 아직 없다. `$/cancelRequest`가 들어간 지금 취소 자체는 가능하므로,
+  예산의 도입은 readiness budget과 함께 Wave 2(W2-A)에서 근거를 갖고 하는 것이 맞다고 판단했다.
+  **이것은 지시받은 2단계 항목에서 의도적으로 남긴 부분이며 그 이유를 여기 기록한다.**
+
+**실행한 검사**
+
+| 검사 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm run cli:test` | 86/86 통과 |
+| 취소 fixture | `$/cancelRequest`가 server에 도달함을 server 쪽 파일 기록으로 확인 |
+| 진단 대기 | 400ms 지연 publish를 잡아냄(옛 100ms 대기에서는 0건), 즉시 publish에서는 500ms 미만 반환 |
+

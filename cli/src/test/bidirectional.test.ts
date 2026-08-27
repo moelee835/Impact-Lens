@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 
@@ -14,7 +16,11 @@ import test from 'node:test';
 const executable = path.resolve(__dirname, '..', 'index.js');
 const workspace = path.resolve(__dirname, '..', '..');
 
-function analyze(fixture: string, env: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> {
+function analyze(
+  fixture: string,
+  env: NodeJS.ProcessEnv = {},
+  extraRequest: Record<string, unknown> = {},
+): SpawnSyncReturns<string> {
   return spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
     encoding: 'utf8',
     timeout: 30000,
@@ -29,8 +35,23 @@ function analyze(fixture: string, env: NodeJS.ProcessEnv = {}): SpawnSyncReturns
         args: [path.resolve(__dirname, 'fixtures', `${fixture}.js`)],
         languageId: 'typescript',
       },
+      ...extraRequest,
     }),
   });
+}
+
+/** Reads the opt-in session transcript out of stderr. It is always the line before the envelope. */
+function transcript(result: SpawnSyncReturns<string>): Record<string, any> {
+  const lines = result.stderr.trim().split('\n');
+  const found = lines.map(line => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return undefined;
+    }
+  }).find(value => value?.impactLensLspTranscript);
+  assert.ok(found, `no transcript in stderr:\n${result.stderr}`);
+  return found.impactLensLspTranscript;
 }
 
 function envelope(result: SpawnSyncReturns<string>): { readonly error: Record<string, any> } {
@@ -111,4 +132,57 @@ test('names the unimplemented client request instead of blaming the server for t
   assert.deepEqual(error.details.unhandledServerRequestMethods, ['$/impactLens/requiredButUnsupported']);
   assert.equal(error.details.serverRequestsAnswered, 1);
   assert.match(error.details.stderr, /client refused \$\/impactLens\/requiredButUnsupported with -32601/);
+});
+
+test('tells the server to stop working on a request it has given up on', { timeout: 30000 }, t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'impact-lens-cancel-'));
+  const log = path.join(directory, 'cancel.log');
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const result = analyze(
+    'cancelObservingServer',
+    { IMPACT_LENS_MOCK_CANCEL_LOG: log, IMPACT_LENS_LSP_TRANSCRIPT: '1' },
+    { timeoutMs: 400 },
+  );
+  assert.equal(result.status, 6, result.stderr);
+  const lines = result.stderr.trim().split('\n');
+  assert.equal(JSON.parse(lines[lines.length - 1] as string).error.code, 'timeout');
+  // The proof is on the server's side of the wire, not in our own counter.
+  assert.match(fs.readFileSync(log, 'utf8'), /^cancelled:\d+$/m);
+
+  const counters = transcript(result);
+  assert.equal(counters.cancelledRequests, 1);
+  // The fixture answers the abandoned request with RequestCancelled straight after the cancellation.
+  // A client that forgets the entry the moment it times out files that answer as unmatched, and the
+  // report then hints at a protocol problem that never happened.
+  assert.equal(counters.unmatchedResponses, 0);
+  assert.equal(counters.protocolViolations, 0);
+});
+
+test('records a work-done progress cycle without treating its end as readiness', { timeout: 30000 }, () => {
+  const result = analyze('progressServer', { IMPACT_LENS_LSP_TRANSCRIPT: '1' });
+  assert.equal(result.status, 3, result.stderr);
+  const lines = result.stderr.trim().split('\n');
+  assert.equal(JSON.parse(lines[lines.length - 1] as string).error.code, 'target_not_found');
+
+  const counters = transcript(result);
+  assert.deepEqual(counters.workDoneProgressTokens, ['impact-lens-mock-index']);
+  assert.deepEqual(counters.progress, [{
+    token: 'impact-lens-mock-index',
+    kind: 'end',
+    title: 'Indexing project',
+    serverCreated: true,
+  }]);
+  // The whole cycle ran and the run still ends exactly where it would have without it. An `end` says
+  // the server finished the work behind that token; only the server knows what that work was.
+  assert.equal(counters.serverRequestsAnswered, 1);
+});
+
+test('keeps stdout empty and the transcript on stderr when the transcript is enabled', { timeout: 30000 }, () => {
+  const result = analyze('progressServer', { IMPACT_LENS_LSP_TRANSCRIPT: '1' });
+  assert.equal(result.stdout, '');
+  // Two stderr lines here, both JSON: the opt-in transcript and the error envelope. Debug output
+  // never moves to stdout, which stays reserved for exactly one JSON line.
+  for (const line of result.stderr.trim().split('\n')) {
+    JSON.parse(line);
+  }
 });

@@ -14,7 +14,13 @@ interface PendingRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
+  /** Already settled with a timeout. Kept only so a late answer is recognised rather than counted. */
+  readonly cancelled?: boolean;
 }
+
+// How long a cancelled request stays recognisable. Long enough for an answer already on the wire,
+// short enough that a session never accumulates entries it will not use.
+const CANCEL_GRACE_MS = 2000;
 
 interface UnhandledServerRequest {
   readonly method: string;
@@ -31,6 +37,8 @@ export class JsonRpcClient {
   private requestHandlers: ReadonlyMap<string, ServerRequestHandler> = new Map();
   private readonly unhandledServerRequests: UnhandledServerRequest[] = [];
   private serverRequestsAnswered = 0;
+  private cancelled = 0;
+  private readonly cancelSweeps = new Set<ReturnType<typeof setTimeout>>();
   private unmatchedResponses = 0;
   private protocolViolations = 0;
   private buffer = Buffer.alloc(0);
@@ -118,11 +126,24 @@ export class JsonRpcClient {
     return this.unhandledServerRequests.find(entry => entry.stage === stage)?.method;
   }
 
+  /** Everything the bidirectional layer observed. Read by the opt-in debug transcript. */
+  protocolCounters(): Record<string, unknown> {
+    return {
+      requestsSent: this.nextId - 1,
+      serverRequestsAnswered: this.serverRequestsAnswered,
+      unhandledServerRequests: this.unhandledServerRequests.map(entry => `${entry.stage}:${entry.method}`),
+      cancelledRequests: this.cancelled,
+      unmatchedResponses: this.unmatchedResponses,
+      protocolViolations: this.protocolViolations,
+      bytesFromServer: this.serverBytes,
+    };
+  }
+
   async request<T>(method: string, params: unknown): Promise<T> {
     const id = this.nextId++;
     const promise = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pendingOutbound.delete(id);
+        this.cancel(id);
         reject(this.stageFailure(
           new CliError(
             'timeout',
@@ -183,6 +204,36 @@ export class JsonRpcClient {
     this.send({ jsonrpc: '2.0', method, params });
   }
 
+  /**
+   * Tells the server to stop working on a request we have given up on.
+   *
+   * Abandoning a request without `$/cancelRequest` leaves the server computing an answer nobody will
+   * read, which on a large workspace competes with whatever we ask next. The pending entry is *not*
+   * deleted right away: the spec still lets the server answer a cancelled request, and dropping the
+   * entry immediately would file that late answer under "unmatched response" — evidence pointing at a
+   * protocol problem that does not exist. It is retired after a short grace instead.
+   */
+  private cancel(id: number): void {
+    const pending = this.pendingOutbound.get(id);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timer);
+    this.pendingOutbound.set(id, { ...pending, cancelled: true });
+    this.cancelled += 1;
+    try {
+      this.notify('$/cancelRequest', { id });
+    } catch {
+      // A closed session cancels itself by killing the child; the caller already has its error.
+    }
+    const sweep = setTimeout(() => {
+      this.pendingOutbound.delete(id);
+      this.cancelSweeps.delete(sweep);
+    }, CANCEL_GRACE_MS);
+    sweep.unref?.();
+    this.cancelSweeps.add(sweep);
+  }
+
   async dispose(graceful = true): Promise<void> {
     if (this.closed) {
       return;
@@ -200,6 +251,10 @@ export class JsonRpcClient {
       clearTimeout(this.closeTimer);
       this.closeTimer = undefined;
     }
+    for (const sweep of this.cancelSweeps) {
+      clearTimeout(sweep);
+    }
+    this.cancelSweeps.clear();
     this.child.kill();
     this.failAll(new Error('Language Server client disposed'));
   }
@@ -277,6 +332,11 @@ export class JsonRpcClient {
     }
     clearTimeout(pending.timer);
     this.pendingOutbound.delete(id as number);
+    if (pending.cancelled) {
+      // The server answered a request we already gave up on. That is allowed and is not evidence of
+      // anything, so it is neither resolved nor counted.
+      return;
+    }
     if (message.error) {
       pending.reject(new Error(`Language Server error ${message.error.code}: ${message.error.message}`));
     } else {
@@ -409,6 +469,7 @@ export class JsonRpcClient {
           ...(this.unhandledServerRequests.length
             ? { unhandledServerRequestMethods: [...new Set(this.unhandledServerRequests.map(entry => entry.method))] }
             : {}),
+          ...(this.cancelled ? { cancelledRequests: this.cancelled } : {}),
           ...(this.unmatchedResponses ? { unmatchedResponses: this.unmatchedResponses } : {}),
           ...(this.protocolViolations ? { protocolViolations: this.protocolViolations } : {}),
           ...(stderr ? { stderr } : {}),
