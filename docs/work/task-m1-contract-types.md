@@ -294,3 +294,40 @@ Extension 어휘도 schema와 parity 검사한다.
   정규화하고 나머지는 원문 그대로다. 매 단계 후 같은 캡처를 다시 떠서 diff가 비었는지 확인한다.
 
 **남은 작업**: 2~6단계.
+
+### 2026-08-27 — 응답 무변경 증명 방법 확정
+
+첫 캡처는 `mkdtemp`로 workspace를 매번 새로 만들었는데, `symbolId`가 파일 URI를 해싱하고 note conflict
+token이 workspace 경로를 포함하기 때문에 **아무것도 바꾸지 않아도 diff가 났다**. workspace 경로를
+고정(`$TMPDIR/il-contract-capture-fixed`)하고 매 실행 전에 삭제·재생성하도록 바꾼 뒤, 변경 없이 두 번
+캡처해 diff가 비는 것을 먼저 확인했다. 이후 모든 단계의 무변경 증명은 이 고정 캡처를 기준으로 한다.
+
+정규화하는 필드는 `timings.totalMs`, `details.msSinceSpawn`, `analyzedAt`, `updatedAt`, note
+`conflictToken`/`token`, node executable 경로뿐이다. `rootId`, node id, `conflictTokens`, provider
+metadata, coverage, limitations, error code/message/details는 전부 원문 그대로 비교한다.
+
+### 2026-08-27 — 2단계: 드리프트 3건 해소
+
+**변경한 파일**: `cli/src/types.ts`
+
+- schema가 선언한 어휘 6종을 `as const` 배열로 추가했다. `PROVIDER_HOSTS`, `PROVIDER_SELECTED_BY`,
+  `PROVIDER_LIFECYCLE_STAGES`, `PROVIDER_LIFECYCLE_STATUSES`, `TRAVERSAL_STATUSES`,
+  `SEMANTIC_STATUSES`, `INDEXING_STATUSES`. 각 타입은 `(typeof X)[number]`로 유도한다.
+- `ProviderCapabilities.host`를 `'lsp'`에서 `ProviderHost`(2값)로, `.selectedBy`를 2값에서
+  `ProviderSelectedBy`(6값)로 넓혔다.
+- `Coverage.traversal.status`를 3값에서 `TraversalStatus`(5값)로 넓혔다. `semantic.status`,
+  `indexing.status`, `ProviderLifecycle.status`도 같은 방식으로 상수에서 유도하게 바꿨다.
+- 기존 `ProviderLifecycleStage` union 리터럴 선언은 `PROVIDER_LIFECYCLE_STAGES`에서 유도하도록
+  교체했다. 값 집합은 동일하므로 `cli/src/jsonRpc.ts`의 import는 그대로 동작한다.
+
+**설계 결정**: 상수를 별도 `contract.ts`가 아니라 `types.ts`에 뒀다. 소비자가 이미 전부 `./types`를
+보고 있고, 어휘와 그 어휘를 쓰는 interface가 한 파일에 있어야 한쪽만 고치는 실수가 눈에 띈다.
+
+**검증**
+
+- `npm --prefix cli run build`: 통과. 넓힌 union 때문에 깨지는 호출부는 없었다.
+- `npm run test:all`: 51 pass / 0 fail (기준선과 동일).
+- 고정 캡처 16종: 기준선과 `diff` 결과 **완전 동일**. 타입만 넓혔고 생산 값은 그대로다.
+
+**확인한 사실**: 이 단계만으로는 드리프트가 다시 생기는 것을 막지 못한다. union은 컴파일 후 사라지므로
+schema만 넓히는 변경을 아무도 못 잡는다. 5단계의 parity 테스트가 그 자물쇠다.
