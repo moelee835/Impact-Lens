@@ -418,14 +418,24 @@ export class ImpactLensController implements vscode.Disposable {
         this.currentResult.analysisState = 'failed';
         this.tree.setResult(this.currentResult);
         this.graph.update(this.currentResult);
+        // Route through the shared status renderer so the retained graph is described with the same
+        // vocabulary as every other state, then keep the raw provider message as the last block.
+        this.updateStatus(this.currentResult);
+        const tooltip = this.status.tooltip;
+        if (tooltip instanceof vscode.MarkdownString) {
+          tooltip.appendMarkdown(`\n\n${message}`);
+        }
       } else {
         this.tree.setResult(undefined, {
           message: `Impact analysis failed: ${message}`,
           action: 'Check the provider diagnostics and re-run.',
         });
+        this.status.text = '$(error) Impact Lens';
+        this.status.tooltip = new vscode.MarkdownString([
+          `Impact analysis failed: ${message}`,
+          'Check the provider diagnostics and re-run.',
+        ].join('\n\n'));
       }
-      this.status.text = '$(warning) Impact Lens';
-      this.status.tooltip = message;
       if (!options.quiet) {
         void vscode.window.showErrorMessage(`Impact Lens analysis failed: ${message}`);
       }

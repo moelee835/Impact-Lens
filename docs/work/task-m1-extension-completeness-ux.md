@@ -227,13 +227,51 @@ doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자
 
 ## 테스트 및 완료 기준
 
-- [ ] `npm test` 통과 (기준선 35개 + 신규)
-- [ ] `npm run compile` 통과
-- [ ] `npm run cli:test` 통과 (이 lane은 `cli/**`를 건드리지 않으므로 무변경 통과여야 한다)
-- [ ] 세 empty state가 각각 다른 문구를 만들고, 테스트가 셋의 상호 구별을 증명한다
-- [ ] 금지 문구 검사 테스트가 존재하고 통과한다 (생성 문자열 매트릭스 + 소스 스캔)
-- [ ] `stateLabel` 중복과 provider 부재 메시지 중복이 grep으로 0건임을 보인다
-- [ ] 실제 VS Code 렌더링 확인 불가 항목을 작업 로그에 명시한다
+- [x] `npm test` 통과 — **55 pass / 0 fail** (기준선 35 + 신규 20)
+- [x] `npm run compile` 통과
+- [x] `npm run cli:test` 통과 — **63 pass / 0 fail**. `cli/**` diff 0건
+- [x] 세 empty state가 각각 다른 문구를 만들고, 테스트가 셋의 상호 구별을 증명한다
+      (`src/test/completeness.test.ts`의 `tells the three empty states apart by wording alone`)
+- [x] 금지 문구 검사 테스트가 존재하고 통과한다 (생성 문자열 매트릭스 720건 + 소스 스캔)
+- [x] `stateLabel` 중복과 provider 부재 메시지 중복이 grep으로 0건임을 보인다
+- [x] 실제 VS Code 렌더링 확인 불가 항목을 작업 로그에 명시한다 (아래 "확인하지 못한 것")
+
+### 검증 명령과 결과
+
+| 명령 | 결과 |
+| --- | --- |
+| `npm test` | 55 pass / 0 fail |
+| `npm run compile` | 성공 (출력 없음) |
+| `npm run cli:test` | 63 pass / 0 fail |
+| `npm run test:plugin-artifact` | **실행하지 않았다.** 네트워크가 필요하고(handover 10절) 이 lane은 `cli/**`·`plugins/**`·`scripts/**`를 수정하지 않았다 |
+
+`npm run cli:test`는 **처음에 9건 실패했다.** 원인은 이 lane의 변경이 아니라 새 worktree에
+`cli/node_modules`가 없어서 bundled TypeScript artifact를 찾지 못한 것이었다(`git diff origin/main...HEAD -- cli/`가
+0건임을 먼저 확인했다). `npm --prefix cli install` 후 63건 전부 통과했다. **worktree 기반 lane은
+`npm install`과 `npm --prefix cli install`을 둘 다 해야 한다**는 것이 다음 lane에 유용한 사실이다.
+
+### 확인하지 못한 것 — 성공으로 간주하지 않는다
+
+VS Code UI는 자동 테스트로 덮이지 않는다. 아래는 **코드 수준으로만 확인했고 실제 렌더링을 보지 못했다.**
+
+| 항목 | 확인한 방법 | 확인하지 못한 것 |
+| --- | --- | --- |
+| `.state.partial`의 실제 색·dashed border | 소스에 규칙이 존재함을 테스트로 검사 | 실제 테마에서 `current`와 시각적으로 구별되는지 |
+| Explorer `NoticeItem` 행 | 코드 경로 | 긴 headline이 트리 폭에서 어떻게 잘리는지, 아이콘이 의도대로 나오는지 |
+| Explorer empty 항목 클릭 → doctor | command id를 `package.json`과 대조 | 실제 클릭 동작 |
+| StatusBar `$(error)` / `$(warning)` 아이콘과 `· partial` 접미사 | 문자열 조립 | 실제 폭에서 잘리는지 |
+| doctor OutputChannel 출력과 터미널 실행 확인 대화상자 | 순수 포맷터를 테스트 | 실제 채널·터미널 동작 |
+| graph header 재구성 결과와 pill title 줄바꿈 | payload 조립과 소스 텍스트 검사 | webview에서의 실제 배치와 `title` 속성의 개행 처리 |
+| MarkdownString tooltip 렌더링 | 문자열 조립 | 실제 markdown 렌더 결과 |
+
+이 항목들은 W3-B의 `user-tests/m1-user-test-spec.md`에서 실제 사용자 검증 대상으로 다뤄야 한다.
+
+### 금지 문구 테스트의 한계
+
+소스 스캔은 `src/test/**`를 제외한다. 검사기 자신이 금지 목록을 문자열로 갖고 있어야 하기 때문이다.
+현재 `src/test/graphLayout.test.ts`의 테스트 제목에 `unused`가 한 번 나오지만 테스트 제목은 사용자
+표면이 아니다. **사용자에게 도달하는 문자열은 반드시 비-테스트 소스에 있어야 한다**는 것이 이 경계의
+근거다.
 
 ## 작업 로그
 
@@ -344,3 +382,31 @@ doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자
   **소스 텍스트를 읽어 검사한다.** 두 결함 모두 눈에 띄지 않는 종류였기 때문이다 — 규칙 없는 state class는
   기본색으로 렌더돼 "정상"처럼 보이고, label 함수 사본은 둘이 어긋날 때까지 발견되지 않는다.
 - `npm test` 55 pass / 0 fail.
+
+### 2026-08-27 — 6단계: 최종 검증
+
+- 실패 경로 하나를 마저 정리했다. `analyze()`의 catch에서 StatusBar를 직접 `$(warning) Impact Lens` +
+  raw message로 덮어쓰던 코드를, 이전 그래프가 남아 있으면 `updateStatus()`를 태우고 raw message를
+  tooltip 마지막 블록으로 덧붙이도록 바꿨다. 상태 어휘가 한 곳에서만 만들어진다.
+- 전체 검증 결과는 위 "검증 명령과 결과" 표에 있다.
+
+## 지시에 대한 반박·이견
+
+지시가 틀렸다고 판단한 것은 없다. 다만 지시의 전제 하나를 **좁혀서** 구현했고 근거를 남긴다.
+
+- 지시는 "`semantic`을 Explorer 툴팁·StatusBar 툴팁·CodeLens에 노출"을 요구했다. CodeLens에는 넣지
+  않았다. `ImpactCodeLensProvider`는 `NoteStore`만 갖고 있고 `ImpactResult`에 접근할 수 없어서
+  **결과별 semantic 값을 알 수 없다.** 접근하게 만들려면 controller와의 결합을 새로 만들어야 하고, 그것은
+  파일마다 모든 함수에 렌더되는 표면에 결과 의존 상태를 넣는 일이라 "기본 UI는 간결하게"와 정면으로
+  충돌한다. 대신 결과와 무관하게 항상 참인 정적 범위 문장(`STATIC_SCOPE_NOTICE`)을 tooltip에 넣었다.
+  지시 자체가 "모든 지점에 전부 쏟아붓지 마라"고 했고, 이것이 그 판단의 적용이다.
+
+## W1-B 확정 후 조정이 필요한 항목
+
+| # | 항목 | 지금 상태 | 조정 조건 |
+| --- | --- | --- | --- |
+| 1 | host 측 check 상태 어휘 `pass`/`warn`/`fail` | 세 값 고정 | W1-B가 CLI check 상태를 다른 집합으로 확정하면 맞춘다 |
+| 2 | `ProviderOverride`(D9) 대응 설정 항목 | **만들지 않았다** | Extension이 CLI 분석 경로를 갖는 시점(M1 이후)에 `presetId`/`command`/`args`/`languageId` 이름 그대로 추가 |
+| 3 | `impactLens.provider.doctorCommandLine` | 전체 명령줄 문자열 | W1-B가 preset id를 확정해도 변경 불필요. Extension이 preset id를 조립하는 순간 이 판단이 깨지므로 그때 재검토 |
+| 4 | semantic 어휘 `provider-static` / `static-plus-inference` / `static-plus-observation` | 매핑하지 않음 | W1-C가 `src/types.ts:SEMANTIC_STATUSES`를 넓히면 `semanticScopeLabel()`에 행을 추가한다 |
+| 5 | `data.completion` | **미러링하지 않음** | W1-C merge 후 별도 후속 lane |
