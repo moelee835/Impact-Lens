@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { CliError, ProviderCommand } from './types';
+import { CliError } from './types';
 
 const cliPackage = require('../package.json') as { readonly name?: unknown; readonly version?: unknown };
 
@@ -119,19 +119,42 @@ export function inspectBundledTypeScriptArtifact(resolveModule: ModuleResolver =
   };
 }
 
-export function bundledTypeScriptCommand(languageId: string): ProviderCommand {
-  const artifact = inspectBundledTypeScriptArtifact();
-  return {
-    command: process.execPath,
-    args: [artifact.entryPath, '--stdio', ...bundledProviderLogArgs()],
-    languageId,
-  };
+/**
+ * Resolves the one module specifier a preset manifest is allowed to reference.
+ *
+ * The catalog's `bundledModuleEntry` reference lands here. It goes through the artifact inspection
+ * above rather than calling `require.resolve` directly so that a missing or unreadable server still
+ * produces the same reinstall guidance it produced before presets existed.
+ *
+ * The allowlist is one entry long on purpose. Resolving an arbitrary specifier inside this package's
+ * dependency tree is a way to learn where the package is installed, and the manifest that can ask for
+ * it is only trusted because it ships in the same tarball.
+ */
+export function bundledModuleEntryPath(module: string): string {
+  if (module === BUNDLED_TYPESCRIPT_MODULE) {
+    return inspectBundledTypeScriptArtifact().entryPath;
+  }
+  throw new CliError(
+    'provider_config_invalid',
+    `A preset may not reference the module ${module}.`,
+    5,
+    false,
+    { stage: 'discovery', allowedModules: [BUNDLED_TYPESCRIPT_MODULE] },
+  );
 }
 
-// A Language Server that dies before answering usually says nothing on stderr. This opt-in raises its
-// own log level so the next run explains itself; the captured output still goes through redaction.
-function bundledProviderLogArgs(): readonly string[] {
-  const requested = process.env.IMPACT_LENS_PROVIDER_LOG_LEVEL;
+const BUNDLED_TYPESCRIPT_MODULE = 'typescript-language-server/lib/cli.mjs';
+
+/**
+ * A Language Server that dies before answering usually says nothing on stderr. This opt-in raises its
+ * own log level so the next run explains itself; the captured output still goes through redaction.
+ *
+ * This is the one thing about the bundled preset a manifest cannot express, because expressing it
+ * needs a conditional and a conditional turns the manifest into a program. It stays in code, and the
+ * resolver appends it to the arguments a bundled preset resolves to.
+ */
+export function bundledProviderLogArgs(env: NodeJS.ProcessEnv = process.env): readonly string[] {
+  const requested = env.IMPACT_LENS_PROVIDER_LOG_LEVEL;
   if (!requested || !/^[1-4]$/.test(requested)) {
     return [];
   }

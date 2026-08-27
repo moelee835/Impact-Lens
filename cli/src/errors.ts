@@ -1,12 +1,17 @@
 // Every `error.code` the CLI can put in an `ok: false` envelope, in exit-status order.
 //
 // The list holds only codes that some line in `cli/src` actually throws today. The contract document
-// declares ten more (`provider_not_ready`, `provider_executable_not_found`, `provider_version_unsupported`,
-// `provider_version_unreadable`, `provider_selection_ambiguous`, `provider_protocol_incompatible`,
-// `provider_capability_probe_failed`, `provider_project_metadata_missing`, `provider_fixture_failed`,
-// `request_cancelled`) that nothing throws yet. Adding them here would declare a code no code produces,
-// which is the same declaration/implementation drift this module exists to prevent. The lane that
-// implements each one adds it here in the same change. `cli/src/test/errors.test.ts` enforces that.
+// declares eight more (`provider_not_ready`, `provider_version_unsupported`, `provider_version_unreadable`,
+// `provider_protocol_incompatible`, `provider_capability_probe_failed`, `provider_project_metadata_missing`,
+// `provider_fixture_failed`, `request_cancelled`) that nothing throws yet. Adding them here would declare a
+// code no code produces, which is the same declaration/implementation drift this module exists to
+// prevent. The lane that implements each one adds it here in the same change.
+// `cli/src/test/errors.test.ts` enforces that.
+//
+// Four of those eight appear in `cli/src/doctor/` as the `code` of a failing check. That is not the
+// same thing as throwing them, and it is why doctor can report five different problems in one
+// response: a check records its failure and the run continues, while a thrown code ends the process.
+// They enter this union when some path actually fails an envelope with them.
 //
 // Reason codes (`dynamic_calls_not_inferred`, `depth_limit_reached`, `no_incoming_callers`, ...) are a
 // different concept and deliberately stay out of this union. A reason is an entry in `coverage.reasons`
@@ -35,6 +40,9 @@ export const CLI_ERROR_CODES = [
   // exit 5 - provider unavailable or missing Call Hierarchy support
   'provider_required_for_language',
   'provider_language_mismatch',
+  'provider_executable_not_found',
+  'provider_selection_ambiguous',
+  'provider_config_invalid',
   'provider_launch_failed',
   'provider_initialize_failed',
   'provider_capability_missing',

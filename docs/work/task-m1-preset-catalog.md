@@ -272,3 +272,90 @@ capabilities/observed/diagnostics
 
 이 네 경로만 마스킹한 뒤 같은 빌드로 캡처를 **세 번** 떠서 `diff -r`이 세 번 모두 빈 것을 확인했다.
 이 확인 전에는 "diff 0"이 아무것도 증명하지 못한다.
+
+
+### 2026-08-27 — 2단계: manifest 타입, catalog, 선택 우선순위, discovery
+
+**변경한 파일**
+
+| 파일 | 내용 |
+| --- | --- |
+| `cli/src/providers/preset.ts` (신규) | 확정된 manifest 타입 |
+| `cli/src/providers/manifest.ts` (신규) | 값 트리 검증, `$ref` 해석, tier 병합, redaction 표 수집 |
+| `cli/src/providers/discovery.ts` (신규) | shell 미사용 PATH 탐색, version probe와 비교 |
+| `cli/src/providers/projectConfig.ts` (신규) | `.impact-lens/provider.json` 읽기·검증 |
+| `cli/src/providers/catalog.ts` (신규) | TypeScript reference preset 하나 |
+| `cli/src/providers/resolve.ts` | 선택 우선순위 5단계와 session 값 |
+| `cli/src/runtime.ts` | `bundledProviderLogArgs` export(+env 인자), `bundledModuleEntryPath` 추가, `bundledTypeScriptCommand` 제거 |
+| `cli/src/errors.ts` | code 3종 추가 |
+| `cli/src/test/runtime.test.ts` | 제거된 함수를 쓰던 테스트 2건 갱신 |
+| `cli/src/test/providers.test.ts` (신규) | 41 테스트 |
+
+**선택 우선순위의 구현 위치**는 `cli/src/providers/resolve.ts:chooseProvider`다. 다섯 갈래가 한 함수
+안에 번호 주석과 함께 순서대로 있고, 그 뒤의 `autoDiscover`가 4·5단계를 담당한다.
+
+**타 언어 fallback 금지를 두 곳에서 강제한다.** `autoDiscover`는 detected language를 claim하는 preset만
+후보로 보고, `assertPresetSpeaksLanguage`는 explicit preset·project tier로 들어온 preset을 같은 기준으로
+검사한다. 두 번째가 없으면 `providerPreset: bundled-typescript` + `.py` 조합이
+`languageIdFrom: 'detected'` 때문에 languageId `python`으로 tsserver를 띄운다. 테스트로 고정했다.
+
+**`selectedBy` 매핑을 tier가 아니라 "어떻게 골랐는가"로 정했다.**
+
+| tier | `selectedBy` |
+| --- | --- |
+| raw custom command | `custom` |
+| explicit preset (`providerPreset` / 환경변수) | `preset` |
+| trusted project choice | `project` |
+| auto-discovery, 고른 preset이 `bundled` tier | `bundled` |
+| auto-discovery, 그 외 | `auto` |
+
+마지막 두 줄이 중요하다. bundled preset은 **탐색되는 것이 아니라 tarball에 들어 있는 것**이므로
+auto 경로로 골라도 `bundled`이 맞고, 그 덕분에 기존 사용자의 응답에서 `selectedBy`가 그대로 유지된다.
+`auto`는 "PATH에서 찾아냈다"는 뜻으로 남겨둔다.
+
+**bundled TypeScript preset이 오늘의 command를 그대로 만든다**
+
+```
+command: process.execPath
+args:    [<resolved lib/cli.mjs>, '--stdio', ...(IMPACT_LENS_PROVIDER_LOG_LEVEL이 1~4일 때만 --log-level N)]
+languageId: detected
+```
+
+`--log-level`은 manifest 어휘로 표현할 수 없는 유일한 항목이다(조건부는 manifest를 프로그램으로 만든다).
+`presetCommand`가 bundled tier일 때만 덧붙이고, 이것을 **M1 manifest의 알려진 표현 한계**로 기록한다.
+
+**`bundledModuleEntry` ref의 허용 목록은 한 줄이다.** 임의 specifier를 resolve하게 두면 manifest가 설치
+경로를 알아내는 수단이 된다. `cli/src/runtime.ts:bundledModuleEntryPath`가
+`typescript-language-server/lib/cli.mjs`만 받고 나머지는 `provider_config_invalid`로 거절한다.
+resolve 자체는 `inspectBundledTypeScriptArtifact()`를 통과하므로 artifact 부재·읽기 실패 시
+**오늘과 똑같은 재설치 안내 오류**가 나온다.
+
+**`cli/src/errors.ts`에 3종을 추가했다** — `provider_executable_not_found`,
+`provider_selection_ambiguous`, `provider_config_invalid`. 셋 다 이 PR의 코드가 실제로 던진다.
+계약에 있으나 아직 안 던지는 나머지 8종은 그대로 뒀고, 그중 4종이 doctor의 check `code`로만 쓰인다는
+사실을 주석에 적었다. `errors.test.ts`의 "선언했으면 생산해야 한다" 규칙은 그대로 통과한다.
+
+**project 설정 파일의 절대 경로를 거절한다.** `.impact-lens/provider.json`은 저장소에 커밋되어 모든
+체크아웃이 공유하므로 절대 경로는 어딘가에서 반드시 틀린다. IL-LIM-004의 "workspace 설정에는 preset ID와
+최소 override만 저장하고 절대 경로는 사용자/CI 설정으로 둔다"를 검증 규칙으로 옮긴 것이다. 절대 경로가
+필요하면 요청 수준 `provider` 블록을 쓴다.
+
+**version probe는 doctor에서만 실행된다.** 선택 경로는 파일 존재 확인만 하고 프로세스를 만들지 않는다.
+일반 analyze latency에 provider 프로세스를 더하지 않는다는 원칙이 여기서 지켜진다.
+
+**검증**
+
+| 검증 | 기준선 | 2단계 후 |
+| --- | --- | --- |
+| `npm run cli:build` | 통과 | 통과 |
+| `npm run cli:test` | 63 pass / 0 fail | 105 pass / 0 fail (신규 41 + 기존 63, 갱신 1) |
+| `npm test` | 35 pass / 0 fail | 35 pass / 0 fail |
+| 고정 캡처 29종 `diff -r` | — | **29/29 byte 단위 동일** |
+
+캡처가 전부 동일하다는 것은 bundled 경로가 `command`, `args`, `languageId`, `selectedBy`,
+`requestedLanguageId`, `detectedLanguageId`, `languageMatch`, 오류 message·details·exit code, stdout 줄 수
+어느 하나도 바뀌지 않았다는 뜻이다.
+
+**중간에 실제로 고친 결함 1건**: version 파서의 첫 정규식이 `\b(\d+...)`였는데 `v3.0` 형태에서 `v`와 `3`
+사이에 word boundary가 없어 `0`을 뽑았다. dotted run을 우선 시도하고 없을 때만 단일 숫자로 내려가는
+형태로 바꿨다. 덕분에 `fixture-server-v2 1.4.0`도 제품명이 아니라 `1.4.0`을 고른다.
