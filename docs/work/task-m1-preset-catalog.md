@@ -225,7 +225,21 @@ L1·L3~L7을 그대로 타입으로 확정한다. 아래는 **그 문서와 달�
 | `plugins/impact-lens/skills/impact-lens-cli/SKILL.md` | doctor를 한 번 실행해 package/version을 확인하라는 안내 | check가 `pass`/`warn`/`fail`을 가지므로 "전부 pass인가"를 읽는 방법이 필요하다 |
 | `docs/development-management/provider-coverage-contract.md` | fixture 표의 "doctor → `provider_executable_not_found`" 류 | doctor는 이 code들을 **던지지 않고** check의 `code`로 보고한다(3.1-(3)). 계약 lane이 표현을 맞춰야 한다 |
 
-## 9. 작업 로그
+## 9. 후속 과제
+
+이 lane이 끝내지 않고 근거와 함께 남기는 것이다.
+
+| # | 항목 | 왜 여기서 끝내지 않았나 | 누가 |
+| --- | --- | --- | --- |
+| 1 | analyze 경로에 workspace를 흘려 trusted project tier를 켠다 | 호출부가 `cli/src/lspProvider.ts`의 생성자인데 W1-A가 동시에 작업 중이라 건드릴 수 없다. 필요한 변경은 `resolveProvider(file, command, { workspace: this.workspace })` 한 줄이다. 지금은 doctor와 단위 테스트에서만 tier가 동작한다 | W1-A merge 후 |
+| 2 | 요청 최상위 `providerPreset` / `initializationOptions` / `settings` 스키마 추가 | lead 결정 L6이 후속 contract lane으로 지정했다. 이름은 고정됐고 배관은 그 이름으로 이미 있다 | contract lane |
+| 3 | `ResolvedProviderSession`의 `initializationOptions`·`settings`·`settingsDelivery`·`redactionValues`를 실제 wire에 싣는다 | 프로토콜 계층(`lspProvider.ts`, `jsonRpc.ts`)은 W1-A 소유다. 이 lane은 값을 만들어 seam에 올려두는 데까지다 | W1-A |
+| 4 | readiness 신호의 실제 관측과 `coverage.indexing.evidence` | Wave 2 W2-A. 지금은 선언을 담을 자리만 있고 TypeScript preset은 선언하지 않으므로 `indexing.status`는 `unknown` 그대로다 | W2-A |
+| 5 | doctor가 발견한 문제를 exit code로도 알릴지 | exit code는 `error.code`에 1:1로 묶인 계약이라 `ok: true` envelope에 0이 아닌 exit를 붙이는 것은 계약 변경이다. 3.1-(2) 참조 | 계약 lane |
+| 6 | `plugins/**` 문서 갱신 | 이 lane의 금지 범위. 낡아지는 문장은 8절에 목록으로 있다 | plugin docs lane |
+| 7 | gopls verified-external preset | IL-LIM-004 3단계, M2. 실제 fixture 통과가 승격 조건이고 그 fixture 자리는 `ProviderPreset.fixture`로 이미 있다 | M2 |
+
+## 10. 작업 로그
 
 ### 2026-08-27 — 1단계: 작업 문서와 무변경 기준선
 
@@ -507,3 +521,20 @@ exit 0, preflight의 **빈 stderr**.
 | `npm run test:plugin-artifact` | exit 0 (네트워크가 있어 실제로 실행) |
 | `npm pack --dry-run` | total files 24. `dist/doctor/*.js` 2개, `dist/providers/*.js` 6개 포함 |
 | 고정 캡처 29종 | 27 동일 / 2 의도된 doctor 차이 |
+
+
+### 2026-08-27 — 최종 검증
+
+`cli/dist`를 지우고 다시 빌드한 뒤 전부 실행했다.
+
+| 검증 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm run cli:test` | tests 159 / pass 159 / fail 0 |
+| `npm test` | tests 35 / pass 35 / fail 0 |
+| `npm run test:plugin-artifact` | exit 0. 네트워크가 있어 실제로 실행했다 |
+| 캡처 after 두 벌 `diff -r` | 비어 있음 (변경 후 상태도 결정적이다) |
+| 캡처 baseline vs after | 27/29 byte 단위 동일. `doctor-preflight`·`doctor-smoke` 2건만 의도된 additive 차이 |
+
+`main`에서는 어떤 파일도 변경하지 않았다. 전 작업이 `feat/m1-preset-catalog`에서 이뤄졌고,
+`origin/main`(`f0cb40e`)은 merge로만 가져왔다. force push와 history rewrite는 하지 않았다.
