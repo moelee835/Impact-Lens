@@ -1,8 +1,8 @@
 // Every `error.code` the CLI can put in an `ok: false` envelope, in exit-status order.
 //
 // The list holds only codes that some line in `cli/src` actually throws today. The contract document
-// declares ten more (`provider_not_ready`, `provider_executable_not_found`, `provider_version_unsupported`,
-// `provider_version_unreadable`, `provider_selection_ambiguous`, `provider_protocol_incompatible`,
+// declares nine more (`provider_not_ready`, `provider_executable_not_found`, `provider_version_unsupported`,
+// `provider_version_unreadable`, `provider_selection_ambiguous`,
 // `provider_capability_probe_failed`, `provider_project_metadata_missing`, `provider_fixture_failed`,
 // `request_cancelled`) that nothing throws yet. Adding them here would declare a code no code produces,
 // which is the same declaration/implementation drift this module exists to prevent. The lane that
@@ -39,6 +39,10 @@ export const CLI_ERROR_CODES = [
   'provider_initialize_failed',
   'provider_capability_missing',
   'provider_query_failed',
+  // Produced by `cli/src/jsonRpc.ts:JsonRpcClient.stageFailure` when a stage fails after this client
+  // refused a server -> client request it does not implement. It replaces the stage's own code so the
+  // envelope names the cause instead of the symptom.
+  'provider_protocol_incompatible',
   'provider_ipc_unavailable',
   'bundled_provider_artifact_missing',
   'bundled_provider_artifact_unreadable',

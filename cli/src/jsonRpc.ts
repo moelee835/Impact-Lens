@@ -1,16 +1,14 @@
 import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  classifyIncoming,
+  JSON_RPC_INTERNAL_ERROR,
+  JsonRpcId,
+  JsonRpcIncoming,
+} from './lsp/protocol';
+import { methodNotFound, ServerRequestHandler } from './lsp/serverRequests';
 import { CliError, ProviderLifecycleStage } from './types';
-
-interface JsonRpcResponse {
-  readonly jsonrpc: '2.0';
-  readonly id?: number;
-  readonly result?: unknown;
-  readonly error?: { readonly code: number; readonly message: string; readonly data?: unknown };
-  readonly method?: string;
-  readonly params?: unknown;
-}
 
 interface PendingRequest {
   readonly resolve: (value: unknown) => void;
@@ -18,10 +16,23 @@ interface PendingRequest {
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
+interface UnhandledServerRequest {
+  readonly method: string;
+  readonly stage: ProviderLifecycleStage;
+}
+
 export class JsonRpcClient {
   private readonly child: ChildProcessWithoutNullStreams;
-  private readonly pending = new Map<number, PendingRequest>();
+  // Two tables, never consulted for each other. Ids are only meaningful to the side that issued them,
+  // so the server is free to start at 1 while our own `initialize` is still in flight as 1.
+  private readonly pendingOutbound = new Map<number, PendingRequest>();
+  private readonly inflightInbound = new Set<string>();
   private readonly notificationHandlers = new Map<string, Array<(params: unknown) => void>>();
+  private requestHandlers: ReadonlyMap<string, ServerRequestHandler> = new Map();
+  private readonly unhandledServerRequests: UnhandledServerRequest[] = [];
+  private serverRequestsAnswered = 0;
+  private unmatchedResponses = 0;
+  private protocolViolations = 0;
   private buffer = Buffer.alloc(0);
   private nextId = 1;
   private stderr = '';
@@ -86,32 +97,86 @@ export class JsonRpcClient {
     this.notificationHandlers.set(method, handlers);
   }
 
+  /**
+   * Installs the answers for server -> client requests.
+   *
+   * Must be set before `initialize` is written: a server may ask for configuration *before* it
+   * answers `initialize`, which is exactly what `configurationRequestServer` reproduces.
+   */
+  setRequestHandlers(handlers: ReadonlyMap<string, ServerRequestHandler>): void {
+    this.requestHandlers = handlers;
+  }
+
+  /**
+   * The first client request we refused during `stage`, if any.
+   *
+   * A refusal is not a failure on its own — optional server requests can go unanswered and the
+   * analysis still completes. It only becomes the explanation when the same stage then fails, which
+   * is when the caller promotes its error code instead of reporting a bare timeout.
+   */
+  unhandledServerRequest(stage: ProviderLifecycleStage): string | undefined {
+    return this.unhandledServerRequests.find(entry => entry.stage === stage)?.method;
+  }
+
   async request<T>(method: string, params: unknown): Promise<T> {
     const id = this.nextId++;
     const promise = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new CliError(
-          'timeout',
-          `Language Server request timed out: ${method}`,
-          6,
-          true,
-          { stage: this.lifecycleStage, method },
+        this.pendingOutbound.delete(id);
+        reject(this.stageFailure(
+          new CliError(
+            'timeout',
+            `Language Server request timed out: ${method}`,
+            6,
+            true,
+            { stage: this.lifecycleStage, method },
+          ),
+          this.lifecycleStage,
         ));
       }, this.timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pendingOutbound.set(id, { resolve, reject, timer });
     });
     try {
       this.send({ jsonrpc: '2.0', id, method, params });
     } catch (error) {
-      const request = this.pending.get(id);
+      const request = this.pendingOutbound.get(id);
       if (request) {
         clearTimeout(request.timer);
-        this.pending.delete(id);
+        this.pendingOutbound.delete(id);
       }
       throw error;
     }
     return promise as Promise<T>;
+  }
+
+  /**
+   * Rewrites a stage failure as a protocol incompatibility when this client refused a server request
+   * during that same stage.
+   *
+   * Without this the deadlock in `configurationRequestServer` reports `timeout`, which names the
+   * symptom and hides the cause: the server was waiting on us, not the other way round.
+   */
+  stageFailure(error: CliError, stage: ProviderLifecycleStage): CliError {
+    const method = this.unhandledServerRequest(stage);
+    if (method === undefined) {
+      return error;
+    }
+    const details = (error.details ?? {}) as Record<string, unknown>;
+    // `details.method` names the incompatible method, which is what the contract table means by it.
+    // The request that actually failed keeps its own key so neither fact is lost.
+    const { method: failed, ...rest } = details;
+    return new CliError(
+      'provider_protocol_incompatible',
+      `The Language Server requires the client request ${method}, which Impact Lens does not implement, and then failed during ${stage}. ${error.message}`,
+      5,
+      false,
+      {
+        ...rest,
+        stage,
+        method,
+        ...(typeof failed === 'string' ? { duringRequest: failed } : {}),
+      },
+    );
   }
 
   notify(method: string, params: unknown): void {
@@ -169,33 +234,96 @@ export class JsonRpcClient {
       const body = this.buffer.subarray(bodyStart, bodyStart + length).toString('utf8');
       this.buffer = this.buffer.subarray(bodyStart + length);
       try {
-        this.handle(JSON.parse(body) as JsonRpcResponse);
+        this.handle(JSON.parse(body) as JsonRpcIncoming);
       } catch (error) {
         this.failAll(error instanceof Error ? error : new Error(String(error)));
       }
     }
   }
 
-  private handle(message: JsonRpcResponse): void {
-    if (message.id !== undefined) {
-      const pending = this.pending.get(message.id);
-      if (!pending) {
+  private handle(message: JsonRpcIncoming): void {
+    switch (classifyIncoming(message)) {
+      case 'request':
+        this.handleServerRequest(message.method as string, message.id as JsonRpcId, message.params);
         return;
-      }
-      clearTimeout(pending.timer);
-      this.pending.delete(message.id);
-      if (message.error) {
-        pending.reject(new Error(`Language Server error ${message.error.code}: ${message.error.message}`));
-      } else {
-        pending.resolve(message.result);
-      }
+      case 'notification':
+        this.handleNotification(message.method as string, message.params);
+        return;
+      case 'response':
+        this.handleResponse(message);
+        return;
+      default:
+        // Neither an id nor a method. Nothing can be answered and nothing can be resolved; keep the
+        // count so a later failure can say the stream was malformed.
+        this.protocolViolations += 1;
+    }
+  }
+
+  private handleNotification(method: string, params: unknown): void {
+    this.recordServerLog(method, params);
+    for (const handler of this.notificationHandlers.get(method) ?? []) {
+      handler(params);
+    }
+  }
+
+  private handleResponse(message: JsonRpcIncoming): void {
+    const id = message.id;
+    const pending = typeof id === 'number' ? this.pendingOutbound.get(id) : undefined;
+    if (!pending) {
+      // A response we cannot match. A late answer to a request we cancelled lands here legitimately,
+      // so this is evidence rather than a failure condition.
+      this.unmatchedResponses += 1;
       return;
     }
-    if (message.method) {
-      this.recordServerLog(message.method, message.params);
-      for (const handler of this.notificationHandlers.get(message.method) ?? []) {
-        handler(message.params);
+    clearTimeout(pending.timer);
+    this.pendingOutbound.delete(id as number);
+    if (message.error) {
+      pending.reject(new Error(`Language Server error ${message.error.code}: ${message.error.message}`));
+    } else {
+      pending.resolve(message.result);
+    }
+  }
+
+  private handleServerRequest(method: string, id: JsonRpcId, params: unknown): void {
+    const key = `${typeof id}:${String(id)}`;
+    if (this.inflightInbound.has(key)) {
+      // The same id twice without an answer in between is the server's bug, not ours. Answering the
+      // first one is still correct, so only the duplicate is recorded.
+      this.protocolViolations += 1;
+      return;
+    }
+    this.inflightInbound.add(key);
+    const handler = this.requestHandlers.get(method);
+    let outcome;
+    if (!handler) {
+      this.unhandledServerRequests.push({ method, stage: this.lifecycleStage });
+      outcome = methodNotFound(method);
+    } else {
+      try {
+        outcome = handler(params);
+      } catch (error) {
+        outcome = {
+          kind: 'error' as const,
+          code: JSON_RPC_INTERNAL_ERROR,
+          message: `Impact Lens failed to answer ${method}: ${error instanceof Error ? error.message : String(error)}`,
+        };
       }
+    }
+    this.inflightInbound.delete(key);
+    this.serverRequestsAnswered += 1;
+    this.sendResponse(id, outcome);
+  }
+
+  private sendResponse(id: JsonRpcId, outcome: ReturnType<ServerRequestHandler>): void {
+    // The id goes back with its original type. Coercing a string id to a number loses the answer for
+    // any server that numbers its requests with strings, which JSON-RPC allows.
+    const message = outcome.kind === 'result'
+      ? { jsonrpc: '2.0', id, result: outcome.value }
+      : { jsonrpc: '2.0', id, error: { code: outcome.code, message: outcome.message } };
+    try {
+      this.send(message);
+    } catch {
+      // The session is already terminating; the pending failure carries the real diagnosis.
     }
   }
 
@@ -214,11 +342,11 @@ export class JsonRpcClient {
   }
 
   private failAll(error: Error): void {
-    for (const request of this.pending.values()) {
+    for (const request of this.pendingOutbound.values()) {
       clearTimeout(request.timer);
       request.reject(error);
     }
-    this.pending.clear();
+    this.pendingOutbound.clear();
   }
 
   private closeWithError(error: Error): void {
@@ -258,26 +386,37 @@ export class JsonRpcClient {
     const cause = this.processError
       ? ((this.processError as NodeJS.ErrnoException).code ?? this.processError.name)
       : undefined;
-    this.closeWithError(new CliError(
-      code,
-      `Language Server ${this.executable} failed during ${stage} (${reason}).`,
-      5,
-      true,
-      {
-        stage,
-        executable: this.executable,
-        exitCode: this.exitCode,
-        signal: this.exitSignal,
-        // A server that dies without stderr still tells us whether it ever spoke the protocol and how
-        // long it survived. Silence plus zero bytes points at the launch environment, while a reply
-        // followed by a sudden exit points at what the server did after answering.
-        msSinceSpawn: Date.now() - this.spawnedAt,
-        bytesFromServer: this.serverBytes,
-        requestsSent: this.nextId - 1,
-        ...(stderr ? { stderr } : {}),
-        ...(providerLog ? { providerLog } : {}),
-        ...(cause ? { cause } : {}),
-      },
+    this.closeWithError(this.stageFailure(
+      new CliError(
+        code,
+        `Language Server ${this.executable} failed during ${stage} (${reason}).`,
+        5,
+        true,
+        {
+          stage,
+          executable: this.executable,
+          exitCode: this.exitCode,
+          signal: this.exitSignal,
+          // A server that dies without stderr still tells us whether it ever spoke the protocol and how
+          // long it survived. Silence plus zero bytes points at the launch environment, while a reply
+          // followed by a sudden exit points at what the server did after answering.
+          msSinceSpawn: Date.now() - this.spawnedAt,
+          bytesFromServer: this.serverBytes,
+          requestsSent: this.nextId - 1,
+          // Bidirectional counters are only spelled out when they are not zero, so a session that never
+          // saw a server request keeps exactly the diagnostics shape it had before this existed.
+          ...(this.serverRequestsAnswered ? { serverRequestsAnswered: this.serverRequestsAnswered } : {}),
+          ...(this.unhandledServerRequests.length
+            ? { unhandledServerRequestMethods: [...new Set(this.unhandledServerRequests.map(entry => entry.method))] }
+            : {}),
+          ...(this.unmatchedResponses ? { unmatchedResponses: this.unmatchedResponses } : {}),
+          ...(this.protocolViolations ? { protocolViolations: this.protocolViolations } : {}),
+          ...(stderr ? { stderr } : {}),
+          ...(providerLog ? { providerLog } : {}),
+          ...(cause ? { cause } : {}),
+        },
+      ),
+      stage,
     ));
   }
 }

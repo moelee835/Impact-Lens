@@ -16,6 +16,7 @@
   "files": [
     "dist/*.js",
     "dist/providers/*.js",
+    "dist/lsp/*.js",
     "README.md",
     "schemas/**"
   ],

@@ -2,6 +2,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JsonRpcClient } from './jsonRpc';
+import { EMPTY_SETTINGS, JsonObject } from './lsp/configuration';
+import { CapabilityRegistration, createServerRequestHandlers } from './lsp/serverRequests';
 import { languageId, resolveProvider } from './providers/resolve';
 import {
   CallHierarchyItem,
@@ -52,14 +54,23 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     lifecycle: { stage: 'discovery', status: 'working' },
   };
   private readonly languageIdOverride: string | undefined;
+  private readonly settings: JsonObject;
+  /** Dynamic registrations the server announced. Wave 2 merges these into observed capabilities. */
+  private readonly registrations = new Map<string, CapabilityRegistration>();
+  /** Progress tokens the server asked us to create. A token is not evidence that indexing finished. */
+  private readonly progressTokens = new Set<string>();
 
   constructor(
     private readonly workspace: string,
     file: string,
     command: ProviderCommand | undefined,
     timeoutMs: number,
+    // The protocol layer never reads a preset manifest. It receives an already-resolved, plain JSON
+    // settings tree, because reference resolution and override merging belong to `providers/`.
+    session: { readonly settings?: JsonObject } = {},
   ) {
     const resolved = resolveProvider(file, command);
+    this.settings = session.settings ?? EMPTY_SETTINGS;
     this._capabilities = {
       ...this._capabilities,
       requestedLanguageId: resolved.requestedLanguageId,
@@ -70,6 +81,25 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     };
     this.languageIdOverride = resolved.requestedLanguageId;
     this.client = new JsonRpcClient(resolved.command.command, resolved.command.args ?? [], timeoutMs);
+    // Installed before `initialize` is written on purpose: a server may ask for configuration before
+    // it answers `initialize`, and a client that resolves its answers lazily deadlocks right there.
+    this.client.setRequestHandlers(createServerRequestHandlers({
+      workspaceFolders: [{ uri: pathToFileURL(workspace).toString(), name: path.basename(workspace) }],
+      settings: this.settings,
+      onRegisterCapability: entries => {
+        for (const entry of entries) {
+          this.registrations.set(`${entry.id}:${entry.method}`, entry);
+        }
+      },
+      onUnregisterCapability: entries => {
+        for (const entry of entries) {
+          this.registrations.delete(`${entry.id}:${entry.method}`);
+        }
+      },
+      onWorkDoneProgressCreate: token => {
+        this.progressTokens.add(String(token));
+      },
+    }));
     this.client.onNotification('textDocument/publishDiagnostics', params => {
       const value = params as PublishDiagnostics | undefined;
       if (!value?.uri || !Array.isArray(value.diagnostics)) {
@@ -175,13 +205,13 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
       if (error instanceof CliError) {
         throw error;
       }
-      throw new CliError(
+      throw this.client.stageFailure(new CliError(
         'provider_initialize_failed',
         `Cannot initialize the Language Server: ${error instanceof Error ? error.message : String(error)}`,
         5,
         true,
         { stage: 'initialize' },
-      );
+      ), 'initialize');
     }
     const callHierarchy = Boolean(result.capabilities?.callHierarchyProvider);
     this._capabilities = {
@@ -244,13 +274,13 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
       if (error instanceof CliError) {
         throw error;
       }
-      throw new CliError(
+      throw this.client.stageFailure(new CliError(
         'provider_query_failed',
         `Cannot open the document in the Language Server: ${error instanceof Error ? error.message : String(error)}`,
         5,
         true,
         { stage: 'query', method: 'textDocument/didOpen' },
-      );
+      ), 'query');
     }
     this.opened.add(uri);
   }
@@ -267,13 +297,13 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
       if (error instanceof CliError) {
         throw error;
       }
-      throw new CliError(
+      throw this.client.stageFailure(new CliError(
         'provider_query_failed',
         `Language Server query failed: ${error instanceof Error ? error.message : String(error)}`,
         5,
         true,
         { stage: 'query', method },
-      );
+      ), 'query');
     }
   }
 
