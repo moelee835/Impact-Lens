@@ -163,7 +163,7 @@ M1 위험 대응 "기본 UI는 간결한 상태, 상세 정보는 tooltip/JSON�
 | id | 종류 | 기본값 | 목적 |
 | --- | --- | --- | --- |
 | `impactLens.provider.detailLevel` | enum `summary` / `verbose` | `summary` | 기본 UI에 coverage 상세를 얼마나 올릴지. M1 위험 대응 "indexing unknown 경고가 과도할 수 있다"의 조절 손잡이 |
-| `impactLens.provider.doctorCommandLine` | string | `""` | `Impact Lens: Run Provider Doctor`가 **터미널에서 실행할지 물어볼** 전체 명령줄. 비우면 host 측 점검만 한다 |
+| `impactLens.provider.doctorCommandLine` | string, **`scope: machine`** | `""` | `Impact Lens: Run Provider Doctor`가 **터미널에서 실행할지 물어볼** 전체 명령줄. 비우면 host 측 점검만 한다 |
 | `impactLens.runProviderDoctor` | command | — | doctor 실행 |
 
 `enumDescriptions` 패턴은 `impactLens.defaultNoteStorage`를 따른다.
@@ -183,9 +183,41 @@ M1 위험 대응 "기본 UI는 간결한 상태, 상세 정보는 tooltip/JSON�
   단어지만, 이것은 **출력 형태 결합이 아니라 어휘 일치**다. → **W1-B 확정 후 조정 필요**: 세 값이 아니게
   되면 Extension 쪽도 맞춘다.
 
+### 신뢰 경계 — `doctorCommandLine`은 왜 `scope: machine`이어야 하는가
+
+**이 절은 나중에 "설정이 불편하니 `window`로 되돌리자"는 제안이 나올 때를 위한 기록이다.**
+
+`package.json`에서 `scope`를 생략하면 기본값은 `window`이고, **`window` scope 설정은 workspace의
+`.vscode/settings.json`이 덮어쓸 수 있다.** 이 설정의 값은 `src/controller.ts:runProviderDoctor`에서
+`terminal.sendText(doctorCommandLine, true)`로 **셸에 그대로 들어간다.**
+
+그래서 `window`로 두면 공격 경로가 이렇게 성립한다.
+
+1. 저장소가 `.vscode/settings.json`에 `impactLens.provider.doctorCommandLine`을 심는다.
+2. 사용자가 그 저장소를 clone해서 연다. 여기까지 사용자의 동작은 "폴더 열기"뿐이다.
+3. 사용자가 provider 문제를 겪고 doctor를 실행한다. 이것은 우리가 UI 전반에서 **권장하는 행동**이다
+   (Explorer empty 항목과 provider 부재 알림이 여기로 유도한다).
+4. "이 명령을 터미널에서 실행할까요?" 프롬프트가 뜬다. 사용자는 **자기가 설정한 적 없는 명령을 자기
+   것으로 오해한다.**
+
+**이미 넣어둔 방어가 이 경로를 막지 못한다는 것이 핵심이다.** 명시적 command 실행, 확인 프롬프트,
+보이는 터미널, 출력 미파싱 — 이 넷은 전부 *"사용자가 설정한 명령"*이라는 전제 위에서만 방어다.
+프롬프트는 "네가 설정한 것"과 "저장소가 설정한 것"을 **구분해서 보여줄 수단이 없다.** 신뢰 경계를 닫는
+것이 프롬프트보다 앞선다.
+
+`machine`은 user settings에서만 설정 가능하고 workspace·folder 설정이 덮어쓸 수 없다.
+**`machine-overridable`은 안 된다** — 이름은 더 엄격해 보이지만 remote·workspace 덮어쓰기를 다시 허용해서
+닫으려는 경로를 그대로 열어둔다.
+
+`impactLens.provider.detailLevel`은 `window`(기본)로 둔다. 닫힌 enum 두 값이고 표시량만 바꾼다. 실행에
+닿지 않으므로 workspace가 정해도 해가 없고, 저장소마다 상세 수준을 정하는 것은 오히려 정상적인 쓰임이다.
+
+이 경계는 `src/test/contributions.test.ts`가 지킨다. `scope: machine`을 지우면 테스트 2개가 실패하는 것을
+실제로 확인했다(아래 6.1단계 로그).
+
 ### 자동 실행 금지
 
-doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자가 quick pick에서 명시적으로 고를 때만
+doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자가 확인 프롬프트에서 명시적으로 고를 때만
 터미널로 보낸다. build·configure·sync를 승인 없이 실행하는 경로를 만들지 않는다 (M1 종료 gate).
 
 ## 단계별 구현 계획
@@ -227,7 +259,7 @@ doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자
 
 ## 테스트 및 완료 기준
 
-- [x] `npm test` 통과 — **55 pass / 0 fail** (기준선 35 + 신규 20)
+- [x] `npm test` 통과 — **58 pass / 0 fail** (기준선 35 + 신규 23)
 - [x] `npm run compile` 통과
 - [x] `npm run cli:test` 통과 — **63 pass / 0 fail**. `cli/**` diff 0건
 - [x] 세 empty state가 각각 다른 문구를 만들고, 테스트가 셋의 상호 구별을 증명한다
@@ -235,12 +267,13 @@ doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자
 - [x] 금지 문구 검사 테스트가 존재하고 통과한다 (생성 문자열 매트릭스 720건 + 소스 스캔)
 - [x] `stateLabel` 중복과 provider 부재 메시지 중복이 grep으로 0건임을 보인다
 - [x] 실제 VS Code 렌더링 확인 불가 항목을 작업 로그에 명시한다 (아래 "확인하지 못한 것")
+- [x] 실행에 닿는 설정이 workspace에서 주입될 수 없다 (`scope: machine`, 테스트로 강제)
 
 ### 검증 명령과 결과
 
 | 명령 | 결과 |
 | --- | --- |
-| `npm test` | 55 pass / 0 fail |
+| `npm test` | 58 pass / 0 fail |
 | `npm run compile` | 성공 (출력 없음) |
 | `npm run cli:test` | 63 pass / 0 fail |
 | `npm run test:plugin-artifact` | **실행하지 않았다.** 네트워크가 필요하고(handover 10절) 이 lane은 `cli/**`·`plugins/**`·`scripts/**`를 수정하지 않았다 |
@@ -410,3 +443,54 @@ VS Code UI는 자동 테스트로 덮이지 않는다. 아래는 **코드 수준
 | 3 | `impactLens.provider.doctorCommandLine` | 전체 명령줄 문자열 | W1-B가 preset id를 확정해도 변경 불필요. Extension이 preset id를 조립하는 순간 이 판단이 깨지므로 그때 재검토 |
 | 4 | semantic 어휘 `provider-static` / `static-plus-inference` / `static-plus-observation` | 매핑하지 않음 | W1-C가 `src/types.ts:SEMANTIC_STATUSES`를 넓히면 `semanticScopeLabel()`에 행을 추가한다 |
 | 5 | `data.completion` | **미러링하지 않음** | W1-C merge 후 별도 후속 lane |
+
+### 2026-08-27 — 6.1단계: `doctorCommandLine`의 신뢰 경계 (lead 리뷰 반영)
+
+lead 리뷰가 `impactLens.provider.doctorCommandLine`에 `scope`가 없다는 것을 지적했다. **타당하다.**
+근거와 공격 경로는 위 "신뢰 경계" 절에 남겼다. 요약하면, `window` scope(생략 시 기본)는 workspace가
+값을 심을 수 있게 하고 그 값은 `terminal.sendText`로 셸에 들어가므로, 저장소를 여는 것만으로 명령줄을
+주입할 수 있었다. 내가 넣어둔 방어 넷은 전부 "사용자가 설정한 명령"이라는 전제 위에 있었고 그 전제가
+깨지는 경로였다.
+
+고친 것:
+
+- `package.json`: `"scope": "machine"` 추가. `description`을 `markdownDescription`으로 바꾸고
+  **실행으로 이어진다는 사실**과 **user settings에서만 설정 가능하다는 사실**을 문장으로 적었다.
+  (lead 확인 항목 2번) 이전 문구는 "offers to run in a terminal"이라 읽으면 알 수는 있었지만,
+  설정 UI에서 훑어보는 사람에게 실행 여부와 출처 제한이 드러나지 않았다.
+- `src/controller.ts`: 설정을 읽을 때 resource 인자를 뺐다(`getConfiguration('impactLens')`).
+  `machine` scope는 폴더별 값이 존재하지 않으므로, resource를 넘기는 것은 있을 수 없는 변형을 암시한다.
+  코드가 manifest와 같은 사실을 말하게 했다.
+- `src/providerDoctor.ts`: `agentCli` check의 detail을
+  `Configured command line, from user settings only: …`로 바꿨다. 미설정 시 action도
+  "in your user settings"를 포함한다. doctor 보고서 자체가 출처 제한을 말한다.
+- 신규 `src/test/contributions.test.ts` 3개.
+
+**확인 프롬프트(lead 확인 항목 1번) — 바꿨다.** non-modal은 유지하되, **명령줄을 프롬프트 문구에서 뺐다.**
+근거: toast는 긴 텍스트를 자른다. 잘린 명령줄은 없는 것보다 나쁘다 — 보이는 앞부분이 무해해 보이는 동안
+정작 중요한 뒷부분이 잘린 채로 사용자가 승인하게 된다. `runProviderDoctor`는 프롬프트 **직전에**
+`doctorOutput.show(true)`로 전체 명령줄이 적힌 보고서를 화면에 띄우므로, 프롬프트는 그쪽을 가리키기만
+하면 된다. 새 문구: `Run the Agent CLI check from your user settings in a terminal? The full command line
+is in the Impact Lens Provider Doctor output.` — 출처("your user settings")도 함께 말한다.
+modal로 올리지 않은 이유는 lead 판단과 같다. scope를 닫고 나면 값의 출처가 사용자 자신으로 고정되므로,
+매번 작업을 중단시키는 modal은 비용이 이득보다 크다.
+
+**다른 신뢰 경계 문제 훑기(lead 확인 항목 3번).** 이 lane이 추가한 것과 기존 것을 함께 봤다.
+
+| 대상 | 판정 |
+| --- | --- |
+| `impactLens.provider.detailLevel` | 닫힌 enum, 표시량만 바꾼다. 실행에 닿지 않는다. `window` 유지 |
+| `impactLens.runProviderDoctor` command | 사용자 실행 전용. 내부에서 하는 일은 provider 질의와 OutputChannel 쓰기뿐이고, 터미널 경로는 위 확인 프롬프트 뒤에만 있다 |
+| Explorer empty 항목의 `command` | 같은 command를 부를 뿐이다. 클릭만으로 셸에 닿는 경로는 없다 |
+| graph webview payload | provider·coverage 값은 `src/coverage.ts`의 상수이고 workspace가 정하지 않는다. 값은 `textContent`와 `title` 속성으로만 들어간다. `graphPanel.ts`의 유일한 `innerHTML`은 보간 없는 정적 `<defs>` 리터럴이다(기존 코드) |
+| 기존 `impactLens.defaultNoteStorage` | 닫힌 enum. `sourceComment`가 소스 파일에 쓰지만 사용자가 note를 관리할 때만이고 자유 문자열이 아니다. 이 lane의 범위 밖이며 별도 문제로 보지 않았다 |
+
+**guard가 실제로 무는지 확인했다.** `package.json`에서 `"scope": "machine"` 한 줄을 지우고 돌리자
+`the doctor command line can only come from user settings`와
+`every free-form string setting declares a scope decision` 2개가 실패했다(58 중 56 pass). 되돌린 뒤 58 pass.
+
+두 번째 테스트는 **앞으로를 위한 규칙**이다. enum이 없는 자유 형식 `type: "string"` 설정은 경로·명령·인자를
+담을 수 있는 모양이므로 `machine`이거나, 테스트 안 allowlist에 이유와 함께 등재돼야 한다. 지금 allowlist는
+비어 있다. 다음에 자유 문자열 설정을 추가하는 사람이 scope를 **생각하지 않고 지나갈 수 없게** 만든다.
+
+- `npm test` 58 pass / 0 fail. `npm run compile` 통과.

@@ -170,8 +170,9 @@
         },
         "impactLens.provider.doctorCommandLine": {
           "type": "string",
+          "scope": "machine",
           "default": "",
-          "description": "Full command line that Impact Lens: Run Provider Doctor offers to run in a terminal for the Agent CLI check. Impact Lens never runs it automatically and never reads its output. Leave empty to run host-side checks only."
+          "markdownDescription": "Command line that **Impact Lens: Run Provider Doctor** offers to run in a terminal for the Agent CLI check. Running it is always your explicit choice: Impact Lens never runs it on its own and never reads its output. This setting can only be changed in your user settings, so a workspace you open cannot supply a command line for you. Leave empty to run host-side checks only."
         },
         "impactLens.defaultNoteStorage": {
           "type": "string",

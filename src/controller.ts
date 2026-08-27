@@ -649,8 +649,12 @@ export class ImpactLensController implements vscode.Disposable {
 
     const position = editor.selection.active;
     const document = editor.document;
+    // Read without a resource on purpose. `impactLens.provider.doctorCommandLine` is declared with
+    // `"scope": "machine"`, so it has no per-folder value to look up, and asking for one would suggest a
+    // variation that cannot exist. The scope is what makes the confirmation below meaningful: the value
+    // reaches a shell, and a `window`-scoped setting would let any workspace put a command line there.
     const doctorCommandLine = vscode.workspace
-      .getConfiguration('impactLens', document.uri)
+      .getConfiguration('impactLens')
       .get<string>('provider.doctorCommandLine', '')
       .trim();
 
@@ -692,9 +696,14 @@ export class ImpactLensController implements vscode.Disposable {
     if (!doctorCommandLine) {
       return;
     }
+    // The command line is deliberately absent from this notification. A toast truncates long text, and a
+    // truncated command line is worse than none: the visible prefix can look harmless while the part that
+    // matters is cut off. The report shown above prints it in full, so the reader approves against the
+    // complete text rather than against a prefix.
     const run = 'Run in terminal';
     const choice = await vscode.window.showInformationMessage(
-      `Run the configured Agent CLI check? ${doctorCommandLine}`,
+      'Run the Agent CLI check from your user settings in a terminal?'
+        + ' The full command line is in the Impact Lens Provider Doctor output.',
       { modal: false },
       run,
     );

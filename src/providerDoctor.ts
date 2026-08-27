@@ -136,7 +136,7 @@ export function providerDoctorChecks(facts: ProviderDoctorFacts): ProviderCheck[
       id: 'agentCli',
       title: 'Agent CLI doctor',
       status: 'pass',
-      detail: `Configured command line: ${facts.doctorCommandLine}`,
+      detail: `Configured command line, from user settings only: ${facts.doctorCommandLine}`,
       action: 'Choose "Run in terminal" to execute it. Impact Lens never runs it on its own and never'
         + ' reads its output.',
     }
@@ -145,8 +145,8 @@ export function providerDoctorChecks(facts: ProviderDoctorFacts): ProviderCheck[
       title: 'Agent CLI doctor',
       status: 'warn',
       detail: 'No Agent CLI doctor command line is configured, so only host-side checks ran.',
-      action: 'Set "impactLens.provider.doctorCommandLine" to the full command line, then run this'
-        + ' command again.',
+      action: 'Set "impactLens.provider.doctorCommandLine" in your user settings to the full command'
+        + ' line, then run this command again.',
     });
 
   return checks;
