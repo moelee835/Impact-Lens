@@ -538,3 +538,19 @@ exit 0, preflight의 **빈 stderr**.
 
 `main`에서는 어떤 파일도 변경하지 않았다. 전 작업이 `feat/m1-preset-catalog`에서 이뤄졌고,
 `origin/main`(`f0cb40e`)은 merge로만 가져왔다. force push와 history rewrite는 하지 않았다.
+
+
+### 2026-08-27 — PR #38 CI 결과
+
+[PR #38](https://github.com/moelee835/Impact-Lens/pull/38) 4종 check 전부 통과.
+
+| check | 결과 |
+| --- | --- |
+| `Unit tests / Node 22 / ubuntu-latest` | pass (33s) |
+| `Plugin artifact E2E / ubuntu-latest / Node 22` | pass (33s) |
+| `Plugin artifact E2E / macos-latest / Node 22` | pass (49s) |
+| `Plugin artifact E2E / windows-latest / Node 22` | pass (1m35s) |
+
+Windows까지 통과한 것이 `cli/package.json` `files`에 추가한 `dist/doctor/*.js`에 대한 마지막 확인이다.
+tarball을 실제로 packing·설치해 실행하는 job이므로, 새 디렉터리가 세 OS 모두에서 아티팩트에 들어간다는 뜻이다.
+같은 job이 강화한 assert(언어 일치 3종, doctor 전체 check `pass`)도 함께 통과했다.
