@@ -326,8 +326,8 @@ lead 승인 형태는 `{ signal, detail }`이다. 벽시계 값을 넣으면 이
 - [x] 금지 문구 6종이 어떤 상태에서도 생성되지 않는다
 - [x] `npm run test:plugin-artifact` 통과, `selectedBy === 'bundled'`·`complete === true` assert 유지
 - [x] `schemaVersion`은 1 그대로
-- [ ] 미결 1·2·3·4·5의 결론과 근거가 이 문서와 계약 문서에 있다
-- [ ] `provider_config_invalid`가 계약 문서와 `cli/src/errors.ts`에 선언되고, W0-3의 불변식이 약해지지 않았다
+- [x] 미결 1·2·3·4·5의 결론과 근거가 이 문서와 계약 문서에 있다
+- [x] `provider_config_invalid`가 계약 문서와 `cli/src/errors.ts`에 선언되고, W0-3의 불변식이 약해지지 않았다
 - [x] `coverage.indexing.evidence` 타입에 절대 시각 필드가 없다
 
 ## 작업 로그
@@ -466,6 +466,40 @@ lead 승인 형태는 `{ signal, detail }`이다. 벽시계 값을 넣으면 이
 | `npm test` | 통과 (35 tests) |
 | 캡처 strip 비교 | **완전 동일** (3단계는 schema와 테스트만 바꾸므로 응답 무변경) |
 
+### 2026-08-27 — 4단계: 계약 문서 반영, 신규 code 선언과 인계
+
+**변경한 파일**
+
+| 파일 | 핵심 변경 |
+| --- | --- |
+| `cli/src/errors.ts` | `CONTRACT_ONLY_ERROR_CODES` 11종 export (신규 `provider_config_invalid` 포함). 기존 주석 산문 목록을 배열로 승격 |
+| `cli/src/test/errors.test.ts` | contract-only code가 두 목록에 동시에 있지 않고 `new CliError(`로 던져지지 않음을 강제 |
+| `docs/development-management/provider-coverage-contract.md` | D2(`completion`에 stage 없음), D3(reason code 표 신설), D4(이름 규칙), D5(`internal_error` stage 없음), D10(`provider_ipc_unavailable` stage 3값), D11(evidence에 시각 없음), `provider_config_invalid` 행, `limitationDetails` 정의 |
+| `docs/work/task-m1-state-truth-table.md` | F9·F21 stage 열 정정, F23(`provider_config_invalid`) 추가, 2.3절 문구 행 2개 갱신, 정정 사유 명시 |
+| 이 문서 | 부록 B에 `cli-contract.md` 낡음 목록 7행 |
+
+**설계 결정과 이유**
+
+1. **D9의 (c)안을 채택했다.** `provider_config_invalid`를 `CLI_ERROR_CODES`에 넣으면 W0-3이 세운
+   "던져지는 code만 선언한다" 불변식이 깨지고, 계약 문서에만 넣으면 lead 지시("`errors.ts`에 추가하라")를
+   못 지킨다. `CONTRACT_ONLY_ERROR_CODES`를 별도 배열로 두면 둘 다 만족하면서 검사가 **하나 늘어난다**:
+   기존 테스트는 "선언했는데 안 던지는 것"을, 새 테스트는 "던지는데 아직 미선언인 것"을 잡는다.
+2. **텍스트 검사를 `new CliError('<code>'` 패턴으로 좁혔다.** 단순 문자열 포함 검사로는 `coverage.ts`가
+   reason으로 쓰는 `'provider_not_ready'`를 error code 사용으로 오인해 즉시 실패한다. reason과 error code가
+   같은 이름을 쓰는 것은 계약이 의도한 것이므로 검사가 그 사실을 알아야 한다.
+3. **truth table F21의 stage를 `없음`으로 고쳤다.** F9와 함께 "문서를 코드에 맞춘다"는 같은 판단이다.
+   두 경우 모두 코드가 옳고 문서가 관측 불가능한 값을 적고 있었다.
+
+**검증**
+
+| 검사 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm run cli:test` | 통과 (102 tests) |
+| `npm test` | 통과 (35 tests) |
+| `npm run test:plugin-artifact` | 통과 |
+| 캡처 strip 비교 | 완전 동일 |
+
 ## 부록 A — 캡처 스크립트 변경점
 
 W0-4 부록 A의 스크립트를 그대로 쓰되 두 곳만 바꿨다. 전문은 그 문서에 있으므로 여기서는 delta만 남긴다.
@@ -488,4 +522,18 @@ diff -r /tmp/base /tmp/after-strip             # 비어야 한다
 않았다**(같은 wave에서 W1-B도 다른 절을 고친다). 아래가 이 lane의 변경으로 낡아진 지점이다. W2-C
 (`docs/m1-plugin-auto-contract`)의 입력으로 넘긴다.
 
-목록은 4단계 작업 로그에서 실제 파일을 대조해 채운다.
+기준은 `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`의 `dbc6c9b` 시점 내용이다.
+줄 번호는 이동할 수 있으므로 인용문으로 찾는다.
+
+| # | 위치 | 지금 무엇이 낡았는가 | 무엇으로 바꿔야 하는가 |
+| --- | --- | --- | --- |
+| 1 | `Do not parse human-oriented tables …` 문단 | "check traversal, semantic and indexing coverage as well as the compatibility `limitations`"가 `data.completion`과 `data.limitationDetails`를 언급하지 않는다. 소비자에게 v1 필드만 읽으라고 안내하는 셈이다 | `data.completion`을 상태의 단일 출처로 먼저 읽고 `coverage.*`/`complete`/`truncated`는 v1 projection임을 적는다 |
+| 2 | `` `complete` means only that the provider completed the requested static traversal.`` | `complete`를 1차 개념으로 설명한다. 계약은 이제 `completion.traversalStatus === "exhausted"`의 v1 호환 표현으로만 정의한다 | `exhausted`를 1차 개념으로 쓰고 `complete`를 그 projection으로 설명한다 |
+| 3 | `Successful analysis includes additive schema v1 metadata:` 아래 JSON 예시 | `provider`와 `coverage`만 있고 **`completion`이 없다.** 실제 응답과 어긋난다 | 예시에 `"completion": {"requestStatus":"succeeded","traversalStatus":"exhausted","semanticScope":"provider-static","indexingStatus":"unknown"}`을 추가한다 |
+| 4 | 같은 JSON 예시의 `coverage.reasons` | `limitationDetails`가 없다. 새 소비자가 severity와 action을 어디서 읽는지 알 수 없다 | `data.limitationDetails` 예시를 함께 넣고 `reasons`가 그 `code` projection임을 적는다 |
+| 5 | `` `complete: true` does not override `semantic.status: static-only` or `indexing.status: unknown`.`` | 맞는 문장이지만 이제 더 강한 규칙이 있다: 금지 문구 6종은 어떤 상태에서도 생성하지 않는다 | 금지 문구 목록(`no impact`, `safe to change`, `unused`, `fully analyzed`, `complete analysis`, `all callers`)을 명시한다 |
+| 6 | (없음) caller 0건 안내 | 0건 결과를 어떻게 보고해야 하는지가 문서에 없다. `limitationDetails`의 `no_incoming_callers`/`index_state_unknown`이 이제 그 자리다 | "0건은 `nodes.length === 1`과 `edges.length === 0`이며, `index_state_unknown`이 있으면 부재의 증거가 아니다"를 추가한다 |
+| 7 | `Without an explicit provider, non-TypeScript/JavaScript files return `provider_required_for_language`.` | 이 lane의 변경으로 낡아지지는 **않았다.** W1-B의 Auto/preset 도입 시 정반대 명제가 된다 | W1-B lane의 입력. 이 표에는 참고로만 둔다 |
+
+1~6은 이 lane의 변경 때문에 낡았고, 7은 다른 lane 때문이다. 한 파일에 두 lane의 변경이 몰리므로 **후속 lane
+하나가 1~7을 한 번에 처리**하는 것이 안전하다.
