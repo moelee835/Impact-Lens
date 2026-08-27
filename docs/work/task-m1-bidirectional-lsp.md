@@ -520,3 +520,19 @@ lead가 이미 (a)"문서를 코드에 맞춘다"로 닫았고 계약 문서는 
 | 캡처 `f0cb40e` 2회끼리 | 29 시나리오 동일 |
 | 캡처 branch 2회끼리 | 29 시나리오 동일 |
 | 캡처 `f0cb40e` ↔ branch | **16줄. 전부 `observed.diagnostics` false→true** (base가 바뀌어도 결과 동일) |
+
+### 2026-08-27 — PR과 CI
+
+PR [#39](https://github.com/moelee835/Impact-Lens/pull/39) (base `main`). check 4종 전부 통과했다.
+
+| check | 결과 |
+| --- | --- |
+| Unit tests / Node 22 / ubuntu-latest | pass (22s) |
+| Plugin artifact E2E / ubuntu-latest / Node 22 | pass (29s) |
+| Plugin artifact E2E / macos-latest / Node 22 | pass (30s) |
+| Plugin artifact E2E / windows-latest / Node 22 | pass (2m47s) |
+
+Windows가 통과한 것이 특히 중요하다. 이 lane이 추가한 fixture와 테스트가 경로·타이밍에 의존하는 부분이
+있어서(취소 로그 파일, 진단 대기 예산) 로컬 macOS만으로는 확인되지 않는 위험이 있었다.
+
+**merge는 하지 않았다.** lead가 결정한다.
