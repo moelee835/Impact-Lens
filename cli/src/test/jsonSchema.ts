@@ -13,10 +13,10 @@
 export type JsonSchema = Record<string, unknown> | boolean;
 
 const SUPPORTED_KEYWORDS = new Set([
-  '$schema', '$id', 'title', '$defs', '$ref',
+  '$schema', '$id', 'title', '$comment', '$defs', '$ref',
   'type', 'const', 'enum',
   'properties', 'required', 'additionalProperties',
-  'items', 'minItems', 'maxItems',
+  'items', 'minItems', 'maxItems', 'contains',
   'minimum',
   'allOf', 'anyOf', 'oneOf', 'not',
   'if', 'then', 'else',
@@ -41,7 +41,7 @@ export function assertSupportedKeywords(schema: JsonSchema, path = '#'): void {
       }
     } else if (['allOf', 'anyOf', 'oneOf'].includes(keyword) && Array.isArray(value)) {
       value.forEach((child, index) => assertSupportedKeywords(child as JsonSchema, `${path}/${keyword}/${index}`));
-    } else if (['items', 'not', 'if', 'then', 'else', 'additionalProperties'].includes(keyword)) {
+    } else if (['items', 'contains', 'not', 'if', 'then', 'else', 'additionalProperties'].includes(keyword)) {
       assertSupportedKeywords(value as JsonSchema, `${path}/${keyword}`);
     }
   }
@@ -141,6 +141,13 @@ export function validate(schema: JsonSchema, value: unknown, root: JsonSchema = 
     }
     if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) {
       errors.push(`${at}: expected at most ${schema.maxItems} items, got ${value.length}`);
+    }
+    // `contains` is what lets the schema say "these two reason codes may not both be present". Without it a
+    // mutual-exclusion rule can only be written as a comment, which is the class of rule this contract is
+    // trying to stop relying on.
+    if (schema.contains !== undefined
+      && !value.some(element => validate(schema.contains as JsonSchema, element, root, path).length === 0)) {
+      errors.push(`${at}: no element matches the "contains" schema`);
     }
   }
 

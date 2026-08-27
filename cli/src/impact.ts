@@ -3,8 +3,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { classifyRelation } from './testFile';
-import { coverageForTraversal } from './coverage';
+import { projectCompletion } from './coverage';
 import {
+  AnalysisObservations,
   AnalyzeRequest,
   CallHierarchyItem,
   CallHierarchyProvider,
@@ -29,6 +30,11 @@ export async function analyzeImpact(
   request: AnalyzeRequest,
   provider: CallHierarchyProvider,
   noteResolver?: (item: CallHierarchyItem) => Promise<unknown>,
+  // Facts the traversal cannot observe itself: why it stopped early, what the provider's index was doing,
+  // and whether anything but the static call hierarchy contributed edges. Nothing supplies them yet, and
+  // omitting them reproduces today's response exactly. The lanes that will supply them are named on
+  // `AnalysisObservations`.
+  observations: AnalysisObservations = {},
 ): Promise<Record<string, unknown>> {
   const started = Date.now();
   const workspace = await canonicalWorkspace(request.workspace);
@@ -77,17 +83,19 @@ export async function analyzeImpact(
   })).sort((left, right) => left.source.localeCompare(right.source)
     || left.target.localeCompare(right.target)
     || JSON.stringify(left.callSites).localeCompare(JSON.stringify(right.callSites)));
-  const limitations = ['dynamic_calls_not_inferred', 'unsaved_buffers_unavailable'];
-  if (!provider.capabilities.diagnostics) {
-    limitations.push('provider_diagnostics_unsupported');
-  }
-  if (traversal.limits.has('depth')) {
-    limitations.push('depth_limit_reached');
-  }
-  if (traversal.limits.has('nodes')) {
-    limitations.push('node_limit_reached');
-  }
   const reachedDepth = Math.max(0, ...traversal.entries.map(entry => entry.depth));
+  // Every state field below comes out of this one call. Nothing in this function decides `complete`,
+  // `truncated`, `traversalLimits`, `coverage` or `limitations` on its own, which is what keeps the
+  // contradictions X1, X7 and X10 out of the response by construction rather than by review.
+  const projection = projectCompletion({
+    limits: traversal.limits,
+    requestedDepth,
+    reachedDepth,
+    maxNodes,
+    // The traversal seeds `entries` with the root, so this is 0 exactly when the provider returned no caller.
+    incomingCallerCount: traversal.entries.length - 1,
+    diagnosticsSupported: provider.capabilities.diagnostics,
+  }, observations);
   return {
     rootId: symbolId(root),
     nodes,
@@ -95,20 +103,16 @@ export async function analyzeImpact(
     requestedDepth,
     reachedDepth,
     maxNodes,
-    truncated: traversal.limits.size > 0,
-    traversalLimits: [...traversal.limits].sort(),
-    complete: traversal.limits.size === 0,
+    truncated: projection.truncated,
+    traversalLimits: projection.traversalLimits,
+    complete: projection.complete,
     provider: provider.capabilities,
-    coverage: coverageForTraversal(
-      traversal.limits,
-      requestedDepth,
-      reachedDepth,
-      maxNodes,
-      limitations,
-    ),
+    coverage: projection.coverage,
+    completion: projection.completion,
     coordinateBase: 1,
     positionEncoding: 'utf-16',
-    limitations,
+    limitations: projection.limitations,
+    limitationDetails: projection.limitationDetails,
     analyzedAt: new Date().toISOString(),
     timings: { totalMs: Date.now() - started },
   };

@@ -493,3 +493,30 @@ lead가 이미 (a)"문서를 코드에 맞춘다"로 닫았고 계약 문서는 
 
 **계약 문서는 수정하지 않았다.** `provider-coverage-contract.md`는 W1-C 소유다.
 `cli/src/childIpc.ts`도 건드리지 않았다 — 지금 동작이 맞다고 판정된 코드다.
+
+### 2026-08-27 — W1-C(PR #36) merge 반영
+
+`origin/main`이 `dbc6c9b` → `f0cb40e`로 움직였다. 겹치는 파일은 `cli/src/errors.ts` 하나였다.
+
+**rebase 대신 merge를 썼다.** rebase는 이미 push된 branch의 history를 다시 쓰고 force push를 요구하는데,
+`AGENTS.md` 0절이 그것을 명시적으로 금지한다. 로컬에서 rebase를 한 번 수행했다가 되돌리고
+(`git reset --hard`로 push된 commit으로 복귀) `git merge origin/main`으로 다시 처리했다. 충돌 해결 내용은
+양쪽 방식에서 동일했다.
+
+**충돌 해결**: W1-C가 `errors.ts`의 주석을 `CONTRACT_ONLY_ERROR_CODES` 배열로 대체하고 거기에
+`provider_protocol_incompatible`을 넣었다. 이 lane은 그 code를 **실제로 던진다**. W1-C가 같은 변경에서
+추가한 테스트(`a contract-only error code is declared exactly once and thrown nowhere`)가 정확히 이
+상태를 막으므로, code를 `CONTRACT_ONLY_ERROR_CODES`에서 빼고 `CLI_ERROR_CODES`에 남겼다.
+**두 목록 사이를 옮기는 것이 W1-C가 설계한 절차 그대로다.**
+
+**merge 이후 재검증**
+
+| 검사 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm run cli:test` | **134/134** 통과 (W1-C 테스트 포함) |
+| `npm test` | 35/35 통과 |
+| `npm run test:plugin-artifact` | 통과 |
+| 캡처 `f0cb40e` 2회끼리 | 29 시나리오 동일 |
+| 캡처 branch 2회끼리 | 29 시나리오 동일 |
+| 캡처 `f0cb40e` ↔ branch | **16줄. 전부 `observed.diagnostics` false→true** (base가 바뀌어도 결과 동일) |
