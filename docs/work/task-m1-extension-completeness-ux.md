@@ -273,3 +273,23 @@ doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자
   **않았다.** `src/coverage.ts:vscodeCoverage`가 두 값을 같은 `limits` 배열에서 파생시키므로 producer가
   만들 수 없는 상태다. 방어 코드를 넣으면 producer 결함을 표현 계층이 숨기게 된다(truth table X1의 취지).
   대신 그 사실을 테스트 주석으로 고정했다.
+
+### 2026-08-27 — 3단계: provider 설정 항목과 doctor 명령
+
+- 신규 `src/providerDoctor.ts`(순수, 런타임 `vscode` 의존 없음)와 `src/test/providerDoctor.test.ts`.
+- check 5개: `language`, `documentSymbols`, `callHierarchy`, `coverage`, `agentCli`. 상태는 `pass`/`warn`/`fail`.
+- **`documentSymbols` check가 실제 진단 가치를 만든다.** VS Code는 "이 언어에 Call Hierarchy provider가
+  있는가"를 묻는 API를 주지 않지만, document symbol provider가 응답하는지는 물을 수 있다. 둘 다 실패하면
+  "언어 확장 자체가 없다"(fail), symbol만 성공하면 "위치 문제이거나 그 확장이 Call Hierarchy를 구현하지
+  않는다"(warn)로 갈린다. **어느 쪽인지 단정하지 않는다** — 단정하면 그것은 추측이다.
+- `package.json` 기여 항목:
+  - command `impactLens.runProviderDoctor` (`Impact Lens: Run Provider Doctor`), `activationEvents`에 추가.
+  - `impactLens.provider.detailLevel` (`summary` | `verbose`, 기본 `summary`).
+  - `impactLens.provider.doctorCommandLine` (string, 기본 `""`).
+  - `enumDescriptions` 형식은 `impactLens.defaultNoteStorage`를 그대로 따랐다.
+- `controller.runProviderDoctor()`는 report를 전용 OutputChannel에 쓰고, `doctorCommandLine`이 설정돼 있을
+  때만 "Run in terminal" 선택지를 **한 번 더 물어본 뒤** 터미널로 보낸다. 출력을 읽지 않는다.
+  자동 실행 경로는 없다.
+- view/title 메뉴에는 넣지 않았다. Explorer 아이콘이 이미 3개이고, "provider 없음" 진입점은 4단계의
+  empty state 항목이 command로 직접 연결한다.
+- `npm test` 52 pass / 0 fail.

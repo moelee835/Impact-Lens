@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import { ImpactCodeLensProvider } from './codeLensProvider';
+import { providerLabel } from './completeness';
 import { GraphPanel } from './graphPanel';
 import { computeImpactDelta, EMPTY_IMPACT_DELTA } from './impactDelta';
 import { ImpactAnalyzer, symbolKey } from './impactAnalyzer';
 import { ImpactTreeProvider } from './impactTreeProvider';
+import { formatProviderDoctorReport, ProviderDoctorFacts } from './providerDoctor';
 import { NoteStore } from './noteStore';
 import { matchesPendingNavigation, PendingNavigation } from './navigationGuard';
 import { ImpactResult } from './types';
@@ -27,6 +29,7 @@ export class ImpactLensController implements vscode.Disposable {
   private analyzedDocumentVersion: number | undefined;
   private readonly status: vscode.StatusBarItem;
   private readonly graph: GraphPanel;
+  private doctorOutput: vscode.OutputChannel | undefined;
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -177,6 +180,9 @@ export class ImpactLensController implements vscode.Disposable {
         'impactLens.openLocation',
         async (uri: vscode.Uri, range: vscode.Range) => openLocation(uri, range),
       ),
+      vscode.commands.registerCommand('impactLens.runProviderDoctor', async () => {
+        await this.runProviderDoctor();
+      }),
     );
   }
 
@@ -578,6 +584,83 @@ export class ImpactLensController implements vscode.Disposable {
     }));
     this.tree.setResult(result);
     this.graph.update(result);
+  }
+
+  /**
+   * Reports what this host can observe about the analysis provider, and offers - but never performs on its
+   * own - the Agent CLI check the user configured.
+   *
+   * Two rules shape this method. Impact Lens does not run build, configure or sync steps without approval,
+   * so the configured command line only reaches a terminal after an explicit pick. And it must not couple
+   * to the CLI's doctor output, so the command line is passed through verbatim and its output is never
+   * read back.
+   */
+  private async runProviderDoctor(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      void vscode.window.showInformationMessage(
+        'Open a source file and place the cursor in a function before running the provider doctor.',
+      );
+      return;
+    }
+
+    const position = editor.selection.active;
+    const document = editor.document;
+    const doctorCommandLine = vscode.workspace
+      .getConfiguration('impactLens', document.uri)
+      .get<string>('provider.doctorCommandLine', '')
+      .trim();
+
+    const [rootItem, symbols] = await Promise.all([
+      this.analyzer.prepare(document, position),
+      vscode.commands.executeCommand<Array<vscode.DocumentSymbol | vscode.SymbolInformation>>(
+        'vscode.executeDocumentSymbolProvider',
+        document.uri,
+      ),
+    ]);
+
+    const last = this.currentResult;
+    const facts: ProviderDoctorFacts = {
+      languageId: document.languageId,
+      fileName: vscode.workspace.asRelativePath(document.uri, false),
+      callHierarchyRootFound: rootItem !== undefined,
+      documentSymbolsFound: (symbols?.length ?? 0) > 0,
+      lastAnalysis: last
+        ? {
+          provider: providerLabel(last.provider),
+          traversalStatus: last.coverage.traversal.status,
+          semanticStatus: last.coverage.semantic.status,
+          indexingStatus: last.coverage.indexing.status,
+          callerCount: Math.max(0, last.nodes.length - 1),
+          reasons: last.coverage.reasons,
+        }
+        : undefined,
+      doctorCommandLine,
+    };
+
+    if (!this.doctorOutput) {
+      this.doctorOutput = vscode.window.createOutputChannel('Impact Lens Provider Doctor');
+      this.disposables.push(this.doctorOutput);
+    }
+    this.doctorOutput.clear();
+    this.doctorOutput.appendLine(formatProviderDoctorReport(facts).join('\n'));
+    this.doctorOutput.show(true);
+
+    if (!doctorCommandLine) {
+      return;
+    }
+    const run = 'Run in terminal';
+    const choice = await vscode.window.showInformationMessage(
+      `Run the configured Agent CLI check? ${doctorCommandLine}`,
+      { modal: false },
+      run,
+    );
+    if (choice !== run) {
+      return;
+    }
+    const terminal = vscode.window.createTerminal({ name: 'Impact Lens provider doctor' });
+    terminal.show(true);
+    terminal.sendText(doctorCommandLine, true);
   }
 
   private updateStatus(result: ImpactResult | undefined): void {

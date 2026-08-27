@@ -15,6 +15,7 @@ import {
   summarizeCompleteness,
   traversalLabel,
 } from '../completeness';
+import { formatProviderDoctorReport, ProviderDoctorFacts } from '../providerDoctor';
 
 // docs/work/task-m1-state-truth-table.md 2.3 forbids these in every state, and the Wave 0 handover repeats
 // the list as a hard rule. A rule that only lives in a document is a rule that a future edit breaks
@@ -109,6 +110,43 @@ test('no reachable analysis state produces a forbidden phrase', () => {
   }
   for (const status of ['static-only', 'augmented'] as const) {
     assertClean('semantic label', semanticScopeLabel(status));
+  }
+});
+
+test('no doctor report produces a forbidden phrase', () => {
+  const variants: ProviderDoctorFacts[] = [
+    {
+      languageId: 'typescript',
+      fileName: 'src/controller.ts',
+      callHierarchyRootFound: true,
+      documentSymbolsFound: true,
+      doctorCommandLine: '',
+    },
+    {
+      languageId: 'plaintext',
+      fileName: 'notes.txt',
+      callHierarchyRootFound: false,
+      documentSymbolsFound: false,
+      doctorCommandLine: 'impact-lens doctor bundled-typescript',
+    },
+    {
+      languageId: 'typescript',
+      fileName: 'src/controller.ts',
+      callHierarchyRootFound: false,
+      documentSymbolsFound: true,
+      lastAnalysis: {
+        provider: 'vscode/unknown',
+        traversalStatus: 'node-limited',
+        semanticStatus: 'static-only',
+        indexingStatus: 'unknown',
+        callerCount: 0,
+        reasons: ['dynamic_calls_not_inferred'],
+      },
+      doctorCommandLine: '',
+    },
+  ];
+  for (const facts of variants) {
+    assertClean('doctor report', formatProviderDoctorReport(facts).join('\n'));
   }
 });
 
