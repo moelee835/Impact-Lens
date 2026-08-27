@@ -1,6 +1,17 @@
 import * as vscode from 'vscode';
 import { ImpactCodeLensProvider } from './codeLensProvider';
-import { providerLabel } from './completeness';
+import {
+  CompletenessSummary,
+  completenessInput,
+  indexingLabel,
+  noProviderSummary,
+  providerLabel,
+  resultCountLabel,
+  semanticScopeLabel,
+  stateBadge,
+  summarizeCompleteness,
+  traversalLabel,
+} from './completeness';
 import { GraphPanel } from './graphPanel';
 import { computeImpactDelta, EMPTY_IMPACT_DELTA } from './impactDelta';
 import { ImpactAnalyzer, symbolKey } from './impactAnalyzer';
@@ -347,14 +358,20 @@ export class ImpactLensController implements vscode.Disposable {
         return undefined;
       }
       if (!rootItem) {
-        const unavailableMessage = 'No Call Hierarchy root was returned. Verify that this language has a Call Hierarchy provider and that the cursor is on a callable declaration.';
+        // One sentence for this state, shared by the notification, the tree and the status bar. It used to
+        // exist twice with different wording, and neither copy told the reader what to do next.
+        const unavailable = noProviderSummary(editor.document.languageId);
         if (!options.quiet) {
-          void vscode.window.showInformationMessage(unavailableMessage);
+          void this.showNoProviderNotification(unavailable);
         }
         this.currentResult = undefined;
         this.currentSymbolKey = undefined;
-        this.tree.setResult(undefined, unavailableMessage);
-        this.updateStatus(undefined);
+        this.tree.setResult(undefined, {
+          message: unavailable.headline,
+          action: unavailable.action,
+          offerDoctor: true,
+        });
+        this.updateStatus(undefined, unavailable);
         return undefined;
       }
 
@@ -402,7 +419,10 @@ export class ImpactLensController implements vscode.Disposable {
         this.tree.setResult(this.currentResult);
         this.graph.update(this.currentResult);
       } else {
-        this.tree.setResult(undefined, `Impact analysis failed: ${message}`);
+        this.tree.setResult(undefined, {
+          message: `Impact analysis failed: ${message}`,
+          action: 'Check the provider diagnostics and re-run.',
+        });
       }
       this.status.text = '$(warning) Impact Lens';
       this.status.tooltip = message;
@@ -587,6 +607,19 @@ export class ImpactLensController implements vscode.Disposable {
   }
 
   /**
+   * The notification for the no-provider state carries the same sentence as the tree, plus the one action
+   * that can actually move the user forward. Offering the doctor here is the difference between naming a
+   * cause and giving the reader somewhere to go.
+   */
+  private async showNoProviderNotification(summary: CompletenessSummary): Promise<void> {
+    const runDoctor = 'Run Provider Doctor';
+    const choice = await vscode.window.showInformationMessage(summary.headline, runDoctor);
+    if (choice === runDoctor) {
+      await this.runProviderDoctor();
+    }
+  }
+
+  /**
    * Reports what this host can observe about the analysis provider, and offers - but never performs on its
    * own - the Agent CLI check the user configured.
    *
@@ -663,46 +696,73 @@ export class ImpactLensController implements vscode.Disposable {
     terminal.sendText(doctorCommandLine, true);
   }
 
-  private updateStatus(result: ImpactResult | undefined): void {
+  private updateStatus(result: ImpactResult | undefined, notice?: CompletenessSummary): void {
     if (!result) {
-      this.status.text = '$(references) Impact Lens';
-      this.status.tooltip = 'Place the cursor in a function to analyze its impact';
+      this.status.text = notice ? '$(warning) Impact Lens' : '$(references) Impact Lens';
+      this.status.tooltip = notice
+        ? new vscode.MarkdownString([notice.headline, notice.action].filter(Boolean).join('\n\n'))
+        : 'Place the cursor in a function to analyze its impact';
       return;
     }
-    if (result.analysisState === 'stale') {
-      this.status.text = `$(edit) ${result.root.item.name}: changes pending`;
-      this.status.tooltip = 'The graph is stale and will update after you pause typing';
-      return;
-    }
-    if (result.analysisState === 'analyzing') {
-      this.status.text = `$(loading~spin) ${result.root.item.name}: updating impact`;
-      this.status.tooltip = 'Impact Lens is asking the language service for an updated call hierarchy';
-      return;
-    }
-    if (result.analysisState === 'failed') {
-      this.status.text = `$(warning) ${result.root.item.name}: analysis failed`;
-      this.status.tooltip = 'The previous graph is retained but is not current';
-      return;
-    }
+
+    const input = completenessInput({
+      nodeCount: result.nodes.length,
+      truncated: result.truncated,
+      traversalLimits: result.traversalLimits,
+      requestedDepth: result.requestedDepth,
+      reachedDepth: result.reachedDepth,
+      maxNodes: result.maxNodes,
+      analysisState: result.analysisState,
+      coverage: result.coverage,
+    });
+    const summary = summarizeCompleteness(input);
+    const badge = stateBadge(input);
     const direct = result.nodes.filter(node => node.relation === 'direct').length;
     const tests = result.nodes.filter(node => node.relation === 'test').length;
     const diagnostics = result.nodes.reduce((sum, node) => sum + node.diagnostics.length, 0);
     const outdatedTests = result.nodes.filter(node => node.testFreshness === 'outdated').length;
-    const potential = Math.max(0, result.nodes.length - 1);
-    this.status.text = `$(references) ${result.root.item.name}: ${potential} affected${diagnostics ? ` · ${diagnostics} issues` : ''}`;
-    this.status.tooltip = [
+
+    // The status bar is the narrowest surface in the product, so it carries the count, the boundary and
+    // nothing else. Provider identity, semantic scope and the reasons live in the tooltip.
+    const facts = [
       `${direct} direct callers`,
       `${tests} related test symbols`,
       outdatedTests ? `${outdatedTests} test verifications required` : '',
       result.delta.addedNodeIds.length ? `${result.delta.addedNodeIds.length} newly affected` : '',
-      `reached depth ${result.reachedDepth} of ${result.requestedDepth}`,
-      result.traversalLimits.includes('depth') ? 'depth limit reached' : '',
-      result.traversalLimits.includes('nodes') ? 'node limit reached' : '',
-      `static Call Hierarchy via ${result.provider.host}/${result.provider.name}`,
-      `language ${result.provider.detectedLanguageId}`,
-      `indexing ${result.coverage.indexing.status}`,
-      'dynamic and framework calls may be missing',
+      traversalLabel(input),
+      `semantic scope: ${semanticScopeLabel(input.semanticStatus)}`,
+      indexingLabel(input.indexingStatus),
+      `provider ${providerLabel(result.provider)}`,
     ].filter(Boolean).join(' · ');
+    this.status.tooltip = new vscode.MarkdownString([
+      summary.headline,
+      summary.action ? `→ ${summary.action}` : '',
+      facts,
+    ].filter(Boolean).join('\n\n'));
+
+    if (result.analysisState === 'stale') {
+      this.status.text = `$(edit) ${result.root.item.name}: changes pending`;
+      return;
+    }
+    if (result.analysisState === 'analyzing') {
+      this.status.text = `$(loading~spin) ${result.root.item.name}: updating impact`;
+      return;
+    }
+    if (result.analysisState === 'failed') {
+      this.status.text = `$(error) ${result.root.item.name}: analysis failed`;
+      return;
+    }
+
+    // `0 affected` used to be the wording here. Read on its own that is a verdict about the whole system,
+    // which a static call hierarchy cannot support. The count is stated instead.
+    const icon = summary.severity === 'error'
+      ? '$(error)'
+      : summary.severity === 'warning' ? '$(warning)' : '$(references)';
+    this.status.text = [
+      `${icon} ${result.root.item.name}: ${resultCountLabel(input.callerCount)}`,
+      diagnostics ? ` · ${diagnostics} issues` : '',
+      badge.className === 'partial' ? ' · partial' : '',
+    ].join('');
   }
 
   dispose(): void {

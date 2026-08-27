@@ -293,3 +293,32 @@ doctor는 command 실행으로만 동작한다. 설정된 명령줄은 사용자
 - view/title 메뉴에는 넣지 않았다. Explorer 아이콘이 이미 3개이고, "provider 없음" 진입점은 4단계의
   empty state 항목이 command로 직접 연결한다.
 - `npm test` 52 pass / 0 fail.
+
+### 2026-08-27 — 4단계: Explorer / StatusBar / CodeLens 재구성
+
+- **provider 부재 메시지 단일화.** `src/controller.ts`의 하드코딩 문자열과 `src/impactTreeProvider.ts`의
+  기본 `status` 문자열을 모두 제거하고 `noProviderSummary(languageId)` 하나로 모았다.
+
+  ```
+  $ grep -rn "No Call Hierarchy root was returned" src/
+  (0건)
+  ```
+
+  알림에는 `Run Provider Doctor` 버튼이 붙고, Explorer empty 항목은 클릭하면 같은 command로 간다.
+  이전에는 "확인하라"로 끝나고 다음 행동이 없었다.
+- **Explorer.** `EmptyItem`이 `{message, action, offerDoctor}`를 받는다. root 자식 맨 앞에 `NoticeItem`을
+  넣되 severity가 `info`가 아닐 때만이다. `stale`/`analyzing`은 root description에 이미 같은 말이 있으므로
+  제외했다(편집 중 행이 계속 나타났다 사라지는 것을 막는다). root description은 `analysisState` 원본이
+  아니라 `stateBadge()`를 쓴다.
+- **root tooltip에 semantic scope와 reason 전체를 넣었다.** 결함 4의 주된 착지점이다.
+- **StatusBar.** text에서 `${potential} affected`를 `resultCountLabel()`로 바꿨다. caller 0건이면
+  `no callers returned`다. severity에 따라 아이콘이 `$(references)`/`$(warning)`/`$(error)`로 갈리고,
+  경계가 있으면 `· partial`이 붙는다. tooltip은 MarkdownString으로 headline → action → 사실 목록
+  (direct/test/traversal/semantic/index/provider) 순이다.
+- **CodeLens.** title은 그대로 두고 tooltip에만 `STATIC_SCOPE_NOTICE`를 더했다. CodeLens는 파일의 모든
+  함수마다 렌더되고 `ImpactCodeLensProvider`는 분석 결과를 아예 보지 못한다. 결과 의존 상태를 넣을 수도
+  없고 넣어서도 안 되는 표면이므로, **항상 참인 경계 한 문장**만 넣었다.
+- **금지 문구 테스트가 실제로 작동함을 확인했다.** 4단계 중 StatusBar 주석에 `no impact`라는 표현을 썼다가
+  소스 스캔 테스트에서 걸렸다. 주석까지 스캔하는 것이 과하지 않다는 증거다 — 스캐너는 주석과 문자열을
+  구분할 수 없고, 문구가 소스에 존재하면 복사되어 UI로 나갈 수 있다.
+- `npm test` 52 pass / 0 fail.
