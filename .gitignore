@@ -7,3 +7,4 @@ out/
 .vscode-test/
 .impact-lens/notes.local.json
 cli/dist/
+.claude/worktrees/
