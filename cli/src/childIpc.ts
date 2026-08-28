@@ -52,11 +52,11 @@ export function childIpcStatus(timeoutMs = 2000): Promise<ChildIpcStatus> {
 const SILENT_PROVIDER_CODES = new Set([
   'provider_launch_failed',
   'provider_initialize_failed',
-  'provider_query_failed',
 ]);
 
 // Only a provider that produced nothing at all can be explained by broken child stdio. A server that
-// answered before failing was reachable, so its own error stays untouched.
+// answered before failing was reachable, so its own error stays untouched. Query failures are never
+// candidates: reaching query proves that the initialize response already contributed server bytes.
 export function looksLikeSilentProviderFailure(error: CliError): boolean {
   if (!SILENT_PROVIDER_CODES.has(error.code)) {
     return false;

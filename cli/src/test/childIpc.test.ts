@@ -27,6 +27,10 @@ test('only a provider that produced nothing can be blamed on child stdio', () =>
   assert.equal(looksLikeSilentProviderFailure(providerError({ bytesFromServer: 0, stderr: 'boom' })), false);
   assert.equal(looksLikeSilentProviderFailure(providerError({ bytesFromServer: 0, providerLog: 'error: boom' })), false);
   assert.equal(looksLikeSilentProviderFailure(providerError({ bytesFromServer: 0 }, 'provider_capability_missing')), false);
+  assert.equal(
+    looksLikeSilentProviderFailure(providerError({ stage: 'query', bytesFromServer: 0 }, 'provider_query_failed')),
+    false,
+  );
   assert.equal(looksLikeSilentProviderFailure(providerError({})), false);
 });
 

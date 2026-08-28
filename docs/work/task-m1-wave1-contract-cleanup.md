@@ -127,18 +127,18 @@ M1 상태는 `In progress`로 바꾸되 milestone 종료 gate와 story는 완료
 
 ## 테스트 및 완료 기준
 
-- [ ] query의 zero-byte 오류는 `provider_query_failed`로 유지되고 child IPC 오류로 바뀌지 않는다.
-- [ ] F9 문서의 stage가 `{launch, initialize}`로 일치한다.
-- [ ] Plugin 지침이 completion·limitationDetails·caller 0건·금지 결론을 설명한다.
-- [ ] Plugin 지침이 Auto/preset/project/custom 선택과 일반 doctor를 설명한다.
-- [ ] M1 상태는 `In progress`이고 완료되지 않은 W2/W3/사용자 검증을 완료로 표시하지 않는다.
-- [ ] `npm run cli:build` 통과
-- [ ] targeted child IPC test 통과
-- [ ] `npm run cli:test` 통과
-- [ ] `npm test` 통과
-- [ ] `npm run test:plugin-artifact` 통과
-- [ ] 변경된 Markdown link 대상이 모두 존재한다.
-- [ ] `git diff --check`가 통과한다.
+- [x] query의 zero-byte 오류는 `provider_query_failed`로 유지되고 child IPC 오류로 바뀌지 않는다.
+- [x] F9 문서의 stage가 `{launch, initialize}`로 일치한다.
+- [x] Plugin 지침이 completion·limitationDetails·caller 0건·금지 결론을 설명한다.
+- [x] Plugin 지침이 Auto/preset/project/custom 선택과 일반 doctor를 설명한다.
+- [x] M1 상태는 `In progress`이고 완료되지 않은 W2/W3/사용자 검증을 완료로 표시하지 않는다.
+- [x] `npm run cli:build` 통과
+- [x] targeted child IPC test 통과
+- [x] `npm run cli:test` 통과
+- [x] `npm test` 통과
+- [x] `npm run test:plugin-artifact` 통과
+- [x] 변경된 Markdown link 대상이 모두 존재한다.
+- [x] `git diff --check`가 통과한다.
 - [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
 
 ## 작업 로그
@@ -153,3 +153,22 @@ M1 상태는 `In progress`로 바꾸되 milestone 종료 gate와 story는 완료
   semantic/indexing 한계도 이 문서에 함께 기록했다.
 - 이 문서가 참조하는 로컬 Markdown 대상 3개가 존재하고 `git diff --check`가 통과함을 확인했다. 1단계는
   제품 code와 공개 계약을 변경하지 않고 목적·범위·검증 기준만 고정했다.
+- 계획 문서를 commit `19a9ba2`(`Plan M1 Wave 1 contract cleanup`)로 남기고 동일 이름의 원격 branch에
+  push했다.
+
+### 2026-08-28 — F9와 공개 Plugin/M1 문서 정렬
+
+- `cli/src/childIpc.ts`의 silent provider 후보에서 `provider_query_failed`를 제거했다. query stage에서
+  `bytesFromServer: 0`인 합성 오류가 원래 query code를 유지하는 unit test를 추가했다.
+- `provider-coverage-contract.md`와 state truth table의 F9 stage를 `{launch, initialize}`로 줄이고, query에
+  진입하려면 initialize 응답을 이미 받아 누적 server byte가 존재한다는 근거를 기록했다.
+- Plugin skill, analyze command와 CLI contract가 먼저 `data.completion`과 `data.limitationDetails`를 읽도록
+  바꿨다. caller 0건+indexing unknown의 경계, 금지 결론 6종, Auto/preset/project/custom 선택 순서,
+  요청 설정 병합·예산·secret 주의와 일반 `doctor <preset>` 동작을 현재 구현에 맞췄다.
+- M1 milestone은 `Planned`에서 `In progress`로 바꿨다. 실행 계획은 실제 merge/test 근거가 있는 Wave 0/1
+  gate만 완료로 표시하고, W2-A/W2-C/Wave 3 및 사용자 검증이 남았음을 바로 아래에 명시했다.
+- 계획과 실제 범위 차이는 없다. W2-C가 소유하는 고정 summary template, 금지 문구 eval과
+  `V1_WITHHELD_REASON_CODES` 해제는 건드리지 않았다.
+- `npm run cli:build`, targeted child IPC 4/4, `npm run cli:test` 218/218, `npm test` 58/58이 통과했다.
+- `npm run test:plugin-artifact`가 clean install 및 Codex/Claude TS·TSX·JS·JSX release fallback을 통과했다.
+- 변경한 Markdown 9개에서 추출한 상대 link 대상이 모두 존재하고 `git diff --check`가 통과했다.

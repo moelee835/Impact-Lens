@@ -208,7 +208,7 @@ S9~S11은 **현재 CLI에 없는 동작**이다. 지금은 timeout·query 실패
 | F6 | 검증된 후보가 둘 이상이라 결정 불가 | `discovery` | `provider_selection_ambiguous` | `not-started` | `unknown` | 신규 |
 | F7 | bundled artifact 손상·부재 | `discovery` | `bundled_provider_artifact_missing` / `_unreadable` / `_corrupt` | `not-started` | `unknown` | |
 | F8 | process를 시작하지 못함 | `launch` | `provider_launch_failed` | `not-started` | `unknown` | |
-| F9 | child stdio가 전달되지 않는 환경 | `details.stage` ∈ {`launch`, `initialize`, `query`} | `provider_ipc_unavailable` | `not-started` 또는 `failed` | `unknown` | |
+| F9 | child stdio가 전달되지 않는 환경 | `details.stage` ∈ {`launch`, `initialize`} | `provider_ipc_unavailable` | `not-started` | `unknown` | |
 | F10 | initialize 중 종료·오류 | `initialize` | `provider_initialize_failed` | `not-started` | `unknown` | |
 | F11 | 필수 server request/notification 미호환 | `initialize` | `provider_protocol_incompatible` | `not-started` | `unknown` | 신규 |
 | F12 | server가 Call Hierarchy 미제공 | `capability` | `provider_capability_missing` | `not-started` | `unknown` | |
@@ -227,13 +227,13 @@ S9~S11은 **현재 CLI에 없는 동작**이다. 지금은 timeout·query 실패
 `표에 미기재`는 코드에 이미 있으나 `provider-coverage-contract.md`의 실패 코드 표에 없는 것을 뜻한다.
 5절 개정안에서 함께 문서화한다.
 
-**F9·F21·F23의 stage 열은 2026-08-27에 갱신됐다** (W1-C, `task-m1-completeness-emit.md` D5·D10).
+**F9·F21·F23의 stage 열은 2026-08-27에 갱신됐고, F9는 2026-08-28에 도달 가능한 값으로 좁혔다**
+(W1-C `task-m1-completeness-emit.md` D5·D10, 이후 Wave 1 계약 정리).
 
-- F9: `provider_ipc_unavailable`을 `launch` 고정으로 적었던 것은 코드와 어긋난다.
-  `cli/src/childIpc.ts`의 `childIpcUnavailableError()`가 원래 오류의 `details`를 그대로 펼치고
-  `looksLikeSilentProviderFailure()`가 launch/initialize/query 세 code를 모두 받아들인다.
-  **stdio가 전달되지 않는 환경에서 "IPC가 죽은 시점"은 관측 불가능**하므로, `details.stage`는 다른 모든
-  code와 같이 "우리가 알아챈 마지막 lifecycle 단계"를 뜻한다. 문서를 코드에 맞췄다.
+- F9: `provider_ipc_unavailable`을 `launch` 하나로 고정하면 initialize 중 처음 드러난 IPC 단절을 잃는다.
+  반대로 query에 도달하려면 initialize 응답을 이미 받아 누적 `bytesFromServer`가 0보다 커야 하므로,
+  zero-byte 조건과 query stage는 함께 성립할 수 없다. `looksLikeSilentProviderFailure()`의 후보를
+  launch/initialize로 좁히고 원래 details를 보존해 실제로 알아챈 마지막 stage만 보고한다.
 - F21: `internal_error`의 generic catch는 stage를 알 수 없으므로 `details.stage`를 만들지 않는다.
   없는 값을 계약에 적으면 그 값은 추측이 된다.
 - F23: `provider_config_invalid`는 2026-08-27 lead 결정으로 추가된 신규 code다. `invalid_request` 재사용은

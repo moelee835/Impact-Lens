@@ -254,6 +254,11 @@ W1-B이고 아직 없다.
 
 ### D10. `provider_ipc_unavailable`의 stage는 `{launch, initialize, query}`다 (lead 추가 지시 2, 미결 4 종결)
 
+> **2026-08-28 정정:** 이 당시 결정은 [Wave 1 계약 정리](task-m1-wave1-contract-cleanup.md)에서
+> `{launch, initialize}`로 좁혀졌다. query에 도달하려면 initialize 응답을 이미 받아 누적
+> `bytesFromServer`가 0보다 커야 하므로, 아래의 query 가정은 도달 불가능하다. 이 절은 당시 판단의 기록으로
+> 남기며 현재 계약은 `provider-coverage-contract.md`와 state truth table을 따른다.
+
 lead가 `il-lsp-protocol`의 조사와 권고를 채택했다. **계약 문서를 코드에 맞춘다. 코드는 바꾸지 않는다.**
 
 `cli/src/childIpc.ts`의 `childIpcUnavailableError()`가 원래 오류의 `details`를 그대로 펼치고,
