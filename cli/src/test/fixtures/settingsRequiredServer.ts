@@ -14,11 +14,13 @@ import { request, respond, serve } from './mockServer';
 // IMPACT_LENS_MOCK_CONFIG_ITEMS         JSON ConfigurationParams.items to ask for.
 // IMPACT_LENS_MOCK_EXPECT_CONFIG        JSON the answer must equal.
 // IMPACT_LENS_MOCK_SETTINGS_LOG         File to append `didChangeConfiguration:<json>` to.
+// IMPACT_LENS_MOCK_TARGET_URI           When set, return one callable target so a full CLI analyze can finish.
 
 const expectedInitOptions = process.env.IMPACT_LENS_MOCK_EXPECT_INIT_OPTIONS ?? '{}';
 const items = JSON.parse(process.env.IMPACT_LENS_MOCK_CONFIG_ITEMS ?? '[{"section":"impactLens"}]');
 const expectedConfig = process.env.IMPACT_LENS_MOCK_EXPECT_CONFIG ?? '[null]';
 const settingsLog = process.env.IMPACT_LENS_MOCK_SETTINGS_LOG;
+const targetUri = process.env.IMPACT_LENS_MOCK_TARGET_URI;
 
 serve(message => {
   if (message.method === 'initialize' && message.id !== undefined) {
@@ -63,6 +65,16 @@ serve(message => {
     return;
   }
   if (message.method === 'textDocument/prepareCallHierarchy' && message.id !== undefined) {
+    respond(message.id, targetUri === undefined ? [] : [{
+      name: 'target',
+      kind: 12,
+      uri: targetUri,
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 55 } },
+      selectionRange: { start: { line: 0, character: 16 }, end: { line: 0, character: 22 } },
+    }]);
+    return;
+  }
+  if (message.method === 'callHierarchy/incomingCalls' && message.id !== undefined) {
     respond(message.id, []);
     return;
   }

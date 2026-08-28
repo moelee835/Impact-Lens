@@ -137,19 +137,19 @@ smoke/fixture가 있었다. 관련 test로 `providers.test.ts`, `doctor.test.ts`
 
 ## 테스트 및 완료 기준
 
-- [ ] `npm run cli:build` 통과
-- [ ] `npm run cli:test` 통과
-- [ ] `npm test` 통과
-- [ ] `npm run test:plugin-artifact` 통과
-- [ ] 실제 stdin preset 요청이 `selectedBy: preset`을 반환한다.
-- [ ] 실제 stdin custom-provider 요청의 initialization option과 settings를 fixture가 수신한다.
-- [ ] preset < project < request deep merge가 유지되고 요청 leaf가 최종값이 된다.
-- [ ] 개별 입력은 유효하지만 병합 key 또는 byte 예산을 넘는 두 case가 `provider_config_invalid`로 실패한다.
-- [ ] 병합 예산 오류가 값 대신 preset/project/request별 byte·key 수만 보고한다.
-- [ ] 요청에 없는 기존 분석·doctor·note 응답 캡처가 변경 전후 byte 동일하다.
-- [ ] secret sentinel이 provider message, stderr와 error details에 노출되지 않는다.
-- [ ] `schemaVersion`은 1이고 note request 계약은 변하지 않는다.
-- [ ] `git diff --check`가 통과한다.
+- [x] `npm run cli:build` 통과
+- [x] `npm run cli:test` 통과
+- [x] `npm test` 통과
+- [x] `npm run test:plugin-artifact` 통과
+- [x] 실제 stdin preset 요청이 `selectedBy: preset`을 반환한다.
+- [x] 실제 stdin custom-provider 요청의 initialization option과 settings를 fixture가 수신한다.
+- [x] preset < project < request deep merge가 유지되고 요청 leaf가 최종값이 된다.
+- [x] 개별 입력은 유효하지만 병합 key 또는 byte 예산을 넘는 두 case가 `provider_config_invalid`로 실패한다.
+- [x] 병합 예산 오류가 값 대신 preset/project/request별 byte·key 수만 보고한다.
+- [x] 요청에 없는 기존 분석·doctor·note 응답 캡처가 변경 전후 byte 동일하다.
+- [x] secret sentinel이 provider message, stderr와 error details에 노출되지 않는다.
+- [x] `schemaVersion`은 1이고 note request 계약은 변하지 않는다.
+- [x] `git diff --check`가 통과한다.
 - [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
 
 ## 작업 로그
@@ -172,3 +172,25 @@ smoke/fixture가 있었다. 관련 test로 `providers.test.ts`, `doctor.test.ts`
   `note-set` status 4는 apply token 없이 mutation을 시도하는 기존 시나리오의 의도된 결과다.
 - 이 단계에서는 제품 code와 test를 변경하지 않았다. 작업 목적, runtime 공백, 영향 범위, 설계 결정과
   검증 기준만 이 문서에 고정했다.
+
+### 2026-08-28 — 2단계: 요청 설정 적용과 병합 예산 보호
+
+- `cli/src/index.ts`가 analyze 요청의 `providerPreset`, `initializationOptions`, `settings`를 provider resolution
+  options로 전달하도록 연결했다. `LspCallHierarchyProvider`의 생성자 options는 resolution과 이미 resolve된 direct
+  session을 분리해, 요청 값이 `preset < project < request` 병합과 secret 수집을 우회하지 않게 했다.
+- `cli/src/providers/resolve.ts`에서 실제 wire에 전달될 initialization options와 settings의 병합 결과를 다시
+  측정한다. key 또는 64 KiB 예산을 넘으면 `provider_config_invalid`로 중단하며, 진단에는 값 대신
+  preset/project/request별 key 수와 serialized byte 수만 포함한다.
+- `requestOverrides.test.ts`의 실제 CLI 검사가 명시 preset의 `selectedBy: preset`, custom fixture의 정확한
+  initialization/configuration 수신, 요청 secret이 포함된 provider 실패의 stderr redaction을 검증하도록
+  확장했다. `providers.test.ts`에는 D8 한도 상수 일치와 병합 후 key/byte 초과 case를 추가했다.
+- 계획에서는 별도 실제 CLI 설정 fixture를 고려했으나, 기존 `settingsRequiredServer`에 target 반환을 opt-in하는
+  환경 변수만 추가했다. 기본 fixture 동작은 유지하면서 중복 server 구현 없이 전체 analyze를 완료할 수 있기
+  때문이다.
+- `npm run cli:build`, targeted 68개 test, 전체 `npm run cli:test` 218/218, `npm test` 58/58이 통과했다.
+- `npm run test:plugin-artifact`의 최초 실행은 sandbox DNS가 `registry.npmjs.org`를 찾지 못해 실패했다. 네트워크
+  권한으로 같은 명령을 재실행해 clean install과 Codex/Claude TS·TSX·JS·JSX release fallback을 통과했다.
+- 구현 후 같은 고정 workspace에서 29개 시나리오를 `/private/tmp/il-m1-runtime-after`에 캡처했다.
+  기준 `/private/tmp/il-m1-runtime-base1`과의 `diff -r` 출력이 비어 override 없는 기존 응답이 byte 동일함을
+  확인했다.
+- request schema와 note request를 변경하지 않았으므로 `schemaVersion: 1`과 note 계약은 그대로다.

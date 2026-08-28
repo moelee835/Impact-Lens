@@ -55,6 +55,15 @@ export async function run(argv: readonly string[]): Promise<Record<string, unkno
       request.file,
       request.provider,
       request.timeoutMs ?? 30000,
+      {
+        resolution: {
+          providerPreset: request.providerPreset,
+          override: {
+            initializationOptions: request.initializationOptions,
+            settings: request.settings,
+          },
+        },
+      },
     );
     const notes = new NoteService(workspace);
     try {

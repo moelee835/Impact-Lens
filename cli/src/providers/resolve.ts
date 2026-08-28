@@ -10,6 +10,7 @@ import {
 } from './catalog';
 import { ExecutableLookupOptions, findExecutable } from './discovery';
 import {
+  MANIFEST_LIMITS,
   ManifestRefContext,
   collectSensitiveStrings,
   mergeJsonObjects,
@@ -20,6 +21,7 @@ import {
 import {
   DEFAULT_SETTINGS_DELIVERY,
   JsonObject,
+  JsonValue,
   ProviderPreset,
   ProviderReadinessProfile,
   ProviderTier,
@@ -448,6 +450,79 @@ export interface SessionValues {
   readonly redactionValues: readonly string[];
 }
 
+interface JsonTreeMetrics {
+  readonly keys: number;
+  readonly serializedBytes: number;
+}
+
+interface SessionValueSources {
+  readonly preset: JsonObject | undefined;
+  readonly project: JsonObject | undefined;
+  readonly request: JsonObject | undefined;
+}
+
+function jsonTreeMetrics(tree: JsonObject | undefined): JsonTreeMetrics {
+  if (tree === undefined) {
+    return { keys: 0, serializedBytes: 0 };
+  }
+  const countKeys = (value: JsonValue): number => {
+    if (Array.isArray(value)) {
+      return value.reduce((total, entry) => total + countKeys(entry), 0);
+    }
+    if (typeof value === 'object' && value !== null) {
+      return Object.entries(value).reduce(
+        (total, [, entry]) => total + 1 + countKeys(entry),
+        0,
+      );
+    }
+    return 0;
+  };
+  return {
+    keys: countKeys(tree),
+    serializedBytes: Buffer.byteLength(JSON.stringify(tree), 'utf8'),
+  };
+}
+
+/**
+ * Applies D8 to the tree that is actually sent on the wire.
+ *
+ * Each source has already passed its own shape, depth, key and byte checks. A deep merge cannot make
+ * a branch deeper, but it can combine disjoint keys and bytes from otherwise valid sources. The
+ * diagnosis therefore reports numeric source contributions and never the values themselves.
+ */
+function assertMergedSessionBudget(
+  field: 'initializationOptions' | 'settings',
+  merged: JsonObject,
+  sources: SessionValueSources,
+): void {
+  const observed = jsonTreeMetrics(merged);
+  const violation = observed.keys > MANIFEST_LIMITS.maxKeys
+    ? { rule: 'keys', limit: MANIFEST_LIMITS.maxKeys, observed: observed.keys }
+    : observed.serializedBytes > MANIFEST_LIMITS.maxSerializedBytes
+      ? {
+          rule: 'bytes',
+          limit: MANIFEST_LIMITS.maxSerializedBytes,
+          observed: observed.serializedBytes,
+        }
+      : undefined;
+  if (violation === undefined) {
+    return;
+  }
+  throw providerConfigInvalid(
+    `the merged ${field} has ${violation.observed} ${violation.rule}, past the limit of ${violation.limit}. Reduce the preset, project or request values before retrying.`,
+    {
+      origin: `merged provider ${field}`,
+      field,
+      ...violation,
+      sourceContributions: {
+        preset: jsonTreeMetrics(sources.preset),
+        project: jsonTreeMetrics(sources.project),
+        request: jsonTreeMetrics(sources.request),
+      },
+    },
+  );
+}
+
 /**
  * Merges the value tiers and builds the session redaction table.
  *
@@ -469,16 +544,31 @@ export function resolveSessionValues(
     allowRefs: true,
     refs: refs(options),
   });
+  const presetInitializationOptions = resolveManifestObject(
+    preset?.initializationOptions,
+    catalogOptions('initializationOptions'),
+  );
+  const presetSettings = resolveManifestObject(preset?.settings, catalogOptions('settings'));
   const initializationOptions = mergeJsonObjects(
-    resolveManifestObject(preset?.initializationOptions, catalogOptions('initializationOptions')),
+    presetInitializationOptions,
     projectChoice?.initializationOptions,
     options.override?.initializationOptions,
   );
   const settings = mergeJsonObjects(
-    resolveManifestObject(preset?.settings, catalogOptions('settings')),
+    presetSettings,
     projectChoice?.settings,
     options.override?.settings,
   );
+  assertMergedSessionBudget('initializationOptions', initializationOptions, {
+    preset: preset?.initializationOptions === undefined ? undefined : presetInitializationOptions,
+    project: projectChoice?.initializationOptions,
+    request: options.override?.initializationOptions,
+  });
+  assertMergedSessionBudget('settings', settings, {
+    preset: preset?.settings === undefined ? undefined : presetSettings,
+    project: projectChoice?.settings,
+    request: options.override?.settings,
+  });
   const redactionValues = [
     ...collectSensitiveStrings(initializationOptions, preset?.sensitive?.initializationOptions),
     ...collectSensitiveStrings(settings, preset?.sensitive?.settings),
