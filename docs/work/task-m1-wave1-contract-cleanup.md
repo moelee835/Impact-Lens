@@ -2,6 +2,7 @@
 
 - 작성일: 2026-08-28
 - branch: `fix/m1-wave1-contract-cleanup`
+- PR: [#45 Align M1 Wave 1 contracts and plugin guidance](https://github.com/moelee835/Impact-Lens/pull/45)
 - 대상 마일스톤: [M1 Provider 플랫폼과 무설정 UX 기반](../development-management/milestones/m1-provider-platform-ux.md)
 - 실행 기준: [M1 Wave 1 종료·재개 handover](task-m1-wave1-resume-handover.md)
 - 선행 작업: [요청별 provider 설정 runtime 연결](task-m1-request-overrides-runtime.md), PR #44 merge commit
@@ -139,7 +140,7 @@ M1 상태는 `In progress`로 바꾸되 milestone 종료 gate와 story는 완료
 - [x] `npm run test:plugin-artifact` 통과
 - [x] 변경된 Markdown link 대상이 모두 존재한다.
 - [x] `git diff --check`가 통과한다.
-- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
+- [x] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
 
 ## 작업 로그
 
@@ -172,3 +173,5 @@ M1 상태는 `In progress`로 바꾸되 milestone 종료 gate와 story는 완료
 - `npm run cli:build`, targeted child IPC 4/4, `npm run cli:test` 218/218, `npm test` 58/58이 통과했다.
 - `npm run test:plugin-artifact`가 clean install 및 Codex/Claude TS·TSX·JS·JSX release fallback을 통과했다.
 - 변경한 Markdown 9개에서 추출한 상대 link 대상이 모두 존재하고 `git diff --check`가 통과했다.
+- 구현·test·검증 로그를 commit `500a266`(`Align M1 Wave 1 contracts and plugin guidance`)으로 남기고
+  동일 이름의 원격 branch에 push한 뒤 main 대상 PR #45를 열었다.
