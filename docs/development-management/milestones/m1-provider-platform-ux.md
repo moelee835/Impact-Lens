@@ -1,6 +1,6 @@
 # M1 Provider 플랫폼과 무설정 UX 기반
 
-- 상태: Planned
+- 상태: In progress
 - 완료 소유: IL-LIM-005, IL-LIM-009
 - 선행 기여: IL-LIM-004 1~2단계
 - 릴리스 성격: provider platform minor release

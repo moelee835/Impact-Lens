@@ -198,7 +198,7 @@ M1은 `schemaVersion: 1`을 유지한다. `completion`과 `limitationDetails`는
 | `provider_selection_ambiguous` | discovery | 검증된 후보가 둘 이상이라 결정적으로 고를 수 없음. 명시 preset 선택 요구 |
 | `provider_config_invalid` | discovery | project 설정 파일의 provider 설정이 스키마 검증에 실패함. `invalid_request`를 재사용하지 않는다 — 요청은 유효하고 잘못된 것은 설정 파일이므로, 사용자가 고쳐야 할 대상을 잘못 지목하게 된다. `details`에 실패한 설정 파일과 필드를 담는다 |
 | `provider_launch_failed` | launch | 실행 파일을 시작하지 못함 |
-| `provider_ipc_unavailable` | `details.stage` ∈ {`launch`, `initialize`, `query`} | child process는 생성됐으나 환경이 stdio를 전달하지 않아 어떤 data도 주고받지 못함. **stage와 무관하게 "환경이 stdio를 전달하지 않았다"는 뜻이다.** sandbox 밖 실행, child process I/O 허용 또는 Extension 사용 |
+| `provider_ipc_unavailable` | `details.stage` ∈ {`launch`, `initialize`} | child process는 생성됐으나 환경이 stdio를 전달하지 않아 어떤 data도 주고받지 못함. **stage와 무관하게 "환경이 stdio를 전달하지 않았다"는 뜻이다.** sandbox 밖 실행, child process I/O 허용 또는 Extension 사용 |
 | `provider_initialize_failed` | initialize | process가 시작됐지만 initialize를 완료하지 못함 |
 | `provider_protocol_incompatible` | initialize | server가 요구하는 필수 request/notification을 지원할 수 없거나 표준 응답을 거부함. `details.method` 포함. silent ignore 금지 |
 | `provider_capability_missing` | capability | server가 Call Hierarchy를 제공하지 않음 |
@@ -224,9 +224,10 @@ generic catch가 만드는 `internal_error`는 stage를 지어내지 않는다. 
 "근거 없는 주장"과 같은 종류다.
 
 `provider_ipc_unavailable`의 stage가 고정값이 아닌 이유는 **stdio가 전달되지 않는 환경에서 "IPC가 죽은
-시점"이 관측 불가능하기 때문**이다. child는 정상적으로 spawn되고 실패는 언제나 다음 상호작용에서 드러난다.
-`details.stage`는 다른 모든 code에서와 같이 "마지막으로 도달한 lifecycle 단계", 즉 우리가 알아챈 시점을
-뜻하며 원인의 시점이 아니다. `initialize`에서 알아챈 것과 `query`에서 알아챈 것은 사용자에게 다른 정보다.
+시점"이 관측 불가능하기 때문**이다. child는 정상적으로 spawn되고 실패는 launch 또는 initialize 상호작용에서
+드러난다. `details.stage`는 다른 모든 code에서와 같이 "마지막으로 도달한 lifecycle 단계", 즉 우리가 알아챈
+시점을 뜻하며 원인의 시점이 아니다. query에 도달하려면 initialize 응답을 이미 받아 누적 server byte가
+0보다 커야 하므로, zero-byte IPC 불가 오류를 query에서 만드는 것은 도달 불가능하다.
 
 process 실패의 `error.details`는 가능한 경우 executable basename, exit code/signal과 redacted stderr tail을
 제공한다. command 전체와 source 내용은 기록하지 않는다.

@@ -51,14 +51,20 @@ Summarize from the parsed JSON, not from raw output:
 
 - Direct callers, transitive callers, and affected tests, with hop distance and call sites.
 - Any existing function notes on the impacted symbols.
+- `data.completion` as the single source of request, traversal, semantic, and indexing state.
+- Structured `data.limitationDetails`, including severity and recovery action when present. Treat
+  `coverage`, `complete`, `truncated`, and `limitations` as schema v1 compatibility projections.
 - Truncation: report the requested depth, the reached depth, and whether a depth or node limit
   stopped the traversal. Never present a truncated or empty result as proof of no impact.
-- The `limitations` array as stated by the CLI.
 - Provider host/name/language/selection, advertised versus observed capability, and the last
   lifecycle stage from `provider`.
-- Traversal, semantic and indexing status from `coverage`. `complete: true` only confirms the
-  requested static traversal; it does not override `static-only` or `indexing: unknown`.
+- `completion.traversalStatus: exhausted` only confirms that the requested static traversal finished.
+  `complete: true` is its v1 projection and does not override `semanticScope: provider-static` or
+  `indexingStatus: unknown`.
+- For one root node and no edges, inspect `no_incoming_callers` and `index_state_unknown`. Unknown indexing
+  means the empty result is not proof that no callers exist.
 
 State plainly that these are static Call Hierarchy relationships. Do not claim coverage of
 reflection, dependency injection, decorator routing, event buses, generated code, or other
-runtime-only links. Do not run tests or infer that unrun tests pass.
+runtime-only links. Never describe the result as `no impact`, `safe to change`, `unused`, `fully analyzed`,
+`complete analysis`, or `all callers`. Do not run tests or infer that unrun tests pass.

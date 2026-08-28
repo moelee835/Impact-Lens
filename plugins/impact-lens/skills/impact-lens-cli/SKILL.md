@@ -16,11 +16,28 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
 - Include `expectedSymbol` when the symbol name or kind is known so an ambiguous target fails instead of silently selecting another declaration.
 - Start with the depth needed by the task; do not assume an empty or truncated result means no impact.
 - Request source only when it helps the task. Prefer `declaration`; use `body` only when implementation context is necessary.
-- Parse the single JSON response and inspect `ok`, `runtime`, `provider`, `coverage`, `complete`, `capabilities`,
-  `limitations`, and truncation metadata before reporting conclusions.
-- Treat `complete: true` only as `coverage.traversal.status: complete`. Check semantic and indexing
-  coverage separately; `static-only` or `unknown` prevents claims of complete runtime impact.
+- Parse the single JSON response and inspect `ok`, `runtime`, `data.completion`, `data.limitationDetails`,
+  `provider`, and truncation metadata before reporting conclusions. `coverage`, `complete`, `capabilities`, and
+  `limitations` are schema v1 compatibility projections, not independent state.
+- Treat `completion.traversalStatus: exhausted` only as completion of the requested static traversal.
+  `complete: true` is its compatibility projection. Check `semanticScope` and `indexingStatus` separately;
+  `provider-static` or `unknown` prevents claims of complete runtime impact.
+- When a result has only the root node and no edges, inspect `no_incoming_callers` and `index_state_unknown` in
+  `limitationDetails`. Zero incoming callers with unknown indexing is not proof that none exist.
+- Never describe a result as `no impact`, `safe to change`, `unused`, `fully analyzed`, `complete analysis`, or
+  `all callers`; those phrases claim more than static Call Hierarchy evidence establishes.
 - Treat incoming-call results as static evidence from the configured Call Hierarchy provider. Do not claim coverage of reflection, dependency injection, decorators, events, generated code, or runtime-only links.
+
+## Select and diagnose providers
+
+- A raw `provider` command is the advanced explicit path. `providerPreset` selects a catalog entry for one
+  request. Without either, the CLI checks the trusted project choice and then verified auto-discovery; it never
+  guesses between ambiguous candidates or falls back to a provider for another language.
+- Request `initializationOptions` and `settings` are bounded JSON trees merged after preset and project values.
+  Do not include their values in failure summaries because they may contain secrets.
+- Run `doctor <preset>` for machine-readable discovery, version, language, capability, settings, and fixture
+  checks. Use `--smoke` when launch/initialize/capability evidence is needed; read every check because the doctor
+  continues after individual failures.
 
 ## Work with notes
 

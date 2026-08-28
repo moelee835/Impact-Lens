@@ -4,7 +4,7 @@
 - 완료 소유 story: `IL-LIM-005`, `IL-LIM-009`
 - 선행 기여 story: `IL-LIM-004` 1~2단계
 - 작성일: 2026-08-27
-- 상태: Wave 0 진행 중 (W0-1~W0-3 완료, W0-4 미착수)
+- 상태: Wave 1 완료, W2-B 선행 완료, W2-A 착수 대기
 - 세션 인계: [`task-m1-wave0-handover.md`](task-m1-wave0-handover.md)에 현재 상태, 승인된 결정, 미결 항목과
   다음 작업 순서가 있다. 다른 세션에서 이어받을 때 이 문서를 먼저 읽는다.
 
@@ -168,10 +168,10 @@ W0-3은 W0-1 merge 후, W0-4는 W0-3 merge 후 착수한다. W0-4가 끝나면 W
 `il-lsp-protocol`(`lspProvider.ts`)과 `il-provider-platform`(`providers/`)이 파일 단위로 완전히 분리된다.
 
 **Wave 0 종료 gate**
-- [ ] 용어 결정 2건이 문서로 확정되고 lead 승인이 기록된다.
-- [ ] CI에서 `npm test`, `cli:test`, `test:plugin-artifact`가 모두 실행되고 녹색이다.
-- [ ] 스키마-코드 드리프트 3건이 계약 테스트로 재발 방지된다.
-- [ ] W0-3, W0-4 전후로 `test:plugin-artifact` 결과가 동일하다(무변경 증명).
+- [x] 용어 결정 2건이 문서로 확정되고 lead 승인이 기록된다.
+- [x] CI에서 `npm test`, `cli:test`, `test:plugin-artifact`가 모두 실행되고 녹색이다.
+- [x] 스키마-코드 드리프트 3건이 계약 테스트로 재발 방지된다.
+- [x] W0-3, W0-4 전후로 `test:plugin-artifact` 결과가 동일하다(무변경 증명).
 
 ### Wave 1 — 코어 구현 (3 lane 병렬)
 
@@ -192,13 +192,17 @@ W1-B는 `providers/`+`doctor/`+`runtime.ts`, W1-C는 `coverage.ts`+`impact.ts`+�
   `ready`/`working`/`not_ready`를 받을 수 있는 경로만 열어둔다.
 
 **Wave 1 종료 gate**
-- [ ] server request를 보내는 mock fixture에서 client가 응답하고 initialize가 완료된다.
-- [ ] 설정을 요구하는 mock server가 기대한 설정을 받고 초기화된다.
-- [ ] 민감 값이 stdout·stderr 어디에도 노출되지 않는다.
-- [ ] missing executable / unsupported version / language mismatch / missing capability / fixture 실패가
+- [x] server request를 보내는 mock fixture에서 client가 응답하고 initialize가 완료된다.
+- [x] 설정을 요구하는 mock server가 기대한 설정을 받고 초기화된다.
+- [x] 민감 값이 stdout·stderr 어디에도 노출되지 않는다.
+- [x] missing executable / unsupported version / language mismatch / missing capability / fixture 실패가
       doctor에서 서로 구분된다.
-- [ ] TypeScript reference preset이 기존 bundled 동작·결과와 호환된다.
-- [ ] 기존 JSON fixture와 새 상태 fixture가 동시에 통과한다.
+- [x] TypeScript reference preset이 기존 bundled 동작·결과와 호환된다.
+- [x] 기존 JSON fixture와 새 상태 fixture가 동시에 통과한다.
+
+2026-08-28 기준 위 gate는 W1-A/B/C와 요청 override 계약/runtime PR의 merge, 전체 CLI·Extension test,
+3개 운영체제 Plugin artifact E2E 및 고정 workspace 응답 비교로 확인됐다. W2-A readiness, W2-C Plugin eval과
+Wave 3 검증은 아직 완료되지 않았으며 이 체크는 M1 종료를 의미하지 않는다.
 
 ### Wave 2 — 통합과 UX (2 lane 병렬 + 1 직렬)
 
