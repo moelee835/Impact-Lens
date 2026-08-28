@@ -80,7 +80,7 @@ commit·PR 상태 위주로 작성돼도 규칙을 위반하지 않는다. 저�
 - [x] `CLAUDE.md`가 `AGENTS.md`를 단일 상세 절차로 참조하고 같은 목적 중심 원칙을 강화한다.
 - [x] 현재 작업 현황이 기술 구성요소가 아니라 M0/M1의 사용자 결과와 남은 공백으로 설명된다.
 - [x] `git diff --check`가 통과한다.
-- [ ] 변경이 독립 commit으로 남고 `origin/docs/work-purpose-context`에 push된다.
+- [x] 변경이 독립 commit으로 남고 `origin/docs/work-purpose-context`에 push된다.
 
 ## 작업 로그
 
@@ -104,5 +104,5 @@ commit·PR 상태 위주로 작성돼도 규칙을 위반하지 않는다. 저�
 - `rg`로 목적, 현재 순서, handover와 완료 보고 핵심 문구가 두 지침과 작업 문서에 존재하는지 확인했다.
 - 세 변경 파일의 존재와 `CLAUDE.md`의 `AGENTS.md` 링크 대상을 확인했다.
 - `git diff --check`가 통과했다. 문서 전용 변경이므로 compile/runtime test는 실행하지 않았다.
-- 단계 변경을 `Explain the purpose behind repository work`로 commit하고
-  `origin/docs/work-purpose-context`에 push한 뒤 local HEAD와 upstream 일치를 확인한다.
+- 단계 변경을 `cbf8395`(`Explain the purpose behind repository work`)로 commit하고
+  `origin/docs/work-purpose-context`에 push했다. push 직후 local HEAD와 upstream이 일치했다.
