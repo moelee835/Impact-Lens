@@ -134,6 +134,58 @@ M1은 `schemaVersion: 1`을 유지한다. `completion`과 `limitationDetails`는
 사용자 노출 문구는 결과 수를 먼저 말하고 판정을 나중에 한다. `no impact`, `safe to change`, `unused`,
 `fully analyzed`, `complete analysis`, `all callers`는 어떤 상태에서도 생성하지 않는다.
 
+## 요청 수준 provider override
+
+`impact.analyze` 요청은 provider 설정을 한 번만 덮을 수 있다. 세 필드는 모두 **optional**이며
+`schemaVersion: 1`의 additive 추가다. 기존 요청은 하나도 바뀌지 않는다.
+
+| 요청 최상위 필드 | 값 | 의미 |
+| --- | --- | --- |
+| `providerPreset` | preset id 문자열 | catalog에서 preset을 고른다. 소문자·숫자와 단일 hyphen만 허용하고 64자 이하다. **존재 여부는 provider 선택 단계가 판정한다** |
+| `initializationOptions` | 평문 JSON 객체 | `initialize` 요청의 `initializationOptions`에 병합된다 |
+| `settings` | 평문 JSON 객체 | `workspace/configuration` 응답과 `didChangeConfiguration`에 쓰이는 workspace settings 트리에 병합된다 |
+
+`initializationOptions`와 `settings`는 서로 다른 전송 경로이며 **서로 파생시키지 않는다.** 같은 논리적
+설정을 두 경로에서 읽는 server가 있으면 양쪽에 모두 적어야 한다.
+
+`provider`(raw command)와 `providerPreset`은 **동시에 지정할 수 없다.** 선택 우선순위
+`raw custom > explicit preset > trusted project > verified auto`는 서로 다른 출처 사이의 순서이며,
+한 요청 안에서 그 규칙을 적용하면 사용자가 이름으로 지목한 preset을 조용히 버리게 된다.
+
+값 병합 우선순위는 `preset catalog 기본값 < project 설정 파일 < 요청`이다. 객체는 키 단위 deep merge,
+배열은 통째 교체, scalar는 교체다.
+
+### 설정 트리 제한
+
+두 트리는 각각 다음을 만족해야 한다.
+
+| 항목 | 값 | 강제 지점 |
+| --- | --- | --- |
+| 허용 타입 | `string`, 유한 `number`, `boolean`, `null`, 배열, 평범한 객체 | schema + `cli/src/configTree.ts` |
+| 금지 키 | `__proto__`, `constructor`, `prototype` (**모든 depth**) | schema(`propertyNames`) + `cli/src/configTree.ts` |
+| 최대 depth | 16 (트리 자신이 1단계) | `cli/src/configTree.ts` |
+| 트리당 직렬화 크기 | 64 KiB (65536 bytes) | `cli/src/configTree.ts` |
+| 총 키 개수 | 1000 | `cli/src/configTree.ts` |
+
+뒤의 셋은 JSON Schema 키워드로 표현할 수 없다. 그래서 `request.schema.json`의
+`$defs/configTreeLimits`에 값만 선언해 두고 `cli/src/test/requestSchema.test.ts`가 코드 상수와 대조한다.
+소비자는 이 값을 읽어 자기 쪽에서 미리 거를 수 있다.
+
+금지 키는 **제거가 아니라 거부**다. 이 트리들은 deep merge되므로 병합 구현 자체가 prototype pollution의
+표적이며, 값이 병합기에 도달하기 전에 막아야 한다. 조용히 제거하면 작성자가 쓴 설정과 실제 전송된 설정이
+달라지고 그 차이가 어디에도 보고되지 않는다.
+
+### 제한 위반의 error code는 출처로 갈린다
+
+| 위반이 발견된 곳 | code | 근거 |
+| --- | --- | --- |
+| 요청 최상위 필드 | `invalid_request` (exit 2) | 잘못된 것이 요청 자체다. 사용자가 고칠 대상도 요청을 만든 쪽이다 |
+| project 설정 파일의 provider 설정 | `provider_config_invalid` (exit 5, discovery) | 요청은 유효하고 잘못된 것은 파일이다 |
+| 병합된 유효 트리가 예산을 넘음 | `provider_config_invalid` | 각 입력은 이미 자기 계약을 통과했다. 잘못된 것은 어느 하나가 아니라 설정의 **조합**이므로 요청을 지목하면 거짓이다. 메시지에 출처별 기여량을 싣는다 |
+
+세 경우 모두 message와 `error.details`가 **무엇을 고쳐야 하는지** 말해야 한다. `details`에는 위반 규칙,
+필드 경로, 한도와 관측값을 담는다. `invalid`만 담은 실패는 이 계약을 만족하지 않는다.
+
 ## Provider 실패 코드
 
 | code | stage | 의미와 조치 |

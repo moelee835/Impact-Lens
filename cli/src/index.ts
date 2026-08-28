@@ -3,6 +3,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { childIpcStatus, childIpcUnavailableError, looksLikeSilentProviderFailure } from './childIpc';
+import { requestConfigTree, requestPresetId } from './configTree';
 // Imported by its explicit path rather than as './doctor'. A stale `dist/doctor.js` left over from
 // before this became a directory would otherwise shadow `dist/doctor/index.js` and be loaded instead.
 import { runDoctor } from './doctor/index';
@@ -17,9 +18,11 @@ import {
   NoteGetRequest,
   NoteListRequest,
   NoteMutationRequest,
+  NOTE_SCOPES,
   NoteScope,
   ProviderCommand,
   SCHEMA_VERSION,
+  SOURCE_MODES,
   SourceMode,
   SymbolTarget,
 } from './types';
@@ -295,10 +298,21 @@ async function noteRequest(
 
 function validateAnalyzeObject(input: unknown): AnalyzeRequest {
   const value = asObject(input);
-  rejectUnknown(value, ['workspace', 'file', 'line', 'column', 'depth', 'maxNodes', 'includeSource', 'timeoutMs', 'expectedSymbol', 'provider']);
+  rejectUnknown(value, ['workspace', 'file', 'line', 'column', 'depth', 'maxNodes', 'includeSource', 'timeoutMs', 'expectedSymbol', 'provider', 'providerPreset', 'initializationOptions', 'settings']);
   const includeSource = value.includeSource === undefined ? undefined : requiredString(value.includeSource, 'includeSource');
-  if (includeSource !== undefined && !['none', 'declaration', 'body'].includes(includeSource)) {
+  if (includeSource !== undefined && !SOURCE_MODES.includes(includeSource as SourceMode)) {
     throw new CliError('invalid_request', 'includeSource must be none, declaration, or body.', 2);
+  }
+  // Naming both a raw command and a preset is rejected rather than resolved by precedence. The
+  // `raw custom > explicit preset > ...` order in IL-LIM-004 ranks *sources*; applying it inside one
+  // request would silently discard a preset the caller asked for by name. Allowing the combination later
+  // is an additive change, forbidding it later would not be. See decision R6.
+  if (value.provider !== undefined && value.providerPreset !== undefined) {
+    throw new CliError(
+      'invalid_request',
+      'provider and providerPreset cannot both be set. Send provider for a raw command, or providerPreset to select a catalog preset.',
+      2,
+    );
   }
   return {
     workspace: requiredString(value.workspace, 'workspace'),
@@ -311,6 +325,9 @@ function validateAnalyzeObject(input: unknown): AnalyzeRequest {
     timeoutMs: optionalPositiveInteger(value.timeoutMs, 'timeoutMs'),
     expectedSymbol: expectedSymbolObject(value.expectedSymbol),
     provider: providerObject(value.provider),
+    providerPreset: requestPresetId(value.providerPreset, 'providerPreset'),
+    initializationOptions: requestConfigTree(value.initializationOptions, 'initializationOptions'),
+    settings: requestConfigTree(value.settings, 'settings'),
   };
 }
 
@@ -381,8 +398,8 @@ async function providerOption(options: Map<string, string | true>): Promise<Prov
 }
 
 function noteScope(input: unknown): NoteScope {
-  if (input === 'shared' || input === 'source' || input === 'local') {
-    return input;
+  if (typeof input === 'string' && NOTE_SCOPES.includes(input as NoteScope)) {
+    return input as NoteScope;
   }
   throw new CliError('invalid_request', 'scope must be shared, source, or local.', 2);
 }

@@ -1,23 +1,24 @@
 // A small JSON Schema 2020-12 checker covering exactly the keywords `cli/schemas/response.schema.json`
-// uses. It exists so the schema can be enforced without adding a validator dependency: this repository
-// keeps four devDependencies total and CI installs with `pnpm --frozen-lockfile` on three operating
-// systems, so a new package costs lockfile coordination that buys no extra drift detection here (see
-// docs/work/task-m1-contract-types.md, decision 5).
+// and `cli/schemas/request.schema.json` use. It exists so the schemas can be enforced without adding a
+// validator dependency: this repository keeps four devDependencies total and CI installs with
+// `pnpm --frozen-lockfile` on three operating systems, so a new package costs lockfile coordination that
+// buys no extra drift detection here (see docs/work/task-m1-contract-types.md, decision 5).
 //
 // The obvious risk of a hand-written checker is that it silently accepts what it does not understand.
 // Two guards answer that. `assertSupportedKeywords` walks the schema and fails on any keyword this file
 // does not implement, so extending the schema with an unsupported keyword breaks the build instead of
 // weakening the check. And `cli/src/test/schema.test.ts` feeds it envelopes the schema forbids and
-// requires each one to be rejected.
+// requires each one to be rejected, while `cli/src/test/requestSchema.test.ts` does the same for requests
+// and additionally checks that the real CLI parser agrees with the published request schema.
 
 export type JsonSchema = Record<string, unknown> | boolean;
 
 const SUPPORTED_KEYWORDS = new Set([
   '$schema', '$id', 'title', '$comment', '$defs', '$ref',
   'type', 'const', 'enum',
-  'properties', 'required', 'additionalProperties',
+  'properties', 'required', 'additionalProperties', 'propertyNames',
   'items', 'minItems', 'maxItems', 'contains',
-  'minimum',
+  'minimum', 'maximum', 'minLength', 'maxLength', 'pattern',
   'allOf', 'anyOf', 'oneOf', 'not',
   'if', 'then', 'else',
 ]);
@@ -41,7 +42,7 @@ export function assertSupportedKeywords(schema: JsonSchema, path = '#'): void {
       }
     } else if (['allOf', 'anyOf', 'oneOf'].includes(keyword) && Array.isArray(value)) {
       value.forEach((child, index) => assertSupportedKeywords(child as JsonSchema, `${path}/${keyword}/${index}`));
-    } else if (['items', 'contains', 'not', 'if', 'then', 'else', 'additionalProperties'].includes(keyword)) {
+    } else if (['items', 'contains', 'not', 'if', 'then', 'else', 'additionalProperties', 'propertyNames'].includes(keyword)) {
       assertSupportedKeywords(value as JsonSchema, `${path}/${keyword}`);
     }
   }
@@ -100,6 +101,23 @@ export function validate(schema: JsonSchema, value: unknown, root: JsonSchema = 
   if (typeof schema.minimum === 'number' && typeof value === 'number' && value < schema.minimum) {
     errors.push(`${at}: ${value} is below minimum ${schema.minimum}`);
   }
+  if (typeof schema.maximum === 'number' && typeof value === 'number' && value > schema.maximum) {
+    errors.push(`${at}: ${value} is above maximum ${schema.maximum}`);
+  }
+  if (typeof value === 'string') {
+    // JSON Schema counts code points, not UTF-16 units. The request schema's only length rule today is a
+    // preset id, but counting units would silently allow a longer id built from surrogate pairs.
+    const length = [...value].length;
+    if (typeof schema.minLength === 'number' && length < schema.minLength) {
+      errors.push(`${at}: string shorter than minLength ${schema.minLength}`);
+    }
+    if (typeof schema.maxLength === 'number' && length > schema.maxLength) {
+      errors.push(`${at}: string longer than maxLength ${schema.maxLength}`);
+    }
+    if (typeof schema.pattern === 'string' && !new RegExp(schema.pattern, 'u').test(value)) {
+      errors.push(`${at}: ${JSON.stringify(value)} does not match ${schema.pattern}`);
+    }
+  }
 
   if (isPlainObject(value)) {
     if (Array.isArray(schema.required)) {
@@ -107,6 +125,14 @@ export function validate(schema: JsonSchema, value: unknown, root: JsonSchema = 
         if (!Object.prototype.hasOwnProperty.call(value, key)) {
           errors.push(`${at}: missing required property "${String(key)}"`);
         }
+      }
+    }
+    // `propertyNames` is what lets the schema forbid `__proto__`, `constructor` and `prototype` at every
+    // depth of a provider configuration tree. Without it that rule could only be a comment, and a comment
+    // is not a defence against a key that reaches a deep merge.
+    if (schema.propertyNames !== undefined) {
+      for (const key of Object.keys(value)) {
+        errors.push(...validate(schema.propertyNames as JsonSchema, key, root, `${path}/${key}`));
       }
     }
     const properties = isPlainObject(schema.properties) ? schema.properties : {};
