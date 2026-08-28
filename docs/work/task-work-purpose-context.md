@@ -109,3 +109,6 @@ commit·PR 상태 위주로 작성돼도 규칙을 위반하지 않는다. 저�
   `origin/docs/work-purpose-context`에 push했다. push 직후 local HEAD와 upstream이 일치했다.
 - 완료 로그를 `c0973c5`(`Close the purpose guidance work log`)로 commit·push하고, 목적과 사용자 결과를
   본문 첫 부분에 설명한 main 대상 [PR #43](https://github.com/moelee835/Impact-Lens/pull/43)을 열었다.
+- PR #43에서 Unit tests / Ubuntu와 Plugin artifact E2E / Ubuntu·macOS·Windows가 모두 성공했다. 기존
+  `actions/checkout@v4`·`actions/setup-node@v4`의 Node 20 deprecation warning은 실패가 아니며 이번 문서
+  변경에서 새로 만든 경고가 아니다.
