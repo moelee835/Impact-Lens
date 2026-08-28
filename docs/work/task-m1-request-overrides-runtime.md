@@ -2,6 +2,7 @@
 
 - 작성일: 2026-08-28
 - branch: `feat/m1-request-overrides-runtime`
+- PR: [#44 Apply request provider settings at runtime](https://github.com/moelee835/Impact-Lens/pull/44)
 - 대상 마일스톤: [M1 Provider 플랫폼과 무설정 UX 기반](../development-management/milestones/m1-provider-platform-ux.md)
 - 선행 작업: [요청 override 계약](task-m1-request-overrides.md),
   [M1 Wave 1 재개 handover](task-m1-wave1-resume-handover.md)
@@ -150,7 +151,7 @@ smoke/fixture가 있었다. 관련 test로 `providers.test.ts`, `doctor.test.ts`
 - [x] secret sentinel이 provider message, stderr와 error details에 노출되지 않는다.
 - [x] `schemaVersion`은 1이고 note request 계약은 변하지 않는다.
 - [x] `git diff --check`가 통과한다.
-- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
+- [x] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
 
 ## 작업 로그
 
@@ -172,6 +173,8 @@ smoke/fixture가 있었다. 관련 test로 `providers.test.ts`, `doctor.test.ts`
   `note-set` status 4는 apply token 없이 mutation을 시도하는 기존 시나리오의 의도된 결과다.
 - 이 단계에서는 제품 code와 test를 변경하지 않았다. 작업 목적, runtime 공백, 영향 범위, 설계 결정과
   검증 기준만 이 문서에 고정했다.
+- 계획·기준선 문서를 commit `20df93b`(`Plan request-level provider setting delivery`)으로 남기고 동일 이름의
+  원격 branch에 push했다.
 
 ### 2026-08-28 — 2단계: 요청 설정 적용과 병합 예산 보호
 
@@ -194,3 +197,5 @@ smoke/fixture가 있었다. 관련 test로 `providers.test.ts`, `doctor.test.ts`
   기준 `/private/tmp/il-m1-runtime-base1`과의 `diff -r` 출력이 비어 override 없는 기존 응답이 byte 동일함을
   확인했다.
 - request schema와 note request를 변경하지 않았으므로 `schemaVersion: 1`과 note 계약은 그대로다.
+- 구현·test·검증 로그를 commit `ba8dbc2`(`Apply request provider settings to analysis sessions`)으로 남기고
+  동일 이름의 원격 branch에 push한 뒤 main 대상 PR #44를 열었다.
