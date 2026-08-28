@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
+import { CONFIG_TREE_LIMITS } from '../configTree';
 import { PROVIDER_CATALOG, bundledLanguageIds } from '../providers/catalog';
 import {
   compareVersions,
@@ -21,8 +22,17 @@ import {
   unreachableDottedKeys,
 } from '../providers/manifest';
 import { JsonObject, ManifestObject, ProviderPreset } from '../providers/preset';
-import { PROJECT_PROVIDER_CONFIG_PATH, readProjectProviderChoice } from '../providers/projectConfig';
-import { ProviderResolutionOptions, languageId, resolveProvider } from '../providers/resolve';
+import {
+  PROJECT_PROVIDER_CONFIG_PATH,
+  ProjectProviderChoice,
+  readProjectProviderChoice,
+} from '../providers/projectConfig';
+import {
+  ProviderResolutionOptions,
+  languageId,
+  resolveProvider,
+  resolveSessionValues,
+} from '../providers/resolve';
 import { CliError } from '../types';
 
 const NO_ENV: NodeJS.ProcessEnv = {};
@@ -60,6 +70,14 @@ function writeExecutable(directory: string, name: string, body: string): string 
   fs.writeFileSync(file, body);
   fs.chmodSync(file, 0o755);
   return file;
+}
+
+function keyedTree(prefix: string, keys: number): JsonObject {
+  const tree: Record<string, number> = {};
+  for (let index = 0; index < keys; index += 1) {
+    tree[`${prefix}${index}`] = index;
+  }
+  return tree;
 }
 
 // ---------------------------------------------------------------------------
@@ -503,6 +521,10 @@ test('manifest limits reject depth, key count, size and non-finite numbers', () 
   );
 });
 
+test('request and provider configuration enforce the same D8 budgets', () => {
+  assert.deepEqual(MANIFEST_LIMITS, CONFIG_TREE_LIMITS);
+});
+
 test('command arguments must resolve to strings', () => {
   assert.deepEqual(
     resolveManifestStrings([{ $ref: 'nodeExecutable' }, '--stdio'], catalogOptions('args')),
@@ -593,6 +615,66 @@ test('project value overrides merge over the preset without changing the selecti
   assert.deepEqual(resolved.initializationOptions, { preferences: { includeInlayHints: true } });
   // preset < project < request: the request wins the leaf, the project keeps the branch.
   assert.deepEqual(resolved.settings, { typescript: { format: { semicolons: 'remove' } } });
+});
+
+test('merged settings reject a combined key budget and report numeric source contributions only', () => {
+  const preset = fixturePythonPreset({ settings: keyedTree('preset', 400) });
+  const project: ProjectProviderChoice = {
+    source: PROJECT_PROVIDER_CONFIG_PATH,
+    presetId: preset.id,
+    settings: keyedTree('project', 400),
+  };
+  const request = keyedTree('request', 400);
+  assert.throws(
+    () => resolveSessionValues(preset, project, { override: { settings: request } }),
+    (error: unknown) => {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.code, 'provider_config_invalid');
+      const details = error.details as Record<string, unknown>;
+      assert.equal(details.field, 'settings');
+      assert.equal(details.rule, 'keys');
+      assert.equal(details.limit, MANIFEST_LIMITS.maxKeys);
+      assert.equal(details.observed, 1200);
+      const contributions = details.sourceContributions as Record<string, { readonly keys: number }>;
+      assert.equal(contributions.preset.keys, 400);
+      assert.equal(contributions.project.keys, 400);
+      assert.equal(contributions.request.keys, 400);
+      return true;
+    },
+  );
+});
+
+test('merged initialization options reject a combined byte budget without exposing values', () => {
+  const sentinel = 'IL-MERGED-BUDGET-SECRET-93d8';
+  const value = (source: string, fill: string): JsonObject => ({
+    [source]: `${sentinel}-${source}-${fill.repeat(24000)}`,
+  });
+  const preset = fixturePythonPreset({ initializationOptions: value('preset', 'p') });
+  const project: ProjectProviderChoice = {
+    source: PROJECT_PROVIDER_CONFIG_PATH,
+    presetId: preset.id,
+    initializationOptions: value('project', 'q'),
+  };
+  assert.throws(
+    () => resolveSessionValues(preset, project, {
+      override: { initializationOptions: value('request', 'r') },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.code, 'provider_config_invalid');
+      assert.doesNotMatch(`${error.message}\n${JSON.stringify(error.details)}`, new RegExp(sentinel));
+      const details = error.details as Record<string, unknown>;
+      assert.equal(details.field, 'initializationOptions');
+      assert.equal(details.rule, 'bytes');
+      assert.equal(details.limit, MANIFEST_LIMITS.maxSerializedBytes);
+      assert.ok((details.observed as number) > MANIFEST_LIMITS.maxSerializedBytes);
+      const contributions = details.sourceContributions as Record<string, { readonly serializedBytes: number }>;
+      assert.ok(contributions.preset.serializedBytes > 24000);
+      assert.ok(contributions.project.serializedBytes > 24000);
+      assert.ok(contributions.request.serializedBytes > 24000);
+      return true;
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

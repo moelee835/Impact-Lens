@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 import {
   ConfigTreeViolation,
   CONFIG_TREE_LIMITS,
@@ -39,11 +40,15 @@ function violationOf(value: unknown): ConfigTreeViolation {
   return violation;
 }
 
-function runCli(body: unknown): { status: number | null; stdout: string; stderr: string } {
+function runCli(
+  body: unknown,
+  env: NodeJS.ProcessEnv = {},
+): { status: number | null; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [EXECUTABLE, 'analyze', '--stdin'], {
     encoding: 'utf8',
     input: JSON.stringify(body),
     timeout: 40000,
+    env: { ...process.env, ...env },
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -253,9 +258,72 @@ test('an analyze request carrying all three overrides is accepted', { timeout: 6
     const envelope = JSON.parse(result.stdout) as Record<string, unknown>;
     assert.equal(envelope.ok, true);
     const provider = (envelope.data as Record<string, unknown>).provider as Record<string, unknown>;
-    // The envelope always reports the provider that actually ran, so an override that no lane consumes
-    // yet is observable rather than silent. Lane W1-B turns `selectedBy` into `preset` here.
-    assert.ok(typeof provider.selectedBy === 'string');
+    assert.equal(provider.selectedBy, 'preset');
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('the CLI sends request initialization options and settings to the selected provider', { timeout: 60000 }, () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'impact-lens-runtime-overrides-'));
+  try {
+    const target = path.join(workspace, 'target.ts');
+    fs.writeFileSync(target, 'export function target(value: number): number { return value + 1; }\n');
+    const initializationOptions = { requestSource: 'agent', preferences: { includeInlayHints: false } };
+    const settings = { impactLens: { mode: 'strict' }, 'files.exclude': { '**/*.log': true } };
+    const result = runCli({
+      workspace,
+      file: 'target.ts',
+      line: 1,
+      column: 17,
+      provider: {
+        command: process.execPath,
+        args: [path.resolve(__dirname, 'fixtures', 'settingsRequiredServer.js')],
+        languageId: 'typescript',
+      },
+      initializationOptions,
+      settings,
+    }, {
+      IMPACT_LENS_MOCK_EXPECT_INIT_OPTIONS: JSON.stringify(initializationOptions),
+      IMPACT_LENS_MOCK_CONFIG_ITEMS: JSON.stringify([{ section: 'impactLens.mode' }, {}]),
+      IMPACT_LENS_MOCK_EXPECT_CONFIG: JSON.stringify(['strict', settings]),
+      IMPACT_LENS_MOCK_TARGET_URI: pathToFileURL(target).toString(),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trimEnd().split('\n').length, 1);
+    const envelope = JSON.parse(result.stdout) as Record<string, unknown>;
+    const provider = (envelope.data as Record<string, unknown>).provider as Record<string, unknown>;
+    assert.equal(provider.selectedBy, 'custom');
+    assert.equal(provider.name, 'settings-required-server');
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('request-level secrets are redacted from provider failures', { timeout: 60000 }, () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'impact-lens-runtime-secret-'));
+  const sentinel = 'IL-REQUEST-SECRET-7c2e9a';
+  try {
+    fs.writeFileSync(path.join(workspace, 'target.ts'), 'export function target(): void {}\n');
+    const result = runCli({
+      workspace,
+      file: 'target.ts',
+      line: 1,
+      column: 17,
+      provider: {
+        command: process.execPath,
+        args: [path.resolve(__dirname, 'fixtures', 'secretEchoServer.js')],
+        languageId: 'typescript',
+      },
+      initializationOptions: { licenseServer: { credential: `${sentinel}-init` } },
+      settings: { vendor: { apiKey: `${sentinel}-settings` }, harmless: 'kept' },
+    });
+    assert.equal(result.status, 5, result.stderr);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr.trim().split('\n').length, 1);
+    assert.doesNotMatch(result.stderr, new RegExp(sentinel), result.stderr);
+    assert.match(result.stderr, /\[REDACTED\]/);
+    assert.match(result.stderr, /harmless/);
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }

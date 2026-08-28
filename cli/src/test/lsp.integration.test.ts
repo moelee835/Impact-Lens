@@ -107,9 +107,11 @@ test('hands the server the settings it asks for and the options it was configure
   });
 
   const provider = new LspCallHierarchyProvider(workspace, 'target.ts', fixture('settingsRequiredServer'), 8000, {
-    initializationOptions,
-    settings,
-    settingsDelivery: ['on-request', 'did-change-configuration'],
+    session: {
+      initializationOptions,
+      settings,
+      settingsDelivery: ['on-request', 'did-change-configuration'],
+    },
   });
   try {
     // The fixture exits with a description on the first mismatch, so a wrong frame arrives here as
@@ -133,7 +135,7 @@ test('sends no configuration push when the preset did not ask for one', { timeou
   // Default delivery, and a tree that is not empty: the push is still withheld, because the preset
   // did not declare it. This is what keeps the bundled TypeScript handshake byte-identical.
   const provider = new LspCallHierarchyProvider(workspace, 'target.ts', fixture('settingsRequiredServer'), 8000, {
-    settings: { impactLens: { enabled: true } },
+    session: { settings: { impactLens: { enabled: true } } },
   });
   try {
     await provider.initializeForDoctor();
@@ -148,11 +150,13 @@ test('sends no configuration push when the preset did not ask for one', { timeou
 test('keeps configured secrets out of everything the provider reports', { timeout: 30000 }, async t => {
   const workspace = await scratch(t, 'impact-lens-secret-');
   const provider = new LspCallHierarchyProvider(workspace, 'target.ts', fixture('secretEchoServer'), 8000, {
-    // One secret sits under a key no name rule would flag, and one under a key that any rule would.
-    // Both have to disappear: the declaration covers the first, the heuristic backstops the second.
-    initializationOptions: { licenseServer: { credential: `${SENTINEL}-init` } },
-    settings: { vendor: { apiKey: `${SENTINEL}-settings` }, harmless: 'kept' },
-    sensitive: { initializationOptions: ['licenseServer.credential'] },
+    session: {
+      // One secret sits under a key no name rule would flag, and one under a key that any rule would.
+      // Both have to disappear: the declaration covers the first, the heuristic backstops the second.
+      initializationOptions: { licenseServer: { credential: `${SENTINEL}-init` } },
+      settings: { vendor: { apiKey: `${SENTINEL}-settings` }, harmless: 'kept' },
+      sensitive: { initializationOptions: ['licenseServer.credential'] },
+    },
   });
   try {
     await assert.rejects(

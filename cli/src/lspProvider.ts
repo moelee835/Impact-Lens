@@ -5,7 +5,7 @@ import { JsonRpcClient, redactProviderText } from './jsonRpc';
 import { JsonObject } from './lsp/configuration';
 import { CapabilityRegistration, createServerRequestHandlers } from './lsp/serverRequests';
 import { mergeSessionValues, ProviderSessionConfig, SettingsDelivery } from './lsp/session';
-import { languageId, resolveProvider } from './providers/resolve';
+import { languageId, ProviderResolutionOptions, resolveProvider } from './providers/resolve';
 import {
   CallHierarchyItem,
   CallHierarchyProvider,
@@ -44,6 +44,13 @@ interface PublishDiagnostics {
     readonly severity?: number;
     readonly message?: string;
   }>;
+}
+
+export interface LspCallHierarchyProviderOptions {
+  /** Provider selection and preset/project/request value resolution. The analyzed workspace is fixed by the constructor. */
+  readonly resolution?: Omit<ProviderResolutionOptions, 'workspace'>;
+  /** Already-resolved values for tests and doctor paths that construct a protocol session directly. */
+  readonly session?: ProviderSessionConfig;
 }
 
 export class LspCallHierarchyProvider implements CallHierarchyProvider {
@@ -85,17 +92,17 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     file: string,
     command: ProviderCommand | undefined,
     timeoutMs: number,
-    // The protocol layer never reads a preset manifest. It receives already-resolved plain JSON,
-    // because reference resolution and override merging belong to `providers/`. The default is an
-    // empty session, which produces exactly the frames this client sent before configuration existed.
-    session: ProviderSessionConfig = {},
+    options: LspCallHierarchyProviderOptions = {},
   ) {
     // The workspace is passed explicitly because the trusted project tier has no `process.cwd()`
     // fallback. Falling back would make the provider depend on the directory the CLI happened to be
     // launched from, so a `.impact-lens/provider.json` in an unrelated tree could choose the provider
     // for this one. A trust boundary that moves with the shell's working directory is not a boundary.
-    const resolved = resolveProvider(file, command, { workspace });
-    const resolvedSession = mergeSessionValues(resolved, session);
+    // Request values enter through provider resolution so preset < project < request deep merge,
+    // post-merge budgets and secret collection all happen before the protocol sees a plain tree.
+    // Direct session values remain a separate test/doctor escape hatch and never stand in for a request.
+    const resolved = resolveProvider(file, command, { ...options.resolution, workspace });
+    const resolvedSession = mergeSessionValues(resolved, options.session);
     this.settings = resolvedSession.settings;
     this.initializationOptions = resolvedSession.initializationOptions;
     this.settingsDelivery = resolvedSession.settingsDelivery;
