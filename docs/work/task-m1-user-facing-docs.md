@@ -61,7 +61,8 @@ M1은 CLI/Extension에 provider preset catalog, `doctor <preset>` 일반화, `.i
 
 제외(하지 않음):
 
-- `cli/README.md` — 위 범위 충돌 사유로 이 세션은 수정하지 않는다.
+- `cli/README.md` — 위 범위 충돌 사유로 이 세션(r2-user-docs)은 수정하지 않는다. **2026-08-31 정정: 조정
+  세션이 같은 branch/PR에 별도 commit으로 처리했다. 아래 "2026-08-31 정정" 로그 참고.**
 - 버전 번호 갱신(`0.6.3` → `0.7.0` 등) — R4 담당.
 - `docs/DEVELOPMENT.md` — 조사 결과 이 문서는 provider/doctor를 아예 언급하지 않고 대상은 environment
   setup·build·test 절차라, "필요 시"에 해당하는 구체적 부정확 서술을 찾지 못했다. 변경하지 않는다.
@@ -151,7 +152,8 @@ commit으로 묶어 커밋 단위가 "이 세션이 실제로 조사해 확인�
 - `git diff --check`로 공백 오류가 없는지 확인한다.
 - README.md/INSTALL.md 안의 상대 링크가 실제 파일을 가리키는지 확인한다.
 - 완료 기준: 위 "포함" 목록의 8개 항목이 코드 근거와 함께 README.md/INSTALL.md에 반영되고, `cli/README.md`를
-  건드리지 못한 이유와 잔여 공백이 최종 보고에 별도로 기록된다.
+  건드리지 못한 이유와 잔여 공백이 최종 보고에 별도로 기록된다. **2026-08-31 정정: `cli/README.md` 공백은
+  조정 세션의 addendum commit으로 닫혔다 — 더 이상 잔여 공백이 아니다.**
 
 ## 작업 로그
 
@@ -180,6 +182,53 @@ commit으로 묶어 커밋 단위가 "이 세션이 실제로 조사해 확인�
 - branch를 worktree 기본 이름(`worktree-agent-ad65e9c6c64ba60cc`)에서 `docs/m1-user-facing-docs`로
   변경했다(`git branch -m`). 변경 전 `git status --short --branch`로 clean 상태와 `origin/main`(`d2a37cb`)과
   HEAD가 정확히 일치함을 확인했다.
+
+### 2026-08-31 정정 — `cli/README.md` 범위 충돌 해소 (조정 세션 addendum)
+
+이 세션(r2-user-docs)이 위에서 기록한 범위 충돌 판단 — "사전에 설정된 권한 경계를 스스로 넓히지 않는다" —
+은 그대로 옳았다. 이 세션은 조정 세션의 명시적 위임 메시지에도 `cli/README.md`를 수정하지 않았다: 다른
+에이전트 세션의 메시지는 harness가 부여한 권한 경계를 확장할 수 없기 때문이다(사용자 또는 권한 시스템만 가능). 이 판단은 "가능하면 사용자 승인까지
+끝낸다"는 상위 지시보다 우선한다.
+
+대신 **조정 세션(`coder`) 자신이 별도 local worktree(`coder/r2-cli-readme-addendum`, `origin/docs/m1-user-facing-docs`
+기준)에서 직접 `cli/README.md`를 갱신**해 같은 branch/PR(#53)에 추가 commit으로 반영했다. 조정 세션은
+`cli/**` 수정 금지 같은 경로 제약이 없으므로 이것은 권한 확장이 아니라, 애초에 범위 충돌이 없는 세션이
+남은 파일을 처리한 것이다.
+
+반영 내용(전부 코드 재확인 후 작성, 위 "현재 구현 조사 결과" 1·2·3·4·5·6항과 동일 근거):
+
+- `## Contract` 절에 `data.completion`이 상태의 단일 출처라는 문장과, `complete: true`가 보장하지 않는 결론
+  목록(`no impact`/`safe to change`/`unused`/`all callers`)을 추가. `coverage.indexing`이 `unknown`/`working`/
+  `ready` 3값이며 오늘 shipped catalog로는 `unknown`만 도달 가능하다는 문장으로 교체.
+- `## Bundled provider doctor`를 `## Provider doctor`로 일반화: `--fixture` 플래그 추가, check 목록을 preset
+  일반 명령에 맞게 갱신, custom provider는 doctor로 진단 불가하고 미등록 preset은 `invalid_command`로 즉시
+  끝난다는 문장과 실제 오류 JSON 예시 추가.
+- 새 `## Provider selection` 절: 5단계 선택 순서(raw custom > explicit preset > project > verified auto >
+  unsupported)와 언어 경계를 절대 넘지 않는다는 문장, `### Shipped catalog`(`bundled-typescript` 하나뿐,
+  "곧 지원" 아님), `### .impact-lens/provider.json과 요청 단위 override`(허용 필드 6개 표 + redaction 휴리스틱)
+  하위 절 추가.
+- 기존 provider 예시 절은 `## Custom provider`로 이름을 바꾸고 그대로 유지(custom command JSON 예시,
+  lifecycle 오류 코드).
+
+검증(직접 실행, README/INSTALL과 동일 기준):
+
+- `cli/` 의존성을 이 worktree에 새로 설치(`cd cli && npm install`) 후 `npm run cli:build` 성공.
+- `node cli/dist/index.js doctor bundled-typescript` → `checks` 배열에 `node-engine`/`cli-package`/
+  `bundled-provider-artifact`/`language-support`/`settings-keys`/`project-config` 각각 독립 `pass`, 최상위
+  `status: "ready"` 관측(이 환경엔 로컬 `typescript-language-server`가 설치돼 있어 r2-user-docs가 관측한
+  `status: "blocked"`와 다른 결과가 나왔다 — 두 결과 모두 "각 check가 독립적으로 보고되고 첫 실패에서
+  멈추지 않는다"는 문서 서술과 일치하며 모순이 아니다).
+- `node cli/dist/index.js doctor not-a-real-preset` → `invalid_command`/`Unknown provider preset`/exit 2,
+  `details.knownPresetIds: ["bundled-typescript"]` 관측.
+- 임시 워크스페이스에 `{"presetId":"bundled-typescript","typo":true}`인 `.impact-lens/provider.json`을 두고
+  `doctor bundled-typescript --workspace <dir>` 실행 → `project-config` check가 `provider_config_invalid`/
+  "it has unknown fields: typo."로 실패함을 관측.
+- `git diff --check` 통과. 임시 fixture(`/tmp/il-cli-readme-fixture`)는 검증 후 삭제.
+- 이 변경은 `cli/README.md` 한 파일만 건드리므로 `npm run cli:test`/`npm test` 재실행은 대상 밖이다(문서
+  전용 변경, 코드 미변경).
+
+이로써 원래 "포함" 목록에서 유일하게 미해결이던 `cli/README.md` 공백이 닫혔다. R2 lane 전체(README.md +
+INSTALL.md + cli/README.md)가 이제 완료 기준을 충족한다.
 
 ### 2026-08-31 — README.md/INSTALL.md 갱신과 실행 검증
 
