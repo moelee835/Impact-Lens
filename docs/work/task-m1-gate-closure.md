@@ -121,11 +121,23 @@ assert 갱신이다. PR #49가 실제로 한 일은 **"shipped catalog로 오늘
 역할을 했다. 실행 계획이 W3-A에 배정한 CLI 진입점 provider matrix는 **R1(PR #54)**이 `providerMatrix.test.ts`로
 채웠다. 이 정정은 이 lane의 owned path인 `task-m1-agent-team-execution.md`에 반영한다.
 
-**owned path 밖의 잔존 참조 (후속 과제로만 기록, 이번에 고치지 않음)**: `docs/work/task-m1-state-reachability.md`
-(PR #49 자신의 작업 문서, 표제 자체가 "W3-A"), `docs/work/task-m1-user-test-spec.md`, `docs/work/task-m1-wave0-handover.md:209`,
-`docs/work/task-m1-wave1-handover.md:199,251`, `docs/development-management/user-tests/m1-user-test-spec.md:11,26`
-전부 PR #49를 "W3-A"로 부른다. 이 문서들은 R3의 owned path 밖이고 각각 다른 lane의 산출물이라 이 lane이
-임의로 다시 쓰지 않는다 — 필요하면 별도 작업으로 각 문서에 "2026-08-31 정정" 표시를 붙여야 한다.
+**owned path 밖의 잔존 참조 (후속 과제로만 기록, 이번에 고치지 않음)**: 아래는 `git grep -ln "W3-A" -- docs/`
+결과의 **2026-08-31(PR #53 merge 직후, `dac76ba`) 스냅샷**이다. 진실의 출처는 이 목록이 아니라 그 명령이다
+— 후속 작업은 착수 시점에 **반드시 다시 실행해서** 이 스냅샷 이후 추가된 참조가 없는지 확인해야 한다.
+실제로 R2(PR #53, R3보다 나중에 merge됨)가 `docs/work/task-m1-user-facing-docs.md:9`
+("선행 조사: [W3-A 상태 도달 가능성 검증](task-m1-state-reachability.md) (PR #49)")에 **새 오표기를
+하나 추가했다** — 이 lane이 최초 조사했을 때는 없던 참조다. 정적 목록은 이렇게 조사 시점에 이미 낡을 수
+있으므로, 목록을 갱신하는 대신 재생성 명령을 신뢰의 기준으로 삼는다.
+
+- `docs/work/task-m1-state-reachability.md`(PR #49 자신의 작업 문서, 표제 자체가 "W3-A")
+- `docs/work/task-m1-user-facing-docs.md:9`
+- `docs/work/task-m1-user-test-spec.md`
+- `docs/work/task-m1-wave0-handover.md:209`
+- `docs/work/task-m1-wave1-handover.md:199,251`
+- `docs/development-management/user-tests/m1-user-test-spec.md:11,26`
+
+이 문서들은 R3의 owned path 밖이고 각각 다른 lane의 산출물이라 이 lane이 임의로 다시 쓰지 않는다 —
+필요하면 별도 작업으로 각 문서에 "정정" 표시를 붙여야 한다.
 
 ### PR #51의 정정이 놓친 자리 (R2가 발견, 이 lane이 기록)
 
