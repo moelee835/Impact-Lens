@@ -234,7 +234,9 @@ error code로 동시에 쓰인다는 사실이다.
 - [x] delayed-index mock에서 premature empty를 성공으로 확정하지 않는다.
 - [x] Extension에서 empty와 incomplete가 문구만으로 구분된다. 근거: PR [#37](https://github.com/moelee835/Impact-Lens/pull/37)
   (merge) — `src/impactTreeProvider.ts:15-36`의 `EmptyItem`(그래프 자체가 없는 상태)/`NoticeItem`(그래프는
-  있지만 완전성 caveat이 있는 상태) 타입 분리, `src/completeness.ts:128`의 `noProviderSummary()`.
+  있지만 완전성 caveat이 있는 상태) 타입 분리. `src/completeness.ts:128`의 `noProviderSummary()`는 이 gate가
+  요구하는 구분과는 다른 축이다 — "caller 없음"과 "provider 없음"은 VS Code 공개 API 한계로 오히려
+  의도적으로 병합돼 있다(코드 주석 "Truth table F1 + F19, merged", `task-m1-gate-closure.md` 참고).
 - [x] Codex와 Claude Code 대표 prompt가 동일한 completeness 경계를 전달한다. 근거: PR
   [#48](https://github.com/moelee835/Impact-Lens/pull/48)(merge) — 두 host(`.claude-plugin/plugin.json`,
   `.codex-plugin/plugin.json`)가 같은 `plugins/impact-lens/skills/` 경로를 가리킴(직접 diff 확인, manifest

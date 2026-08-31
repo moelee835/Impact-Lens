@@ -8,7 +8,7 @@ if [ "$impact_lens_script_dir" = "$0" ]; then
 fi
 impact_lens_plugin_dir=$(CDPATH= cd -- "$impact_lens_script_dir/.." && pwd)
 impact_lens_repo_entry="$impact_lens_plugin_dir/../../cli/dist/index.js"
-impact_lens_release_package="${IMPACT_LENS_CLI_PACKAGE:-https://github.com/moelee835/Impact-Lens/releases/download/v0.6.3/impact-lens-cli-0.6.3.tgz}"
+impact_lens_release_package="${IMPACT_LENS_CLI_PACKAGE:-https://github.com/moelee835/Impact-Lens/releases/download/v0.7.0/impact-lens-cli-0.7.0.tgz}"
 impact_lens_required_node_major=22
 impact_lens_runtime_node_version=unavailable
 impact_lens_runtime_node_major=0

@@ -159,7 +159,7 @@ produce `ready` or `working`")을 그대로 담은 채 shipped plugin payload로
 
 | gate | 판정 | 근거 |
 | --- | --- | --- |
-| Extension에서 empty와 incomplete가 문구만으로 구분된다 | 충족 | PR #37(merge). `src/impactTreeProvider.ts:15-36`에 `EmptyItem`(그래프 자체가 없는 최초 상태)과 `NoticeItem`(그래프는 있지만 완전성 caveat이 있는 상태)이 타입 수준으로 분리돼 있고, `src/completeness.ts:128`의 `noProviderSummary()`가 "caller 없음"과 "provider 없음"을 구분한다 |
+| Extension에서 empty와 incomplete가 문구만으로 구분된다 | 충족 | PR #37(merge). `src/impactTreeProvider.ts:15-36`에 `EmptyItem`(그래프 자체가 없는 최초 상태)과 `NoticeItem`(그래프는 있지만 완전성 caveat이 있는 상태)이 타입 수준으로 분리돼 있다. **2026-08-31 정정**: 원래 이 행이 "`noProviderSummary()`가 'caller 없음'과 'provider 없음'을 구분한다"고 적었는데 틀렸다 — `src/completeness.ts:128`의 `noProviderSummary()`는 그 둘을 **의도적으로 병합**한다(코드 주석 "Truth table F1 + F19, merged. See the module comment for why they cannot be told apart here" — VS Code 공개 API로는 구분할 방법이 없다). gate 문구가 요구하는 것은 "empty"(그래프 없음) vs "incomplete"(그래프는 있지만 부분 결과)의 구분이고, 이건 `EmptyItem`/`NoticeItem` 타입 분리로 여전히 충족된다 — 틀렸던 것은 부연 설명이지 판정 자체가 아니다 |
 | Codex와 Claude Code 대표 prompt가 동일한 completeness 경계를 전달한다 | 충족 | PR #48(merge). 두 host(`plugins/impact-lens/.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`)가 같은 `plugins/impact-lens/skills/` 디렉터리를 가리킨다(직접 diff 확인 — manifest 메타데이터만 다르고 skill payload 경로는 동일). `npm run test:response-policy`가 이 공유 payload에 대해 16/16 통과 |
 | `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다 | 충족 | PR #48(merge). `scripts/fixtures/response-policy/`의 fixture 01·02·06(각각 "unknown empty result reported as no impact", "working/partial result reported as no callers", "conclusion stated before the evidence boundary")이 정확히 이 실패 유형을 잡아낸다. `test:response-policy` 16/16 |
 
