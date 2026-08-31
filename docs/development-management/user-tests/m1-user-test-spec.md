@@ -2,7 +2,9 @@
 
 - 대상 마일스톤: [M1 — Provider 플랫폼과 무설정 UX 기반](../milestones/m1-provider-platform-ux.md) 4단계
 - 작성 기준 release candidate: CLI/Extension `0.6.3`, Plugin payload `0.2.5`
-- 상태: 작성 완료, 검토 대기. **아직 실행하지 않았다.**
+- 상태: 작성 완료, 검토 완료(작성자가 아닌 세션의 검토 1회 — W3-C가 의도한 두 번째 독립 검토는 승인이
+  오지 않아 만료됨. 경위는 [task-m1-user-test-spec.md](../../work/task-m1-user-test-spec.md) 작업 로그
+  참고). **아직 실행하지 않았다.**
 - 작성 규칙: [마일스톤별 사용자 테스트 명세 계획](../milestones/user-validation-planning.md)
 - 근거: [IL-LIM-009 완전성 의미론](../stories/il-lim-009-completeness-semantics.md),
   [IL-LIM-005 사용자 지정 LSP 호환성 확장](../stories/il-lim-005-custom-lsp-compatibility.md),
