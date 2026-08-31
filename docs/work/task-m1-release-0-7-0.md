@@ -185,10 +185,10 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
 
 ## 테스트 및 완료 기준
 
-- [ ] 1단계: version 소유 위치, 발행 순서와 rollback이 문서화되고 commit/push됐다.
-- [ ] 2단계: `0.6.3` 잔존 참조가 CHANGELOG 과거 절과 역사적 work 문서를 제외하고 0건이다.
-- [ ] 2단계: `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
-- [ ] 2단계: CLI tarball과 VSIX 파일 목록이 예상 범위만 포함한다(leak 없음).
+- [x] 1단계: version 소유 위치, 발행 순서와 rollback이 문서화되고 commit/push됐다.
+- [x] 2단계: `0.6.3` 잔존 참조가 CHANGELOG 과거 절과 역사적 work 문서를 제외하고 0건이다.
+- [x] 2단계: `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
+- [x] 2단계: CLI tarball과 VSIX 파일 목록이 예상 범위만 포함한다(leak 없음).
 - [ ] 2단계: PR head의 Ubuntu/macOS/Windows Node 22 check가 모두 성공한다.
 - [ ] 3단계: 사용자 확인 후 `v0.7.0` tag가 merge commit을 가리키고 release가 draft/prerelease가 아니다.
 - [ ] 3단계: 두 asset의 공개 digest가 local checksum과 같다.
@@ -209,3 +209,42 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
 - 병합된 PR 목록(#30~#55)을 `gh pr list`로 조회해 CHANGELOG 작성 근거로 확보했다.
 - `m1-user-test-spec.md:4`의 stale RC 버전 문구를 "판단이 필요한 항목"으로 분리하고 정정 방식(원문 보존 +
   정정 표시)을 미리 정했다.
+
+### 2026-08-31 — 2단계 0.7.0 version 정합성 구현
+
+- 위 "version 소유 위치" 세 표(기능적 6곳, 사용자 대상 4곳/파일, 불활성 2곳/그룹)의 모든 위치를 `0.7.0`으로,
+  plugin manifest 2개(`0.2.5` → `0.3.0`)를 갱신했다. `sed`로 파일 단위 일괄 치환 후 각 파일에서 `0.6.3`
+  잔존 0건, `0.7.0` 등장 횟수가 원래 발견한 occurrence 수와 일치함을 개별 확인했다(README.md 5건,
+  INSTALL.md 17건, DEVELOPMENT.md 6건, cli-contract.md 3건, response-policy fixture 10개 각 1건).
+- **CHANGELOG.md**: `Unreleased`를 비우고(원래 있던 Codex manifest 항목은 `0.7.0` 절 마지막 bullet으로
+  이동) `0.7.0` 절을 사용자 결과 문장으로 새로 썼다. 병합 PR #30~#55 중 사용자에게 보이는 결과가 있는
+  것만 반영했다: provider 이름으로 진단(`doctor <preset>`), 무설정 안전 선택과 언어 fallback 금지,
+  `workspace/configuration`을 요구하는 서버의 정상 초기화(이전엔 타임아웃/`provider_initialize_failed`로
+  위장), 색인 중인 provider와 진짜 빈 결과 구분, Extension의 empty/incomplete 구분, `complete: true`만으로
+  결론 못 내리게 막는 eval, 요청 단위 provider 설정과 secret redaction, `data.completion`/
+  `limitationDetails` 신규 필드(기존 필드는 그대로 유지되는 projection), 사용자 문서 갱신, TS/JS preset
+  하나뿐이라는 한계. **PR #31(CI), #34(provider seam 추출), #54(test)는 사용자 결과가 없는 내부 변경이라
+  제외했다.**
+- **Extension empty state bullet 작성 중 오류 발견**: 처음에는 "caller 없음/provider 없음/부분 결과"
+  세 가지로 구분된다고 쓰려 했으나, `src/completeness.ts:128`의 `noProviderSummary()`를 직접 열어보니
+  코드 주석이 "Truth table F1 + F19, merged. See the module comment for why they cannot be told apart
+  here"라고 명시했다 — caller 없음과 provider 없음은 VS Code 공개 API 한계로 **의도적으로 병합**돼 있다.
+  구분되는 것은 "그래프 자체가 없음"(`EmptyItem`) vs "그래프는 있지만 완전성 caveat이 있음"(`NoticeItem`)
+  두 가지뿐이다. **이 오류는 R3(PR #55, 이미 merge됨)의 Wave 2 gate 표에도 같은 형태로 들어가 있었다** —
+  발견 즉시 별도 commit(`12acff7`)으로 정정했다(위 "판단이 필요한 항목" 절 참고 대신 이 로그에 기록).
+  CHANGELOG bullet은 정정된 사실대로 작성했다.
+- `m1-user-test-spec.md:4`를 원문 보존 + "2026-08-31 정정" 표시로 갱신했다.
+- **검증**: `npm test`(Extension 58/58), `npm run cli:test`(266/266), `npm run test:response-policy`
+  (16/16, 10개 fixture의 `version` 필드 변경이 eval 결과에 영향 없음 확인 — 애초에 그 필드를 읽지 않으므로
+  예상대로), `npm run test:plugin-artifact` 통과.
+- **패키징 검증**(session 전용 `npm_config_cache`, 사용자 홈 `~/.npm` 권한 변경 없음):
+  - VSIX(`vsce package`): 31 files, 1.09 MB. `.claude/`, `.github/`, `scripts/`, `src/`, `cli/`,
+    `plugins/`, `docs/` 등 leak 없음(M0가 `.vscodeignore`에 추가해 둔 제외 규칙이 그대로 유효함을 확인).
+    SHA-256(branch 빌드): `4a598dc51258b4875e659b7f8e5b506a2bb37cb0c8678c353517f96a97998886`.
+  - CLI tarball(`npm pack`): 31 entries, `dist/**`(19개), `schemas/**`(2개), `package.json`, `README.md`,
+    `LICENSE`만 포함 — leak 없음. `pnpm`이 이 환경 PATH에 없어 M0와 동일하게 `npm pack`을 사용했다(CI의
+    `test-plugin-artifact-e2e.mjs`도 `npm pack`을 쓰므로 tarball 내용은 동일). SHA-256(branch 빌드):
+    `f49a8549419e98dff45e80c3fbd3043b12d53f49f5834d3062f3531e68d5e396`.
+  - **이 두 checksum은 branch 빌드 값이다. 3단계에서 merge 후 `main`으로 재생성해 tree hash와 checksum이
+    같은지 재확인하고, release asset은 그 재생성 결과를 올린다** (M0가 따른 절차와 동일 — branch와 merge
+    commit의 tree가 다르면 값이 달라질 수 있으므로 release 시점 재생성이 필수다).

@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## 0.7.0
+
+- Pick a provider by name with `doctor <preset>` and see partial failures instead of an all-or-nothing
+  pass: missing executable, unsupported version, language mismatch, and missing Call Hierarchy
+  capability are now each reported independently, without stopping at the first one.
+- Start with no provider configuration at all and get a safe, deterministic choice — custom command,
+  then an explicitly named preset, then a trusted project setting, then verified auto-discovery — that
+  never silently falls back to another language's provider.
+- A Language Server that requires `workspace/configuration`, dynamic Call Hierarchy registration, or
+  cancellation of an abandoned request now initializes and behaves correctly, instead of appearing as a
+  timeout or an unexplained `provider_initialize_failed`.
+- A Language Server that is still building its index is now told apart from one that genuinely found no
+  callers, instead of both reading as the same empty result.
+- The Extension tells an empty graph (no caller found, or no provider answered at all — VS Code's public
+  API cannot distinguish the two causes, so they share one message) apart from a graph that exists but
+  carries a completeness caveat, instead of rendering both as the same blank tree.
+- An agent reading `complete: true` can no longer conclude "no impact" or "safe to change" on its own —
+  the response policy eval now fails any response that does.
+- Configure a provider per request (initialization options, settings) instead of only through a fixed
+  command line, with values that look like secrets automatically redacted from logs and failure output.
+- The response gains `data.completion` and structured `limitationDetails` as the source of truth for
+  result state; `complete`, `truncated`, and `limitations` remain exactly as before, now defined as
+  compatibility projections of the new fields — nothing existing was removed or renamed.
+- README, INSTALL, and the CLI's own README now document the provider selection order, `doctor <preset>`,
+  `.impact-lens/provider.json`, and the completeness vocabulary — previously only the agent-facing plugin
+  contract had this.
+- **Known limitation**: the shipped provider catalog still has exactly one entry, `bundled-typescript` —
+  every other language still needs a custom provider configured by hand.
 - Match the current Codex plugin manifest schema and ship the plugin's own icons, so the listing shows
   the intended name, colour, and artwork.
 

@@ -1,7 +1,10 @@
 # M1 사용자 테스트 명세 — Provider 플랫폼과 무설정 UX 기반
 
 - 대상 마일스톤: [M1 — Provider 플랫폼과 무설정 UX 기반](../milestones/m1-provider-platform-ux.md) 4단계
-- 작성 기준 release candidate: CLI/Extension `0.6.3`, Plugin payload `0.2.5`
+- 작성 기준 release candidate: CLI/Extension `0.6.3`, Plugin payload `0.2.5` (원문 그대로. **2026-08-31
+  정정**: 이 문구는 작성 시점에 이미 부정확했다 — 이 명세는 M1이 merge된 미발행 `main`을 기준으로 썼는데
+  마지막으로 "발행"된 버전인 `0.6.3`을 적었다. 이 명세는 v0.7.0으로 발행된 코드 상태를 기준으로 작성됐다.
+  경위: [`task-m1-release-0-7-0.md`](../../work/task-m1-release-0-7-0.md) 작업 로그)
 - 상태: 작성 완료, 검토 완료(작성자가 아닌 세션의 검토 1회 — W3-C가 의도한 두 번째 독립 검토는 승인이
   오지 않아 만료됨. 경위는 [task-m1-user-test-spec.md](../../work/task-m1-user-test-spec.md) 작업 로그
   참고). **아직 실행하지 않았다.**
