@@ -54,16 +54,42 @@ Agent Team 기반 wave 분해, 파일 소유권과 wave별 종료 gate는
 
 ## 종료 gate
 
-- [ ] IL-LIM-005와 IL-LIM-009의 수용 기준이 모두 통과한다.
-- [ ] TypeScript reference preset이 기존 bundled 동작과 결과 호환성을 유지한다.
-- [ ] missing executable, unsupported version, language mismatch, capability 없음, indexing unknown과 query
-  실패가 doctor에서 구분된다.
-- [ ] custom provider 요청과 기존 provider JSON은 하위 호환으로 동작한다.
-- [ ] Auto가 검증되지 않은 server를 임의 선택하거나 다른 언어 provider로 fallback하지 않는다.
-- [ ] Plugin이 `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다.
-- [ ] build/configure/sync는 사용자 승인 없이 실행되지 않는다.
-- [ ] `user-tests/m1-user-test-spec.md`가 release candidate 기준으로 검토됐으며, 실제 사용자 검증 결과 또는
-  실행 보류 사유가 release decision에 기록된다.
+- [x] IL-LIM-005와 IL-LIM-009의 수용 기준이 모두 통과한다. 두 story 문서의 수용 기준 각 항목 참고.
+- [x] TypeScript reference preset이 기존 bundled 동작과 결과 호환성을 유지한다. 근거:
+  `cli/src/test/providers.test.ts:268,281`(IL-LIM-005 AC4와 동일).
+- [ ] **[문구-구현 불일치]** missing executable, unsupported version, language mismatch, capability 없음,
+  indexing unknown과 query 실패가 doctor에서 구분된다. `cli/src/test/doctor.test.ts`가 missing
+  executable/unsupported version/language mismatch/missing capability/query 실패 5개 중 4개를 구분한다
+  ("a missing executable is reported as its own failure...", "an unsupported version is reported
+  separately...", "a language the preset does not serve is reported as a mismatch...", "a server without
+  Call Hierarchy is reported as a missing capability", "a server that advertises Call Hierarchy but
+  answers nothing fails the fixture"). **그러나 "indexing unknown"은 doctor의 어떤 check에도 없다** —
+  `doctor.test.ts` 전체에 "indexing"이라는 단어가 0회 등장한다(직접 grep 확인). `coverage.indexing.status`는
+  W2-A(PR #46)가 **analyze 시점** 개념으로 구현했고 doctor 명령과는 별개다. gate 문구를 쓴 시점에는 doctor가
+  이 상태까지 구분할 것으로 예상했지만 실제 구현은 그렇지 않다 — gate 문구를 실제 구현(query 실패까지는
+  doctor, indexing unknown은 analyze 응답)에 맞게 정정하거나 doctor에 indexing 관련 check를 추가하는 결정이
+  필요하다. 이 판단은 M1 종료 판정 lane의 권한 밖이라 사용자에게 넘긴다. 상세:
+  [`task-m1-gate-closure.md`](../../work/task-m1-gate-closure.md).
+- [x] custom provider 요청과 기존 provider JSON은 하위 호환으로 동작한다. 근거: PR #54
+  (`test/m1-compatibility-matrix`) merge `30c88f1` — `cli/src/test/contract.test.ts:283` "an old-style
+  request with only provider command/args/languageId - no preset, no overrides - still completes a
+  successful analysis". `main`에서 재확인(266/266).
+- [x] Auto가 검증되지 않은 server를 임의 선택하거나 다른 언어 provider로 fallback하지 않는다. 근거:
+  `cli/src/test/providers.test.ts`의 5개 test + `cli/src/test/contract.test.ts`의 2개 test +
+  `scripts/test-plugin-artifact-e2e.mjs`의 `selectedBy`/`languageMatch` assert.
+- [x] Plugin이 `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다.
+  근거: `npm run test:response-policy` 16/16.
+- [x] build/configure/sync는 사용자 승인 없이 실행되지 않는다. 근거: PR #54(`test/m1-compatibility-matrix`)
+  merge `30c88f1` — production spawn 지점 4곳을 전수 조사해 `cli/src/test/buildInvocation.sources.test.ts:224`
+  "every spawn-family call site in cli/src is inventoried, and none hardcodes a command outside the
+  allowed list"로 고정. review에서 발견된 `exec`/`execFile`/`execSync`/`fork`와 namespace/default import
+  누락 결함은 commit `c82e30b`로 수정되고 우회 패턴 3종으로 재검증됐다(reviewer 독립 재검증 완료).
+- [x] `user-tests/m1-user-test-spec.md`가 release candidate 기준으로 검토됐으며, 실제 사용자 검증 결과 또는
+  실행 보류 사유가 release decision에 기록된다. **release decision**: 명세는 작성 완료·검토 완료(작성자가
+  아닌 세션의 독립 검토 1회, 2번째 독립 검토는 승인이 오지 않아 만료 — `docs/work/task-m1-user-test-spec.md`
+  작업 로그 참고). 실제 참여자 모집과 환경 준비는 별도 승인 사항이며, **사용자가 이번 릴리스(v0.7.0)에서는
+  실행을 보류하기로 명시적으로 결정했다**(M0와 동일한 방식). 상세:
+  [`task-m1-gate-closure.md`](../../work/task-m1-gate-closure.md).
 
 ## 제외 범위
 

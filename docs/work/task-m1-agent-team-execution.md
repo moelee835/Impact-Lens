@@ -4,7 +4,9 @@
 - 완료 소유 story: `IL-LIM-005`, `IL-LIM-009`
 - 선행 기여 story: `IL-LIM-004` 1~2단계
 - 작성일: 2026-08-27
-- 상태: Wave 1 완료, W2-A·W2-B 완료, W2-C 착수 대기
+- 상태: Wave 0~2 완료. Wave 3(W3-A/B/C) 완료, gate 판정 진행 중 — 2026-08-31 정정: 이전 버전이 "W2-C 착수
+  대기"였던 것은 stale하다. W2-C는 PR #48로 완료됐고, Wave 3 세 lane도 모두 산출물을 냈다(W3-A는 R1/PR #54가
+  merge 대기 중인 수정 하나만 남음). 상세는 아래 "Wave 3" 절과 [`task-m1-gate-closure.md`](task-m1-gate-closure.md).
 - 세션 인계: [`task-m1-wave0-handover.md`](task-m1-wave0-handover.md)에 현재 상태, 승인된 결정, 미결 항목과
   다음 작업 순서가 있다. 다른 세션에서 이어받을 때 이 문서를 먼저 읽는다.
 
@@ -230,9 +232,16 @@ error code로 동시에 쓰인다는 사실이다.
 
 **Wave 2 종료 gate**
 - [x] delayed-index mock에서 premature empty를 성공으로 확정하지 않는다.
-- [ ] Extension에서 empty와 incomplete가 문구만으로 구분된다.
-- [ ] Codex와 Claude Code 대표 prompt가 동일한 completeness 경계를 전달한다.
-- [ ] `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다.
+- [x] Extension에서 empty와 incomplete가 문구만으로 구분된다. 근거: PR [#37](https://github.com/moelee835/Impact-Lens/pull/37)
+  (merge) — `src/impactTreeProvider.ts:15-36`의 `EmptyItem`(그래프 자체가 없는 상태)/`NoticeItem`(그래프는
+  있지만 완전성 caveat이 있는 상태) 타입 분리, `src/completeness.ts:128`의 `noProviderSummary()`.
+- [x] Codex와 Claude Code 대표 prompt가 동일한 completeness 경계를 전달한다. 근거: PR
+  [#48](https://github.com/moelee835/Impact-Lens/pull/48)(merge) — 두 host(`.claude-plugin/plugin.json`,
+  `.codex-plugin/plugin.json`)가 같은 `plugins/impact-lens/skills/` 경로를 가리킴(직접 diff 확인, manifest
+  메타데이터만 다르고 skill payload는 공유).
+- [x] `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다. 근거:
+  PR #48(merge) — `scripts/fixtures/response-policy/` fixture 01·02·06, `npm run test:response-policy`
+  16/16.
 
 ### Wave 3 — 검증과 release candidate
 
@@ -246,13 +255,43 @@ error code로 동시에 쓰인다는 사실이다.
 W1-B가 Auto/preset을 도입하는 순간 실패한다. W1-B PR과 W3-A의 assert 갱신은 **같은 PR 또는 연속 PR로
 묶어 CI가 빨간 상태로 머물지 않게 한다.**
 
+**2026-08-31 정정 — Wave 3 실제 결과와 W3-A 자기 표기 정정**
+
+PR [#49](https://github.com/moelee835/Impact-Lens/pull/49)("Prove which result states a real run can
+actually produce")는 본문에 스스로 "실행 계획 W3-A"라고 표기했지만, **이것은 부정확하다.** 위 표가 W3-A에
+배정한 산출물은 bundled/custom/mock provider의 CLI 진입점 provider matrix와
+`scripts/test-plugin-artifact-e2e.mjs` assert 갱신이다. PR #49가 실제로 한 일은 "shipped catalog로 오늘
+실제 도달 가능한 completion 상태가 무엇인가"를 실행으로 증명하는 것(상태 도달 가능성 검증)이고, 이는
+W3-B(사용자 테스트 명세)의 선행 조사 입력이지 W3-A 그 자체가 아니다. 실행 계획이 W3-A에 배정한 CLI 진입점
+matrix는 **R1**이 채웠다.
+
+| lane | 실제 결과 |
+| --- | --- |
+| W3-A | R1(`test/m1-compatibility-matrix`, PR [#54](https://github.com/moelee835/Impact-Lens/pull/54))이 채움. 커버리지 감사 후 미충족 축만 새 test로 채웠고(하위 호환 회귀, build/configure/sync source scan, CLI 진입점 indexing-unknown/partial matrix), IL-LIM-005 AC4 축도 감사표에 추가했다. **2026-08-31: review에서 발견된 build/configure/sync guard의 정규식 결함(`exec`/`execFile`/`execSync`/`fork`, namespace/default import 누락)을 `c82e30b`로 수정하고 우회 패턴 3종으로 재검증, 뒤이어 예외 서술 부정확 1건을 `7f5e64c`로 정정했다. reviewer 독립 재검증 완료 후 merge `30c88f1`.** |
+| W3-B | PR [#50](https://github.com/moelee835/Impact-Lens/pull/50)("Write the M1 user test spec around what a real user can actually reach")로 merge됨. `docs/development-management/user-tests/m1-user-test-spec.md` 작성 완료. |
+| W3-C | `il-reviewer` 규칙에 따른 독립 검토 1회 완료(작성자가 아닌 세션). 의도했던 2번째 독립 검토는 승인이 오지 않아 만료됐다 — main 커밋 `54518c9`("Record that the M1 spec's second review expired, not 'still pending'"), `8b6ddfd`("Fix the M1 spec's own status line - it still claimed 'review pending'")가 이 상태 정정을 기록했다. |
+
 **Wave 3 종료 gate = M1 종료 gate**
-- [ ] `IL-LIM-005`와 `IL-LIM-009`의 수용 기준이 모두 통과한다.
-- [ ] custom provider 요청과 기존 provider JSON이 하위 호환으로 동작한다.
-- [ ] Auto가 검증되지 않은 server를 임의 선택하거나 다른 언어 provider로 fallback하지 않는다.
-- [ ] build/configure/sync가 사용자 승인 없이 실행되지 않는다.
-- [ ] `user-tests/m1-user-test-spec.md`가 release candidate 기준으로 검토됐고, 실제 사용자 검증 결과 또는
-      실행 보류 사유가 release decision에 기록된다.
+- [x] `IL-LIM-005`와 `IL-LIM-009`의 수용 기준이 모두 통과한다. 두 story 문서 참고.
+- [x] custom provider 요청과 기존 provider JSON이 하위 호환으로 동작한다. 근거: PR #54 merge `30c88f1` —
+      `contract.test.ts:283` "an old-style request with only provider command/args/languageId - no
+      preset, no overrides - still completes a successful analysis".
+- [x] Auto가 검증되지 않은 server를 임의 선택하거나 다른 언어 provider로 fallback하지 않는다. 근거:
+      `providers.test.ts` 5개 test + `contract.test.ts` 2개 test + packed e2e assert(전부 이미 `main`).
+- [x] build/configure/sync가 사용자 승인 없이 실행되지 않는다. 근거: PR #54 merge `30c88f1` —
+      `buildInvocation.sources.test.ts:224` "every spawn-family call site in cli/src is inventoried, and
+      none hardcodes a command outside the allowed list". review에서 발견된 정규식 결함은 `c82e30b`/`7f5e64c`로
+      수정·정정되고 reviewer가 독립 재검증했다.
+- [x] `user-tests/m1-user-test-spec.md`가 release candidate 기준으로 검토됐고, 실제 사용자 검증 결과 또는
+      실행 보류 사유가 release decision에 기록된다. **release decision**: 명세 작성·검토 완료(1회, 2회차
+      만료), 실제 참여자 모집·환경 준비는 별도 승인 사항이며 사용자가 v0.7.0에서는 실행을 보류하기로
+      결정했다. 상세: [`task-m1-gate-closure.md`](task-m1-gate-closure.md).
+
+이 5개 항목은 milestone 문서(`m1-provider-platform-ux.md`)의 종료 gate 8개 중 5개와 같은 근거를 공유한다.
+milestone 문서는 여기 없는 3개 항목(TypeScript reference preset 호환, doctor 구분 항목, plugin fixture
+항목)도 추가로 판정한다 — **특히 doctor 항목은 gate 문구("indexing unknown이 doctor에서 구분된다")와 실제
+구현이 어긋난다는 것이 확인됐다.** 상세는 milestone 문서와
+[`task-m1-gate-closure.md`](task-m1-gate-closure.md) 참고.
 
 ## 테스트 및 완료 기준
 

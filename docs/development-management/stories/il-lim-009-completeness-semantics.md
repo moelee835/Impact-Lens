@@ -29,10 +29,27 @@
 
 ## 수용 기준
 
-- [ ] 완전 종료, depth/node 제한, provider 미지원과 동적 미추론 상태가 구분된다.
-- [ ] `complete` 하위 호환 또는 schema migration 전략이 문서화된다.
-- [ ] Agent가 limitation을 실제 부재로 요약하지 않도록 contract fixture가 존재한다.
-- [ ] README, UI와 CLI schema의 용어가 일치한다.
+- [x] 완전 종료, depth/node 제한, provider 미지원과 동적 미추론 상태가 구분된다. 근거:
+  `cli/src/test/completion.test.ts` S1(exhausted), S4/S5(depth/node-limited) +
+  `cli/src/test/providers.test.ts:187` "an unsupported language never falls back..."
+  (`provider_required_for_language`) + `completion.test.ts`가 모든 성공 상태에
+  `dynamic_calls_not_inferred`를 포함함을 assert(예: 151, 170행).
+- [x] `complete` 하위 호환 또는 schema migration 전략이 문서화된다. 근거(OR 조건, 둘 다 있음):
+  `docs/development-management/provider-coverage-contract.md:86-94`(`complete: true` ↔
+  `completion.traversalStatus: "exhausted"` 매핑, 전방 마이그레이션 지침, `schemaVersion: 1` 유지 정책과
+  v2 승격 조건) + `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md:117`(같은 매핑을
+  agent 어휘로, plugin payload로 실제 배포됨). `complete`의 소비자는 README 독자가 아니라 JSON 소비자
+  (agent/plugin/Extension)이므로 사용자 문서에 별도 마이그레이션 서사가 없는 것은 갭이 아니다.
+- [x] Agent가 limitation을 실제 부재로 요약하지 않도록 contract fixture가 존재한다. 근거:
+  `npm run test:response-policy` 16/16(10개 fixture + doc invariant 6개, negative-direction 포함).
+- [x] README, UI와 CLI schema의 용어가 일치한다. 근거: PR #53(merge `dac76ba`) — `README.md`/
+  `INSTALL.md`/`cli/README.md`가 provider 선택 계층·`doctor <preset>`·`.impact-lens/provider.json`·
+  완전성 어휘를 코드와 일치하게 문서화했고, review에서 발견된 `cli/README.md`↔`README.md` 모순(readiness
+  도달 가능성)도 같은 PR에서 정정해 세 문서(`README.md`/`cli/README.md`/`cli-contract.md`)가 지금 한
+  목소리를 낸다.
+
+**2026-08-31 판정**: 4개 전부 충족. 판정 근거 전체는
+[`task-m1-gate-closure.md`](../../work/task-m1-gate-closure.md)에 있다.
 
 ## 검증
 
