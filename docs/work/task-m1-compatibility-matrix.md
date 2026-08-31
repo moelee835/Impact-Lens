@@ -305,9 +305,8 @@ CI는 이미 새 test 파일을 자동으로 포함한다**. 계획 문서 작�
     테스트 가능하게 만들지는 않았다(그러려면 제품 코드에 test 전용 진입점을 추가해야 하는데, 이는 이
     lane의 소유 범위 밖이다). readiness 관련 요청 표면이 실제로 추가되는 시점(이후 milestone)에 다시
     감사해야 한다.
-  - `buildInvocation.sources.test.ts`는 텍스트 스캔이다: `require('child_process')`처럼 `import`가
-    아닌 경로로 spawn 함수를 가져오는 경우는 감지하지 못한다. 이 코드베이스는 프로덕션 소스 전체에서
-    ES `import`만 사용하므로(직접 확인) 현재는 이론적 위험이다.
+  - (아래 "reviewer 결함 수정" 로그로 대체됨 - `buildInvocation.sources.test.ts`의 한계 서술은 그 항목에
+    최신 상태로 다시 적었다.)
 - **조정 세션 정밀화 (2차)**: 조정 세션이 R1 범위를 세 가지로 좁혔다. (a) 하위 호환 gap이 좁다는 것과
   (b) build/configure/sync spawn 지점이 정확히 4곳이고 "막을 수 없는 예외"가 없다는 것은 직접
   재확인한 결과 이미 구현·문서가 정확히 그 범위였다(코드 변경 없음 - `contract.test.ts`의 old-style
@@ -318,6 +317,53 @@ CI는 이미 새 test 파일을 자동으로 포함한다**. 계획 문서 작�
   `providers.test.ts`의 두 test(268행, 281행)를 직접 읽고 이미 이 gate를 command 구성 수준에서
   직접적으로 증명하고 있음을 확인했으며, bundled provider로 실제 성공까지 도달하는 기존 CLI 진입점
   test들이 이를 결과 수준에서 보강함을 확인했다. **코드 변경 없음 - 감사 표만 갱신.**
+- **reviewer 결함 수정 (PR #54)**: reviewer가 `buildInvocation.sources.test.ts`의 두 정규식이 구멍이
+  있음을 지적했다. `CHILD_PROCESS_IMPORT`는 named import(`{ ... }`)만 인식해서 namespace(`import * as
+  cp from ...`)와 default(`import cp from ...`) import는 매치 0건 - import 검사가 통째로 무력화된다.
+  `SPAWN_CALL`은 `spawn`/`spawnSync`만 보고 `exec`/`execFile`/`execSync`/`fork`는 전혀 보지 않는다 -
+  test 이름이 "spawn-family"라고 주장하면서 실제로는 그 일부만 봤다. 둘을 합치면
+  `import * as cp from 'node:child_process'; cp.exec('npm install')`이 두 test를 모두 통과했다. 직접
+  재현해 확인했다(격리된 정규식으로 먼저, 실제 production 파일에 주입해서 나중에 - 아래 참고).
+  - `import * as cp`/`import cp`(namespace·default) 형태를 파싱해 **전면 금지**로 바꿨다 - 어떤 이름으로
+    쓰이든 child_process의 모든 export에 접근할 수 있게 만들기 때문에, named import의 export 이름별
+    허용목록 검사로는 애초에 평가할 수 없다.
+  - spawn-family 이름을 `spawn`/`spawnSync`/`exec`/`execSync`/`execFile`/`execFileSync`/`fork` 7개
+    전체로 넓히고, bare call(`exec(...)`)과 member call(`x.exec(...)`, `require(...).exec(...)`) 두
+    형태를 모두 스캔한다. member call은 참조를 어떻게 얻었는지(import든 `require`든)와 무관하게 잡히므로
+    `require('child_process').exec(...)` 경로도 이제 닫힌다.
+  - `exec`이 `RegExp.prototype.exec`(`/pattern/.exec(str)`)과 이름이 겹치는 문제를 발견했다(이 코드베이스가
+    실제로 `jsonRpc.ts`, `discovery.ts`에서 두 곳 사용 중) - 넓힌 정규식을 그대로 실행하면 정규식 검사
+    호출이 spawn-family 호출로 오탐되어 "정확히 4곳" 카운트가 7로 깨졌다. 정규식 리터럴이 `.exec(`
+    바로 앞에 오는 형태(`/[a-z]{0,4}$` 휴리스틱)만 제외하도록 좁혔다 - 변수에 담긴 regex의 `.exec(`은
+    여전히 의심 대상으로 남겨서 안전한 쪽으로 틀리게 설계했다.
+  - **파일 상단의 한계 서술을 실제로 남은 범위로 다시 썼다**: 여전히 못 잡는 것은 `require`
+    destructure에서 **동시에 별칭까지 붙이는** 경우뿐이다 - `const { exec: run } = require('node:child_process');
+    run(...)`. 이건 `import` 문이 아니라서 import-side 검사가 안 보고, 로컬 이름이 spawn-family 7개 중
+    하나가 아니라서(`run`) call-site 스캔도 안 본다. 이전 버전의 서술("import가 아닌 경로는 못 잡는다")은
+    이보다 훨씬 넓게(사실상 이번에 고친 것 전부를 포함해서) "못 잡는다"고 적어 실제보다 좁게(관대하게)
+    말하고 있었다 - reviewer의 지적대로다.
+  - **우회 패턴 3종 검증(실제 production 파일에 주입 → 빌드 → test 실행 → 관찰 → 원복 → `git diff` 바이트
+    동일 확인, 매번 반복)**:
+    1. `childIpc.ts`에 `import * as childProcessNamespace from 'node:child_process';`와
+       `childProcessNamespace.exec('npm install')`을 호출하는 미사용 함수 주입 → import 검사 test가
+       `actual: ['* as childProcessNamespace'], expected: []`로 실패, call-site 검사 test도
+       `expected zero member-call ... found 1`로 함께 실패(두 test가 독립적으로 잡음, 방어 중복) → 원복 →
+       `git diff cli/src/childIpc.ts` 출력 없음.
+    2. `notes.ts`에 `import childProcessDefault from 'node:child_process';`와
+       `childProcessDefault.execFile('npm', ['install'])`을 호출하는 미사용 함수 주입 → 위와 동일하게
+       두 test 모두 정확히 실패(`actual: ['childProcessDefault']`, member call 1건) → 원복 →
+       `git diff cli/src/notes.ts` 출력 없음.
+    3. `providers/discovery.ts`에 `import { exec as runShellCommand } from 'node:child_process';`와
+       `runShellCommand('npm install')`을 호출하는 미사용 함수 주입 → import 검사 test가
+       `actual: [..., 'exec', ...]`로 실패(별칭이 아니라 원래 export 이름 `exec`을 기준으로 판단하므로
+       별칭을 붙여도 못 피함) - call-site 검사 test는 통과(로컬 이름 `runShellCommand`가 spawn-family 7개
+       중 무엇도 아니므로 이 test는 원래 이 경로를 보는 test가 아님, 정상) → 원복 →
+       `git diff cli/src/providers/discovery.ts` 출력 없음.
+  - 세 경우 모두 수정 전에는(격리된 정규식 재현으로 먼저 확인) import 매치 0건, spawn call 매치 0건이었고
+    (패턴 3의 named-alias만 예외 - 원래 구현도 별칭 이전 이름 기준으로 이미 잡고 있었음을 격리 재현으로
+    먼저 확인한 뒤, 수정 후에도 여전히 잡히는지 실제 파일 주입으로 재확인했다), 수정 후에는 세 경우 모두
+    최소 하나의 test가 정확한 이유로 실패했다.
+  - 수정 후 `npm run cli:test` 재실행 → 266/266(변경 없음, 이 파일의 test 개수 자체는 그대로 4개).
 
 ## 테스트 및 완료 기준
 
