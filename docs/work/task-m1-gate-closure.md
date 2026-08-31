@@ -148,6 +148,33 @@ produce `ready` or `working`")을 그대로 담은 채 shipped plugin payload로
 | Codex와 Claude Code 대표 prompt가 동일한 completeness 경계를 전달한다 | 충족 | PR #48(merge). 두 host(`plugins/impact-lens/.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`)가 같은 `plugins/impact-lens/skills/` 디렉터리를 가리킨다(직접 diff 확인 — manifest 메타데이터만 다르고 skill payload 경로는 동일). `npm run test:response-policy`가 이 공유 payload에 대해 16/16 통과 |
 | `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다 | 충족 | PR #48(merge). `scripts/fixtures/response-policy/`의 fixture 01·02·06(각각 "unknown empty result reported as no impact", "working/partial result reported as no callers", "conclusion stated before the evidence boundary")이 정확히 이 실패 유형을 잡아낸다. `test:response-policy` 16/16 |
 
+## 판정 출처와 검토 범위 (2026-08-31 추가)
+
+이 문서의 판정 중 일부는 이 lane이 처음부터 독립적으로 도출한 것이 아니라, 계획 세션(`main`)이 `reviewer`
+세션에 위임해 나온 결론을 relay 받은 것이다. 나중에 "누가 무엇을 독립적으로 검증했는가"를 재구성할 수
+있도록 있는 그대로 적는다 — 이 저장소가 W3-C의 2차 독립 검토 무산을 "대기 중"과 "무산"으로 구분하느라
+여러 라운드를 쓴 전례가 있어, 그 재구성 비용을 지금 줄여 둔다.
+
+- **`reviewer`가 원 판정을 만든 항목**: IL-LIM-009 AC2 충족 판정, milestone gate 3(doctor
+  indexing/query 구분)의 문구-구현 불일치 판정, PR #54 제목의 "2 of 3" 프레이밍 기각. 계획 세션이 이
+  판정을 relay하면서 **원문 인용을 직접 다시 읽어 독립 확인**했다(`provider-coverage-contract.md:86-94`,
+  `cli-contract.md:117`, `doctor.test.ts`의 `indexing` 0회 등장을 계획 세션도 별도로 grep). 이 lane(R3,
+  이 세션)은 그 결론을 받아 위 표에 옮기면서 인용된 test 이름·파일 경로가 실재하는지 다시 한 번 직접
+  재확인했다(아래 작업 로그).
+- **IL-LIM-005 6개 AC**: `reviewer`의 1차 검토 라운드(5-fork 병렬 검토, 이 라운드에서 근거 오류 2건이
+  나와 정정된 이력이 있다 — 정정 경위는 `reviewer` 세션 자체 기록에 있고 이 lane은 재론하지 않는다) 판정을
+  계획 세션이 relay했고, 계획 세션이 인용 실재를 독립 확인했다. 이 lane도 별도로 6개 test 이름 전부를
+  `grep`으로 재확인했다.
+- **이 lane(R3)이 처음부터 직접 도출한 항목**: Wave 2 gate 3개의 근거(PR #37/#48 확인, `plugin.json` diff),
+  PR #49의 W3-A 자기 표기 정정 문구, release decision 기록, owned path 밖 잔존 참조 목록, milestone
+  gate·Wave 3 gate 전체 표의 구성과 문구.
+
+**따라서 `reviewer`가 PR #55를 검토하더라도, 위 첫 두 항목(IL-LIM-009 AC2, doctor gate 3, IL-LIM-005 6개
+AC)에 대해서는 자신이 이미 내린 결론을 다시 읽는 것이지 독립 검토가 아니다.** `reviewer`의 PR #55 검토는
+**자신이 만들지 않은 부분** — Wave 2 gate 근거, PR #49 정정 문구, release decision 기록, owned path 밖
+잔존 참조 목록의 완전성, 그리고 이 문서 전체의 전사 충실도(relay 과정에서 원 판정이 왜곡되지 않았는지) —
+에 집중해야 실질적인 독립 검토가 된다.
+
 ## 사용자 검증 보류 — release decision
 
 M1 종료 gate의 마지막 항목(milestone gate 8, Wave 3 gate 5)인 **실제 사용자 검증은 이번 릴리스에서 실행하지
