@@ -4,7 +4,7 @@
 - 완료 소유 story: `IL-LIM-005`, `IL-LIM-009`
 - 선행 기여 story: `IL-LIM-004` 1~2단계
 - 작성일: 2026-08-27
-- 상태: Wave 1 완료, W2-B 선행 완료, W2-A 착수 대기
+- 상태: Wave 1 완료, W2-A·W2-B 완료, W2-C 착수 대기
 - 세션 인계: [`task-m1-wave0-handover.md`](task-m1-wave0-handover.md)에 현재 상태, 승인된 결정, 미결 항목과
   다음 작업 순서가 있다. 다른 세션에서 이어받을 때 이 문서를 먼저 읽는다.
 
@@ -201,8 +201,8 @@ W1-B는 `providers/`+`doctor/`+`runtime.ts`, W1-C는 `coverage.ts`+`impact.ts`+�
 - [x] 기존 JSON fixture와 새 상태 fixture가 동시에 통과한다.
 
 2026-08-28 기준 위 gate는 W1-A/B/C와 요청 override 계약/runtime PR의 merge, 전체 CLI·Extension test,
-3개 운영체제 Plugin artifact E2E 및 고정 workspace 응답 비교로 확인됐다. W2-A readiness, W2-C Plugin eval과
-Wave 3 검증은 아직 완료되지 않았으며 이 체크는 M1 종료를 의미하지 않는다.
+3개 운영체제 Plugin artifact E2E 및 고정 workspace 응답 비교로 확인됐다. W2-C Plugin eval과 Wave 3 검증은
+아직 완료되지 않았으며 이 체크는 M1 종료를 의미하지 않는다.
 
 ### Wave 2 — 통합과 UX (2 lane 병렬 + 1 직렬)
 
@@ -213,14 +213,23 @@ Wave 3 검증은 아직 완료되지 않았으며 이 체크는 M1 종료를 의
 
 W2-A는 CLI만, W2-B는 Extension만 수정하므로 병렬 가능하다.
 
+두 lane 모두 merge됐다. W2-A는 PR [#46](https://github.com/moelee835/Impact-Lens/pull/46) merge commit
+`06adbac`이고 구현 기록은 [`task-m1-provider-readiness.md`](task-m1-provider-readiness.md)에 있다. 이제
+선언된 readiness 신호를 가진 provider에서 `coverage.indexing.status`가 `ready`/`working`/`unknown`으로
+실측되고, 동적으로 Call Hierarchy를 등록하는 server도 동작한다. **다만 shipped catalog의 어떤 preset도
+readiness를 선언하지 않으므로 실사용자 응답은 아직 `unknown`이다.** 기능은 동작하지만 켜져 있지 않다.
+
 | lane | 에이전트 | branch | story 단계 | 내용 |
 | --- | --- | --- | --- | --- |
 | W2-C | `il-plugin-docs` | `docs/m1-plugin-auto-contract` | `IL-LIM-009` 4단계 | skill·slash command·`cli-contract.md`를 Auto/preset 계약으로 갱신, 고정 summary template과 금지 문구, `complete: true` 단독으로 "영향 없음" 결론을 내면 **실패시키는 eval** 추가 |
 
-W2-C는 W1-B와 W2-A의 사용자 노출 문구가 고정된 뒤 착수한다.
+W2-C는 W1-B와 W2-A의 사용자 노출 문구가 고정된 뒤 착수한다. 그 선행 조건은 충족됐으므로 W2-C가 지금
+정확한 다음 lane이다. 고정된 어휘는 `indexing.status`의 `ready`/`working`/`unknown` 세 값, ready에 딸리는
+`{signal, detail?}` evidence, 그리고 `provider_not_ready`가 partial 응답의 limitation과 실패 envelope의
+error code로 동시에 쓰인다는 사실이다.
 
 **Wave 2 종료 gate**
-- [ ] delayed-index mock에서 premature empty를 성공으로 확정하지 않는다.
+- [x] delayed-index mock에서 premature empty를 성공으로 확정하지 않는다.
 - [ ] Extension에서 empty와 incomplete가 문구만으로 구분된다.
 - [ ] Codex와 Claude Code 대표 prompt가 동일한 completeness 경계를 전달한다.
 - [ ] `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다.
