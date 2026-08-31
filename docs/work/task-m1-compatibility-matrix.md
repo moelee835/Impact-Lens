@@ -93,6 +93,25 @@ milestone 종료 gate 문서는 다음 3개 항목을 명시적으로 요구한�
 | partial (depth/node 제한) | `completion.test.ts` S4~S11 (내부 함수 `analyzeImpact`) / `coverage.test.ts` 동명 행 (projection 함수 `projectCompletion`) / `stateReachability.integration.test.ts`의 `bundledTypeScriptRows()` - depth-limit, node-limit, both-limits를 **in-process**(`analyzeImpact` 직접 호출)로 증명 | **CLI 진입점(subprocess 경계)에서는 증명한 test가 없음 - 채움.** `cli/src/test/providerMatrix.test.ts`에 depth-limited 케이스 추가(bundled만; custom은 아래 이유로 생략). |
 | custom(raw command) provider end-to-end | `providers.test.ts` "a raw custom command outranks every other tier"는 **선택 우선순위만** 덮는다. 그러나 실제로는 `contract.test.ts`(capability-missing, initialize/query 실패 다수)와 `requestOverrides.test.ts`("the CLI sends request initialization options and settings to the selected provider", "request-level secrets are redacted from provider failures")가 이미 raw custom command를 **CLI 진입점에서 광범위하게** 실행한다 | **원래 감사 표의 "미확인" 판정은 틀렸다 - 이미 상당 부분 덮여 있었다.** 다만 이 test들은 모두 M1 이후 필드(override)를 함께 보내거나 실패 경로만 다뤄서, "M1 이전 형태 요청이 성공까지 도달하는가"는 별도로 비어 있었다(아래 하위 호환 절 참고). |
 | stdout 1줄 불변식 | `doctor.test.ts` "doctor writes exactly one JSON line to stdout and its progress to stderr" / `contract.test.ts`, `requestOverrides.test.ts`의 여러 test가 `stdout.trimEnd().split('\n').length === 1`을 반복 확인 | **덮임. 새 test 없음.** 이번에 추가한 test들도 동일한 불변식을 각자 확인한다(관례를 따름). |
+| TypeScript reference preset이 기존 bundled 동작·결과와 호환성을 유지한다 (`IL-LIM-005` AC4: "기존 TypeScript 기본 provider 계약과 결과가 유지된다") | `providers.test.ts` "the TypeScript reference preset produces the command the bundled path produced before" / `providers.test.ts` "the reference preset claims nothing it cannot prove" / bundled provider로 실제 성공까지 도달하는 CLI 진입점 test 다수(`schema.test.ts`의 `analyzeInFixtureWorkspace()`, `contract.test.ts`의 bundled doctor smoke test 2개, `cli/src/test/providerMatrix.test.ts`의 새 bundled test 2개) / `stateReachability.integration.test.ts`의 `bundledTypeScriptRows()`(실제 tsserver 대상 5개 시나리오, in-process) | **덮임. 새 test 없음.** 아래 상세 참고. |
+
+**TypeScript reference preset 호환성 상세**: `providers.test.ts:268`("the TypeScript reference preset
+produces the command the bundled path produced before")를 직접 읽었다. 이 test는 catalog 기반
+`resolveProvider('src/a.ts', ...)`가 만드는 실행 명령(`process.execPath`, `.../lib/cli.mjs`, `--stdio`,
+그리고 `IMPACT_LENS_PROVIDER_LOG_LEVEL` opt-in까지)이 preset catalog 도입 **이전**에 하드코딩돼 있던
+bundled 경로가 만들던 명령과 바이트 단위로 동일함을 이름 그대로 증명한다 - "결과가 유지된다"는 문구를
+가장 직접적으로 뒷받침하는 test다: 같은 실행 파일을 같은 인자로 띄우면 그 뒤에 이어지는 LSP handshake와
+Call Hierarchy 응답도 이전과 같을 수밖에 없다. `providers.test.ts:281`("the reference preset claims
+nothing it cannot prove")은 이를 설정 측면에서 보강한다 - preset이 `initializationOptions`/`settings`/
+`readiness`를 하나도 선언하지 않으므로 `resolveProvider`가 만드는 초기화 옵션은 여전히 빈 객체이고,
+이는 story의 "현재 기준선"이 기록한 M1 이전 동작("CLI initialize 요청은 `initializationOptions: {}`로
+고정")과 정확히 같다. 이 두 test는 **command 구성이 M1 이전과 동일함(직접 대조)**을 증명하고, 나머지 인용된
+test들은 **그 동일한 command가 실제로 CLI 진입점에서 끝까지 성공해 올바른 Call Hierarchy 결과를 낸다**는
+것을 증명한다 - 두 절반을 합치면 "계약과 결과가 유지된다"는 gate 문구 전체가 재현 가능한 test로 뒷받침된다.
+바이트 단위로 "M1 이전 커밋이 낸 실제 출력"과 diff하는 test는 없다(그 커밋의 코드가 이미 이번 milestone에서
+대체됐으므로 비교 대상 자체가 남아 있지 않다) - 그러나 "같은 명령으로 같은 서버를 띄우면 같은 결과가
+나온다"는 인과관계가 성립하는 한, command-level 동일성 증명이 이 gate가 요구하는 것보다 더 강한 보장이라고
+판단했다. 새 test를 추가하지 않았다.
 
 **timeout/budget 상세**: `providers/resolve.ts` 및 `index.ts`를 직접 읽고, `providerPreset`/`provider`
 필드가 어떻게 provider를 구성하는지 추적했다. `resolution.catalog`를 주입하는 유일한 경로는
@@ -289,6 +308,16 @@ CI는 이미 새 test 파일을 자동으로 포함한다**. 계획 문서 작�
   - `buildInvocation.sources.test.ts`는 텍스트 스캔이다: `require('child_process')`처럼 `import`가
     아닌 경로로 spawn 함수를 가져오는 경우는 감지하지 못한다. 이 코드베이스는 프로덕션 소스 전체에서
     ES `import`만 사용하므로(직접 확인) 현재는 이론적 위험이다.
+- **조정 세션 정밀화 (2차)**: 조정 세션이 R1 범위를 세 가지로 좁혔다. (a) 하위 호환 gap이 좁다는 것과
+  (b) build/configure/sync spawn 지점이 정확히 4곳이고 "막을 수 없는 예외"가 없다는 것은 직접
+  재확인한 결과 이미 구현·문서가 정확히 그 범위였다(코드 변경 없음 - `contract.test.ts`의 old-style
+  test는 정확히 1개만 추가했고, 8개 기존 old-style test 개수도 직접 세어 일치를 재확인했다). (c)
+  "TypeScript reference preset이 기존 bundled 동작·결과와 호환성을 유지한다"(`IL-LIM-005` 수용 기준 4번째
+  항목의 정확한 문구: "기존 TypeScript 기본 provider 계약과 결과가 유지된다")는 원래 6행이던 "capability /
+  timeout / indexing unknown / partial" 표에 없던 축이어서 7번째 행으로 추가했다(위 표와 상세 참고).
+  `providers.test.ts`의 두 test(268행, 281행)를 직접 읽고 이미 이 gate를 command 구성 수준에서
+  직접적으로 증명하고 있음을 확인했으며, bundled provider로 실제 성공까지 도달하는 기존 CLI 진입점
+  test들이 이를 결과 수준에서 보강함을 확인했다. **코드 변경 없음 - 감사 표만 갱신.**
 
 ## 테스트 및 완료 기준
 
@@ -305,7 +334,8 @@ CI는 이미 새 test 파일을 자동으로 포함한다**. 계획 문서 작�
 ### 완료 기준 대비 결과
 
 - [x] 감사 표가 작업 문서에 있고, 새로 추가한 test는 감사에서 미충족으로 판정된 축만 덮는다. (위 "커버리지
-  감사" 절)
+  감사" 절) - `IL-LIM-005` AC4("기존 TypeScript 기본 provider 계약과 결과가 유지된다")도 조정 세션의
+  지적을 받아 7번째 행으로 추가했고, 이미 덮여 있다고 판단해 새 test는 쓰지 않았다.
 - [x] fallback 금지 / 하위 호환 / build 미실행 3개 gate 문구가 각각 test 이름으로 추적 가능하다:
   - fallback 금지: `providers.test.ts`의 5개 test + `contract.test.ts`의 2개 test + packed 아티팩트
     E2E의 assert (신규 test 없음, 기존 근거로 추적 가능)
