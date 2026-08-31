@@ -127,16 +127,21 @@ impact-lens note list --workspace /path/to/project
 
 두 번째 명령은 stdout에 `schemaVersion`, `operation`, `ok`, `data`를 포함한 compact JSON 한 줄을 출력해야 합니다.
 
-기본 TypeScript/JavaScript provider까지 점검합니다.
+기본 TypeScript/JavaScript provider까지 점검합니다. `doctor`는 `bundled-typescript`뿐 아니라 provider
+catalog의 어떤 preset id도 받는 일반 명령이지만, 오늘 shipped catalog에는 `bundled-typescript` 하나만
+있습니다.
 
 ```sh
 impact-lens doctor bundled-typescript
 impact-lens doctor bundled-typescript --smoke
 ```
 
-첫 명령은 Node·CLI·provider package/version과 entry 접근을 빠르게 확인합니다. `--smoke`는 실제 Language
-Server를 시작해 initialize와 Call Hierarchy capability까지 확인하므로 설치 검증이나 장애 진단 때만
-실행합니다. 일반 분석마다 별도 설정하거나 실행할 필요는 없습니다.
+기본(`preflight`) 실행은 Node 엔진, CLI package, provider package/version, entry 접근, 언어 일치,
+`.impact-lens/provider.json` 유효성을 check 단위로 빠르게 확인합니다. `--smoke`는 실제 Language Server를
+시작해 initialize와 Call Hierarchy capability까지 추가로 확인하므로 설치 검증이나 장애 진단 때만
+실행합니다. 일반 분석마다 별도 설정하거나 실행할 필요는 없습니다. 각 check는 `pass`/`warn`/`fail`을
+독립적으로 보고하며 하나가 실패해도 나머지 check를 계속 실행합니다. `doctor`는 catalog에 등록된 preset만
+진단할 수 있고, 요청의 raw `provider`처럼 preset이 아닌 custom provider는 점검할 방법이 없습니다.
 
 기본 분석 예시:
 
@@ -402,20 +407,34 @@ registry URL, credential과 argv는 진단 JSON에 포함되지 않습니다. st
 
 ### Extension에서 caller가 나타나지 않음
 
-대상 언어 확장의 Call Hierarchy 지원 여부를 확인합니다. Impact Lens는 provider가 반환하지 않은 reflection, runtime dependency injection, decorator route 및 동적 호출을 추정하지 않습니다.
+대상 언어 확장의 Call Hierarchy 지원 여부를 확인합니다. Impact Lens는 provider가 반환하지 않은 reflection, runtime dependency injection, decorator route 및 동적 호출을 추정하지 않습니다. `Impact Lens: Run Provider
+Doctor` 명령을 실행하면 호스트가 관측한 사실(Call Hierarchy root를 찾았는지, document symbol이 있는지)을
+Output 채널에서 확인할 수 있습니다. VS Code 공개 API는 "이 언어에 Call Hierarchy provider가 없음"과 "그
+위치에 분석할 symbol이 없음"을 구분해서 알려주지 않으므로, Impact Lens도 이 두 원인을 하나의 안내로
+병합해서 보여줍니다.
 
 ### CLI에서 provider 오류
 
-기본 provider는 TypeScript/JavaScript용이며 다른 파일 형식으로 자동 fallback하지 않습니다.
+CLI는 provider를 고정된 순서로 선택합니다: 요청의 raw `provider` > 요청의 `providerPreset` > 워크스페이스의
+`.impact-lens/provider.json` > 검증된 auto-discovery. 이 중 먼저 조건을 만족하는 하나만 쓰이고, 그중
+어디에도 해당하지 않으면 다른 언어의 provider로 자동 fallback하지 않습니다.
+
 `provider_required_for_language`이면 해당 언어의 표준 LSP Call Hierarchy server command, argument와
 `languageId`를 CLI request에 명시합니다. `provider_language_mismatch`이면 파일과 `languageId`를 맞춥니다.
-`provider_launch_failed`, `provider_initialize_failed`, `provider_capability_missing`,
-`provider_query_failed`는 각각 process 실행, initialize, Call Hierarchy capability와 실제 query 단계를
-가리킵니다. `error.details`의 stage, exit code/signal과 redacted stderr를 확인합니다. server별
-initialization option이 필요한 경우 현재 generic adapter로 동작하지 않을 수 있습니다.
+`provider_selection_ambiguous`는 검증된 provider 후보가 둘 이상이라 `providerPreset`으로 하나를 직접
+지정해야 한다는 뜻입니다. `provider_config_invalid`는 `.impact-lens/provider.json`이 허용 필드
+(`presetId`, `command`, `args`, `languageId`, `initializationOptions`, `settings`) 밖의 값을 담고 있거나
+JSON으로 파싱되지 않는다는 뜻이므로, 요청이 아니라 그 파일을 고칩니다. `provider_launch_failed`,
+`provider_initialize_failed`, `provider_capability_missing`, `provider_query_failed`는 각각 process 실행,
+initialize, Call Hierarchy capability와 실제 query 단계를 가리킵니다. `error.details`의 stage, exit
+code/signal과 redacted stderr를 확인합니다. server별 initialization option이 필요한 경우 현재 generic
+adapter로 동작하지 않을 수 있습니다.
 
-Bundled TypeScript/JavaScript 오류라면 위 doctor 절차를 먼저 사용합니다. Python/C/C++/Swift/Kotlin 등은
-아직 자동 preset이 없으므로 `provider_required_for_language`가 provider artifact 손상을 뜻하지 않습니다.
+Bundled TypeScript/JavaScript 오류라면 위 doctor 절차를 먼저 사용합니다. `doctor <preset>`은 catalog에
+등록된 preset만 진단하므로, `provider` 필드로 직접 지정한 custom provider는 doctor로 점검할 수 없고 위
+`error.details`를 직접 읽어야 합니다. Python/C/C++/Swift/Kotlin 등은 **아직 검증된 preset이 없어서** 오늘은
+항상 provider를 직접 지정해야 하는 상태입니다 — 이는 곧 지원 예정이라는 뜻이 아니라,
+`provider_required_for_language`가 provider artifact 손상을 뜻하지 않는다는 뜻입니다.
 
 ### `provider_ipc_unavailable`: 샌드박스 안에서 분석이 동작하지 않음
 
