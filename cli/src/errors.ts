@@ -45,6 +45,12 @@ export const CLI_ERROR_CODES = [
   'provider_initialize_failed',
   'provider_capability_missing',
   'provider_query_failed',
+  // Produced by `cli/src/providers/readiness.ts` before the first query is sent. `provider_not_ready` is
+  // raised only when the preset's `onBudgetExceeded` is `fail`; the `proceed-partial` policy writes the
+  // same name as a `coverage.reasons` entry on a partial success instead, which is why the parity test
+  // below matches the `new CliError(` construction rather than the bare string.
+  'provider_not_ready',
+  'provider_project_metadata_missing',
   // Produced by `cli/src/jsonRpc.ts:JsonRpcClient.stageFailure` when a stage fails after this client
   // refused a server -> client request it does not implement. It replaces the stage's own code so the
   // envelope names the cause instead of the symptom.
@@ -82,9 +88,10 @@ export type CliErrorCode = (typeof CLI_ERROR_CODES)[number];
  * a partial success and an error code on a failure, and `cli/src/coverage.ts` writes the reason today.
  *
  * `provider_executable_not_found`, `provider_selection_ambiguous` and `provider_config_invalid` were on this
- * list until the preset catalog landed, and `provider_protocol_incompatible` until the bidirectional LSP
- * session did. Each moved into `CLI_ERROR_CODES` in the change that started throwing it, which is exactly
- * the move this pair of lists exists to force.
+ * list until the preset catalog landed, `provider_protocol_incompatible` until the bidirectional LSP
+ * session did, and `provider_not_ready` and `provider_project_metadata_missing` until readiness
+ * measurement started gating the first query. Each moved into `CLI_ERROR_CODES` in the change that
+ * started throwing it, which is exactly the move this pair of lists exists to force.
  *
  * `provider_version_unsupported`, `provider_version_unreadable`, `provider_capability_probe_failed` and
  * `provider_fixture_failed` are still here even though `cli/src/doctor/` mentions all four. Doctor puts them
@@ -95,8 +102,6 @@ export const CONTRACT_ONLY_ERROR_CODES = [
   'provider_version_unsupported',
   'provider_version_unreadable',
   'provider_capability_probe_failed',
-  'provider_not_ready',
-  'provider_project_metadata_missing',
   'provider_fixture_failed',
   'request_cancelled',
 ] as const;

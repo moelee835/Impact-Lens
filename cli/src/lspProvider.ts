@@ -5,12 +5,16 @@ import { JsonRpcClient, redactProviderText } from './jsonRpc';
 import { JsonObject } from './lsp/configuration';
 import { CapabilityRegistration, createServerRequestHandlers } from './lsp/serverRequests';
 import { mergeSessionValues, ProviderSessionConfig, SettingsDelivery } from './lsp/session';
+import { ProviderReadinessProfile } from './providers/preset';
+import { assertProjectMetadata, ReadinessTracker, UNKNOWN_INDEXING } from './providers/readiness';
 import { languageId, ProviderResolutionOptions, resolveProvider } from './providers/resolve';
 import {
+  AnalysisObservations,
   CallHierarchyItem,
   CallHierarchyProvider,
   CliError,
   IncomingCall,
+  IndexingCoverage,
   LspPosition,
   ProviderCapabilities,
   ProviderCommand,
@@ -36,6 +40,19 @@ interface ProgressState {
 // Upper bound for the diagnostics wait, capped further by the session timeout. It is not a judgement
 // that the provider is done; it is how long we are willing to wait for a server that never publishes.
 const DIAGNOSTICS_BUDGET_MS = 2000;
+
+/** The LSP method a dynamic Call Hierarchy registration names. */
+const CALL_HIERARCHY_METHOD = 'textDocument/callHierarchy';
+
+/**
+ * How long a server that advertised no static Call Hierarchy gets to register one dynamically.
+ *
+ * The spec allows a registration only after `initialized`, so a client that decided on the static
+ * capability alone would reject a server that does support Call Hierarchy. The wait ends on the
+ * registration itself and this bound only covers servers that will never send one, which is why it is
+ * short: for them it is pure added latency before an error that was always going to be raised.
+ */
+const DYNAMIC_REGISTRATION_BUDGET_MS = 250;
 
 interface PublishDiagnostics {
   readonly uri?: string;
@@ -77,8 +94,14 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
   private readonly initializationOptions: JsonObject;
   private readonly settingsDelivery: readonly SettingsDelivery[];
   private readonly redactionValues: readonly string[];
-  /** Dynamic registrations the server announced. Wave 2 merges these into observed capabilities. */
+  /** Dynamic registrations the server announced, merged into the observed capabilities below. */
   private readonly registrations = new Map<string, CapabilityRegistration>();
+  /** What `initialize` advertised statically, kept so an unregister can fall back to it. */
+  private staticCallHierarchy = false;
+  private readonly registrationWaiters = new Set<() => void>();
+  /** Absent means this provider claims nothing about its index, and the answer stays `unknown`. */
+  private readonly readiness: ProviderReadinessProfile | undefined;
+  private readonly readinessTracker: ReadinessTracker | undefined;
   /** Progress tokens the server asked us to create. A token is not evidence that indexing finished. */
   private readonly progressTokens = new Set<string>();
   private readonly progress = new Map<string, ProgressState>();
@@ -108,6 +131,11 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     this.settingsDelivery = resolvedSession.settingsDelivery;
     this.redactionValues = resolvedSession.redactionValues;
     this.timeoutMs = timeoutMs;
+    // Readiness comes off the resolved provider, not off `mergeSessionValues`: a direct session config
+    // is a test and doctor escape hatch for wire values, and letting it invent a readiness claim would
+    // let a caller assert an index state no preset ever declared.
+    this.readiness = resolved.readiness;
+    this.readinessTracker = resolved.readiness ? new ReadinessTracker(resolved.readiness) : undefined;
     this._capabilities = {
       ...this._capabilities,
       requestedLanguageId: resolved.requestedLanguageId,
@@ -128,12 +156,15 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
       onRegisterCapability: entries => {
         for (const entry of entries) {
           this.registrations.set(`${entry.id}:${entry.method}`, entry);
+          this.readinessTracker?.noteCapabilityRegistered(entry.method);
         }
+        this.syncCallHierarchyCapability();
       },
       onUnregisterCapability: entries => {
         for (const entry of entries) {
           this.registrations.delete(`${entry.id}:${entry.method}`);
         }
+        this.syncCallHierarchyCapability();
       },
       onWorkDoneProgressCreate: token => {
         this.progressTokens.add(String(token));
@@ -162,6 +193,47 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
       }
     });
     this.client.onNotification('$/progress', params => this.recordProgress(params));
+    // Subscribed per declared method rather than through a catch-all, so a server notification this
+    // preset never named cannot reach the readiness tracker at all.
+    for (const method of new Set(
+      (resolved.readiness?.signals ?? [])
+        .flatMap(signal => (signal.kind === 'notification' ? [signal.method] : [])),
+    )) {
+      this.client.onNotification(method, params => this.readinessTracker?.noteNotification(method, params));
+    }
+  }
+
+  /**
+   * Recomputes Call Hierarchy support from the static capability and the live registration map.
+   *
+   * The two are one state, not two: a server may advertise it in `initialize`, register it after
+   * `initialized`, or both, and a client that reads only the static half rejects the second kind. An
+   * unregister falls back to the static answer rather than to `false`, because withdrawing a dynamic
+   * registration does not withdraw a capability the server also advertised statically.
+   */
+  private syncCallHierarchyCapability(): void {
+    const callHierarchy = this.staticCallHierarchy || this.hasCallHierarchyRegistration();
+    if (this._capabilities.callHierarchy !== callHierarchy) {
+      this._capabilities = {
+        ...this._capabilities,
+        callHierarchy,
+        advertised: { ...this._capabilities.advertised, callHierarchy },
+      };
+    }
+    if (callHierarchy) {
+      for (const waiter of [...this.registrationWaiters]) {
+        waiter();
+      }
+    }
+  }
+
+  private hasCallHierarchyRegistration(): boolean {
+    for (const entry of this.registrations.values()) {
+      if (entry.method === CALL_HIERARCHY_METHOD) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -169,8 +241,9 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
    *
    * An `end` means the operation behind that token finished. Whether that operation was indexing the
    * workspace or checking one file is known only to the server that created the token, so this is
-   * recorded as an observation and never promoted to "the provider is ready". Turning it into a
-   * readiness signal needs a preset that declares which token means what, which is Wave 2.
+   * recorded as an observation and never promoted to "the provider is ready" on its own. It reaches
+   * the readiness tracker only when a preset declared which title means what, and the tracker drops it
+   * again unless the declared pattern matches.
    */
   private recordProgress(params: unknown): void {
     const value = params as { readonly token?: unknown; readonly value?: Record<string, unknown> } | undefined;
@@ -183,15 +256,32 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
       return;
     }
     const previous = this.progress.get(token);
+    const title = kind === 'begin' && typeof value.value.title === 'string' ? value.value.title : previous?.title;
     this.progress.set(token, {
       kind,
-      title: kind === 'begin' && typeof value.value.title === 'string' ? value.value.title : previous?.title,
+      title,
       serverCreated: this.progressTokens.has(token),
     });
+    this.readinessTracker?.noteProgress(token, kind, title);
   }
 
   get capabilities(): ProviderCapabilities {
     return this._capabilities;
+  }
+
+  /**
+   * What this session observed that the traversal cannot see for itself.
+   *
+   * Optional on `CallHierarchyProvider` so every other implementation keeps today's conservative
+   * defaults without a change. A provider that declares no readiness profile answers `unknown` here,
+   * which is byte-for-byte the response the analyze path already produced.
+   */
+  analysisObservations(): AnalysisObservations {
+    return { indexing: this.indexing() };
+  }
+
+  private indexing(): IndexingCoverage {
+    return this.readinessTracker?.observation ?? UNKNOWN_INDEXING;
   }
 
   async prepare(file: string, position: LspPosition): Promise<readonly CallHierarchyItem[]> {
@@ -332,11 +422,11 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
         workspaceFolders: [{ uri: pathToFileURL(this.workspace).toString(), name: path.basename(this.workspace) }],
         capabilities: {
           textDocument: {
-            // Left off in Wave 1. Turning it on lets a server advertise Call Hierarchy through a
-            // dynamic registration instead of the static capability, and the check below reads only
-            // the static one — so the run would fail as `provider_capability_missing` against a
-            // server that does support it. It goes on once static and dynamic are merged.
-            callHierarchy: { dynamicRegistration: false },
+            // On now that `syncCallHierarchyCapability()` merges the static capability with the live
+            // registration map. Declaring it while reading only the static half was the trap this
+            // replaced: a server that registers Call Hierarchy after `initialized` would have been
+            // rejected as `provider_capability_missing` even though it does support it.
+            callHierarchy: { dynamicRegistration: true },
             publishDiagnostics: { relatedInformation: true },
           },
           workspace: {
@@ -363,32 +453,22 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
         { stage: 'initialize' },
       ), 'initialize');
     }
-    const callHierarchy = Boolean(result.capabilities?.callHierarchyProvider);
+    this.staticCallHierarchy = Boolean(result.capabilities?.callHierarchyProvider);
     this._capabilities = {
       ...this._capabilities,
       name: result.serverInfo?.name ?? 'language-server',
       version: result.serverInfo?.version,
-      callHierarchy,
+      callHierarchy: this.staticCallHierarchy,
       diagnostics: true,
       advertised: {
-        callHierarchy,
+        callHierarchy: this.staticCallHierarchy,
         diagnostics: result.capabilities?.diagnosticProvider ? true : 'unknown',
       },
-      lifecycle: { stage: 'capability', status: callHierarchy ? 'ready' : 'failed' },
+      lifecycle: { stage: 'capability', status: this.staticCallHierarchy ? 'ready' : 'working' },
     };
-    if (!callHierarchy) {
-      throw new CliError(
-        'provider_capability_missing',
-        'The configured Language Server does not provide Call Hierarchy.',
-        5,
-        false,
-        {
-          stage: 'capability',
-          provider: this._capabilities.name,
-          advertised: this._capabilities.advertised,
-        },
-      );
-    }
+    // `initialized` now precedes the capability verdict, because a dynamic registration is only legal
+    // after it. For a server that advertised Call Hierarchy statically the frames are unchanged; for
+    // one that did not, this is the only order in which it can still answer.
     try {
       this.client.notify('initialized', {});
       this.pushSettings();
@@ -404,8 +484,66 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
         { stage: 'initialize' },
       );
     }
+    if (!this.staticCallHierarchy) {
+      await this.awaitCallHierarchyRegistration();
+    }
+    this.syncCallHierarchyCapability();
+    const callHierarchy = this._capabilities.callHierarchy;
+    this.lifecycle('capability', callHierarchy ? 'ready' : 'failed');
+    if (!callHierarchy) {
+      throw new CliError(
+        'provider_capability_missing',
+        'The configured Language Server does not provide Call Hierarchy.',
+        5,
+        false,
+        {
+          stage: 'capability',
+          provider: this._capabilities.name,
+          advertised: this._capabilities.advertised,
+        },
+      );
+    }
     this.initialized = true;
-    this.lifecycle('indexing', 'unknown');
+    await this.awaitReadiness();
+  }
+
+  /** Ends on the registration, not on the clock; the bound only covers servers that never send one. */
+  private async awaitCallHierarchyRegistration(): Promise<void> {
+    if (this.hasCallHierarchyRegistration()) {
+      return;
+    }
+    const budgetMs = Math.min(this.timeoutMs, DYNAMIC_REGISTRATION_BUDGET_MS);
+    await new Promise<void>(resolve => {
+      const finish = (): void => {
+        clearTimeout(timer);
+        this.registrationWaiters.delete(waiter);
+        resolve();
+      };
+      const waiter = (): void => finish();
+      const timer = setTimeout(finish, budgetMs);
+      this.registrationWaiters.add(waiter);
+    });
+  }
+
+  /**
+   * Decides the index state before the first query, and only from what the preset declared.
+   *
+   * A provider with no readiness profile is left exactly where it was: lifecycle `indexing/unknown`,
+   * no waiting, no extra frames, `coverage.indexing.status: unknown`. That is not a gap to fill later
+   * — it is the honest answer for a server that makes no claim about its index, and the bundled
+   * TypeScript path depends on it staying byte-identical.
+   */
+  private async awaitReadiness(): Promise<void> {
+    if (!this.readiness || !this.readinessTracker) {
+      this.lifecycle('indexing', 'unknown');
+      return;
+    }
+    this.lifecycle('indexing', 'working');
+    // Read-only, and before the wait: waiting out a budget for a server that cannot index this
+    // workspace at all only delays naming the real problem.
+    await assertProjectMetadata(this.workspace, this.readiness);
+    const indexing = await this.readinessTracker.settle(this.timeoutMs);
+    this.lifecycle('indexing', indexing.status === 'ready' ? 'ready' : 'working');
   }
 
   /**

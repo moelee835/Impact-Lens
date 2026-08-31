@@ -31,9 +31,10 @@ export async function analyzeImpact(
   provider: CallHierarchyProvider,
   noteResolver?: (item: CallHierarchyItem) => Promise<unknown>,
   // Facts the traversal cannot observe itself: why it stopped early, what the provider's index was doing,
-  // and whether anything but the static call hierarchy contributed edges. Nothing supplies them yet, and
-  // omitting them reproduces today's response exactly. The lanes that will supply them are named on
-  // `AnalysisObservations`.
+  // and whether anything but the static call hierarchy contributed edges. What the caller passes here wins
+  // over what the provider reports, because an explicit argument is a deliberate statement by a test or an
+  // enclosing lane, while the provider's own answer is a default. Omitting both reproduces today's response
+  // exactly.
   observations: AnalysisObservations = {},
 ): Promise<Record<string, unknown>> {
   const started = Date.now();
@@ -42,6 +43,8 @@ export async function analyzeImpact(
   validatePosition(request.line, request.column);
   const requestedDepth = integerInRange(request.depth ?? 5, 1, 20, 'depth');
   const maxNodes = integerInRange(request.maxNodes ?? 120, 1, 1000, 'maxNodes');
+  // Read after `prepare`, which is what forces the handshake and therefore the readiness decision. Reading
+  // it earlier would sample the index state before the session had one, and always report `unknown`.
   const items = await provider.prepare(file, { line: request.line - 1, character: request.column - 1 });
   const root = selectRoot(items, request.expectedSymbol);
   const traversal = await traverse(root, provider, requestedDepth, maxNodes);
@@ -95,7 +98,7 @@ export async function analyzeImpact(
     // The traversal seeds `entries` with the root, so this is 0 exactly when the provider returned no caller.
     incomingCallerCount: traversal.entries.length - 1,
     diagnosticsSupported: provider.capabilities.diagnostics,
-  }, observations);
+  }, { ...provider.analysisObservations?.(), ...observations });
   return {
     rootId: symbolId(root),
     nodes,

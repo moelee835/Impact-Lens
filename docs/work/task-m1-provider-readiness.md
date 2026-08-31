@@ -168,25 +168,26 @@ mock fixture와 unit/integration/contract test, 작업 로그와 완료 근거.
 
 ## 테스트 및 완료 기준
 
-- [ ] readiness 미선언 provider는 indexing unknown과 기존 handshake를 유지한다.
-- [ ] static 또는 dynamic Call Hierarchy capability가 하나의 advertised/capability 상태로 합쳐진다.
-- [ ] 미선언 progress/capability/notification은 ready로 승격되지 않는다.
-- [ ] 선언된 work-done progress end, notification match와 capability registration이 ready evidence를 만든다.
-- [ ] ready evidence에는 절대 시각이나 server-authored 원문이 없다.
-- [ ] proceed-partial budget 초과 결과는 partial/working이고 `provider_not_ready` limitation을 갖는다.
-- [ ] proceed-partial empty에는 `no_incoming_callers`와 `index_state_unknown`이 붙지 않는다.
-- [ ] fail budget 초과는 query 전에 `provider_not_ready`, stage `indexing`으로 실패한다.
-- [ ] required project file 부재는 생성/build 없이 `provider_project_metadata_missing`으로 실패한다.
-- [ ] workspace 밖 required path는 읽지 않는다.
-- [ ] `npm run cli:build` 통과
-- [ ] targeted readiness/LSP/completion/error test 통과
-- [ ] `npm run cli:test` 통과
-- [ ] `npm test` 통과
-- [ ] `npm run test:plugin-artifact` 통과
-- [ ] readiness 미선언 29개 시나리오가 변경 전후 byte 동일하다.
-- [ ] 변경된 Markdown link 대상이 모두 존재한다.
-- [ ] `git diff --check`가 통과한다.
-- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
+- [x] readiness 미선언 provider는 indexing unknown과 기존 응답을 유지한다. handshake는 아래 한 필드만
+      의도적으로 달라진다.
+- [x] static 또는 dynamic Call Hierarchy capability가 하나의 advertised/capability 상태로 합쳐진다.
+- [x] 미선언 progress/capability/notification은 ready로 승격되지 않는다.
+- [x] 선언된 work-done progress end, notification match와 capability registration이 ready evidence를 만든다.
+- [x] ready evidence에는 절대 시각이나 server-authored 원문이 없다.
+- [x] proceed-partial budget 초과 결과는 partial/working이고 `provider_not_ready` limitation을 갖는다.
+- [x] proceed-partial empty에는 `no_incoming_callers`와 `index_state_unknown`이 붙지 않는다.
+- [x] fail budget 초과는 query 전에 `provider_not_ready`, stage `indexing`으로 실패한다.
+- [x] required project file 부재는 생성/build 없이 `provider_project_metadata_missing`으로 실패한다.
+- [x] workspace 밖 required path는 읽지 않는다.
+- [x] `npm run cli:build` 통과
+- [x] targeted readiness/LSP/completion/error test 통과
+- [x] `npm run cli:test` 통과 (250 pass / 0 fail)
+- [x] `npm test` 통과 (58 pass / 0 fail)
+- [x] `npm run test:plugin-artifact` 통과
+- [x] readiness 미선언 29개 시나리오가 변경 전후 byte 동일하다.
+- [x] 변경된 Markdown link 대상이 모두 존재한다.
+- [x] `git diff --check`가 통과한다.
+- [x] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
 
 ## 작업 로그
 
@@ -224,3 +225,85 @@ mock fixture와 unit/integration/contract test, 작업 로그와 완료 근거.
   분기했으며 열린 PR은 없다. 코드는 아직 한 줄도 바꾸지 않았고 이 단계의 산출물은 문서와 기준선뿐이다.
 - 남은 사용자 결과: readiness 실측은 아직 동작하지 않는다. 사용자는 여전히 준비 중 empty와 실제 empty를
   구분할 수 없다. 다음 순서는 2단계 구현이다.
+
+### 2026-08-31 — 2단계 readiness 실측 구현
+
+#### 사용자 결과
+
+Language Server가 자기 index 상태를 알려주는 provider에서, 사용자는 이제 세 가지를 구분할 수 있다.
+
+1. **준비 완료 후의 빈 결과** — `coverage.indexing.status: ready`와 evidence가 붙는다. "호출자가 없다"가
+   실제 답이라는 뜻이고, "index 상태를 모른다"는 경고가 사라진다.
+2. **준비 중의 빈 결과** — `partial` + `indexing.status: working` + `provider_not_ready` limitation이
+   붙는다. 이 응답은 `complete: false`이므로 agent가 "영향 없음"으로 결론지을 수 없다.
+3. **아예 시작할 수 없는 상태** — `provider_not_ready`(budget 초과, fail 정책) 또는
+   `provider_project_metadata_missing`(필수 project 파일 부재)으로 query 전에 실패한다. 빈 graph를
+   만들지 않으므로 빈 graph로 오해될 수 없다.
+
+추가로 `initialize`에서 Call Hierarchy를 정적으로 광고하지 않고 `initialized` 이후 동적으로 등록하는
+server가 이제 동작한다. 이전에는 그런 server가 `provider_capability_missing`으로 거절됐다. 이는
+IL-LIM-005가 목표로 하는 "사용자 지정 LSP 호환성 확장"의 실제 호환성 확대다.
+
+#### 구현
+
+| 파일 | 변경 |
+| --- | --- |
+| `cli/src/providers/readiness.ts` (신규) | `ReadinessTracker`와 `assertProjectMetadata`. 선언된 신호만 해석하고, ready 또는 budget으로 한 번만 확정한 뒤 동결한다. |
+| `cli/src/lspProvider.ts` | `dynamicRegistration: true` 선언, static/dynamic capability 병합(`syncCallHierarchyCapability`), readiness gate(`awaitReadiness`), `analysisObservations()` seam. |
+| `cli/src/types.ts` | `CallHierarchyProvider.analysisObservations?()` optional 추가. 기존 구현은 무변경으로 unknown을 유지한다. |
+| `cli/src/impact.ts` | provider 관측을 completion에 연결. 명시 `observations` 인자가 provider 값을 덮어쓴다. |
+| `cli/src/errors.ts` | `provider_not_ready`, `provider_project_metadata_missing`을 `CONTRACT_ONLY_ERROR_CODES`에서 `CLI_ERROR_CODES`(exit 5)로 이동. |
+| `cli/src/test/readiness.test.ts` (신규) | tracker와 metadata 검사 unit test 20건. |
+| `cli/src/test/readiness.integration.test.ts` (신규) | mock server 기반 통합 test 12건. `coverage`를 published schema에 직접 대조한다. |
+| `cli/src/test/fixtures/readinessServer.ts`, `dynamicCallHierarchyServer.ts` (신규) | readiness 신호와 동적 capability 등록을 재현하는 mock server. |
+
+#### 설계 결정과 계획 대비 차이
+
+- **계약이 강제한 code 이동**: 1단계에서 예상한 대로 `provider_not_ready`를 `new CliError(...)`에 넘기는
+  순간 `cli/src/test/errors.test.ts`가 build를 막았다. 두 code를 `CLI_ERROR_CODES`로 옮기고, 같은 test의
+  "아직 던지지 않는 code" 표본을 `provider_fixture_failed`로 교체했다. 이 마찰이 의도된 설계다.
+- **`initialized`가 capability 판정보다 앞선다**: dynamic registration은 spec상 `initialized` 이후에만
+  올 수 있다. 정적 capability가 있는 server의 frame 순서는 그대로이고, 없는 server만 `initialized`를
+  받은 뒤 250ms 안에 등록할 기회를 얻는다. 이 대기는 등록 이벤트로 끝나며 clock으로 끝나지 않는다.
+- **workspace escape는 `provider_config_invalid`로 실패시켰다**: 계획은 escape 방지만 요구했다. 실제
+  code는 preset manifest가 잘못 쓴 경우이므로 request 오류(`workspace_escape`, exit 2)가 아니라 provider
+  설정 오류(exit 5)로 분류했다. 해당 경로는 stat조차 하지 않는다.
+- **`means: 'working'` 신호를 실패 envelope에 노출했다**: 계획은 "상태를 기록한다"까지만 정했고 소비처가
+  없었다. 기록만 하고 보이지 않으면 죽은 필드가 되므로, fail 정책 실패의 `details.observedWorking`과
+  message로 드러냈다. "server가 계속 indexing 중이었다"(budget을 늘려야 한다)와 "server가 아무 말도 하지
+  않았다"(선언한 신호가 이 server에 맞지 않는다)는 사용자가 취할 조치가 다르다.
+- **readiness는 `resolved.readiness`에서만 온다**: `mergeSessionValues`의 direct session config는 test와
+  doctor용 wire 값 통로다. 여기로 readiness를 받으면 caller가 어떤 preset도 선언하지 않은 index 상태를
+  주장할 수 있게 되므로 연결하지 않았다.
+
+#### 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| `npm run cli:build` | 통과 |
+| `npm run cli:test` | 250 pass / 0 fail (기준선 218 + 신규 32) |
+| `npm test` | 58 pass / 0 fail |
+| `npm run test:plugin-artifact` | 통과 (clean install, Codex/Claude TS·TSX·JS·JSX fallback) |
+| 고정 workspace 29개 시나리오 | `c61dd86` worktree 캡처 대비 `diff -r` 무차이 |
+| bundled TypeScript LSP transcript | `c61dd86` 대비 동일: requestsSent 3, serverRequestsAnswered 1, protocolViolations 0, bytesFromServer 2998 |
+| `git diff --check` | 통과 |
+
+무변경 판정은 두 축으로 했다. 응답 축은 29개 시나리오 byte 동일성이고, wire 축은 동일 workspace에서
+`IMPACT_LENS_LSP_TRANSCRIPT=1` 결과가 같다는 것이다.
+
+#### 의도적으로 달라진 한 가지
+
+`initialize`의 client capability에서 `textDocument.callHierarchy.dynamicRegistration`이 `false`에서
+`true`로 바뀌었다. 이는 범위에 명시된 변경이며, 이것 없이는 동적 등록 server를 지원할 수 없다. bundled
+TypeScript server의 응답과 protocol counter는 위 표대로 동일하므로 관측 가능한 회귀는 없다.
+
+#### 남은 사용자 결과
+
+- 이 lane은 CLI만 바꿨다. **shipped catalog의 어떤 preset도 readiness profile을 선언하지 않는다.** 따라서
+  오늘 실제 사용자가 받는 응답은 여전히 `indexing.status: unknown`이다. readiness 실측은 "동작하는 기능"이
+  됐지만 "켜진 기능"은 아니며, 켜는 일은 W2/W3에서 검증된 외부 server preset을 catalog에 넣는 작업이다.
+- VS Code Extension은 `working` indexing 상태를 표시하지 않는다. W2-B가 partial 표현을 이미 넣었지만
+  readiness 문구는 W2-C에서 고정한다.
+- Plugin skill과 `cli-contract.md`는 아직 `indexing.status`의 세 값을 설명하지 않는다. agent가
+  `complete: true`만 보고 "영향 없음"으로 결론짓는 것을 막는 eval은 W2-C 범위다.
+- 실제 외부 Language Server(clangd, gopls, pyright 등) 대상 호환성 matrix와 M1 사용자 검증은 Wave 3이다.

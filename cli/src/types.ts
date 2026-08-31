@@ -246,6 +246,15 @@ export interface CallHierarchyProvider {
   incoming(item: CallHierarchyItem): Promise<readonly IncomingCall[]>;
   collectDiagnostics(uris: readonly string[]): Promise<readonly ProviderDiagnostic[]>;
   dispose(): Promise<void>;
+  /**
+   * What the session observed that the traversal cannot see, such as the state of the index.
+   *
+   * Optional so that a provider which observes nothing needs no change and keeps today's conservative
+   * defaults. An implementation must not answer a state it has no evidence for: omitting the method
+   * and returning `{ status: 'unknown' }` mean the same thing, and both are correct for a provider
+   * that never asked the question.
+   */
+  analysisObservations?(): AnalysisObservations;
 }
 
 export type ImpactRelation = 'root' | 'direct' | 'transitive' | 'test';
