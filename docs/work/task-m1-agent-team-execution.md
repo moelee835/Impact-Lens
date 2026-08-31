@@ -267,18 +267,21 @@ matrix는 **R1**이 채웠다.
 
 | lane | 실제 결과 |
 | --- | --- |
-| W3-A | R1(`test/m1-compatibility-matrix`, PR [#54](https://github.com/moelee835/Impact-Lens/pull/54))이 채움. 커버리지 감사 후 미충족 축만 새 test로 채웠고(하위 호환 회귀, build/configure/sync source scan, CLI 진입점 indexing-unknown/partial matrix), IL-LIM-005 AC4 축도 감사표에 추가했다. **2026-08-31 review에서 build/configure/sync guard의 정규식이 `exec`/`execFile`/`execSync`/`fork`와 namespace/default import를 놓친다는 결함이 발견돼 수정 중이며, merge 대기 상태다.** |
+| W3-A | R1(`test/m1-compatibility-matrix`, PR [#54](https://github.com/moelee835/Impact-Lens/pull/54))이 채움. 커버리지 감사 후 미충족 축만 새 test로 채웠고(하위 호환 회귀, build/configure/sync source scan, CLI 진입점 indexing-unknown/partial matrix), IL-LIM-005 AC4 축도 감사표에 추가했다. **2026-08-31: review에서 발견된 build/configure/sync guard의 정규식 결함(`exec`/`execFile`/`execSync`/`fork`, namespace/default import 누락)을 `c82e30b`로 수정하고 우회 패턴 3종으로 재검증, 뒤이어 예외 서술 부정확 1건을 `7f5e64c`로 정정했다. reviewer 독립 재검증 완료 후 merge `30c88f1`.** |
 | W3-B | PR [#50](https://github.com/moelee835/Impact-Lens/pull/50)("Write the M1 user test spec around what a real user can actually reach")로 merge됨. `docs/development-management/user-tests/m1-user-test-spec.md` 작성 완료. |
 | W3-C | `il-reviewer` 규칙에 따른 독립 검토 1회 완료(작성자가 아닌 세션). 의도했던 2번째 독립 검토는 승인이 오지 않아 만료됐다 — main 커밋 `54518c9`("Record that the M1 spec's second review expired, not 'still pending'"), `8b6ddfd`("Fix the M1 spec's own status line - it still claimed 'review pending'")가 이 상태 정정을 기록했다. |
 
 **Wave 3 종료 gate = M1 종료 gate**
 - [x] `IL-LIM-005`와 `IL-LIM-009`의 수용 기준이 모두 통과한다. 두 story 문서 참고.
-- [ ] **[PR #54 merge 대기]** custom provider 요청과 기존 provider JSON이 하위 호환으로 동작한다. R1(PR
-      #54)의 `contract.test.ts` 신규 test가 근거이지만 아직 `main`에 없다.
+- [x] custom provider 요청과 기존 provider JSON이 하위 호환으로 동작한다. 근거: PR #54 merge `30c88f1` —
+      `contract.test.ts:283` "an old-style request with only provider command/args/languageId - no
+      preset, no overrides - still completes a successful analysis".
 - [x] Auto가 검증되지 않은 server를 임의 선택하거나 다른 언어 provider로 fallback하지 않는다. 근거:
       `providers.test.ts` 5개 test + `contract.test.ts` 2개 test + packed e2e assert(전부 이미 `main`).
-- [ ] **[PR #54 merge 대기]** build/configure/sync가 사용자 승인 없이 실행되지 않는다. R1(PR #54)의
-      `buildInvocation.sources.test.ts`가 근거이지만 아직 `main`에 없고, 위 표에 적은 대로 수정 중이다.
+- [x] build/configure/sync가 사용자 승인 없이 실행되지 않는다. 근거: PR #54 merge `30c88f1` —
+      `buildInvocation.sources.test.ts:224` "every spawn-family call site in cli/src is inventoried, and
+      none hardcodes a command outside the allowed list". review에서 발견된 정규식 결함은 `c82e30b`/`7f5e64c`로
+      수정·정정되고 reviewer가 독립 재검증했다.
 - [x] `user-tests/m1-user-test-spec.md`가 release candidate 기준으로 검토됐고, 실제 사용자 검증 결과 또는
       실행 보류 사유가 release decision에 기록된다. **release decision**: 명세 작성·검토 완료(1회, 2회차
       만료), 실제 참여자 모집·환경 준비는 별도 승인 사항이며 사용자가 v0.7.0에서는 실행을 보류하기로

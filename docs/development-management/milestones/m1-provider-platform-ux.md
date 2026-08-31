@@ -70,20 +70,20 @@ Agent Team 기반 wave 분해, 파일 소유권과 wave별 종료 gate는
   doctor, indexing unknown은 analyze 응답)에 맞게 정정하거나 doctor에 indexing 관련 check를 추가하는 결정이
   필요하다. 이 판단은 M1 종료 판정 lane의 권한 밖이라 사용자에게 넘긴다. 상세:
   [`task-m1-gate-closure.md`](../../work/task-m1-gate-closure.md).
-- [ ] **[PR #54 merge 대기]** custom provider 요청과 기존 provider JSON은 하위 호환으로 동작한다. PR #54
-  (`test/m1-compatibility-matrix`, 아직 미merge)의 `cli/src/test/contract.test.ts` "an old-style request
-  with only provider command/args/languageId - no preset, no overrides - still completes a successful
-  analysis"가 이 gate를 닫을 근거이지만, 이 test는 아직 `main`에 없다. PR #54 merge 후 이 항목을 갱신한다.
+- [x] custom provider 요청과 기존 provider JSON은 하위 호환으로 동작한다. 근거: PR #54
+  (`test/m1-compatibility-matrix`) merge `30c88f1` — `cli/src/test/contract.test.ts:283` "an old-style
+  request with only provider command/args/languageId - no preset, no overrides - still completes a
+  successful analysis". `main`에서 재확인(266/266).
 - [x] Auto가 검증되지 않은 server를 임의 선택하거나 다른 언어 provider로 fallback하지 않는다. 근거:
   `cli/src/test/providers.test.ts`의 5개 test + `cli/src/test/contract.test.ts`의 2개 test +
   `scripts/test-plugin-artifact-e2e.mjs`의 `selectedBy`/`languageMatch` assert.
 - [x] Plugin이 `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다.
   근거: `npm run test:response-policy` 16/16.
-- [ ] **[PR #54 merge 대기]** build/configure/sync는 사용자 승인 없이 실행되지 않는다. PR #54
-  (`test/m1-compatibility-matrix`, 아직 미merge)가 production spawn 지점 4곳을 전수 조사해
-  `cli/src/test/buildInvocation.sources.test.ts`로 고정했지만, review에서 이 guard의 정규식이
-  `exec`/`execFile`/`execSync`/`fork`와 namespace/default import 경로를 놓친다는 결함이 발견돼 수정
-  중이다. 수정·재검증 후 이 항목을 갱신한다.
+- [x] build/configure/sync는 사용자 승인 없이 실행되지 않는다. 근거: PR #54(`test/m1-compatibility-matrix`)
+  merge `30c88f1` — production spawn 지점 4곳을 전수 조사해 `cli/src/test/buildInvocation.sources.test.ts:224`
+  "every spawn-family call site in cli/src is inventoried, and none hardcodes a command outside the
+  allowed list"로 고정. review에서 발견된 `exec`/`execFile`/`execSync`/`fork`와 namespace/default import
+  누락 결함은 commit `c82e30b`로 수정되고 우회 패턴 3종으로 재검증됐다(reviewer 독립 재검증 완료).
 - [x] `user-tests/m1-user-test-spec.md`가 release candidate 기준으로 검토됐으며, 실제 사용자 검증 결과 또는
   실행 보류 사유가 release decision에 기록된다. **release decision**: 명세는 작성 완료·검토 완료(작성자가
   아닌 세션의 독립 검토 1회, 2번째 독립 검토는 승인이 오지 않아 만료 — `docs/work/task-m1-user-test-spec.md`

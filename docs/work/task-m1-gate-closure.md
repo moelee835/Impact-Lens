@@ -1,6 +1,7 @@
 # M1 종료 gate 판정과 근거 연결 (lane R3)
 
-- 상태: 진행 중 — PR #54(R1) merge 대기 중인 gate 2개만 미판정
+- 상태: 완료(gate 3 제외 전부 충족) — PR #54 merge(`30c88f1`) 후 4단계 반영 완료. gate 3(doctor
+  indexing 구분)의 문구-구현 불일치는 사용자 결정이 필요해 `[ ]`로 남아 있다.
 - branch: `docs/m1-gate-closure`
 - 상위 문서: [M1 Provider 플랫폼과 무설정 UX 기반](../development-management/milestones/m1-provider-platform-ux.md),
   [`task-m1-agent-team-execution.md`](task-m1-agent-team-execution.md)
@@ -98,14 +99,16 @@ story 본문이 명시적으로 "M1 이후 후속 milestone에서 다룰 phase"�
 | 1 | IL-LIM-005·IL-LIM-009 수용 기준이 모두 통과한다 | 충족 | 위 두 표 |
 | 2 | TypeScript reference preset이 기존 bundled 동작과 결과 호환성을 유지한다 | 충족 | IL-LIM-005 AC4와 동일 근거 |
 | 3 | missing executable, unsupported version, language mismatch, capability 없음, indexing unknown과 query 실패가 doctor에서 구분된다 | **부분 충족 — gate 문구와 구현이 어긋남** | `cli/src/test/doctor.test.ts`에 missing executable("a missing executable is reported as its own failure with what to install"), unsupported version("an unsupported version is reported separately from an unreadable one"), language mismatch("a language the preset does not serve is reported as a mismatch, not as an empty result"), missing capability("a server without Call Hierarchy is reported as a missing capability"), query 실패("a server that advertises Call Hierarchy but answers nothing fails the fixture") 5개 중 4개는 있다. **그러나 "indexing unknown"은 doctor의 어떤 check에도 없다** — `doctor.test.ts` 전체에 "indexing"이라는 단어가 0회 등장한다(직접 grep 확인). doctor의 check 목록(`node-engine`/`cli-package`/`bundled-provider-artifact`/`provider-executable`/`provider-version`/`language-support`/`settings-keys`/`project-config`, `--smoke`/`--fixture`의 capability·fixture check)에 indexing 관련 항목이 없다. `coverage.indexing.status`(`unknown`/`working`/`ready`)는 W2-A(PR #46)가 **analyze 시점** 개념으로 구현했고 doctor 명령과는 별개다. gate 문구를 쓴 시점에는 doctor가 "indexing unknown"까지 구분할 것으로 예상했지만, 실제 구현은 그 구분을 doctor가 아니라 analyze 응답의 `coverage.indexing`으로 냈다 — **숨기지 않고 있는 그대로 적는다.** 이 gate는 "query 실패"까지는 doctor에서 구분되지만 "indexing unknown"은 구분되지 않으므로 **문자 그대로는 미충족**이다. gate 문구를 실제 구현에 맞게 정정하거나(doctor는 query 실패까지, indexing unknown은 analyze 응답이 구분), doctor에 indexing 관련 check를 추가하는 후속 결정이 필요하다 — 이 판단은 이 lane의 권한 밖이므로 사용자에게 넘긴다 |
-| 4 | custom provider 요청과 기존 provider JSON은 하위 호환으로 동작한다 | **PR #54 merge 대기 — merge 후 판정** | R1이 이 gate를 좁게 남아 있던 실제 갭까지 채웠다: `contract.test.ts`의 새 test "an old-style request with only provider command/args/languageId - no preset, no overrides - still completes a successful analysis". 이 test는 아직 `main`에 없다(PR #54 미merge). merge 후 이 표를 갱신한다 |
+| 4 | custom provider 요청과 기존 provider JSON은 하위 호환으로 동작한다 | 충족 | R1이 이 gate를 좁게 남아 있던 실제 갭까지 채웠다: `contract.test.ts:283` "an old-style request with only provider command/args/languageId - no preset, no overrides - still completes a successful analysis". PR #54 merge `30c88f1`, `main`에서 266/266 재확인 |
 | 5 | Auto가 검증되지 않은 server를 임의 선택하거나 다른 언어 provider로 fallback하지 않는다 | 충족 | `cli/src/test/providers.test.ts`의 5개 test("an unsupported language never falls back to another language provider" 외 4개) + `cli/src/test/contract.test.ts`의 2개 test("does not launch the bundled TypeScript provider for Python", "rejects an explicit languageId mismatch before launching the provider") + `scripts/test-plugin-artifact-e2e.mjs`의 `selectedBy`/`languageMatch` assert. 전부 이미 `main`에 있다(PR #54와 무관) |
 | 6 | Plugin이 `complete: true`만으로 runtime 영향 없음이나 indexing 완료를 주장하지 않는 fixture가 통과한다 | 충족 | `npm run test:response-policy` 16/16(`main` `dac76ba`에서 재실행 확인) |
-| 7 | build/configure/sync는 사용자 승인 없이 실행되지 않는다 | **PR #54 merge 대기 — merge 후 판정** | R1이 production spawn 지점 4곳(`jsonRpc.ts:63`, `notes.ts:188`, `childIpc.ts:31`, `discovery.ts:121`)을 전수 조사해 build/install/sync류가 없음을 확인하고 `buildInvocation.sources.test.ts`(신규 4개 test)로 고정했다. 이 파일은 아직 `main`에 없다(PR #54 미merge). **review에서 이 guard의 정규식이 `exec`/`execFile`/`execSync`/`fork`와 namespace/default `child_process` import를 놓친다는 결함이 발견됐다** — `import * as cp from 'node:child_process'; cp.exec('npm install')`가 두 test를 모두 통과한다. R1이 수정 중이며, 수정·재검증 후 이 표를 갱신한다 |
+| 7 | build/configure/sync는 사용자 승인 없이 실행되지 않는다 | 충족 | R1이 production spawn 지점 4곳(`jsonRpc.ts:63`, `notes.ts:188`, `childIpc.ts:31`, `discovery.ts:121`)을 전수 조사해 build/install/sync류가 없음을 확인하고 `buildInvocation.sources.test.ts:224`(신규 4개 test)로 고정했다. **review에서 이 guard의 정규식이 `exec`/`execFile`/`execSync`/`fork`와 namespace/default `child_process` import를 놓친다는 결함이 발견됐고**(`import * as cp from 'node:child_process'; cp.exec('npm install')`가 원래 두 test를 모두 통과했다), R1이 `c82e30b`로 수정하고 우회 패턴 3종(namespace+exec, default+execFile, named alias)을 실제 production 파일에 주입해 재검증했다. 넓힌 예외(`RegExp.prototype.exec`와의 이름 충돌)의 서술 오류 1건도 reviewer 재검증에서 발견돼 `7f5e64c`로 정정했다. PR #54 merge `30c88f1`, reviewer 독립 재검증 완료 |
 | 8 | `user-tests/m1-user-test-spec.md`가 release candidate 기준으로 검토됐으며, 실제 사용자 검증 결과 또는 실행 보류 사유가 release decision에 기록된다 | 충족(보류 결정으로 종결) | 아래 "release decision" 절 참고 |
 
-**8개 중 5개(gate 1,2,5,6,8) 충족, 1개(gate 3)는 문구-구현 불일치로 부분 충족·정정 필요, 2개(gate 4, 7)는
-PR #54 merge 대기.** M0가 같은 방식(사용자 검증 보류)으로 gate를 닫은 전례가 있다(gate 8).
+**2026-08-31 갱신(PR #54 merge `30c88f1` 후): 8개 중 7개(gate 1,2,4,5,6,7,8) 충족, 1개(gate 3)는
+문구-구현 불일치로 부분 충족·정정 필요.** M0가 같은 방식(사용자 검증 보류)으로 gate를 닫은 전례가 있다
+(gate 8). gate 3은 doctor 명령에 indexing check를 추가할지 gate 문구를 정정할지 사용자 결정이 필요해
+`[ ]`로 남긴다.
 
 ### PR #49의 W3-A 자기 표기 — 무엇을 실제로 닫았는가
 
@@ -227,13 +230,14 @@ M1 종료 gate의 마지막 항목(milestone gate 8, Wave 3 gate 5)인 **실제 
 세 단계는 서로 다른 파일이지만 같은 판정 근거 조사에 기반하므로 하나의 commit으로 묶는다(이 lane이
 실제로 조사해 확인한 M1 종료 gate 판정이라는 하나의 의미를 갖게 하기 위함).
 
-### 4단계 — PR #54 merge 후 후속 갱신 (별도 commit, merge 확인 후 수행)
+### 4단계 — PR #54 merge 후 후속 갱신 (완료)
 
 - 목적: PR #54 merge로 milestone gate 4·7과 Wave 3 gate의 "하위 호환"·"build 미실행" 항목을 최종
   충족으로 닫는다.
-- 산출물: 위 두 gate의 판정을 "PR #54 merge 대기"에서 "충족"으로 갱신, PR #54의 실제 merge commit 인용.
-- 검증: `main`에서 `buildInvocation.sources.test.ts`, `providerMatrix.test.ts`, 하위 호환 test가 실재하는지
-  확인.
+- 산출물: 위 두 gate의 판정을 "PR #54 merge 대기"에서 "충족"으로 갱신, PR #54의 실제 merge commit
+  `30c88f1` 인용.
+- 검증: `main`(`30c88f1`)에서 `cli/src/test/contract.test.ts:283`, `cli/src/test/buildInvocation.sources.test.ts:224`가
+  실재함을 직접 grep으로 확인. `npm run cli:test` 266/266 재실행.
 
 ## 테스트 및 완료 기준
 
@@ -264,3 +268,20 @@ M1 종료 gate의 마지막 항목(milestone gate 8, Wave 3 gate 5)인 **실제 
   (16/16)를 이 문서 작성 시점의 `main`(`dac76ba`, PR #53 merge 직후)에서 재실행해 확인했다.
 - `docs/development-management/user-tests/m1-user-test-spec.md`의 현재 상태 줄("작성 완료, 검토 완료...
   아직 실행하지 않았다")을 직접 읽어 release decision 절의 근거로 인용했다.
+
+### 2026-08-31 — reviewer 지적 반영과 PR #54 merge 후 4단계 완료
+
+- reviewer가 PR #55의 후속 참조 목록 누락 1건(`task-m1-user-facing-docs.md:9` — PR #53이 이 lane의 조사
+  시점 이후 새로 추가한 W3-A 오표기)을 지적해 반영했다. 정적 목록 대신 `git grep -ln "W3-A" -- docs/` 명령을
+  진실의 출처로 삼도록 절을 다시 썼다.
+- PR #54는 reviewer 검토에서 `buildInvocation.sources.test.ts`의 정규식이 `exec`/`execFile`/`execSync`/
+  `fork`와 namespace/default `child_process` import를 놓친다는 결함이 발견돼 R1이 `c82e30b`로 수정,
+  우회 패턴 3종을 실제 production 파일에 주입해 재검증했다. 넓힌 예외의 로컬 주석 서술 오류 1건이 reviewer
+  재검증에서 다시 발견돼 `7f5e64c`로 정정했다(코드 무변경, 순수 주석 diff). reviewer가 두 라운드 모두 직접
+  재현·독립 확인했다.
+- PR #54 merge(`30c88f1`) 확인 후 local `main`을 fast-forward하고 이 branch를 rebase했다. `npm run cli:test`
+  266/266 재실행으로 확인.
+- milestone gate 4·7, Wave 3 gate의 대응 항목 2개를 "PR #54 merge 대기"에서 "충족"으로 갱신하고 인용 test
+  이름(`contract.test.ts:283`, `buildInvocation.sources.test.ts:224`)이 `main`에 실재함을 직접 확인했다.
+- 최종 상태: 8개 milestone gate 중 7개 충족, gate 3(doctor indexing 구분)만 문구-구현 불일치로 `[ ]`
+  유지 — 이 판단은 사용자 결정이 필요해 R3 lane의 권한 밖으로 남긴다.
