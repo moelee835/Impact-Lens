@@ -148,18 +148,24 @@ commit·push.
 
 ## 테스트 및 완료 기준
 
-- [ ] 모든 과업이 shipped catalog 또는 명시된 사용자 설정으로 도달 가능한 상태에 대응한다.
-- [ ] 도달 불가능해서 제외한 항목이 사유와 함께 기록된다.
-- [ ] Auto 시작 과업이 TypeScript/JavaScript에 한정된다는 사실이 명시된다.
-- [ ] 비-TS 언어 과업은 custom 설정 경로로 설계되고 `provider_required_for_language`가 기대 결과다.
-- [ ] `complete: true` 해석 과업이 자유 서술을 먼저 요구한다.
-- [ ] 수치 합격선을 pilot 전에 확정하지 않는다.
-- [ ] 수집 금지 항목(절대 경로, 사용자명, source 본문, credential)이 명시된다.
-- [ ] 도구가 참여자 프로젝트를 build·install·sync하지 않는다는 것이 관측 항목에 포함된다.
-- [ ] 작성 세션과 다른 세션이 검토하고, 각 결함의 처리 결과가 기록된다.
-- [ ] 문서 link 대상이 모두 존재한다.
-- [ ] `git diff --check` 통과
-- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
+- [x] 모든 과업이 shipped catalog 또는 명시된 사용자 설정으로 도달 가능한 상태에 대응한다. (2단계 —
+  T1/T4는 W3-A `SHIPPED_CATALOG_REACHABLE`의 succeeded/exhausted/unknown 상태, T2/T3는 코드에서 직접
+  확인한 `provider_config_invalid`/`provider_required_for_language` 오류 경로에 대응한다.)
+- [x] 도달 불가능해서 제외한 항목이 사유와 함께 기록된다. (§2, 표 4행 — 근거 코드 인용 포함)
+- [x] Auto 시작 과업이 TypeScript/JavaScript에 한정된다는 사실이 명시된다. (§1-1, §2)
+- [x] 비-TS 언어 과업은 custom 설정 경로로 설계되고 `provider_required_for_language`가 기대 결과다.
+  (§6 T3, §7)
+- [x] `complete: true` 해석 과업이 자유 서술을 먼저 요구한다. (§6 T4 절차 1번, 유도 질문 명시적 금지)
+- [x] 수치 합격선을 pilot 전에 확정하지 않는다. (§10, M0와 동일 규칙 명시)
+- [x] 수집 금지 항목(절대 경로, 사용자명, source 본문, credential)이 명시된다. (§11)
+- [x] 도구가 참여자 프로젝트를 build·install·sync하지 않는다는 것이 관측 항목에 포함된다. (§8 "안전
+  불변식")
+- [ ] 작성 세션과 다른 세션이 검토하고, 각 결함의 처리 결과가 기록된다. — 3단계(W3-C) 대상, 아직 검토
+  전이다.
+- [x] 문서 link 대상이 모두 존재한다. (10개 링크 전부 파일 존재 확인, 아래 로그)
+- [x] `git diff --check` 통과
+- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다. — 1·2단계는
+  각각 commit·push됐다. PR은 3단계(검토) 이후 연다.
 
 ## 작업 로그
 
@@ -174,3 +180,40 @@ commit·push.
   들어간다.
 - 실행은 이 lane의 범위가 아니다. M1 종료 gate가 "검증 결과 또는 보류 사유" 두 갈래를 허용한다는 것을
   확인했다.
+
+### 2026-08-31 — 2단계 명세 초안 작성
+
+계획/검토 세션이 1단계를 승인하고 2단계 요구사항(R1~R6)을 넘겼다. 이 세션이 구현했다.
+
+- 요청이 준 두 제약(shipped catalog는 bundled TypeScript 하나, 도달 가능 상태는 전부
+  `indexingStatus: unknown`)을 코드에서 다시 확인했다 — 둘 다 정확했다.
+- **요청이 주지 않은 세 번째 제약을 발견했다.** `ready`/`working`뿐 아니라 `provider_project_metadata_missing`도
+  오늘은 **어떤 실제 사용자도 만들 수 없다.** 둘 다 preset의 `readiness` 하위 필드
+  (`requiredProjectFiles`/`signals`)에서만 나오는데, `readiness`는 `ProviderPreset`(catalog 항목)에만
+  존재하고(`cli/src/providers/preset.ts:105-110`), 요청 JSON도 `.impact-lens/provider.json`도 그 필드를
+  받지 않는다(`ALLOWED_FIELDS`, `cli/src/providers/projectConfig.ts:17` — `presetId`/`command`/`args`/
+  `languageId`/`initializationOptions`/`settings`뿐). 이 둘을 만드는 유일한 경로는
+  `LspCallHierarchyProvider` 생성자의 `resolution.catalog` override인데, 이는 `stateReachability.
+  integration.test.ts`·`readiness.integration.test.ts`가 쓰는 test 전용 TypeScript API이고 CLI의 stdin
+  JSON·CLI 인자 어디에도 노출되지 않는다. 요청은 R5에서 "`provider_project_metadata_missing`을 관측
+  항목으로 만들라"고 했지만, 이 오류 자체를 과업으로 발생시킬 방법이 없다는 뜻이므로 R5의 구체적
+  메커니즘(누락 파일로 유도) 그대로는 쓸 수 없었다. 대신 R5의 **취지**(도구가 프로젝트를 대신
+  만들지 않는다는 안전 불변식)를 모든 과업에 걸친 관측 항목으로 살리고, `provider_project_metadata_missing`
+  자체는 §2 제외 표에 `ready`/`working`과 같은 행 옆에 같은 근거로 추가했다.
+- **또 하나 발견**: `doctor <preset>`는 catalog preset id만 받는다(`cli/src/doctor/index.ts:68-75`,
+  일치하는 preset이 없으면 무조건 `invalid_command`). T3(custom provider)에서 참여자가 구성한 raw
+  command는 doctor로 점검할 방법이 없다 — 그래서 "doctor 안내만으로 복구"(축 2)는 T3가 아니라 별도
+  과업(T2)으로, bundled-typescript preset 자체를 대상으로 설계했다. `.impact-lens/provider.json`이
+  M0 이후 새로 생긴 계층이라는 점에 착안해, 허용되지 않은 필드를 하나 심어 `provider_config_invalid`를
+  일으키고 오류 메시지/`doctor`의 `project-config` check만으로 복구하게 했다. M0가 이미 검증한
+  Node/CLI artifact/release fallback 복구는 반복하지 않고 M0 문서를 그대로 인용했다.
+- R1(M0 구조 준수)대로 M0의 14개 절 구조를 그대로 따랐다. 편차는 §2(제외 항목에 "왜"·"무엇이 바뀌어야
+  하는지" 두 열을 표로 추가 — M0는 글머리표뿐이었다)와 §11(T4 발화 인용에 별도 동의를 요구하는 문장
+  추가) 두 곳뿐이다.
+- 문서에 인용한 코드 줄 번호를 전부 `sed -n`으로 재확인했다(로그 작성 시점 기준). 두 곳이 살짝 어긋나
+  있어(`projectConfig.ts:19`→`17`, `lspProvider.ts:537-545`→`537-544`) 고쳤다.
+- 문서 내 markdown 링크 10개를 전부 추출해 상대경로가 실제 파일로 해석되는지 스크립트로 확인했다 — 전부
+  존재.
+- `git diff --check` 통과.
+- 남은 것: 3단계(작성자와 다른 세션의 적대적 검토, W3-C)가 아직이다. `impact-lens-69`가 검토하고
+  결함을 이 세션에 전달하기로 했다.
