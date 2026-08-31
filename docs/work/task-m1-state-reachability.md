@@ -89,7 +89,9 @@ timeout·취소 후 부분 결과 보존은 [IL-LIM-008](../development-manageme
 - 실제 provider(bundled TypeScript, mock server)를 돌려 도달 가능한 completion 상태 조합을 수집
 - 도달 가능 집합이 선언된 목록과 정확히 일치하는지 검사
 - 도달 불가능한 상태를 선언하고, 생산자가 생기면 실패하는 역방향 검사
-- shipped catalog에서 도달 가능한 것과 사용자 설정 provider가 있어야 도달 가능한 것의 구분
+- shipped catalog에서 도달 가능한 것과, catalog preset이 readiness를 선언해야만 도달 가능한 것의 구분
+  (후자가 오늘 실제 사용자가 만들 수 있는 경로는 아니라는 사실도 함께 — fix/m1-reachability-naming의
+  작업 로그 참고)
 - `AnalysisObservations`의 각 필드에 production 생산자가 있는지 확인하는 검사
 
 ## 범위에서 제외할 항목
@@ -117,10 +119,14 @@ timeout·취소 후 부분 결과 보존은 [IL-LIM-008](../development-manageme
 - 도달 불가능으로 선언한 상태가 실행에서 나오면 실패한다.
 - 도달 가능으로 선언한 상태가 실행에서 안 나오면 실패한다.
 
-### 3. shipped catalog와 사용자 설정을 분리해 기록한다
+### 3. shipped catalog와 readiness 선언 여부를 분리해 기록한다
 
 `indexingStatus: ready`와 `working`은 readiness를 선언한 preset이 있어야 나온다. shipped catalog에는
 그런 preset이 없다. 두 경우를 한 칸에 뭉치면 "오늘 사용자가 실제로 보는 것"이라는 질문에 답할 수 없다.
+
+*(2026-08-31 정정: 이 절을 처음 쓸 때는 후자를 "사용자 설정"으로 불렀다. 실제로는 `readiness`가
+catalog preset에만 존재하는 필드라 어떤 실제 사용자도 그 preset을 선언할 방법이 없다 — test 코드만
+쓸 수 있는 내부 API다. 이름과 문구를 고쳤다. 정정 경위는 아래 작업 로그 참고.)*
 
 ## 단계별 구현 계획
 
@@ -158,9 +164,10 @@ timeout·취소 후 부분 결과 보존은 [IL-LIM-008](../development-manageme
   관찰했다" 3번 — 가짜 `interruption` 생산자를 실제로 추가해 관찰함.)
 - [x] `interruption`과 `semantic`에 production 생산자가 없다는 사실이 검사로 고정된다.
   (`stateReachability.sources.test.ts`, `CONTRACT_ONLY_ERROR_CODES`와 동일한 텍스트 스캔 기법)
-- [x] shipped catalog 도달 가능 집합과 사용자 설정 도달 가능 집합이 구분된다.
-  (`SHIPPED_CATALOG_REACHABLE` 3개 vs `USER_CONFIGURED_ADDITIONAL_REACHABLE` 2개, 겹치지 않음을 별도 test로
-  고정)
+- [x] shipped catalog 도달 가능 집합과, catalog preset이 readiness를 선언해야만 도달 가능한 집합이
+  구분된다. (`SHIPPED_CATALOG_REACHABLE` 3개 vs `CATALOG_DECLARED_READINESS_REACHABLE` 2개, 겹치지 않음을
+  별도 test로 고정. 2026-08-31 정정: 후자는 원래 `USER_CONFIGURED_ADDITIONAL_REACHABLE`로 불렸는데 그
+  이름이 실제 사용자가 할 수 있는 일을 과장했다 — 아래 작업 로그 참고)
 - [x] `npm run cli:test` 통과 (258/258, 새 test 8개 포함)
 - [x] `npm test` 통과 (58/58)
 - [x] `npm run test:response-policy` 통과 (16/16)
@@ -214,9 +221,10 @@ timeout·취소 후 부분 결과 보존은 [IL-LIM-008](../development-manageme
   S5/S6(같은 tuple, 어느 limit인지만 다름)도 tuple 열이 완전히 같았다. 그래서 실행으로 실제 도달하는 distinct
   tuple은 13개가 아니라 5개(도달 가능)뿐이다. 요청받은 판단대로라면 나는 이 사실을 임의로 고치지 않고 그대로
   기록한다 — 코드와 실측이 맞고, "13가지가 전부 다른 상태"라는 인상 쪽이 부정확했다.
-- R3(shipped vs 사용자 설정) 결과: shipped catalog만으로 도달 가능한 tuple은 3개, 전부
-  `indexingStatus: unknown`이다(`SHIPPED_CATALOG_REACHABLE`). readiness를 선언한 preset을 사용자가
-  직접 설정해야만 추가로 도달 가능한 tuple이 2개 있다(`ready`, `working`; `USER_CONFIGURED_ADDITIONAL_REACHABLE`).
+- R3(shipped vs readiness 선언 여부) 결과: shipped catalog만으로 도달 가능한 tuple은 3개, 전부
+  `indexingStatus: unknown`이다(`SHIPPED_CATALOG_REACHABLE`). catalog preset이 readiness를 선언해야만
+  추가로 도달 가능한 tuple이 2개 있다(`ready`, `working`; `CATALOG_DECLARED_READINESS_REACHABLE` —
+  2026-08-31 정정 이전 이름은 `USER_CONFIGURED_ADDITIONAL_REACHABLE`이었다. 아래 정정 항목 참고).
   두 집합은 겹치지 않는다는 것도 별도 test로 고정했다.
 - R4/R5 확인한 사실: `interruption:`/`semantic:`은 오늘 `types.ts`(선언)를 빼면 어디에도 값으로 안 쓰인다.
   `indexing:`은 `lspProvider.ts:280`(`analysisObservations()`)에서 실제로 생산된다. 다섯 상태
@@ -290,3 +298,47 @@ timeout·취소 후 부분 결과 보존은 [IL-LIM-008](../development-manageme
   `analyzeImpact`를 2-인자로만 부르므로, 그런 생산자가 실제로 생기면 도달 가능성 test의 관측 tuple이 바뀌어
   R2의 양방향 검사가 대신 잡을 가능성이 높다(생산자가 어떤 시나리오에서도 절대 안 불리는 경우만 완전히
   못 잡는다). 검토 세션에 이 잔여 범위를 그대로 보고했다.
+
+### 2026-08-31 — 이름 정정: `USER_CONFIGURED_ADDITIONAL_REACHABLE`이 도달 가능성을 과장했다
+
+M1 사용자 테스트 명세(W3-B) 작업 중, 이 lane이 만든 `ready`/`working` 도달 가능 상태를 실제 과업으로
+쓸 수 있는지 조사하다가 `readiness`가 catalog preset에만 존재하는 필드이고 어떤 실제 사용자 입력
+경로(요청 JSON, `.impact-lens/provider.json`, 환경변수)도 그것을 채울 수 없다는 사실을 확인했다(해당
+작업의 발견이자 `docs/work/task-m1-user-test-spec.md` 작업 로그에 먼저 기록됨). 계획/검토 세션이 이를
+독립적으로 재검증했고, PR #49 본문이 같은 과장(사용자가 설정하면 도달 가능하다는 인상)을 전달했다는
+것도 함께 확인해, 그 근원인 이 파일의 상수 이름과 이 문서의 서술을 고치도록 요청했다.
+
+**무엇이 틀렸었나.** `USER_CONFIGURED_ADDITIONAL_REACHABLE`이라는 이름과 "사용자가 직접 설정해야만
+도달 가능"이라는 문구는, 실제로는 **어떤 사용자도 설정할 수 없고 test 코드의 내부 API로만 도달
+가능한** 상태를 마치 사용자가 손을 대면 되는 것처럼 읽히게 했다. 이 파일은 "production이 실제로 도달할
+수 있는 상태의 정확한 재고 목록"이 유일한 존재 이유이므로, 이 이름 하나가 그 목적 자체를 훼손했다.
+
+**어떻게 발견했나.** W3-A(이 lane) 작업 시점에는 "user-configured"가 "shipped 기본값이 아니라 사용자가
+readiness를 선언한 provider를 쓰는 경우"를 뜻하는 편리한 줄임말로만 의도됐다. 그 줄임말이 실제로
+가능한 것보다 더 많은 것을 약속한다는 사실은, 후속 lane(W3-B)이 "이 상태를 사람이 만들 수 있는
+과업으로 설계하라"는 요구를 받고 실제로 그 경로를 찾아보면서 드러났다. 즉 실행(사람이 재현해 보려는
+시도)이 아니었다면 이 과장은 코드 리뷰만으로는 눈에 띄지 않았을 수 있다.
+
+**무엇을 고쳤나(이름·주석·문구만, 동작은 바꾸지 않음).**
+
+- `cli/src/test/stateReachability.integration.test.ts`: `USER_CONFIGURED_ADDITIONAL_REACHABLE` →
+  `CATALOG_DECLARED_READINESS_REACHABLE`로 개명. doc comment를 다시 써서 "readiness는 catalog preset
+  전용 필드다, 요청 schema에 없다(`cli/schemas/request.schema.json`), `.impact-lens/provider.json`의
+  `ALLOWED_FIELDS`에 없다(`projectConfig.ts:17`), 실제 CLI 진입점(`index.ts:53-67`)은 `resolution.catalog`를
+  절대 넘기지 않는다"를 각 줄 인용과 함께 적었다. `userConfiguredRows` 함수와 시나리오 이름
+  (`'user-configured: ...'` → `'catalog-declared-readiness (test-only): ...'`), 두 test 이름과 assertion
+  label(`'user-configured (additional)'` 등)도 함께 고쳤다.
+- `cli/src/test/stateReachability.sources.test.ts`: assertion 실패 메시지 안의 옛 상수 이름 참조 하나를
+  고쳤다.
+- 이 작업 문서: §범위, §설계 결정 3번, §완료 기준 체크리스트, 2단계 로그의 R3 문단을 새 이름·정확한
+  문구로 고쳤다. **과거 로그 문단을 조용히 지우지 않고**, 고친 자리마다 "2026-08-31 정정"이라는 표시와
+  옛 이름을 남겨, 나중에 읽는 사람이 무엇이 바뀌었는지 알 수 있게 했다. 이 항목이 그 정정의 전체
+  경위를 담은 자리다.
+- 동작 변경 없음 확인: 같은 tuple 2개가 같은 집합에 남아 있고, 두 방향 assertion의 모양도 그대로다 —
+  `git diff`로 diff가 이름·주석·문자열 리터럴에만 있는지 직접 확인했다.
+- 실행한 검사와 결과: `npm run cli:build` 통과, `stateReachability.integration.test.js`·
+  `stateReachability.sources.test.js` 직접 실행 8/8 통과, `npm run cli:test`(258/258, 그대로),
+  `npm test`(58/58), `npm run test:response-policy`(16/16), `npm run test:plugin-artifact` 통과,
+  `git diff --check` 통과.
+- 남은 것: PR은 요청 세션이 직접 쓰기로 했다 — 앞선 PR #49가 같은 과장을 사용자에게 전달했다는 사실을
+  분명히 적어야 하기 때문이다.

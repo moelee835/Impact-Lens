@@ -68,12 +68,28 @@ const SHIPPED_CATALOG_REACHABLE: readonly CompletionTuple[] = [
 ];
 
 /**
- * The additional states a user-configured provider unlocks, ON TOP OF everything in
- * `SHIPPED_CATALOG_REACHABLE` (a depth/node limit is provider-agnostic traversal behavior, already proven
- * reachable above; it does not need re-deriving against a custom preset). Both entries require a preset
- * that declares a `readiness` profile - something the user configures, not something shipped.
+ * The additional states reachable when a catalog preset declares a `readiness` profile, ON TOP OF
+ * everything in `SHIPPED_CATALOG_REACHABLE` (a depth/node limit is provider-agnostic traversal behavior,
+ * already proven reachable above; it does not need re-deriving against a readiness-declaring preset).
+ *
+ * Naming this after "user configuration" would overstate what is actually reachable, which is exactly the
+ * mistake an earlier version of this file made (W3-A, PR #49) and the work document now records as
+ * corrected. `readiness` is a field on `ProviderPreset` alone (`cli/src/providers/preset.ts:105-110`), and
+ * nothing outside this test file can attach one to a request:
+ *   - the request schema carries no `readiness` field (`cli/schemas/request.schema.json` has no match for
+ *     the word at all);
+ *   - `.impact-lens/provider.json`'s `ALLOWED_FIELDS` does not include it
+ *     (`cli/src/providers/projectConfig.ts:17`);
+ *   - the real CLI entry point never passes a custom `resolution.catalog` when it constructs a provider
+ *     (`cli/src/index.ts:53-67` passes only `providerPreset` and initialization/settings overrides), so
+ *     `PROVIDER_CATALOG` - the shipped one, with no readiness-declaring entry - is the only catalog a real
+ *     invocation ever resolves against.
+ * The two rows below are reachable ONLY through the `resolution.catalog` constructor option used a few
+ * lines down in this file and in `readiness.integration.test.ts` - a test-only TypeScript API with no
+ * counterpart in the CLI's stdin JSON, CLI arguments, or project config surface. No real user, however
+ * they configure their provider, can reach either row today.
  */
-const USER_CONFIGURED_ADDITIONAL_REACHABLE: readonly CompletionTuple[] = [
+const CATALOG_DECLARED_READINESS_REACHABLE: readonly CompletionTuple[] = [
   { requestStatus: 'succeeded', traversalStatus: 'exhausted', semanticScope: 'provider-static', indexingStatus: 'ready' },
   { requestStatus: 'partial', traversalStatus: 'unknown', semanticScope: 'provider-static', indexingStatus: 'working' },
 ];
@@ -159,7 +175,9 @@ async function bundledTypeScriptRows(t: TestContext): Promise<BundledTypeScriptR
 }
 
 // ---------------------------------------------------------------------------
-// Mock servers with a declared readiness profile: the user-configured path.
+// Mock servers with a declared readiness profile, reached through the test-only `resolution.catalog`
+// constructor option - not a path a real user can reach (see the comment on
+// CATALOG_DECLARED_READINESS_REACHABLE above).
 //
 // Reuses the exact `mockPreset`/`resolution: { catalog: [...] }` pattern and the `readinessServer.ts`
 // fixture from readiness.integration.test.ts - both already produce `ready` and `working` deterministically,
@@ -205,7 +223,7 @@ async function mockScratch(t: TestContext, prefix: string): Promise<string> {
   return workspace;
 }
 
-async function userConfiguredRows(t: TestContext): Promise<readonly ObservedRow[]> {
+async function catalogDeclaredReadinessRows(t: TestContext): Promise<readonly ObservedRow[]> {
   const readyWorkspace = await mockScratch(t, 'impact-lens-reachability-ready-');
   withEnv(t, {
     IMPACT_LENS_MOCK_TARGET_URI: pathToFileURL(path.join(readyWorkspace, 'target.ts')).toString(),
@@ -240,8 +258,8 @@ async function userConfiguredRows(t: TestContext): Promise<readonly ObservedRow[
   assert.equal((working.completion as CompletionTuple).indexingStatus, 'working');
 
   return [
-    { scenario: 'user-configured: readiness ready', tuple: tupleOf(ready) },
-    { scenario: 'user-configured: readiness working (proceed-partial)', tuple: tupleOf(working) },
+    { scenario: 'catalog-declared-readiness (test-only): ready', tuple: tupleOf(ready) },
+    { scenario: 'catalog-declared-readiness (test-only): working (proceed-partial)', tuple: tupleOf(working) },
   ];
 }
 
@@ -287,15 +305,15 @@ test('the shipped catalog produces exactly its declared reachable completion sta
   );
 });
 
-test('a user-configured readiness-declaring provider produces exactly its declared additional states', { timeout: 30000 }, async t => {
-  const rows = await userConfiguredRows(t);
-  assertReachableSetMatches('user-configured (additional)', rows, USER_CONFIGURED_ADDITIONAL_REACHABLE);
+test('a catalog preset that declares readiness produces exactly its declared additional states (test-only path, not reachable by a real user)', { timeout: 30000 }, async t => {
+  const rows = await catalogDeclaredReadinessRows(t);
+  assertReachableSetMatches('catalog-declared-readiness (additional)', rows, CATALOG_DECLARED_READINESS_REACHABLE);
 });
 
 // A cross-check that the two declared sets do not overlap - if they did, "additional" would not mean
 // additional, and R3's separation would stop answering "what do I see today" cleanly.
-test('the shipped and user-configured-additional reachable sets do not overlap', () => {
+test('the shipped and catalog-declared-readiness-additional reachable sets do not overlap', () => {
   const shippedKeys = new Set(SHIPPED_CATALOG_REACHABLE.map(tupleKey));
-  const overlap = USER_CONFIGURED_ADDITIONAL_REACHABLE.map(tupleKey).filter(key => shippedKeys.has(key));
+  const overlap = CATALOG_DECLARED_READINESS_REACHABLE.map(tupleKey).filter(key => shippedKeys.has(key));
   assert.deepEqual(overlap, []);
 });
