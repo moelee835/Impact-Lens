@@ -1,7 +1,8 @@
 # M1 Provider 플랫폼 v0.7.0 release 정합성
 
-- 상태: 진행 중 — 1~2단계(버전 정합성 PR·merge)까지는 사용자 확인 없이 진행. 3단계(tag+Release 발행) 직전
-  사용자 확인 필요.
+- 상태: **정지 — 사용자 발행 승인 대기.** PR #56 merge(`3d5863c`)까지 완료. `v0.7.0` tag·GitHub
+  Release·asset 업로드는 아직 수행하지 않았다. `main`의 release-fallback pin이 존재하지 않는 tarball을
+  가리키는 구간이 열려 있다(아래 3단계 로그 참고). 승인을 받으면 태그·Release 발행으로 이어간다.
 - branch: `release/0.7.0`
 
 ## 목적과 사용자 가치
@@ -248,3 +249,34 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
   - **이 두 checksum은 branch 빌드 값이다. 3단계에서 merge 후 `main`으로 재생성해 tree hash와 checksum이
     같은지 재확인하고, release asset은 그 재생성 결과를 올린다** (M0가 따른 절차와 동일 — branch와 merge
     commit의 tree가 다르면 값이 달라질 수 있으므로 release 시점 재생성이 필수다).
+
+### 2026-08-31 — 3단계 전반부: PR merge, main에서 artifact 재생성, 정지
+
+- PR #56을 reviewer 검토·CI 4개 check(SUCCESS) 확인 후 merge했다. **merge commit: `3d5863c`.**
+- local `main`을 `3d5863c`로 fast-forward했다.
+- **`main`에서 재검증**(branch 빌드에 의존하지 않음):
+  - `npm run test:all`: Extension 58/58, CLI 266/266, response-policy 16/16, plugin-artifact E2E 통과.
+  - `grep -rn "0\.6\.3"` 전체 재실행: 잔존 위치는 전부 예상된 역사적 기록(CHANGELOG 과거 절,
+    `docs/work/**` 작업 로그, `user-tests/**`)뿐이고 그 밖에는 0건.
+- **`main`에서 artifact 재생성**(session 전용 `npm_config_cache`, 사용자 홈 `~/.npm` 권한 변경 없음):
+  - `impact-lens-0.7.0.vsix`: `vsce package`로 생성, 31 files, 1,147,958 bytes. SHA-256
+    `beb6bc90e33aea542efaa6b03df73480c772ce09bd2701ecd845e480e30634cd`. `unzip -l` + leak 패턴
+    grep(`.claude`/`.github`/`scripts/`/`src/`/`cli/`/`plugins/`)로 leak 없음 재확인(매치 0건).
+    **branch 빌드 checksum(`4a598dc5...`)과 다르다** — `vsce package`의 zip 출력은 파일 내용이 같아도
+    타임스탬프 등 zip 메타데이터 때문에 byte-identical하지 않을 수 있다(알려진 비결정성). CLI tarball은
+    아래처럼 branch와 정확히 일치했으므로, 이 차이는 트리 불일치가 아니라 패키징 비결정성으로 판단한다.
+  - `impact-lens-cli-0.7.0.tgz`: `npm pack`으로 생성, 31 entries, 75,059 bytes. SHA-256
+    `f49a8549419e98dff45e80c3fbd3043b12d53f49f5834d3062f3531e68d5e396` — **branch 빌드 값과 정확히
+    일치**(tar 패키징은 재현 가능했다).
+  - **이 두 값이 release에 올릴 최종 값이다. 발행 승인 후 다시 뽑지 않고 이 파일을 그대로 업로드한다** —
+    재생성하면 VSIX 쪽은 다시 다른 checksum이 나올 수 있어 "무엇이 잘못됐는지 알 수 없는" 혼란을 만든다.
+    파일은 `/private/tmp/claude-503/.../scratchpad/pack-0.7.0-main/`에 보존돼 있다.
+- **정지 구간의 상태(사용자 지시: merge 후 정지, tag·Release·asset 업로드 금지)**: `main`의
+  `plugins/impact-lens/scripts/run-impact-lens:11` pin은 지금
+  `https://github.com/moelee835/Impact-Lens/releases/download/v0.7.0/impact-lens-cli-0.7.0.tgz`를
+  가리키는데 이 Release는 아직 존재하지 않는다. **release-fallback 경로로 CLI를 찾는 사용자는 지금
+  404를 만난다.** checkout(`cli/dist/index.js` 직접 실행)과 global(`npm install -g` 등으로 이미 설치된
+  `impact-lens`) 경로는 영향이 없다. 이 창은 4~5단계(tag+Release 발행)가 완료돼야 닫힌다 — tag push
+  자체는 `plugin-artifact-e2e.yml`의 검증만 트리거할 뿐 발행이 아니므로, 실제로 닫히는 시점은 Release
+  발행과 asset 업로드가 끝난 순간이다.
+- tag·Release·asset 업로드는 수행하지 않았다. 사용자 확인을 기다린다.
