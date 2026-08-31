@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 test('writes one compact JSON error to stderr and keeps stdout empty', () => {
   const executable = path.resolve(__dirname, '..', 'index.js');
@@ -270,4 +271,37 @@ test('separates a query-stage provider exit from initialization failure', () => 
   assert.equal(error.details.stage, 'query');
   assert.equal(error.details.exitCode, 1);
   assert.match(error.details.stderr, /query failed after didOpen/);
+});
+
+// M1 exit gate: "custom provider 요청과 기존 provider JSON은 하위 호환으로 동작한다"
+// (docs/development-management/milestones/m1-provider-platform-ux.md). Every request above already
+// proves the pre-M1 `provider: {command, args, languageId}` shape (no `providerPreset`, no
+// `initializationOptions`, no `settings`) still reaches the CLI's real error paths unchanged. What none
+// of them prove is that the same shape still reaches a *successful* analysis - a request this old could
+// only ever fail here, which is not what "backward compatible" means for a working integration. This is
+// that missing success case.
+test('an old-style request with only provider command/args/languageId - no preset, no overrides - still completes a successful analysis', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'dynamicCallHierarchyServer.js');
+  const targetUri = pathToFileURL(path.resolve(__dirname, '..', '..', 'src', 'testFile.ts')).toString();
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    env: { ...process.env, IMPACT_LENS_MOCK_TARGET_URI: targetUri },
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      // Deliberately the pre-M1 shape: no providerPreset, no initializationOptions, no settings.
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trimEnd().split('\n').length, 1);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.ok, true);
+  assert.equal(response.data.provider.selectedBy, 'custom');
+  assert.equal(response.data.provider.name, 'dynamic-call-hierarchy-server');
+  assert.equal(response.data.provider.languageMatch, true);
+  assert.ok(response.data.nodes.length >= 1);
 });
