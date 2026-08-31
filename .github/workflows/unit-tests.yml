@@ -35,3 +35,5 @@ jobs:
         run: npm test
       - name: Run Agent CLI tests
         run: npm run cli:test
+      - name: Run plugin response-policy eval
+        run: npm run test:response-policy

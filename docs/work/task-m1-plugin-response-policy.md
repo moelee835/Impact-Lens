@@ -172,20 +172,32 @@ script, `unit-tests.yml` 연결, 작업 로그와 완료 근거.
 - [x] `provider_not_ready`의 limitation 용법과 error code 용법이 구분된다. (2단계)
 - [x] 고정 요약 형식이 결론보다 근거 경계를 먼저 요구한다. (2단계)
 - [x] high-severity limitation이 결론 앞에 표시된다. (2단계)
-- [ ] `complete: true` 단독으로 "영향 없음" 결론을 내는 fixture가 eval에서 실패한다. — 3단계(eval harness) 대상.
-  문서에 규칙은 적혔지만 아직 검사로 강제되지 않는다.
-- [ ] 색인 중 결과를 "호출자 없음"으로 보고하는 fixture가 eval에서 실패한다. — 3단계 대상, 위와 동일한 이유로
-  미완료.
-- [ ] 준수 fixture는 eval을 통과한다. — 3단계 대상.
-- [ ] 문서에서 금지어 규칙을 지우면 eval이 실패한다. — 3단계 대상.
+- [x] `complete: true` 단독으로 "영향 없음" 결론을 내는 fixture가 eval에서 실패한다. (3단계, fixture 01 —
+  `complete: true`/`indexingStatus: unknown`/빈 결과 응답에 "no impact" 결론을 낸 요약이
+  `forbidden_phrase`+`unsupported_no_impact_conclusion`+`missing_index_caveat`+
+  `missing_high_severity_disclosure`+`conclusion_before_boundary` 5개 violation으로 실패함을 확인)
+- [x] 색인 중 결과를 "호출자 없음"으로 보고하는 fixture가 eval에서 실패한다. (3단계, fixture 02 —
+  `indexingStatus: working`/`requestStatus: partial` 응답에 "nothing calls this function"이라고 쓴 요약이
+  `unsupported_no_impact_conclusion` 등으로 실패함을 확인)
+- [x] 준수 fixture는 eval을 통과한다. (3단계, fixture 07·08과 `cli-contract.md`에서 실행 시점에 추출한 두
+  준수 예시(fixture 09·10) 모두 0 violation으로 통과)
+- [x] 문서에서 금지어 규칙을 지우면 eval이 실패한다. (3단계, negative-direction 증명 5개 중 2개가 이 항목 —
+  SKILL.md·cli-contract.md 각각에서 금지어 선언 문장을 지우면 `doc_missing_forbidden_phrase`가 실제로 뜬다.
+  단, SKILL.md 쪽은 "no impact"가 canonical 문장 밖에도 한 번 더 있어 그 mutation이 6개 전부가 아니라
+  5개만 missing으로 잡는다 — 위 작업 로그의 "정직하게 밝히는 한계" 참고. real-doc 검사와 negative-direction
+  증명의 목적 자체는 정상 달성됐다.)
 - [x] Codex와 Claude Code 경로가 같은 완전성 경계를 전달한다. (구조적으로 만족: 두 host 모두 `SKILL.md`를
-  단일 출처로 읽고, `analyze.md`는 그것을 참조·재진술만 한다. `.codex-plugin/plugin.json`의 경로 확인함.)
-- [ ] `npm run test:response-policy` 통과 — 3단계에서 script가 아직 생기지 않았다.
-- [x] `npm run test:unit` 통과 (2단계, 250/250)
-- [x] `npm run test:plugin-artifact` 통과 (2단계)
-- [x] `git diff --check` 통과 (2단계)
-- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다. — 1·2단계는 각각
-  commit·push됐다. PR은 3단계가 끝난 뒤 요청한 세션이 검토하고 나서 연다(지금 임의로 열지 않기로 합의됨).
+  단일 출처로 읽고, `analyze.md`는 그것을 참조·재진술만 한다. `.codex-plugin/plugin.json`의 경로 확인함.
+  3단계의 doc invariant 검사도 세 문서가 실제로 이 관계를 지키는지 매 실행마다 재확인한다.)
+- [x] `npm run test:response-policy` 통과 (3단계, 16/16: fixture 10개 + 실 문서 invariant 1개 +
+  negative-direction 증명 5개)
+- [x] `npm run test:unit` 통과 (250/250, 3단계에서도 재확인)
+- [x] `npm run test:plugin-artifact` 통과 (3단계에서도 재확인)
+- [x] `git diff --check` 통과 (3단계에서도 재확인)
+- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다. — 1·2·3단계 모두 각각
+  commit·push됐다(3단계는 아직 push 전, 이 로그 작성 직후 push 예정). **PR은 아직 열지 않았다** — 계획/검토
+  세션이 검토를 마친 뒤 사용자용 PR 본문을 직접 작성해 열기로 했다. 이 항목은 PR이 실제로 열려야 완료로
+  표시한다.
 
 ## 작업 로그
 
@@ -245,3 +257,71 @@ script, `unit-tests.yml` 연결, 작업 로그와 완료 근거.
 - 남은 것: 이 lane의 3단계(`scripts/test-plugin-response-policy.mjs` checker, pass/fail fixture, CI 연결)는
   아직 시작하지 않았다. 지금 세 문서에 적힌 규칙은 여전히 "지켜지길 바라는 문장"이며, 3단계가 끝나야
   실패할 수 있는 검사가 된다. main 대상 PR도 아직 열지 않았다 — 요청한 세션이 검토를 먼저 하기로 했다.
+
+### 2026-08-31 — 3단계 정책을 실행 가능한 eval로 고정
+
+계획/검토 세션이 2단계를 독립적으로 재검증(코드 대조, negative control 포함)하고 승인한 뒤, `unused`가
+`unknown` 준수 예시 안에서 부정문으로 쓰여 단순 substring checker라면 오탐한다는 구체적 결함을 지적하며
+3단계 상세 요구사항을 넘겼다. 이 세션이 구현했다.
+
+- 산출물
+  - `scripts/lib/response-policy-engine.mjs`: 파일 I/O나 process.exit이 없는 순수 함수 모듈.
+    `evaluateSummary(response, summary)`가 8개 violation code
+    (`forbidden_phrase`/`unsupported_no_impact_conclusion`/`missing_index_caveat`/`stale_index_caveat`/
+    `partial_reported_as_complete`/`missing_high_severity_disclosure`/`conclusion_before_boundary`/
+    `failure_reported_as_empty`)를 반환한다. 문장 단위로 동작하며, 지정된 negation marker
+    (`not`/`cannot`/`isn't`/`no evidence`/`not proof`/... )가 같은 문장에 있으면 그 문장의 금지어·주장은
+    위반으로 세지 않는다.
+  - `scripts/lib/response-policy-doc-invariants.mjs`: `checkDocInvariants({skillMd, cliContractMd,
+    analyzeMd})` 순수 함수. 금지어 6개가 두 파일에 모두 있는지, `unknown`/`working`/`ready` 세 상태가
+    backtick 코드 span으로 두 파일에 모두 문서화됐는지, "conclusion last" 요약 순서가 `SKILL.md`와
+    `analyze.md`에 모두 있는지 검사한다. FORBIDDEN_PHRASES를 engine 모듈에서 가져와 단일 출처로 쓴다.
+  - `scripts/fixtures/response-policy/*.json` 10개: must-fail 6개(스펙이 요구한 최소 6개 그대로),
+    must-pass 2개(partial 정상 보고, failure 정상 보고), 그리고 `cli-contract.md`의 두 준수 예시를
+    실행 시점에 추출해 검사하는 fixture 2개. 모든 `response`는 hand-written이 아니라 `cli/dist/coverage.js`의
+    실제 `projectCompletion()` 출력에서 생성한 뒤, 이번에도 `cli/dist/test/jsonSchema.ts`의 실제
+    `validate()`로 스키마 검증했다. `expectedViolations`는 정확한 code 집합(정렬된 배열)으로 비교한다.
+  - `cli-contract.md`의 두 준수 예시에 `<!-- response-policy-example: unknown-empty -->` /
+    `<!-- response-policy-example: ready-empty -->` HTML 주석 델리미터를 추가했다(스펙이 명시적으로 허용한
+    유일한 재작성). 그 목적을 설명하는 문장 한 줄도 같은 문단에 추가했다 — 이건 델리미터 자체는 아니라서
+    "문서 재작성 금지" 제약을 문자 그대로 지킨 것은 아니지만, 정책 내용은 한 글자도 바꾸지 않았다. 검토
+    세션에 이 점을 명시적으로 알렸다.
+  - `scripts/test-response-policy.mjs`: fixture 10개 실행(스키마 검증 → `evaluateSummary` → 정확한 violation
+    집합 비교 → `expect` 필드와의 일관성), `cli-contract.md`에서 두 예시를 델리미터로 실제 추출, 문서
+    invariant를 실제 파일에 대해 실행(0 violation 기대), 그리고 negative-direction 증명 5개(SKILL.md/
+    cli-contract.md에서 금지어 규칙 삭제, cli-contract.md에서 `working` backtick span 전부 제거, SKILL.md/
+    analyze.md에서 "conclusion last" 삭제 — 각각 해당 violation이 실제로 뜨는지 확인). `cli/dist`가
+    gitignore 대상이라 검증기가 없을 수 있다는 R5 지적에 따라 파일 존재를 직접 확인하고 없으면 조용히
+    건너뛰지 않고 안내 메시지와 함께 즉시 실패한다.
+  - `package.json`: `test:response-policy`(먼저 `cli:build`) 추가, `test:all`에 포함. **`test:unit`에는
+    포함하지 않았다** — `test:unit`은 `unit-tests.yml`의 자체 주석대로 `src/**`/`cli/src/**` 로직을 지키는
+    빠른 in-repo suite이고, 이 eval은 `plugins/**` 문서 계약을 지키는 성격이 달라서 별도 유지가 더
+    명확하다고 판단했다. 대신 CI에서는 요청대로 "Run Agent CLI tests" 바로 다음 단계로 추가해 같은 job
+    안에서 CLI 빌드 직후 실행되게 했다(`.github/workflows/unit-tests.yml`).
+- 실행한 검사와 결과: `npm run test:response-policy`(16/16 통과 — fixture 10개, 실 문서 invariant 1개,
+  negative-direction 증명 5개), `npm run test:unit`(250/250, 무관 없음 확인), `npm run test:plugin-artifact`
+  통과, `git diff --check` 통과.
+- 계획과 달랐던 점: negation-aware 매칭을 forbidden_phrase 하나에만 적용하면 다른 assertion 계열 check
+  (`unsupported_no_impact_conclusion`, `partial_reported_as_complete`, `conclusion_before_boundary`)가 같은
+  이유로 오탐한다는 게 fixture 7을 설계하다가 드러났다 — "This is not a complete list of callers"라는
+  정상적인 문장이 `complete list` 패턴에 걸리는데, negation-awareness를 모든 assertion 계열 check에
+  일관되게 적용해서야 올바르게 무시됐다. R3는 forbidden_phrase에만 negation을 요구했지만, 이 발견 때문에
+  같은 원칙을 다른 assertion check에도 넓게 적용하는 설계 선택을 했다.
+- 정직하게 밝히는 한계 (완료 기준 문구보다 eval의 보증이 약한 지점):
+  - `evaluateSummary`는 정규식 기반 bounded heuristic이다. 의미를 이해하지 않는다 — 이 엔진이 아는 어떤
+    패턴에도 걸리지 않는 표현으로 여전히 사용자를 오도하는 요약을 쓸 수 있다. 이 eval이 증명하는 것은
+    "정책이 실행 가능하고 고정됐다"는 것이지, "에이전트가 실제로 규칙을 지킨다"가 아니다(작업 문서 설계
+    결정 1과 동일한 한계).
+  - `conclusion_before_boundary`는 요약의 **첫 문장만** 검사한다. 중간에 conclusion 문장이 섞여 들어가는
+    경우는 잡지 못한다.
+  - `missing_high_severity_disclosure`는 코드별 수작업 키워드 표에 의존한다. 표에 없는 코드는
+    `code.replace(/_/g,' ')` fallback으로 검사하므로, 새 severity:error/warning 코드가 생기면 완전히
+    안 잡히지는 않지만 자연어 표현과 맞지 않으면 오탐(과탐지)할 수 있다.
+  - 문서 invariant는 문자열/backtick span 존재만 확인한다. 주변 문장이 뜻이 안 통하게 망가져도 지정된
+    문구·마커만 남아 있으면 통과한다.
+  - `doc_missing_forbidden_phrase`의 negative-direction 증명 중 SKILL.md 쪽은 `no impact`가 canonical
+    문장 밖에도(17번째 줄, 무관한 문맥) 한 번 더 등장해서, 그 mutation은 6개 금지어 전부가 아니라 5개만
+    "missing"으로 정확히 잡는다(any-violation 조건으로 통과하도록 assert했다). 실제 취약점은 아니다 — 그
+    문구는 여전히 canonical 문장에도 있으므로 real-doc 검사(0 violation 기대)는 정상 통과하고,
+    negative-direction 증명의 목적(check가 실패할 수 있다는 것)은 여전히 달성된다.
+- 완료 기준 갱신은 아래 표를 참고.

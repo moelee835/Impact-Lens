@@ -267,18 +267,24 @@ State a summary in this order, conclusion last, because readers act on the first
 3. **Findings** — direct/transitive callers, affected tests, hop distance, call sites, existing notes.
 4. **Conclusion** — explicitly scoped to the boundary stated in step 1.
 
-Two short compliant examples for an empty result, showing the same shape producing different conclusions:
+Two short compliant examples for an empty result, showing the same shape producing different conclusions.
+Both are extracted at runtime by `scripts/test-response-policy.mjs` (marked by the HTML comments below, not
+copied into the fixtures), so editing an example into something non-compliant fails that eval.
 
+<!-- response-policy-example: unknown-empty -->
 > **`unknown`, empty result:** "Static call hierarchy from typescript-language-server; the provider did not
 > report an index state, so this empty result is not proof no caller exists. No incoming callers were
 > returned for `calculateTotal` at depth 5. Because the index state is unknown, this is not evidence the
 > function is unused — re-run after indexing finishes or verify with a workspace search before removing it."
+<!-- /response-policy-example -->
 
+<!-- response-policy-example: ready-empty -->
 > **`ready`, empty result:** "Static call hierarchy from typescript-language-server; the provider's index is
 > proven ready (`work-done-progress` signal). No incoming callers were returned for `calculateTotal` at
 > depth 5. Within static call-hierarchy scope, nothing in this workspace calls it directly — this does not
 > rule out reflection, dependency injection, or other runtime-only wiring, so confirm dynamic entry points
 > before removing it."
+<!-- /response-policy-example -->
 
 ## Analyze
 

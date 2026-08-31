@@ -1,0 +1,143 @@
+{
+  "file": "04-ready-stale-index-caveat.json",
+  "name": "ready result still carries the unknown-index caveat",
+  "description": "indexingStatus ready (index proven built), empty result; summary still says the index state is unknown, which is stale once ready is proven. Must-fail fixture 4.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.6.3"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "typescript-language-server",
+        "requestedLanguageId": "typescript",
+        "detectedLanguageId": "typescript",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": true
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        }
+      },
+      "coverage": {
+        "traversal": {
+          "status": "complete",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "ready",
+          "evidence": {
+            "signal": "work-done-progress",
+            "detail": "indexing"
+          }
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable"
+        ]
+      },
+      "completion": {
+        "requestStatus": "succeeded",
+        "traversalStatus": "exhausted",
+        "semanticScope": "provider-static",
+        "indexingStatus": "ready"
+      },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "a1b2c3d4e5f6a1b2c3d4e5f6",
+          "name": "calculateTotal"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "no_incoming_callers",
+          "severity": "warning",
+          "scope": "semantic",
+          "message": "No incoming callers were returned for this symbol.",
+          "action": "Confirm dynamic entry points manually before removing this symbol."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "typescript-language-server",
+      "requestedLanguageId": "typescript",
+      "detectedLanguageId": "typescript",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": true
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      }
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable"
+    ],
+    "timings": {}
+  },
+  "summary": "The index state is unknown, so no callers were returned for this symbol.",
+  "expect": "fail",
+  "expectedViolations": [
+    "stale_index_caveat"
+  ]
+}

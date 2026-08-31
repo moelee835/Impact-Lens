@@ -1,0 +1,39 @@
+{
+  "file": "03-failure-reported-as-empty.json",
+  "name": "provider_not_ready failure reported as an empty result",
+  "description": "ok: false envelope (provider_not_ready, no graph produced); summary reports it as an empty caller list instead of a failed run. Must-fail fixture 3.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": false,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.6.3"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "error": {
+      "code": "provider_not_ready",
+      "message": "The provider did not report readiness within 30000ms.",
+      "retryable": true,
+      "details": {
+        "stage": "indexing",
+        "budgetMs": 30000,
+        "observedWorking": false
+      }
+    }
+  },
+  "summary": "No callers found for this symbol.",
+  "expect": "fail",
+  "expectedViolations": [
+    "failure_reported_as_empty"
+  ]
+}

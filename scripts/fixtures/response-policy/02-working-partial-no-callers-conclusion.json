@@ -1,0 +1,143 @@
+{
+  "file": "02-working-partial-no-callers-conclusion.json",
+  "name": "working/partial result reported as no callers",
+  "description": "indexingStatus working, requestStatus partial; summary asserts nothing calls the function, which the still-indexing state does not support, and never mentions the error-severity provider_not_ready limitation. Must-fail fixture 2.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.6.3"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "typescript-language-server",
+        "requestedLanguageId": "typescript",
+        "detectedLanguageId": "typescript",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": true
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        }
+      },
+      "coverage": {
+        "traversal": {
+          "status": "failed",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "working"
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable",
+          "provider_not_ready"
+        ]
+      },
+      "completion": {
+        "requestStatus": "partial",
+        "traversalStatus": "unknown",
+        "semanticScope": "provider-static",
+        "indexingStatus": "working"
+      },
+      "complete": false,
+      "truncated": true,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "a1b2c3d4e5f6a1b2c3d4e5f6",
+          "name": "calculateTotal"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "provider_not_ready",
+          "severity": "error",
+          "scope": "indexing",
+          "message": "The provider is still indexing, so the returned set of callers is incomplete.",
+          "action": "Wait for indexing to finish and re-run."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "typescript-language-server",
+      "requestedLanguageId": "typescript",
+      "detectedLanguageId": "typescript",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": true
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      }
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable",
+      "provider_not_ready"
+    ],
+    "timings": {}
+  },
+  "summary": "Nothing calls this function, based on the current results.",
+  "expect": "fail",
+  "expectedViolations": [
+    "unsupported_no_impact_conclusion",
+    "missing_high_severity_disclosure",
+    "conclusion_before_boundary"
+  ]
+}
