@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import test from 'node:test';
+import { CLASSIFIED_OBSERVATION_FIELDS } from './stateReachabilityClassification';
 
 // Pins the five completion states the reachability work document declares NOT YET reachable, and the
 // production-producer status of every `AnalysisObservations` field, the same way
@@ -10,13 +11,16 @@ import test from 'node:test';
 // `provider_not_ready` gained its first `new CliError(...)` call and had to move out of the contract-only
 // list. This file is the same technique applied to `AnalysisObservations.interruption` and `.semantic`.
 //
-// The check is textual - it proves no non-test file under cli/src ASSIGNS these fields as an object-literal
-// key (`interruption: ...`, `semantic: ...`), not that no code path could ever produce one by some other
-// means (a computed/shorthand assignment, for instance). That is the same limitation
-// `errors.test.ts` documents for its own `new CliError('code'` scan, and for the same reason: a textual
-// scan across five files is legible and fails loudly the moment a producer is added, which is what closes
-// the actual gap this lane exists to close (a synthesizing test staying green after its only producer is
-// deleted, or a feature built on a state nothing can reach).
+// The check here is textual - it proves no non-test file under cli/src ASSIGNS these fields as an
+// object-literal key (`interruption: ...`, `semantic: ...`), not that no code path could ever produce one
+// by some other means. A shorthand producer (`return { indexing, interruption };`) would slip past this
+// scan. `stateReachability.integration.test.ts` closes that specific residual gap with a runtime check
+// against what `LspCallHierarchyProvider.analysisObservations()` actually returns, which is shape-
+// independent; the two together cover "any file" (this scan) and "any syntax inside that one method" (the
+// runtime check). What remains uncovered after both is narrower still: a shorthand producer written
+// somewhere other than `analysisObservations()` that never reaches it - equivalent to `index.ts` handing
+// `analyzeImpact` an observations argument directly, which the reachability tests would only miss if none
+// of their scenarios exercised it.
 
 function nonTestSources(): readonly string[] {
   const root = path.resolve(__dirname, '..', '..', 'src');
@@ -130,26 +134,22 @@ function analysisObservationsFields(): readonly string[] {
   return fields;
 }
 
-const CLASSIFIED_FIELDS: Readonly<Record<string, 'has-producer' | 'no-producer'>> = {
-  indexing: 'has-producer', // LspCallHierarchyProvider.analysisObservations() returns { indexing: this.indexing() }.
-  interruption: 'no-producer', // see UNREACHABLE_TRAVERSAL_STATES above.
-  semantic: 'no-producer', // see UNREACHABLE_SEMANTIC_SCOPES above.
-};
-
 test('every AnalysisObservations field is classified as having a production producer or not', () => {
   const declaredFields = analysisObservationsFields();
   assert.deepEqual(
     [...declaredFields].sort(),
-    Object.keys(CLASSIFIED_FIELDS).sort(),
+    Object.keys(CLASSIFIED_OBSERVATION_FIELDS).sort(),
     'AnalysisObservations gained or lost a field that this test has not classified. Add it to ' +
-    'CLASSIFIED_FIELDS as "has-producer" or "no-producer" and back that classification with the source ' +
-    'scan below (or with stateReachability.integration.test.ts if it needs an execution-based row).',
+    'CLASSIFIED_OBSERVATION_FIELDS (stateReachabilityClassification.ts) as "has-producer" or ' +
+    '"no-producer" and back that classification with the source scan below and the runtime check in ' +
+    'stateReachability.integration.test.ts (or with a new reachable-state row there if it now has a ' +
+    'producer).',
   );
 });
 
 test('the has-producer/no-producer classification matches what the sources actually show', () => {
   const sources = readSources(nonTestSources());
-  for (const [field, classification] of Object.entries(CLASSIFIED_FIELDS)) {
+  for (const [field, classification] of Object.entries(CLASSIFIED_OBSERVATION_FIELDS)) {
     assert.equal(
       hasColonKeyProducer(field, sources),
       classification === 'has-producer',

@@ -242,7 +242,51 @@ timeout·취소 후 부분 결과 보존은 [IL-LIM-008](../development-manageme
 - 계획과 달랐던 점: 계획 문서와 요청 모두 "S7/S8만" tuple을 공유한다고 적었지만, 위에서 적었듯 S1/S3과
   S5/S6도 공유한다. 요청이 "요청받은 다섯 상태 판단이 틀렸다면 코드가 맞고 내가 틀린 것"이라고 미리
   말해뒀으므로, 이 발견을 조용히 감추지 않고 test 파일 주석과 이 로그에 그대로 남겼다.
-- 남은 제한 사항: R4/R5 스캔은 텍스트 기반이라 `errors.test.ts`가 스스로 인정하는 것과 같은 한계를 그대로
-  물려받는다 — `interruption:`처럼 콜론 키로 값을 만드는 생산자는 잡지만, shorthand(`{ indexing }`처럼
-  구조분해나 변수명 재사용)로 같은 필드를 채우는 미래의 생산자는 잡지 못할 수 있다. 오늘 존재하는 유일한
-  생산자(`indexing`)가 정확히 콜론 키 형태이므로 지금은 문제가 없지만, 이 한계는 정직하게 남겨둔다.
+- 남은 제한 사항(2단계 시점): R4/R5 스캔은 텍스트 기반이라 `errors.test.ts`가 스스로 인정하는 것과 같은
+  한계를 그대로 물려받는다 — `interruption:`처럼 콜론 키로 값을 만드는 생산자는 잡지만, shorthand
+  (`{ indexing, interruption }`처럼 콜론 없이 변수명을 재사용)로 같은 필드를 채우는 미래의 생산자는 잡지
+  못한다. 이 한계는 2단계 종료 시점에는 아직 안 막혀 있었다(3단계 검토에서 해소함, 아래 참고).
+
+### 2026-08-31 — 검토 후 추가: shorthand producer에 대한 runtime 검사
+
+계획/검토 세션이 2단계를 승인하면서(row identity 결정, S1/S3·S5/S6 collapse 발견, R2/R4 해석 모두 유지하기로
+확정) shorthand producer 구멍 하나를 지적하고 닫아 달라고 요청했다. 이 세션이 구현했다.
+
+- `cli/src/test/stateReachabilityClassification.ts`를 새로 만들어 `CLASSIFIED_OBSERVATION_FIELDS`(필드별
+  has-producer/no-producer 분류)를 **단일 출처**로 뺐다. `stateReachability.sources.test.ts`는 이제 이
+  모듈을 import해서 쓴다(전에는 자기 파일 안에 같은 표를 따로 갖고 있었다).
+- `stateReachability.integration.test.ts`의 "the shipped catalog produces..." test 안에, 이미 만들어 둔
+  bundled TypeScript provider 세션을 그대로 재사용해서 `provider.analysisObservations()`를 직접 호출하고
+  반환된 객체의 key 집합이 `fieldsClassified('has-producer')`(오늘은 `['indexing']`)와 정확히 같은지
+  검사하는 assertion을 추가했다. 별도 test로 분리해 provider를 새로 하나 더 띄우는 대신, 기존 test에
+  이어붙여 server 재기동 비용이 들지 않게 했다(실행 시간이 이전과 거의 같음 — 아래 참고).
+  method 자체가 이름이 바뀌거나 지워지는 경우도 조용히 통과하지 않도록 `typeof
+  provider.analysisObservations === 'function'`과 반환값이 null이 아닌 object인지를 먼저 확인한다(요청한
+  non-vacuous 조건).
+- 정직한 한계 문구를 좁혔다: 이제 텍스트 스캔은 "어느 파일이든, 콜론 키 형태"를 잡고 runtime 검사는
+  "`analysisObservations()` 안이면 어떤 문법이든"을 잡는다. 두 검사를 합친 뒤에도 남는 것은
+  `analysisObservations()` **바깥**의 shorthand 생산자(예: `index.ts`가 `analyzeImpact`에 observations를
+  직접 넘기는 경우) 하나뿐이다 — 처음 알린 한계보다 훨씬 좁다. `stateReachability.sources.test.ts` 파일
+  맨 위 주석에 이 좁아진 범위를 다시 적었다.
+- **역방향 검증을 실제로 다시 관찰했다.** `lspProvider.ts`의 `analysisObservations()`를 실제로 고쳐
+  `const interruption = undefined; return { indexing, interruption };`(콜론 없는 shorthand, 값은
+  `undefined`라서 `graphCompletion`의 분기에는 영향을 주지 않게 골랐다 — 처음 시도에서 값을 `'timeout'`으로
+  했더니 traversal 자체가 전부 `partial/timeout`으로 바뀌면서 *다른* assertion이 먼저 죽어서, 내가 추가한
+  검사 자체가 실패하는 걸 못 봤다. 값을 `undefined`로 바꿔서 그 문제를 없앴다):
+  - `stateReachability.sources.test.ts`(텍스트 스캔) 5개 test 전부 **그대로 통과** — 예상대로 shorthand를
+    못 본다.
+  - `stateReachability.integration.test.ts`의 "the shipped catalog produces..." test가 정확히 내가 새로
+    쓴 메시지로 실패: `provider.analysisObservations() returned ["indexing","interruption"], but
+    stateReachabilityClassification.ts classifies only ["indexing"] as has-producer.`
+  - 원복 후 `diff /tmp/lspProvider.ts.bak lspProvider.ts`로 바이트 단위 동일함을 확인.
+  요청한 대로 "텍스트 스캔은 못 보고 runtime 검사는 보는" 것을 정확히 관찰했다.
+- 실행한 검사와 결과: `npm run cli:test`(258/258, 새 test 개수는 8개로 동일 — 새 test를 추가하지 않고 기존
+  test에 assertion을 이어붙였다), `npm test`(58/58), `npm run test:response-policy`(16/16),
+  `npm run test:plugin-artifact` 통과, `git diff --check` 통과.
+- 실행 시간: "the shipped catalog produces..." test가 926ms → 933~1153ms로 거의 그대로다(별도 세션을 새로
+  띄우지 않았기 때문). 전체 스위트 시간도 이전과 같은 약 5.3~5.4초.
+- 남은 제한 사항(이번 추가 이후): `analysisObservations()` **바깥**에서 값을 직접 만들어 `analyzeImpact`에
+  넘기는 shorthand 생산자는 여전히 두 검사 어느 쪽도 못 잡는다. 다만 그 경로는 도달 가능성 test 자체가
+  `analyzeImpact`를 2-인자로만 부르므로, 그런 생산자가 실제로 생기면 도달 가능성 test의 관측 tuple이 바뀌어
+  R2의 양방향 검사가 대신 잡을 가능성이 높다(생산자가 어떤 시나리오에서도 절대 안 불리는 경우만 완전히
+  못 잡는다). 검토 세션에 이 잔여 범위를 그대로 보고했다.

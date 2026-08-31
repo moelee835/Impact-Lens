@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { analyzeImpact } from '../impact';
 import { LspCallHierarchyProvider } from '../lspProvider';
 import { ProviderPreset, ProviderReadinessProfile } from '../providers/preset';
+import { fieldsClassified } from './stateReachabilityClassification';
 
 // Answers a question `completion.test.ts` and `coverage.test.ts` cannot: not "does the projection report the
 // right thing for an observation", but "can the product ever produce that observation in the first place".
@@ -113,7 +114,12 @@ interface ObservedRow {
   readonly tuple: CompletionTuple;
 }
 
-async function bundledTypeScriptRows(t: TestContext): Promise<readonly ObservedRow[]> {
+interface BundledTypeScriptResult {
+  readonly rows: readonly ObservedRow[];
+  readonly provider: LspCallHierarchyProvider;
+}
+
+async function bundledTypeScriptRows(t: TestContext): Promise<BundledTypeScriptResult> {
   const workspace = await bundledTypeScriptWorkspace(t);
   // No provider command: this is the same "resolve the shipped catalog default" path a real request with
   // no `provider`/`providerPreset` takes, which is what makes this the bundled-TypeScript scenario rather
@@ -140,13 +146,16 @@ async function bundledTypeScriptRows(t: TestContext): Promise<readonly ObservedR
   const bothLimits = await analyzeImpact({ workspace, file: 'root.ts', line: root.line, column: root.column, depth: 1, maxNodes: 2 }, provider);
   assert.deepEqual(bothLimits.traversalLimits, ['depth', 'nodes'], 'both-limits scenario must hit both limits');
 
-  return [
-    { scenario: 'bundled-typescript: callers found', tuple: tupleOf(callersFound) },
-    { scenario: 'bundled-typescript: no callers', tuple: tupleOf(noCallers) },
-    { scenario: 'bundled-typescript: depth limit', tuple: tupleOf(depthLimit) },
-    { scenario: 'bundled-typescript: node limit', tuple: tupleOf(nodeLimit) },
-    { scenario: 'bundled-typescript: both limits', tuple: tupleOf(bothLimits) },
-  ];
+  return {
+    rows: [
+      { scenario: 'bundled-typescript: callers found', tuple: tupleOf(callersFound) },
+      { scenario: 'bundled-typescript: no callers', tuple: tupleOf(noCallers) },
+      { scenario: 'bundled-typescript: depth limit', tuple: tupleOf(depthLimit) },
+      { scenario: 'bundled-typescript: node limit', tuple: tupleOf(nodeLimit) },
+      { scenario: 'bundled-typescript: both limits', tuple: tupleOf(bothLimits) },
+    ],
+    provider,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -254,8 +263,28 @@ function assertReachableSetMatches(label: string, observed: readonly ObservedRow
 }
 
 test('the shipped catalog produces exactly its declared reachable completion states', { timeout: 60000 }, async t => {
-  const rows = await bundledTypeScriptRows(t);
+  const { rows, provider } = await bundledTypeScriptRows(t);
   assertReachableSetMatches('shipped catalog', rows, SHIPPED_CATALOG_REACHABLE);
+
+  // Runtime closure of the text scan's blind spot in stateReachability.sources.test.ts: that scan looks
+  // for a colon-key producer (`interruption: ...`) and cannot see a shorthand one
+  // (`return { indexing, interruption };`). This checks the actual return value of the real method instead
+  // of its source text, so the producer's syntax does not matter. Reuses the session already spun up above
+  // rather than starting a second Language Server just for this assertion.
+  assert.equal(typeof provider.analysisObservations, 'function', 'expected analysisObservations() to exist on the provider (not renamed or removed)');
+  const observations = provider.analysisObservations!();
+  assert.equal(typeof observations, 'object', 'expected analysisObservations() to return an object');
+  assert.ok(observations !== null, 'expected analysisObservations() to return a non-null object');
+  const actualKeys = Object.keys(observations).sort();
+  const expectedKeys = fieldsClassified('has-producer');
+  assert.deepEqual(
+    actualKeys,
+    expectedKeys,
+    `provider.analysisObservations() returned ${JSON.stringify(actualKeys)}, but ` +
+    `stateReachabilityClassification.ts classifies only ${JSON.stringify(expectedKeys)} as has-producer. ` +
+    'If a field was legitimately added here, update CLASSIFIED_OBSERVATION_FIELDS and, if it unlocks a ' +
+    'new completion state, add that state to the reachable lists above.',
+  );
 });
 
 test('a user-configured readiness-declaring provider produces exactly its declared additional states', { timeout: 30000 }, async t => {
