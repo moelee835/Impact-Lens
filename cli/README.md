@@ -97,12 +97,22 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
 - `schemaVersion` is currently `1`.
 - `line` and `column` are 1-based UTF-16 positions.
 - Node and edge arrays use deterministic ordering.
-- `complete` only means the configured provider completed the requested static traversal.
+- `data.completion` (`requestStatus`, `traversalStatus`, `semanticScope`, `indexingStatus`) is the single
+  source of truth for result state. `data.coverage`, `complete`, and `truncated` are schema v1
+  compatibility projections derived from it.
+- `complete` only means the configured provider completed the requested static traversal. It never means
+  "no impact", "safe to change", "unused", or "all callers" — those claims need runtime and index
+  completeness this CLI does not establish.
 - `provider` records the host, server identity, detected/requested language, selection source,
   advertised/observed capability, and last lifecycle stage.
 - `coverage.traversal` distinguishes complete, depth-limited, and node-limited traversal.
 - `coverage.semantic` is `static-only` until provenance-bearing augmentation is implemented.
-- `coverage.indexing` is `unknown` unless a provider gives an explicit readiness signal.
+- `coverage.indexing` (mirrored in `completion.indexingStatus`) is one of `unknown`, `working`, or `ready`.
+  No preset in the shipped catalog declares a readiness profile, so **`unknown` is the only value reachable
+  today** — an empty result under `unknown` is not evidence that no caller exists. `working`/`ready` only
+  appear once a preset that declares a `readiness` profile enters the catalog; no request field or
+  `.impact-lens/provider.json` field lets a user produce them today, since `readiness` is not part of the
+  schema for either.
 - Top-level `runtime` records the CLI and Node versions plus the allowlisted runner source without
   exposing an absolute executable, package URL, or full argument list.
 - Top-level `capabilities` and `limitations` remain schema v1 compatibility projections.
@@ -121,25 +131,80 @@ Exit codes:
 - `7`: unsupported CLI Node.js runtime
 - `10`: unexpected internal error
 
-## Bundled provider doctor
+## Provider doctor
 
-TypeScript/JavaScript installation checks do not require a provider configuration:
+Run machine-readable checks for any catalog preset, not just `bundled-typescript`:
 
 ```sh
 impact-lens doctor bundled-typescript
 impact-lens doctor bundled-typescript --smoke
+impact-lens doctor bundled-typescript --fixture
 ```
 
-The default preflight checks the active Node engine, CLI package, `typescript-language-server`,
-TypeScript version, and readable packaged entry. `--smoke` additionally starts the server and verifies
-initialize and advertised Call Hierarchy capability. It is explicit so normal analyze requests do not
-pay for an extra server process.
+The default preflight checks the active Node engine, CLI package, the provider executable/artifact and its
+version, language support, dotted settings keys, and `.impact-lens/provider.json` validity. `--smoke`
+additionally starts the server and verifies initialize and advertised Call Hierarchy capability.
+`--fixture` runs the preset's declared fixture through a real Call Hierarchy query. Each check reports
+`pass`, `warn`, or `fail` independently and **doctor does not stop at the first failure**, so a missing
+executable, an unsupported version, a language mismatch, a missing capability, and a fixture failure are
+all distinguishable in one response. Doctor never installs, builds, configures, or syncs a project — a
+missing or invalid dependency is reported, not fixed.
+
+Only catalog presets can be diagnosed this way. A raw custom `provider` (no preset id) cannot be checked by
+`doctor`; an id that is not in the catalog returns `invalid_command` without diagnosing anything:
+
+```json
+{"error":{"code":"invalid_command","message":"Unknown provider preset: not-a-real-preset","retryable":false,"details":{"stage":"startup","knownPresetIds":["bundled-typescript"]}}}
+```
 
 Inspect `runtime.runner.source` to distinguish `direct`, `explicit`, `checkout`, `global`, and
 `release-fallback`. Doctor output uses logical package and entry names only; it does not return resolved
 absolute paths, registry URLs, or command arguments.
 
-## Provider
+## Provider selection
+
+The CLI picks a provider in this order, stopping at the first match:
+
+1. **Raw custom command** — a `provider` object in the request JSON (below). It wins outright over every
+   other tier; whoever supplies it takes responsibility for it.
+2. **Explicit preset** — a `providerPreset` string in the request JSON, naming a catalog preset by id.
+   Refused with `provider_language_mismatch` if the named preset does not claim the detected file's
+   language.
+3. **Trusted project choice** — `.impact-lens/provider.json` committed in the workspace (below).
+4. **Verified auto-discovery** — the CLI looks for a catalog preset that claims the detected language and
+   has a discoverable executable, preferring a bundled preset over an external one. Two installed verified
+   providers for one language are reported, not silently guessed between.
+5. **Unsupported** — no catalog preset claims the detected language: `provider_required_for_language`.
+
+Selection never crosses a language boundary at any tier: a `.py` file is never analyzed by a TypeScript
+provider, whichever tier picked it.
+
+### Shipped catalog
+
+The catalog (`cli/src/providers/catalog.ts`) has exactly one entry today, `bundled-typescript`, covering
+`.ts`/`.mts`/`.cts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`. Every other language still ends at
+`provider_required_for_language` unless a custom `provider` or a project preset is configured — this is
+today's shipped state, not a preview of languages that will arrive soon.
+
+### `.impact-lens/provider.json` and request-level overrides
+
+Committing `.impact-lens/provider.json` in a workspace lets every request against that project skip
+repeating provider configuration. Exactly six fields are allowed; any other field rejects the whole file
+with `provider_config_invalid`:
+
+| Field | Meaning |
+| --- | --- |
+| `presetId` | Name a catalog preset by id |
+| `command` / `args` | Custom provider executable and arguments (relative paths only) |
+| `languageId` | Force the languageId reported to the provider |
+| `initializationOptions` / `settings` | Initialization values, applied ahead of the preset's own |
+
+The request JSON accepts the same `initializationOptions`/`settings` fields and merges them
+`preset < project < request`. Values whose key name contains `token`, `secret`, `password`, `credential`,
+`api key`, or `auth` (4+ characters), plus any path a preset marks `sensitive`, are redacted from logs and
+failure summaries automatically.
+
+## Custom provider
 
 TypeScript and JavaScript use the packaged `typescript-language-server` by default. A different standard LSP Call Hierarchy server can be supplied in stdin JSON:
 

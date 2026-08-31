@@ -107,6 +107,7 @@ Claude Code 안에서는 `/plugin marketplace add moelee835/Impact-Lens`와 `/pl
 | **검증 근거** | 영향 함수의 새 오류·경고, 실행 이후 오래된 테스트, 수동 `Reviewed` 상태 |
 | **함수 역할 노트** | Personal, Shared, Source comment와 CLI Local note를 목적에 맞게 관리 |
 | **에이전트 자동화** | 안정된 JSON envelope, 결정적 node/edge 순서, capability와 limitation 출력 |
+| **Provider 선택과 진단** | custom > preset > project > Auto 순서의 provider 선택, `doctor <preset>`의 check별 pass/warn/fail |
 
 ### 코드에서 그래프까지
 
@@ -183,6 +184,73 @@ impact-lens note delete --stdin < note-delete-request.json
 
 `note set`과 `note delete`는 기본적으로 preview만 반환합니다. 실제 변경에는 직전 preview의 최신 `expectedToken`과 명시적인 `apply: true`가 필요합니다.
 
+### Provider 선택 순서
+
+CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는 요청마다 provider를 자동으로 고릅니다
+(Auto). provider를 고르는 순서는 매 요청 고정돼 있고, 이 순서 중 먼저 조건을 만족하는 하나만 쓰입니다. 이
+순서를 벗어나 다른 언어의 provider로 조용히 대체되는 경우는 없습니다.
+
+1. 요청의 raw `provider`(`command`/`args`/`languageId`) — 가장 구체적인 지정이 항상 이깁니다.
+2. 요청의 `providerPreset` — catalog에 있는 preset id를 이름으로 지정합니다.
+3. 워크스페이스의 `.impact-lens/provider.json` — 프로젝트가 커밋해 공유하는 선택입니다.
+4. 검증된 auto-discovery — 감지된 언어를 지원한다고 catalog에 선언된 preset이 정확히 하나뿐이고 그 실행
+   파일을 찾을 수 있을 때만 선택됩니다.
+5. 위 네 단계 모두 실패하면 다른 언어의 provider로 대체하지 않고 `provider_required_for_language`로
+   실패합니다.
+
+**오늘 shipped catalog에는 preset이 `bundled-typescript` 하나뿐입니다.** Auto가 설정 없이 동작하는 언어는
+TypeScript/JavaScript(`.ts`, `.tsx`, `.js`, `.jsx` 등)뿐이며, 다른 언어는 "곧 지원 예정"이 아니라 **오늘
+검증된 preset이 없어서 항상 provider를 직접 설정해야 하는 상태**입니다. gopls가 다음 preset 후보이고, 실제
+fixture 검증을 통과해 catalog에 들어오기 전까지는 어떤 언어도 `verified-external`로 표시되지 않습니다.
+지원되지 않는 언어에서는 아래처럼 표준 LSP Call Hierarchy provider를 요청에 직접 지정합니다.
+
+```json
+{
+  "provider": {
+    "command": "/absolute/path/to/language-server",
+    "args": ["--stdio"],
+    "languageId": "python"
+  }
+}
+```
+
+### `doctor <preset>`로 provider 진단
+
+`doctor`는 이제 `bundled-typescript`뿐 아니라 catalog의 어떤 preset id도 받는 일반 명령입니다.
+
+```sh
+impact-lens doctor bundled-typescript
+impact-lens doctor bundled-typescript --smoke
+impact-lens doctor bundled-typescript --fixture
+```
+
+`preflight`(기본)는 Node 엔진, CLI package, provider 실행 파일/artifact, 버전, 언어 일치, settings 키,
+`.impact-lens/provider.json` 유효성을 확인합니다. `--smoke`는 실제로 서버를 시작해 initialize와 advertised
+capability를 추가로 확인하고, `--fixture`는 preset이 선언한 fixture로 실제 Call Hierarchy 결과까지
+검증합니다. 각 check는 `pass`/`warn`/`fail`을 독립적으로 보고하며 **첫 실패에서 멈추지 않으므로** 실행 파일
+누락, 지원하지 않는 버전, 언어 불일치, capability 부재, fixture 실패를 한 응답에서 모두 구분할 수 있습니다.
+
+**doctor로 진단할 수 있는 대상은 catalog에 등록된 preset뿐입니다.** 요청의 raw `provider`처럼 preset이 아닌
+custom provider는 `doctor`로 점검할 수 없고, catalog에 없는 id를 주면 provider를 전혀 진단하지 않고
+`invalid_command`로 즉시 끝납니다.
+
+### `.impact-lens/provider.json`과 요청 단위 override
+
+워크스페이스에 `.impact-lens/provider.json`을 커밋하면 그 프로젝트를 여는 모든 요청이 매번 provider를
+반복해서 지정하지 않아도 됩니다. 허용 필드는 다음 6개뿐이며 그 밖의 필드가 있으면 파일 전체가
+`provider_config_invalid`로 거부됩니다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `presetId` | catalog preset id 이름 지정 |
+| `command` / `args` | custom provider의 실행 파일과 인자(상대 경로만 허용) |
+| `languageId` | provider에 알릴 languageId 강제 지정 |
+| `initializationOptions` / `settings` | preset보다 우선 적용되는 초기화 옵션·설정 |
+
+요청 JSON도 같은 두 필드(`initializationOptions`, `settings`)를 받아 `preset < project < request` 순서로
+병합합니다. `token`, `secret`, `password`, `credential`, `api key`, `auth`가 key 이름에 포함된 값(4자 이상)과
+preset이 직접 지정한 민감 경로는 로그와 실패 요약에서 자동으로 가려집니다.
+
 Codex plugin과 Claude Code plugin은 같은 `plugins/impact-lens` payload를 공유합니다. 두 plugin 모두 `impact-lens-cli` skill과 안전한 CLI runner를 사용하므로 다음 요청이 자동으로 Impact Lens CLI workflow에 연결됩니다.
 
 ```text
@@ -223,9 +291,28 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
   범위가 기록됩니다. Extension은 VS Code 공개 API가 실제 provider identity를 노출하지 않으므로 이름을
   `unknown`으로 표시합니다.
 - CLI/Plugin 응답의 `runtime`은 CLI·Node version과 runner 선택 source를 경로·credential 없이 기록합니다.
-- `complete: true`는 `coverage.traversal`이 완료됐다는 뜻이며, `semantic: static-only` 또는
-  `indexing: unknown`을 무효화하지 않습니다.
 - 저장하지 않은 editor buffer는 Extension live analysis에는 반영되지만 독립 CLI에서는 사용할 수 없습니다.
+
+### `complete: true`가 증명하지 않는 것
+
+`complete: true`는 **요청한 정적 traversal이 depth/node 제한 없이 끝났다**는 뜻만 담습니다(schema v1에서
+`coverage.traversal.status: "complete"`와 `completion.traversalStatus: "exhausted"`의 하위 호환
+표현입니다). 이것이 무효화하지 않는 두 가지가 있습니다.
+
+- `coverage.semantic.status`: 오늘 유일하게 가능한 값은 `static-only`입니다. reflection, runtime
+  dependency injection, decorator routing, event bus, 문자열 기반 import처럼 provider가 정적으로 추론하지
+  못하는 관계는 `complete: true`여도 그래프에 없을 수 있습니다.
+- `coverage.indexing.status`: `unknown` / `working` / `ready` 셋 중 하나입니다. shipped catalog(오늘은
+  `bundled-typescript`뿐)는 색인 상태를 선언하지 않으므로 **오늘 실제로 볼 수 있는 값은 `unknown`뿐**이고,
+  `unknown`은 "provider가 색인이 끝났다고 증명하지 않았다"는 뜻이라 caller 0개인 결과가 "callee 없음"의
+  증거가 되지 못합니다. `working`/`ready`는 `readiness`를 선언한 provider가 catalog에 들어와야만 나타나는
+  값으로, 오늘은 사용자가 요청 JSON이나 `.impact-lens/provider.json`으로 만들 수 없습니다.
+
+`complete: true`인 빈 결과(caller 0개)를 보고 **"안전하게 지워도 된다", "영향 없음", "완전히 분석됨", "모든
+호출자를 확인함"**으로 결론짓지 마세요. 정적 Call Hierarchy 근거는 그 결론이 요구하는 runtime/색인
+완전성을 증명하지 않습니다. 이 어휘는 Codex/Claude Code plugin의 응답 정책과 동일하며(plugin 쪽 근거는
+[`cli-contract.md`](plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md) 참고), plugin은
+같은 결론을 내는 응답이 eval에서 실패하도록 고정돼 있습니다.
 
 ## 설정
 
@@ -238,6 +325,13 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 | `impactLens.liveAnalysisDebounceMs` | `600` | 마지막 편집 후 분석 대기 시간, 150-3000ms |
 | `impactLens.showCodeLens` | `true` | 함수 선언 위 note와 `Show impact` 표시 |
 | `impactLens.defaultNoteStorage` | `personal` | 새 노트 관리 화면의 기본 저장 위치 |
+| `impactLens.provider.detailLevel` | `summary` | `summary`는 결과 수·traversal 상태·semantic scope만, `verbose`는 provider 이름·lifecycle stage·전체 reason code까지 표시 |
+| `impactLens.provider.doctorCommandLine` | (빈 문자열) | `Impact Lens: Run Provider Doctor`가 확인 후 터미널에서 제안할 Agent CLI 점검 명령. User 설정 전용(machine scope)이라 워크스페이스가 대신 채울 수 없고, Impact Lens는 이 명령을 자동으로 실행하거나 출력을 읽지 않습니다 |
+
+`Impact Lens: Run Provider Doctor` 명령은 호스트가 직접 관측한 사실(현재 커서 위치에서 Call Hierarchy root를
+찾았는지, document symbol이 있는지, 마지막 분석의 provider/coverage)을 Output 채널에 출력합니다. "caller가
+없음"과 "provider 자체가 없음"은 VS Code 공개 API로 구분할 방법이 없어 하나의 안내로 병합되고, "그래프가
+아예 없음"과 "그래프는 있지만 일부 결과"는 서로 다른 안내로 구분됩니다.
 
 ## 문서
 
@@ -265,6 +359,7 @@ VS Code에서 저장소를 열고 `F5`를 누르면 Extension Development Host�
 - `Impact Lens: Manage Function Note`
 - `Impact Lens: Refresh`
 - `Impact Lens: Clear Live Change Session`
+- `Impact Lens: Run Provider Doctor`
 
 ### 프로젝트 구성
 
