@@ -21,9 +21,34 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
   `limitations` are schema v1 compatibility projections, not independent state.
 - Treat `completion.traversalStatus: exhausted` only as completion of the requested static traversal.
   `complete: true` is its compatibility projection. Check `semanticScope` and `indexingStatus` separately;
-  `provider-static` or `unknown` prevents claims of complete runtime impact.
-- When a result has only the root node and no edges, inspect `no_incoming_callers` and `index_state_unknown` in
-  `limitationDetails`. Zero incoming callers with unknown indexing is not proof that none exist.
+  `provider-static` prevents claims of complete runtime impact regardless of `indexingStatus`.
+- `completion.indexingStatus` (mirrored in `coverage.indexing.status`) is `unknown`, `working`, or `ready`,
+  and each permits a different statement. Read
+  [references/cli-contract.md](references/cli-contract.md) for the full table and JSON examples before
+  summarizing an empty or partial result.
+  - `unknown`: the provider made no claim about its index. An empty result is not evidence that no caller
+    exists; carry that caveat. This is what every shipped catalog provider produces today, but a
+    user-configured provider can still produce the other two states below.
+  - `working`: the provider is still indexing (`requestStatus: partial`, `traversalStatus: unknown`,
+    `complete: false`, and an `error`-severity `provider_not_ready` limitation). Report the result as
+    incomplete because indexing was in progress and recommend re-running; never report it as "no callers".
+  - `ready`: the provider proved its index is built (`coverage.indexing.evidence` names a stable signal kind
+    plus the preset's matcher string, never server text or a timestamp). An empty result here is a real
+    answer within static call-hierarchy scope; omit the index-state caveat rather than repeating it out of
+    habit — a caveat attached to every result teaches readers to ignore it. Runtime-completeness claims stay
+    forbidden regardless.
+- `completion.requestStatus: partial` means the graph is usable but incomplete, never a complete list of
+  callers. Name the limiting cause from `limitationDetails` (`depth_limit_reached`, `node_limit_reached`,
+  `traversal_timeout`, `traversal_cancelled`, `provider_query_failed`, or `provider_not_ready`).
+  `no_incoming_callers` and `index_state_unknown` are absent from a `partial` result by construction; their
+  absence does not mean there are no callers.
+- When a result has only the root node and no edges, inspect `no_incoming_callers` and, when present,
+  `index_state_unknown` in `limitationDetails`. `index_state_unknown` accompanies only `indexingStatus:
+  unknown`; its absence under `working` or `ready` is correct, not a gap to fill in.
+- State a summary in this order, conclusion last, because readers act on the first sentence: (1) evidence
+  boundary — scope, indexing state, traversal completeness; (2) every `error`-severity then
+  `warning`-severity `limitationDetails` entry, before any findings; (3) findings; (4) a conclusion
+  explicitly scoped to (1).
 - Never describe a result as `no impact`, `safe to change`, `unused`, `fully analyzed`, `complete analysis`, or
   `all callers`; those phrases claim more than static Call Hierarchy evidence establishes.
 - Treat incoming-call results as static evidence from the configured Call Hierarchy provider. Do not claim coverage of reflection, dependency injection, decorators, events, generated code, or runtime-only links.
@@ -55,6 +80,14 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
 - Distinguish provider discovery, language mismatch, launch, initialize, capability, and query errors
   using the error code and `details.stage`. Do not retry a language mismatch with the bundled
   TypeScript provider.
+- `provider_not_ready` names two different things depending on where it appears: a `limitationDetails`
+  entry on `ok: true` means analysis ran and a graph exists but the index was not confirmed ready; an
+  `error.code` on `ok: false` with `details.stage: "indexing"` (exit 5, retryable) means no analysis ran
+  and there is no graph. Never present the failed form as an empty result.
+- `provider_project_metadata_missing` (`ok: false`, `details.stage: "indexing"`, exit 5) lists the missing
+  workspace-relative project files in `details.missing`. Impact Lens deliberately never generates, builds,
+  or syncs these files. Tell the user which files are missing and that they must supply them; do not offer
+  to create them.
 - For bundled TypeScript/JavaScript startup failures, inspect `runtime.runner.source` and run
   `<plugin-root>/scripts/run-impact-lens doctor bundled-typescript --smoke` once. Use its package,
   entry, initialize, and capability checks before suggesting reinstall/update; do not ask the user

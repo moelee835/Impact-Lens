@@ -1,0 +1,37 @@
+{
+  "file": "08-failure-correctly-reported.json",
+  "name": "a correctly reported ok: false failure",
+  "description": "provider_not_ready as error.code (no analysis ran, no graph). Summary reports the failure plainly without empty-result language. Must-pass fixture 8.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": false,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.6.3"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "error": {
+      "code": "provider_not_ready",
+      "message": "The provider did not report readiness within 30000ms.",
+      "retryable": true,
+      "details": {
+        "stage": "indexing",
+        "budgetMs": 30000,
+        "observedWorking": false
+      }
+    }
+  },
+  "summary": "The analysis could not run: the provider's index was not confirmed ready within the configured budget, so no graph was produced. Re-run once indexing finishes; this says nothing about whether the function has callers.",
+  "expect": "pass",
+  "expectedViolations": []
+}

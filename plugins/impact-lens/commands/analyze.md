@@ -47,22 +47,33 @@ JSON
 
 ## 3. Report the impact
 
-Summarize from the parsed JSON, not from raw output:
+Follow the `impact-lens-cli` skill's indexing-state and summary-order rules; this step restates only what
+this command needs inline.
 
-- Direct callers, transitive callers, and affected tests, with hop distance and call sites.
-- Any existing function notes on the impacted symbols.
-- `data.completion` as the single source of request, traversal, semantic, and indexing state.
-- Structured `data.limitationDetails`, including severity and recovery action when present. Treat
-  `coverage`, `complete`, `truncated`, and `limitations` as schema v1 compatibility projections.
-- Truncation: report the requested depth, the reached depth, and whether a depth or node limit
-  stopped the traversal. Never present a truncated or empty result as proof of no impact.
-- Provider host/name/language/selection, advertised versus observed capability, and the last
-  lifecycle stage from `provider`.
-- `completion.traversalStatus: exhausted` only confirms that the requested static traversal finished.
-  `complete: true` is its v1 projection and does not override `semanticScope: provider-static` or
-  `indexingStatus: unknown`.
-- For one root node and no edges, inspect `no_incoming_callers` and `index_state_unknown`. Unknown indexing
-  means the empty result is not proof that no callers exist.
+Summarize from the parsed JSON, not from raw output, in this order — conclusion last:
+
+1. Evidence boundary: provider host/name/language/selection, static call-hierarchy scope, and
+   `completion.indexingStatus` (`unknown`, `working`, or `ready` — see the skill for what each permits).
+2. Traversal completeness: `requestStatus`, whether the result is truncated, the requested depth, the
+   reached depth, and whether a depth or node limit stopped the traversal.
+3. Every `data.limitationDetails` entry with `severity: error`, then `severity: warning`, before any
+   findings; include the recovery action when present.
+4. Findings: direct callers, transitive callers, and affected tests, with hop distance and call sites, and
+   any existing function notes on the impacted symbols. Advertised versus observed capability and the last
+   lifecycle stage from `provider`.
+5. A conclusion explicitly scoped to the evidence boundary from step 1.
+
+- `completion.traversalStatus: exhausted` only confirms that the requested static traversal finished;
+  `complete: true` is its v1 projection. It does not override `semanticScope: provider-static` or a
+  non-`ready` `indexingStatus`.
+- `requestStatus: partial` is a usable but incomplete graph, never a complete list of callers; name the
+  limiting cause from `limitationDetails`. Never report a `working`-indexing or `partial` result as "no
+  callers".
+- For one root node and no edges, inspect `no_incoming_callers` and, when present, `index_state_unknown` in
+  `limitationDetails`. Its absence under `indexingStatus: ready` is correct, not a gap.
+- A `provider_not_ready` `error.code` on `ok: false` means no analysis ran and there is no graph; never
+  present it as an empty result. A `provider_project_metadata_missing` failure names files the user must
+  supply — Impact Lens never generates or syncs them; do not offer to create them.
 
 State plainly that these are static Call Hierarchy relationships. Do not claim coverage of
 reflection, dependency injection, decorator routing, event buses, generated code, or other
