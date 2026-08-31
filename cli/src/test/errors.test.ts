@@ -48,7 +48,8 @@ test('a contract-only error code is declared exactly once and thrown nowhere', (
 
   const sources = sourceFiles().map(file => fs.readFileSync(file, 'utf8')).join('\n');
   // Matching the construction, not the bare string: reason codes share names with error codes on purpose,
-  // and cli/src/coverage.ts writes 'provider_not_ready' as a reason today.
+  // and cli/src/coverage.ts writes 'provider_not_ready' as a reason on a successful partial response even
+  // though cli/src/providers/readiness.ts now also throws it as an error code.
   const thrown = CONTRACT_ONLY_ERROR_CODES.filter(code => new RegExp(`new CliError\\(\\s*'${code}'`).test(sources));
   assert.deepEqual(thrown, [], `move these into CLI_ERROR_CODES with an exit status: ${thrown.join(', ')}`);
 
@@ -62,7 +63,9 @@ test('CLI error codes are unique and recognised by the guard', () => {
   for (const code of CLI_ERROR_CODES) {
     assert.equal(isCliErrorCode(code), true, code);
   }
-  assert.equal(isCliErrorCode('provider_not_ready'), false);
+  // A code the contract declares but nothing throws yet. It was `provider_not_ready` until readiness
+  // measurement started raising it, and the swap is the visible half of the move this pair of lists forces.
+  assert.equal(isCliErrorCode('provider_fixture_failed'), false);
   assert.equal(isCliErrorCode(undefined), false);
 });
 
