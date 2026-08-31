@@ -35,12 +35,34 @@ indexing 완료 후 안정적으로 분석하고 싶다.
 
 ## 수용 기준
 
-- [ ] 설정 값이 schema 검증을 거쳐 Language Server에 전달된다.
-- [ ] configuration 요청 및 준비 대기가 필요한 fixture가 통과한다.
-- [ ] 민감한 설정 값이 stdout·stderr에 임의 노출되지 않는다.
-- [ ] 기존 TypeScript 기본 provider 계약과 결과가 유지된다.
-- [ ] initialize 전후 process crash가 단계·exit/signal·redacted stderr와 함께 재현 가능하게 보고된다.
-- [ ] build/index 준비가 필요한 provider가 `not_ready`와 실제 empty graph를 구분한다.
+- [x] 설정 값이 schema 검증을 거쳐 Language Server에 전달된다. 근거: `cli/schemas/request.schema.json`의
+  `initializationOptions`/`settings`(`$defs/configObject`) + `cli/src/test/requestOverrides.test.ts`
+  "a normal provider settings tree is accepted", "the CLI sends request initialization options and
+  settings to the selected provider".
+- [x] configuration 요청 및 준비 대기가 필요한 fixture가 통과한다. 근거:
+  `cli/src/test/bidirectional.test.ts` "answers workspace/configuration asked before/after the
+  initialize result" + `cli/src/test/readiness.integration.test.ts` "a declared progress end reports
+  ready with evidence...", "a proceed-partial budget overrun...", "a fail budget overrun...".
+- [x] 민감한 설정 값이 stdout·stderr에 임의 노출되지 않는다. 근거:
+  `cli/src/test/requestOverrides.test.ts:303` "request-level secrets are redacted from provider
+  failures".
+- [x] 기존 TypeScript 기본 provider 계약과 결과가 유지된다. 근거: `cli/src/test/providers.test.ts:268`
+  "the TypeScript reference preset produces the command the bundled path produced before"(catalog 기반
+  명령이 preset 이전 하드코딩 명령과 바이트 단위 동일), `:281` "the reference preset claims nothing it
+  cannot prove".
+- [x] initialize 전후 process crash가 단계·exit/signal·redacted stderr와 함께 재현 가능하게 보고된다.
+  근거: `cli/src/test/contract.test.ts` "preserves initialize exit diagnostics after stderr closes and
+  redacts secrets", "preserves lifecycle and runtime provenance when the provider exits silently",
+  "separates a query-stage provider exit from initialization failure".
+- [x] build/index 준비가 필요한 provider가 `not_ready`와 실제 empty graph를 구분한다. 근거:
+  `cli/src/test/readiness.test.ts:170` "an exceeded fail budget raises provider_not_ready at the
+  indexing stage" + `cli/src/test/completion.test.ts` S7/S8("an index that is still working reaches
+  partial/unknown", "an empty result while indexing is never reported as no callers").
+
+**2026-08-31 판정**: 6개 전부 충족. 위 "범위"의 4단계(실제 외부 server 최소 2종 호환)는 수용 기준 6개
+어디에도 없다 — 4단계 종료 조건("최소 2종 외부 server가 별도 client patch 없이 통과")은 M2 소관
+(`IL-LIM-004`)이며 이 story의 수용 기준과 혼동하지 않는다. 판정 근거 전체는
+[`task-m1-gate-closure.md`](../../work/task-m1-gate-closure.md)에 있다.
 
 ## 검증
 
