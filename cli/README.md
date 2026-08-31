@@ -109,8 +109,10 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
 - `coverage.semantic` is `static-only` until provenance-bearing augmentation is implemented.
 - `coverage.indexing` (mirrored in `completion.indexingStatus`) is one of `unknown`, `working`, or `ready`.
   No preset in the shipped catalog declares a readiness profile, so **`unknown` is the only value reachable
-  with today's catalog** — an empty result under `unknown` is not evidence that no caller exists. A
-  user-configured provider with its own `readiness` profile can still report `working` or `ready`.
+  today** — an empty result under `unknown` is not evidence that no caller exists. `working`/`ready` only
+  appear once a preset that declares a `readiness` profile enters the catalog; no request field or
+  `.impact-lens/provider.json` field lets a user produce them today, since `readiness` is not part of the
+  schema for either.
 - Top-level `runtime` records the CLI and Node versions plus the allowlisted runner source without
   exposing an absolute executable, package URL, or full argument list.
 - Top-level `capabilities` and `limitations` remain schema v1 compatibility projections.
@@ -152,7 +154,7 @@ Only catalog presets can be diagnosed this way. A raw custom `provider` (no pres
 `doctor`; an id that is not in the catalog returns `invalid_command` without diagnosing anything:
 
 ```json
-{"error":{"code":"invalid_command","message":"Unknown provider preset: not-a-real-preset","details":{"knownPresetIds":["bundled-typescript"]}}}
+{"error":{"code":"invalid_command","message":"Unknown provider preset: not-a-real-preset","retryable":false,"details":{"stage":"startup","knownPresetIds":["bundled-typescript"]}}}
 ```
 
 Inspect `runtime.runner.source` to distinguish `direct`, `explicit`, `checkout`, `global`, and

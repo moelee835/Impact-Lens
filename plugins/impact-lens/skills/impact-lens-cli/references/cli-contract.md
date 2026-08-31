@@ -136,9 +136,13 @@ different statement about an empty or partial result; do not treat them intercha
 The provider never reported an index state. An empty result is not evidence that no caller exists, which is
 why the response carries `index_state_unknown`. No preset in the shipped catalog declares a `readiness`
 profile yet (`cli/src/providers/catalog.ts` marks every bundled preset "claims nothing about indexing"), so
-`unknown` is what agents see with every bundled and catalog provider today. A user-configured provider with
-its own `readiness` profile can still produce `ready` or `working`, so both remaining states below must still
-be handled, not assumed unreachable.
+`unknown` is what agents see with every bundled and catalog provider today. No request field or
+`.impact-lens/provider.json` field lets a user attach a `readiness` profile — `readiness` is not part of
+either schema, so a user cannot reach `ready` or `working` through any configuration available today.
+Those two states only start appearing once a preset that declares `readiness` enters the shipped catalog,
+which is a code change, not something this CLI's current surface exposes. Implement handling for both
+states anyway: they are part of the schema and will become reachable without warning once that catalog
+change ships, so do not hard-code an assumption that only `unknown` exists.
 
 ### `working` — the provider is still indexing
 

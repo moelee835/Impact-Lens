@@ -261,3 +261,41 @@ INSTALL.md + cli/README.md)가 이제 완료 기준을 충족한다.
   - `cli/dist`는 `.gitignore`에 있어 빌드로 생긴 파일이 `git status`에 나타나지 않음을 확인했다(정리 불필요).
 - 이 단계는 코드·설정을 변경하지 않았으므로 `npm run cli:test`/`npm test` 재실행은 하지 않았다(변경 파일이
   test 대상이 아님, 작업 문서 "테스트 및 완료 기준"에 기록한 대로).
+
+### 2026-08-31 정정 — reviewer 검토 반영 (조정 세션)
+
+`reviewer` 세션이 PR #53을 검토해 2건의 수정과 1건의 범위 추가를 요청했다. 조정 세션이 같은 worktree에서
+직접 반영했다.
+
+1. **[blocker] `cli/README.md`의 readiness 문장이 `README.md`와 정반대였다.** `cli/README.md`가 "A
+   user-configured provider with its own `readiness` profile can still report `working` or `ready`"라고
+   썼는데, `README.md:307-308`은 정반대로 "오늘은 사용자가 요청 JSON이나 `.impact-lens/provider.json`으로
+   만들 수 없다"고 정확히 썼다. 직접 재확인: `request.schema.json`에 `readiness` 필드가 없고
+   `projectConfig.ts`의 `ALLOWED_FIELDS`(6개)에도 없다 — 오늘 사용자가 붙일 경로가 존재하지 않는다.
+   `cli/README.md`를 `README.md` 쪽 사실에 맞춰 정정: "`working`/`ready`는 `readiness`를 선언한 preset이
+   catalog에 들어와야만(코드 변경) 나타나며, 오늘의 요청 필드나 `.impact-lens/provider.json` 필드로는
+   만들 수 없다."
+2. **[경미] `invalid_command` 예시가 실제 출력과 달랐다.** `node dist/index.js doctor not-a-real-preset`을
+   다시 실행해 실제 출력 전체(`retryable:false`, `details.stage:"startup"` 포함)를 확인하고 예시를
+   그대로 교체했다.
+3. **[범위 추가] 같은 거짓 문장이 `main`의 shipped plugin 문서에도 있었다.** `cli/README.md`의 그 문장은
+   `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md:138-140`(이 worktree 기준
+   행 번호)에서 옮겨온 것이었고, 원본이 먼저 틀려 있었다. **이것은 PR #51(`fix/m1-reachability-naming`)이
+   의도했던 정정이 빠뜨린 자리다** — PR #51은 `USER_CONFIGURED_ADDITIONAL_REACHABLE`이라는 이름이 "사용자
+   설정으로 도달 가능"하다는 인상을 준다는 이유로 개명했지만, 실제로 변경한 파일은
+   `stateReachability.integration.test.ts`, `stateReachability.sources.test.ts`, 작업 문서 3개뿐이었고
+   `cli-contract.md`는 손대지 않았다. reviewer의 지시대로 별도 PR로 쪼개지 않고 이 PR(#53)에 함께 반영했다
+   — 같은 문장·같은 결함이라 분리하면 두 문서가 한동안 서로 다른 말을 하게 되고, R4가 이 파일이 속한
+   plugin payload를 0.3.0으로 올리기 전에 고치지 않으면 거짓 문장을 새 버전으로 발행하게 되기 때문이다.
+   `plugins/**`는 `il-plugin-docs` 소유 경로이므로 이 변경 자체는 범위 충돌이 아니다. 다만 그 역할 정의가
+   "문구 변경이 plugin 응답 정책에 해당하면 대응하는 eval 또는 contract fixture를 함께 갱신한다"고
+   요구하므로 `npm run test:response-policy`를 재실행했다 — **16/16 통과**(기존과 동일한 fixture 10개 +
+   doc invariant 6개, negative-direction 포함). `working`/`ready` code span 표시가 그대로 유지돼
+   "un-marking every `working` code span... fails" 음의 방향 증명도 영향받지 않았다.
+   **R3에 후속 항목으로 남긴다: PR #51의 정정이 `cli-contract.md`를 빠뜨렸다는 사실을 gate 판정 문서에
+   기록해야 한다.**
+4. reviewer는 기존 `README.md:219-229`와의 중복·모순은 없다고 확인했다(226-227행의 `complete: true` 한
+   줄을 정확히 치환하고 새 절로 확장했을 뿐 겹쳐 쓰지 않음) — 별도 조치 불필요.
+
+검증: `git diff --check` 통과. `npm run test:response-policy` 16/16 통과(위 3번). `cli/README.md`/
+`cli-contract.md` 변경은 문서 전용이라 `npm run cli:test`/`npm test` 재실행은 대상 밖이다.
