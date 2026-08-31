@@ -99,7 +99,7 @@ test('nothing outside tests and types.ts assigns AnalysisObservations.interrupti
     'a production producer of `interruption` appeared. That means one or more of the timeout/cancelled/' +
     'failed traversal states declared unreachable in this file are now reachable - move the newly-reached ' +
     'state(s) from UNREACHABLE_TRAVERSAL_STATES here into SHIPPED_CATALOG_REACHABLE or ' +
-    'USER_CONFIGURED_ADDITIONAL_REACHABLE in stateReachability.integration.test.ts in the same change, per ' +
+    'CATALOG_DECLARED_READINESS_REACHABLE in stateReachability.integration.test.ts in the same change, per ' +
     'IL-LIM-008.',
   );
   // Every declared-unreachable traversal state's reason rests on this same fact; if it were false the
