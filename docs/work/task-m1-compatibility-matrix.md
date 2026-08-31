@@ -364,6 +364,22 @@ CI는 이미 새 test 파일을 자동으로 포함한다**. 계획 문서 작�
     먼저 확인한 뒤, 수정 후에도 여전히 잡히는지 실제 파일 주입으로 재확인했다), 수정 후에는 세 경우 모두
     최소 하나의 test가 정확한 이유로 실패했다.
   - 수정 후 `npm run cli:test` 재실행 → 266/266(변경 없음, 이 파일의 test 개수 자체는 그대로 4개).
+- **reviewer 재검증 후 주석 정정 (코드 변경 없음)**: reviewer가 독립적으로 재검증해 로직 자체(우회 3종,
+  `require(...).exec(...)`, 경로 문자열 리터럴 비제외, 주입 변수명 미잔존)는 견고하다고 확인했다. 계획
+  세션이 `REGEX_LITERAL_EXEC_RECEIVER`의 실제 남은 범위를 "receiver 토큰이 소문자 0~4자이고 그 바로 앞
+  (8글자 lookback 안)에 리터럴 `/`가 있는 `.exec(` 호출은 제외된다"고 정확히 특정했다. 직접
+  `isRegexLiteralExecCall`을 격리 재현해 확인했다: `'1/x.exec(str)'`(receiver 1자)과
+  `'9/cp.exec(str)'`(receiver 2자)는 제외되지만, `'9/child.exec(str)'`(receiver 5자)는 제외되지 않는다
+  - 계획 세션의 특정과 정확히 일치했다. 두 곳을 정정했다:
+  1. `REGEX_LITERAL_EXEC_RECEIVER` 바로 위 주석 - "a variable holding either a regex or a child_process
+     handle - is NOT excluded and stays flagged"는 틀린 서술이었다(짧은 소문자 receiver + 인접 `/`는
+     실제로 제외됨). 정확한 형태로 다시 썼다.
+  2. 파일 상단 "Scope and an honest limit" 목록 - `require`+별칭 destructure 갭 바로 옆에 이 좁은 잔여
+     범위를 새 항목으로 추가했다.
+  주석 안의 `//foo.exec(`가 텍스트 스캔에 걸리지 않는 것은 이 파일 계열(`*.sources.test.ts`) 전체가
+  공유하는 기존 한계이므로 별도로 적지 않았다(조정 세션 지시대로). **코드 로직은 변경하지 않았다** -
+  정규식, 필터 함수, test 구현 모두 그대로다. `npm run cli:test` 재실행 → 266/266(변경 없음). 절차상
+  이 정정은 코드 변경이 없는 주석 수정이라 조정 세션이 직접 확인하고 reviewer 재검토 라운드는 생략했다.
 
 ## 테스트 및 완료 기준
 

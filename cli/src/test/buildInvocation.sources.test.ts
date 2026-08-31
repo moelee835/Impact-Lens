@@ -49,6 +49,14 @@ import test from 'node:test';
 //     codebase uses ES `import` exclusively in production sources today (confirmed by inspection), so
 //     this is currently a theoretical risk, not an active blind spot - but it is a real one that a
 //     future PR could exploit and this scan would not fail on the way this file did before.
+//   - Also NOT caught, and confirmed present in the current implementation rather than theoretical: a
+//     `.exec(` member call whose receiver token is 0-4 lowercase letters and is preceded, within an
+//     8-character lookback, by a literal `/` - the same shape a regex literal ends with. The
+//     `RegExp.prototype.exec` exclusion just below (`REGEX_LITERAL_EXEC_RECEIVER`) is textual, so it
+//     would also exclude a genuine `cp.exec(...)` if an unrelated `/` happened to land in that
+//     8-character window. A longer receiver (`child.exec(`, `runCmd.exec(`) is never excluded by this
+//     shape, whatever precedes it - only short lowercase receivers are affected, and only when a `/` is
+//     nearby.
 //   - This proves the CLI never hardcodes an invocation of a package manager, build tool or a
 //     state-mutating VCS command.
 //   - This does NOT and cannot prove that a *user-supplied* `provider.command` (raw custom provider) or a
@@ -107,11 +115,12 @@ const CHILD_PROCESS_IMPORT_CLAUSE = /import\s+(?:type\s+)?(.+?)\s+from\s+'node:c
 /**
  * `exec` collides with `RegExp.prototype.exec` (`/pattern/.exec(str)`), which this codebase already
  * calls twice (jsonRpc.ts, discovery.ts) for framing and version parsing - nothing to do with
- * child_process. A regex literal's closing `/` (plus optional flags) immediately before a `.exec(` is
- * what a member call on a RegExp looks like textually, so that specific shape is excluded from the
- * spawn-family member-call scan. Anything else calling `.exec(` - a bare identifier, `require(...)
- * .exec(`, a variable holding either a regex or a child_process handle - is NOT excluded and stays
- * flagged, which is the conservative direction to be wrong in.
+ * child_process. This exclusion is textual, not semantic: it excludes exactly a `.exec(` whose receiver
+ * token is 0-4 lowercase letters and is preceded, within an 8-character lookback, by a literal `/` -
+ * `/pattern/.exec(` and `/pattern/i.exec(` are the intended case, but `cp.exec(` or `x.exec(` would be
+ * excluded too if an unrelated `/` happened to land in that same 8-character window (a path segment, a
+ * division, ...). A longer receiver - `child.exec(`, `runCmd.exec(` - is never excluded by this shape
+ * regardless of what precedes it, because the lookback runs out before `[a-z]{0,4}` can match it.
  */
 const REGEX_LITERAL_EXEC_RECEIVER = /\/[a-z]{0,4}$/;
 
