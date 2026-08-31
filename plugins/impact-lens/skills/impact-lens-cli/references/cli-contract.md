@@ -123,7 +123,162 @@ An empty incoming-call result has one root node and no edges. Read its limitatio
 
 - `no_incoming_callers` reports what the configured provider returned within this traversal.
 - `index_state_unknown` means the provider did not prove its index ready, so the empty result is not evidence
-  that no callers exist.
+  that no callers exist. It is present only when `indexingStatus: unknown`; see "Indexing state and
+  completeness" below for what the same empty result means under `working` and `ready`.
+
+## Indexing state and completeness
+
+`coverage.indexing.status` (mirrored in `completion.indexingStatus`) is one of three values. Each permits a
+different statement about an empty or partial result; do not treat them interchangeably.
+
+### `unknown` — the provider made no claim
+
+The provider never reported an index state. An empty result is not evidence that no caller exists, which is
+why the response carries `index_state_unknown`. No preset in the shipped catalog declares a `readiness`
+profile yet (`cli/src/providers/catalog.ts` marks every bundled preset "claims nothing about indexing"), so
+`unknown` is what agents see with every bundled and catalog provider today. A user-configured provider with
+its own `readiness` profile can still produce `ready` or `working`, so both remaining states below must still
+be handled, not assumed unreachable.
+
+### `working` — the provider is still indexing
+
+```json
+{
+  "completion": {
+    "requestStatus": "partial",
+    "traversalStatus": "unknown",
+    "semanticScope": "provider-static",
+    "indexingStatus": "working"
+  },
+  "coverage": {
+    "traversal": {"status": "failed", "requestedDepth": 5, "reachedDepth": 0, "maxNodes": 120},
+    "semantic": {"status": "static-only", "evidenceSources": ["lsp-call-hierarchy"]},
+    "indexing": {"status": "working"},
+    "reasons": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "provider_not_ready"]
+  },
+  "limitationDetails": [
+    {"code": "dynamic_calls_not_inferred", "severity": "info", "scope": "semantic", "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."},
+    {"code": "unsaved_buffers_unavailable", "severity": "info", "scope": "request", "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."},
+    {"code": "provider_not_ready", "severity": "error", "scope": "indexing", "message": "The provider is still indexing, so the returned set of callers is incomplete.", "action": "Wait for indexing to finish and re-run."}
+  ]
+}
+```
+
+`indexingStatus: working` always pairs with `requestStatus: partial`, `traversalStatus: unknown`, and
+`complete: false` (schema rule X9: a working index cannot belong to a `succeeded` request).
+`coverage.traversal.status` reads `failed` here — that is the v1 spelling's conservative loss described
+above for an unresolved traversal, not a query failure. Report this result as incomplete because indexing
+was in progress, name `provider_not_ready` as the cause, and recommend re-running. Reporting it as "no
+callers" is forbidden.
+
+### `ready` — the provider proved its index is built
+
+```json
+{
+  "completion": {
+    "requestStatus": "succeeded",
+    "traversalStatus": "exhausted",
+    "semanticScope": "provider-static",
+    "indexingStatus": "ready"
+  },
+  "coverage": {
+    "traversal": {"status": "complete", "requestedDepth": 5, "reachedDepth": 0, "maxNodes": 120},
+    "semantic": {"status": "static-only", "evidenceSources": ["lsp-call-hierarchy"]},
+    "indexing": {"status": "ready", "evidence": {"signal": "work-done-progress", "detail": "indexing"}},
+    "reasons": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable"]
+  },
+  "limitationDetails": [
+    {"code": "dynamic_calls_not_inferred", "severity": "info", "scope": "semantic", "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."},
+    {"code": "unsaved_buffers_unavailable", "severity": "info", "scope": "request", "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."},
+    {"code": "no_incoming_callers", "severity": "warning", "scope": "semantic", "message": "No incoming callers were returned for this symbol.", "action": "Confirm dynamic entry points manually before removing this symbol."}
+  ]
+}
+```
+
+`coverage.indexing.evidence` is `{signal, detail?}`: a stable signal kind plus the preset's own matcher
+string (schema rule X3 requires `evidence` whenever `status: ready`). It never carries server-authored text
+or a timestamp — both are excluded so identical runs stay byte-identical. Name the signal if useful, but do
+not present it as proof of runtime completeness: it proves only that the provider's index is built, not that
+every caller is reachable through this Call Hierarchy provider.
+
+An empty result under `ready` is a real answer within static call-hierarchy scope. `index_state_unknown` is
+absent here by construction — the CLI only adds it when `indexingStatus: unknown` — and the response must
+not carry that caveat anyway. If every empty result carried the same index-state warning, it would read as
+background noise and get ignored on the one run where it matters; suppressing it once the index is proven
+ready is what keeps it meaningful when it does appear. `no_incoming_callers` still applies: the empty result
+is still reported, just without the unproven-index caveat. Runtime-completeness claims (reflection,
+dependency injection, generated code, other runtime-only wiring) stay forbidden regardless of
+`indexingStatus`.
+
+## `requestStatus: partial`
+
+`partial` means the graph is usable but incomplete, never a complete list of callers. Name the cause from
+`data.limitationDetails`: `depth_limit_reached`, `node_limit_reached`, `traversal_timeout`,
+`traversal_cancelled`, `provider_query_failed`, or `provider_not_ready`. Every bounded `traversalStatus` the
+CLI can produce (`depth-limited`, `node-limited`, `timeout`, `cancelled`, `unknown`, `failed`) maps to
+exactly one of these six causes.
+
+`no_incoming_callers` and `index_state_unknown` are absent from a `partial` result by construction: both
+codes are added only when `completion.requestStatus === 'succeeded'`. Their absence on a `partial` result is
+not evidence there are no callers — it means the traversal never reached the point of deciding that. Do not
+infer "so there are no callers" from their absence.
+
+## `provider_not_ready`: two distinct meanings
+
+The same code names two different things depending on where it appears. Confusing them turns a hard failure
+into a false empty result.
+
+- As a `limitationDetails` entry on `ok: true` (severity `error`, scope `indexing`, shown above under
+  `working`): analysis ran, a graph exists, and the index was not ready while it ran. Report the graph as
+  incomplete.
+- As `error.code` on `ok: false`, with `details.stage: "indexing"`, exit 5, `retryable: true`:
+
+  ```json
+  {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": false,
+    "runtime": {"cli": {"name": "@impact-lens/cli", "version": "0.6.3"}, "node": {"version": "22.0.0", "major": 22, "executable": "node"}, "runner": {"source": "checkout"}},
+    "error": {
+      "code": "provider_not_ready",
+      "message": "The provider did not report readiness within 30000ms.",
+      "retryable": true,
+      "details": {"stage": "indexing", "budgetMs": 30000, "observedWorking": false}
+    }
+  }
+  ```
+
+  No analysis ran and there is no graph. Presenting this as an empty result is forbidden; report it as a
+  failed run and recommend re-running once indexing finishes.
+
+`provider_project_metadata_missing` is the sibling failure for a missing project file the provider's preset
+declared it needs (`ok: false`, `details.stage: "indexing"`, exit 5, `details.missing` listing the
+workspace-relative paths). Impact Lens deliberately never generates, builds, or syncs these files. Tell the
+user which files are missing and that they must supply them; do not offer to create them.
+
+## Fixed summary shape
+
+State a summary in this order, conclusion last, because readers act on the first sentence:
+
+1. **Evidence boundary** — scope (static call hierarchy from the configured provider), indexing state,
+   traversal completeness.
+2. **High-severity limitations** — every `limitationDetails` entry with `severity: error`, then `warning`,
+   before any findings.
+3. **Findings** — direct/transitive callers, affected tests, hop distance, call sites, existing notes.
+4. **Conclusion** — explicitly scoped to the boundary stated in step 1.
+
+Two short compliant examples for an empty result, showing the same shape producing different conclusions:
+
+> **`unknown`, empty result:** "Static call hierarchy from typescript-language-server; the provider did not
+> report an index state, so this empty result is not proof no caller exists. No incoming callers were
+> returned for `calculateTotal` at depth 5. Because the index state is unknown, this is not evidence the
+> function is unused — re-run after indexing finishes or verify with a workspace search before removing it."
+
+> **`ready`, empty result:** "Static call hierarchy from typescript-language-server; the provider's index is
+> proven ready (`work-done-progress` signal). No incoming callers were returned for `calculateTotal` at
+> depth 5. Within static call-hierarchy scope, nothing in this workspace calls it directly — this does not
+> rule out reflection, dependency injection, or other runtime-only wiring, so confirm dynamic entry points
+> before removing it."
 
 ## Analyze
 

@@ -165,22 +165,27 @@ script, `unit-tests.yml` 연결, 작업 로그와 완료 근거.
 
 ## 테스트 및 완료 기준
 
-- [ ] `indexingStatus`의 세 값이 문서에 모두 설명되고, 각각에서 허용되는 진술이 다르다.
-- [ ] `working` 또는 `requestStatus: partial` 결과를 "호출자 없음"으로 보고하는 것이 금지된다.
-- [ ] `ready`일 때는 index 경고를 붙이지 않는다는 것이 명시된다.
-- [ ] `provider_not_ready`의 limitation 용법과 error code 용법이 구분된다.
-- [ ] 고정 요약 형식이 결론보다 근거 경계를 먼저 요구한다.
-- [ ] high-severity limitation이 결론 앞에 표시된다.
-- [ ] `complete: true` 단독으로 "영향 없음" 결론을 내는 fixture가 eval에서 실패한다.
-- [ ] 색인 중 결과를 "호출자 없음"으로 보고하는 fixture가 eval에서 실패한다.
-- [ ] 준수 fixture는 eval을 통과한다.
-- [ ] 문서에서 금지어 규칙을 지우면 eval이 실패한다.
-- [ ] Codex와 Claude Code 경로가 같은 완전성 경계를 전달한다.
-- [ ] `npm run test:response-policy` 통과
-- [ ] `npm run test:unit` 통과
-- [ ] `npm run test:plugin-artifact` 통과
-- [ ] `git diff --check` 통과
-- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
+- [x] `indexingStatus`의 세 값이 문서에 모두 설명되고, 각각에서 허용되는 진술이 다르다. (2단계, `SKILL.md` +
+  `cli-contract.md`)
+- [x] `working` 또는 `requestStatus: partial` 결과를 "호출자 없음"으로 보고하는 것이 금지된다. (2단계)
+- [x] `ready`일 때는 index 경고를 붙이지 않는다는 것이 명시된다. (2단계)
+- [x] `provider_not_ready`의 limitation 용법과 error code 용법이 구분된다. (2단계)
+- [x] 고정 요약 형식이 결론보다 근거 경계를 먼저 요구한다. (2단계)
+- [x] high-severity limitation이 결론 앞에 표시된다. (2단계)
+- [ ] `complete: true` 단독으로 "영향 없음" 결론을 내는 fixture가 eval에서 실패한다. — 3단계(eval harness) 대상.
+  문서에 규칙은 적혔지만 아직 검사로 강제되지 않는다.
+- [ ] 색인 중 결과를 "호출자 없음"으로 보고하는 fixture가 eval에서 실패한다. — 3단계 대상, 위와 동일한 이유로
+  미완료.
+- [ ] 준수 fixture는 eval을 통과한다. — 3단계 대상.
+- [ ] 문서에서 금지어 규칙을 지우면 eval이 실패한다. — 3단계 대상.
+- [x] Codex와 Claude Code 경로가 같은 완전성 경계를 전달한다. (구조적으로 만족: 두 host 모두 `SKILL.md`를
+  단일 출처로 읽고, `analyze.md`는 그것을 참조·재진술만 한다. `.codex-plugin/plugin.json`의 경로 확인함.)
+- [ ] `npm run test:response-policy` 통과 — 3단계에서 script가 아직 생기지 않았다.
+- [x] `npm run test:unit` 통과 (2단계, 250/250)
+- [x] `npm run test:plugin-artifact` 통과 (2단계)
+- [x] `git diff --check` 통과 (2단계)
+- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다. — 1·2단계는 각각
+  commit·push됐다. PR은 3단계가 끝난 뒤 요청한 세션이 검토하고 나서 연다(지금 임의로 열지 않기로 합의됨).
 
 ## 작업 로그
 
@@ -197,3 +202,46 @@ script, `unit-tests.yml` 연결, 작업 로그와 완료 근거.
   읽는 것을 확인했다. 두 호스트 동일 경계라는 종료 조건은 SKILL.md를 단일 출처로 두면 구조적으로
   만족되고, `analyze.md`가 그것과 모순되지 않는지만 확인하면 된다.
 - eval 기반이 전혀 없다는 것을 확인했다. 3단계는 harness부터 만든다.
+
+### 2026-08-31 — 2단계 응답 정책을 문서에 고정
+
+다른 세션(계획/검토 role)이 W2-C 2단계 구현 요구사항을 상세히 작성해 넘겼다. 이 세션은 구현을 맡았다.
+
+- 요구사항의 근거 코드 주장(`cli/src/types.ts`의 `IndexingCoverage`/`SucceededCompletion`/`PartialCompletion`,
+  `cli/src/coverage.ts`의 `graphCompletion`/`limitationDetailsFor`/`interruptionDetails`,
+  `cli/src/providers/readiness.ts`의 두 에러 발생 지점, `cli/src/errors.ts`의 exit 5 코드,
+  `cli/schemas/response.schema.json`의 X3/X9/X11)를 모두 직접 읽고 확인했다. 요구사항이 코드와 다른 부분은
+  없었다.
+- `cli/src/providers/catalog.ts`를 확인해 "shipped catalog preset 중 readiness를 선언한 것이 없다"는 R1c
+  주장이 사실임을 재확인했다(`// No readiness: this preset claims nothing about indexing` 주석).
+- `ready`/`working` 예시 JSON은 손으로 쓰지 않고 `cli/dist/coverage.js`의 실제 `projectCompletion()`을
+  스크래치 스크립트로 직접 호출해 만들었다(`no_incoming_callers`는 `ready`에서 나타나고 `working`/`partial`
+  에서는 나타나지 않으며, `index_state_unknown`은 `unknown`일 때만 나타난다는 X11 인접 불변식을 실제 코드
+  출력으로 확인). 생성한 두 결과를 `cli/dist/test/jsonSchema.ts`의 실제 `validate()` 함수와
+  `cli/schemas/response.schema.json`으로 검증했다(둘 다 `VALID`). `provider_not_ready`를 error code로 쓰는
+  실패 envelope 예시도 같은 방식으로 검증했다(처음에 `runtime.runner.source`를 `"project"`로 잘못 썼다가
+  스키마가 거부해 `"checkout"`으로 고쳤다 — 검증 없이 손으로 썼다면 문서에 스키마 위반 예시가 실렸을
+  것이다).
+- 세 파일을 수정했다.
+  - `SKILL.md`: `indexingStatus`의 세 값(`unknown`/`working`/`ready`)별 허용·금지 진술, `requestStatus:
+    partial`의 원인 코드 6종과 X11(부재는 "없음"의 증거가 아님), `provider_not_ready`의 limitation vs
+    error code 두 용법, `provider_project_metadata_missing`(사용자가 파일을 직접 공급해야 하고 CLI가
+    생성하지 않음), 결론을 마지막에 두는 고정 요약 순서를 추가했다. 기존 금지어 문장은 위치와 문구를
+    그대로 두었다.
+  - `cli-contract.md`: 같은 정책을 JSON 예시와 함께 상세히 기록했다 — `working`/`ready` 각각의 전체
+    `completion`/`coverage`/`limitationDetails` JSON(실제 코드에서 생성), `provider_not_ready`의 두 용법을
+    보여주는 성공/실패 JSON 쌍, `unknown`/`ready` 빈 결과에 대한 짧은 준수 요약 예시 2개. 기존 금지어
+    문단은 그대로 두고 그 아래 새 섹션을 추가했다.
+  - `analyze.md`: 스스로 정책을 다시 정의하지 않고 skill을 따르라고 명시한 뒤, slash command가 바로
+    필요한 것만 인라인으로 남겼다(요약 순서, 세 상태 존재를 아는 것, partial/`provider_not_ready` 관련 한
+    줄씩). 이렇게 해서 SKILL.md가 단일 출처라는 종료 조건을 구조적으로 만족시켰다.
+- 검증: `npm run test:plugin-artifact` 통과(skill 포함 packaging 경로 확인). `npm run test:unit` 250개
+  test 모두 통과(문서만 바꿨으므로 회귀는 예상하지 않았고 실제로 없었다). `git diff --check` 통과. 세 문서를
+  다시 읽고 서로 모순이 없는지, 금지어 6개가 두 파일에 문구 그대로 남아 있는지 `grep`으로 확인했다.
+- 계획과 달랐던 점: 계획 문서는 R1b를 "에이전트가 signal을 이름 붙일 수 있다"로만 적었는데, 실제로 코드
+  경로를 만들어 보니 `no_incoming_callers`가 `ready`에서는 여전히 붙는다는 사실(빈 결과 자체는 여전히
+  보고해야 하고, 빠지는 것은 index 상태 caveat뿐)이 예시를 만들기 전까지 명확하지 않았다. 이 구분을
+  cli-contract.md의 `ready` 절에 명시했다.
+- 남은 것: 이 lane의 3단계(`scripts/test-plugin-response-policy.mjs` checker, pass/fail fixture, CI 연결)는
+  아직 시작하지 않았다. 지금 세 문서에 적힌 규칙은 여전히 "지켜지길 바라는 문장"이며, 3단계가 끝나야
+  실패할 수 있는 검사가 된다. main 대상 PR도 아직 열지 않았다 — 요청한 세션이 검토를 먼저 하기로 했다.
