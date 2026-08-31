@@ -144,19 +144,31 @@ timeout·취소 후 부분 결과 보존은 [IL-LIM-008](../development-manageme
 
 ## 테스트 및 완료 기준
 
-- [ ] 관측 인자를 넘기지 않고 실행해 도달한 상태만 도달 가능으로 집계된다.
-- [ ] 도달 가능 집합이 선언 목록과 정확히 일치한다(양방향).
-- [ ] `timeout`, `cancelled`, `failed` traversal 상태가 도달 불가능으로 선언되고 근거가 기록된다.
-- [ ] `static-plus-inference`, `static-plus-observation`이 도달 불가능으로 선언된다.
-- [ ] 도달 불가능 상태에 생산자가 생기면 test가 실패한다(역방향 확인).
-- [ ] `interruption`과 `semantic`에 production 생산자가 없다는 사실이 검사로 고정된다.
-- [ ] shipped catalog 도달 가능 집합과 사용자 설정 도달 가능 집합이 구분된다.
-- [ ] `npm run cli:test` 통과
-- [ ] `npm test` 통과
-- [ ] `npm run test:response-policy` 통과
-- [ ] `npm run test:plugin-artifact` 통과
-- [ ] `git diff --check` 통과
-- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다.
+- [x] 관측 인자를 넘기지 않고 실행해 도달한 상태만 도달 가능으로 집계된다.
+  (`stateReachability.integration.test.ts`는 어디서도 `AnalysisObservations`를 import·구성하지 않고
+  `analyzeImpact(request, provider)`를 2-인자로만 호출한다.)
+- [x] 도달 가능 집합이 선언 목록과 정확히 일치한다(양방향). (`assertReachableSetMatches`가 두 방향을 각각
+  별도 assert로 검사하고, 실제로 양방향 모두 실패시켜 관찰함 — 작업 로그의 "역방향 검증을 실제로 관찰했다"
+  1·2번.)
+- [x] `timeout`, `cancelled`, `failed` traversal 상태가 도달 불가능으로 선언되고 근거가 기록된다.
+  (`UNREACHABLE_TRAVERSAL_STATES`, 각각 IL-LIM-008/M5 근거 포함)
+- [x] `static-plus-inference`, `static-plus-observation`이 도달 불가능으로 선언된다.
+  (`UNREACHABLE_SEMANTIC_SCOPES`, IL-LIM-001/002/M4 근거 포함)
+- [x] 도달 불가능 상태에 생산자가 생기면 test가 실패한다(역방향 확인). (작업 로그의 "역방향 검증을 실제로
+  관찰했다" 3번 — 가짜 `interruption` 생산자를 실제로 추가해 관찰함.)
+- [x] `interruption`과 `semantic`에 production 생산자가 없다는 사실이 검사로 고정된다.
+  (`stateReachability.sources.test.ts`, `CONTRACT_ONLY_ERROR_CODES`와 동일한 텍스트 스캔 기법)
+- [x] shipped catalog 도달 가능 집합과 사용자 설정 도달 가능 집합이 구분된다.
+  (`SHIPPED_CATALOG_REACHABLE` 3개 vs `USER_CONFIGURED_ADDITIONAL_REACHABLE` 2개, 겹치지 않음을 별도 test로
+  고정)
+- [x] `npm run cli:test` 통과 (258/258, 새 test 8개 포함)
+- [x] `npm test` 통과 (58/58)
+- [x] `npm run test:response-policy` 통과 (16/16)
+- [x] `npm run test:plugin-artifact` 통과
+- [x] `git diff --check` 통과
+- [ ] 각 단계가 독립 commit으로 동일 이름 원격 branch에 push되고 main 대상 PR이 열린다. — 1·2단계 모두 각각
+  commit·push된다(이 로그 작성 직후). **PR은 아직 열지 않았다** — 계획/검토 세션이 검토 후 PR 본문을 직접
+  작성하기로 했다.
 
 ## 작업 로그
 
@@ -173,3 +185,64 @@ timeout·취소 후 부분 결과 보존은 [IL-LIM-008](../development-manageme
 - branch 이름을 계획의 `test/m1-compatibility-matrix`에서 `test/m1-state-reachability`로 바꿨다.
   "compatibility matrix"는 IL-LIM-005 **4단계**의 제목(실제 서버 호환 matrix)과 같아 혼동을 부른다.
   그 작업은 실제 외부 server가 필요하고 M2 이후다.
+
+### 2026-08-31 — 2단계 도달 가능성 matrix test
+
+계획/검토 세션이 1단계를 승인하고 2단계 상세 요구사항을 넘겼다. 이 세션이 구현했다.
+
+- 산출물
+  - `cli/src/test/stateReachability.integration.test.ts`: 실제 provider를 돌려 completion 4-tuple을
+    수집하고 선언 목록과 양방향으로 비교한다. bundled TypeScript session **하나**로 5개 시나리오(callers
+    found / no callers / depth limit / node limit / both limits)를 전부 만든다 — `root`가 직접 caller
+    2개(`a`,`b`)를 갖고 그 둘이 각각 자기 caller(`a2`,`b2`)를 갖는 호출 그래프를 설계해서, 실제 LSP
+    server가 `incoming()`을 어느 순서로 반환하든 depth·node·둘 다 제한이 결정적으로 재현되게 했다(직접
+    검증: 실행마다 정확히 같은 `traversalLimits` 나옴). `readiness.integration.test.ts`의
+    `mockPreset`/`resolution.catalog` 패턴과 기존 `readinessServer.ts` fixture를 그대로 재사용해
+    `ready`/`working` 두 상태를 만들었다(요구사항이 "기존 fixture로 안 되면만 추가"라고 했고, 됐다). 새
+    fixture는 추가하지 않았다.
+  - `cli/src/test/stateReachability.sources.test.ts`: `cli/src/errors.ts`의 `CONTRACT_ONLY_ERROR_CODES`
+    기법을 그대로 옮겼다 — `cli/src/test`와 `types.ts`를 뺀 나머지 소스에서 `interruption:`/`semantic:`이
+    object-literal key로 등장하는지 텍스트로 스캔한다. `AnalysisObservations`의 필드 목록을 `types.ts`에서
+    직접 정규식으로 추출해 내가 분류해 둔 3개 필드(`indexing`/`interruption`/`semantic`)와 정확히 같은지도
+    검사한다 — 필드가 늘면 이 test가 먼저 실패한다.
+- R2(행 식별자) 설계 결정: **행 = completion 4-tuple만.** limitationDetails 코드도, caller 수도 행에 안
+  넣는다. 이유는 `types.ts`가 `completion`을 "the single source of result state"라고 명시하고,
+  limitationDetails/reasons는 `limitationDetailsFor`가 그 상태로부터 파생시키는 부가 정보이지 상태의 또 다른
+  축이 아니기 때문이다(X1/X5/X6/X8/X9 스키마 규칙 중 어느 것도 limitation 코드를 언급하지 않는다).
+  **요청보다 더 많이 겹쳤다.** 요청은 S7/S8이 tuple을 공유한다고만 지적했는데, 실제로 확인해 보니
+  `docs/work/task-m1-state-truth-table.md`의 S1~S13 표 자체에서 S1/S3(같은 tuple, caller 수만 다름)과
+  S5/S6(같은 tuple, 어느 limit인지만 다름)도 tuple 열이 완전히 같았다. 그래서 실행으로 실제 도달하는 distinct
+  tuple은 13개가 아니라 5개(도달 가능)뿐이다. 요청받은 판단대로라면 나는 이 사실을 임의로 고치지 않고 그대로
+  기록한다 — 코드와 실측이 맞고, "13가지가 전부 다른 상태"라는 인상 쪽이 부정확했다.
+- R3(shipped vs 사용자 설정) 결과: shipped catalog만으로 도달 가능한 tuple은 3개, 전부
+  `indexingStatus: unknown`이다(`SHIPPED_CATALOG_REACHABLE`). readiness를 선언한 preset을 사용자가
+  직접 설정해야만 추가로 도달 가능한 tuple이 2개 있다(`ready`, `working`; `USER_CONFIGURED_ADDITIONAL_REACHABLE`).
+  두 집합은 겹치지 않는다는 것도 별도 test로 고정했다.
+- R4/R5 확인한 사실: `interruption:`/`semantic:`은 오늘 `types.ts`(선언)를 빼면 어디에도 값으로 안 쓰인다.
+  `indexing:`은 `lspProvider.ts:280`(`analysisObservations()`)에서 실제로 생산된다. 다섯 상태
+  (`timeout`/`cancelled`/`failed` traversal, `static-plus-inference`/`static-plus-observation` semantic)를
+  IL-LIM-008(M5)·IL-LIM-001/002(M4) 근거와 함께 도달 불가능으로 선언하고 위 스캔으로 고정했다.
+- **역방향 검증을 실제로 관찰했다** (요구사항이 요구한 대로, trust가 아니라 관찰):
+  1. `SHIPPED_CATALOG_REACHABLE`에 가짜 항목(`indexingStatus: 'bogus-never-observed'`)을 추가하고
+     rebuild+재실행 → `these tuples are declared reachable but no scenario produced them:
+     succeeded/exhausted/provider-static/bogus-never-observed`로 정확히 실패. 원복 후 diff 없음 확인.
+  2. 원복한 뒤 실제 항목(`partial/node-limited/.../unknown`)을 하나 삭제하고 재실행 → `these tuples occurred
+     but are not in the declared reachable list: partial/node-limited/provider-static/unknown`으로 반대
+     방향이 정확히 실패. 원복 후 diff 없음 확인.
+  3. `coverage.ts`에 `{ interruption: 'timeout' }`을 반환하는 미사용 가짜 함수를 추가하고 재실행 →
+     `nothing outside tests and types.ts assigns AnalysisObservations.interruption`과 `the
+     has-producer/no-producer classification matches...` 두 test가 **동시에** 정확한 메시지로 실패(하나의
+     가짜 생산자가 R4 스캔과 R5 분류 검사를 둘 다 건드리는 것이 설계대로 확인됨). 원복 후
+     `diff /tmp/coverage.ts.bak coverage.ts`로 바이트 단위 동일함을 확인.
+  네 번의 관찰 모두 기대한 실패 메시지가 정확히 나왔고, 원복 후 세 번 모두 `git diff --check`가 clean했다.
+- 실행한 검사와 결과: `npm run cli:test`(258/258, 새 test 8개 포함), `npm test`(58/58, 무관),
+  `npm run test:response-policy`(16/16, 무관), `npm run test:plugin-artifact` 통과, `git diff --check` 통과.
+- 실행 시간: bundled TypeScript 5-시나리오 test 약 0.9~1.0초, mock 두 test 약 4.3초, 소스 스캔 5개 test 전부
+  10ms 미만. 전체 새 test 스위트 약 5.4초 — "mock server test 하나당 약 2초"라는 예산과 비교해 문제 없다.
+- 계획과 달랐던 점: 계획 문서와 요청 모두 "S7/S8만" tuple을 공유한다고 적었지만, 위에서 적었듯 S1/S3과
+  S5/S6도 공유한다. 요청이 "요청받은 다섯 상태 판단이 틀렸다면 코드가 맞고 내가 틀린 것"이라고 미리
+  말해뒀으므로, 이 발견을 조용히 감추지 않고 test 파일 주석과 이 로그에 그대로 남겼다.
+- 남은 제한 사항: R4/R5 스캔은 텍스트 기반이라 `errors.test.ts`가 스스로 인정하는 것과 같은 한계를 그대로
+  물려받는다 — `interruption:`처럼 콜론 키로 값을 만드는 생산자는 잡지만, shorthand(`{ indexing }`처럼
+  구조분해나 변수명 재사용)로 같은 필드를 채우는 미래의 생산자는 잡지 못할 수 있다. 오늘 존재하는 유일한
+  생산자(`indexing`)가 정확히 콜론 키 형태이므로 지금은 문제가 없지만, 이 한계는 정직하게 남겨둔다.
