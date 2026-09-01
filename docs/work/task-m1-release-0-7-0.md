@@ -1,8 +1,8 @@
 # M1 Provider 플랫폼 v0.7.0 release 정합성
 
-- 상태: **정지 — 사용자 발행 승인 대기.** PR #56 merge(`3d5863c`)까지 완료. `v0.7.0` tag·GitHub
-  Release·asset 업로드는 아직 수행하지 않았다. `main`의 release-fallback pin이 존재하지 않는 tarball을
-  가리키는 구간이 열려 있다(아래 3단계 로그 참고). 승인을 받으면 태그·Release 발행으로 이어간다.
+- 상태: **완료.** v0.7.0 tag·GitHub Release 발행, 사후 검증(override 없는 release-fallback으로
+  doctor·analyze 성공), M1 milestone "Done" 갱신까지 전부 끝났다. release:
+  https://github.com/moelee835/Impact-Lens/releases/tag/v0.7.0
 - branch: `release/0.7.0`
 
 ## 목적과 사용자 가치
@@ -191,10 +191,10 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
 - [x] 2단계: `npm run test:all`과 `npm run test:plugin-artifact`가 통과한다.
 - [x] 2단계: CLI tarball과 VSIX 파일 목록이 예상 범위만 포함한다(leak 없음).
 - [ ] 2단계: PR head의 Ubuntu/macOS/Windows Node 22 check가 모두 성공한다.
-- [ ] 3단계: 사용자 확인 후 `v0.7.0` tag가 merge commit을 가리키고 release가 draft/prerelease가 아니다.
-- [ ] 3단계: 두 asset의 공개 digest가 local checksum과 같다.
-- [ ] 4단계: override 없는 plugin runner의 doctor smoke와 분석이 성공한다.
-- [ ] 5단계: release decision과 milestone 상태가 갱신된다.
+- [x] 3단계: 사용자 확인 후 `v0.7.0` tag가 merge commit을 가리키고 release가 draft/prerelease가 아니다.
+- [x] 3단계: 두 asset의 공개 digest가 local checksum과 같다.
+- [x] 4단계: override 없는 plugin runner의 doctor smoke와 분석이 성공한다.
+- [x] 5단계: release decision과 milestone 상태가 갱신된다.
 
 ## 작업 로그
 
@@ -280,3 +280,71 @@ rollback: 검증 실패 시 release를 draft로 되돌리거나 삭제하고 tag
   자체는 `plugin-artifact-e2e.yml`의 검증만 트리거할 뿐 발행이 아니므로, 실제로 닫히는 시점은 Release
   발행과 asset 업로드가 끝난 순간이다.
 - tag·Release·asset 업로드는 수행하지 않았다. 사용자 확인을 기다린다.
+
+### 2026-09-01 — 3단계 후반부: 사용자 승인 후 tag/Release 발행
+
+- 사용자가 이 세션(coder)에서 직접 "publish"로 발행을 승인했다. 다른 세션(계획 세션, `main`)이 두 차례
+  "사용자가 승인했다"고 relay했지만, `AGENTS.md`/이 세션의 운영 규칙상 peer 메시지는 이 세션에 열린
+  승인 요청을 대신 닫을 수 없어 반영하지 않고 대기했다 — 사용자가 직접 이 세션에 답할 때까지 tag·Release를
+  만들지 않았다. 승인이 온 뒤에야 진행했다.
+- `git tag -a v0.7.0 3d5863c` — merge commit을 정확히 가리키는지 `git rev-parse v0.7.0^{commit}`으로
+  확인 후 push했다. `main`의 현재 tip이 아니라 PR #56의 merge commit을 명시적으로 지정했다.
+- `gh release create v0.7.0`으로 non-draft, non-prerelease release를 만들었다("Impact Lens v0.7.0", 기존
+  release naming 관례와 일치). 본문은 `CHANGELOG.md`의 `0.7.0` 절을 그대로 사용했다 — "오늘 catalog엔
+  `bundled-typescript` 하나뿐"이라는 한계 문장이 포함돼 있다. `gh release view`로 `draft: false`,
+  `prerelease: false`를 재확인했다.
+- **재빌드하지 않고** 앞서 report한 그 두 파일(경로:
+  `/private/tmp/claude-503/-Users-woony6-dev-Impact-Lens/6089ca30-01a4-4f87-b50f-f327b01c3a53/scratchpad/pack-0.7.0-main/`)을
+  그대로 업로드했다.
+- 기존 `v0.5.0`~`v0.6.3` tag/release는 `gh release list`로 전부 그대로 남아 있는 것을 확인했다(수정·삭제
+  없음). `v0.7.0`이 `Latest`로 표시된다.
+- **pin 404 창**: `main`이 `3d5863c`로 merge된 시점(전날, PR #56 merge)부터 이 Release가 발행된 시점
+  (`gh release view` published 시각)까지 release-fallback 경로가 깨져 있었다. 이 구간 동안 checkout·global
+  경로는 영향받지 않았고, 이 구간에 release-fallback으로 CLI를 새로 받으려 시도한 사용자가 있었다면
+  실패했을 것이다(재시도하면 지금은 성공한다). 이 세션 안에서는 그 구간 동안 아무 사용자 요청도 없었다.
+
+### 2026-09-01 — 4단계: 공개 default-path 사후 검증 (CI가 대신할 수 없는 유일한 검증)
+
+- **checksum 재확인**: `gh release download v0.7.0`로 두 asset을 별도 디렉터리에 새로 받아
+  `shasum -a 256`로 계산 → 업로드 전 report한 값과 **정확히 일치**:
+  - `impact-lens-0.7.0.vsix` → `beb6bc90e33aea542efaa6b03df73480c772ce09bd2701ecd845e480e30634cd`
+  - `impact-lens-cli-0.7.0.tgz` → `f49a8549419e98dff45e80c3fbd3043b12d53f49f5834d3062f3531e68d5e396`
+- **release-fallback 경로 실측**: `run-impact-lens` 스크립트를 저장소 밖(scratchpad)으로 복사해 실행했다
+  — 스크립트가 자기 위치 기준 상대 경로로 `cli/dist/index.js`를 찾으므로, 저장소 안에서 그대로 실행하면
+  checkout 경로가 항상 우선해 release-fallback을 검증할 수 없다. 그 상대 경로가 실제로 가리키는 위치에
+  `cli/dist/index.js`가 없음을 먼저 확인해, checkout 경로로 새는 게 아니라는 것을 검증했다.
+  `IMPACT_LENS_CLI_PATH`와 `IMPACT_LENS_CLI_PACKAGE`를 둘 다 unset한 환경(`env -u`)에서, 이 machine에
+  전역 `impact-lens`가 설치돼 있지 않음도 재확인한 뒤 실행했다.
+  - `doctor bundled-typescript`: `runtime.cli.version: "0.7.0"`, `runtime.runner.source:
+    "release-fallback"`, `status: "ready"`, 6개 check 전부 `pass`.
+  - 최소 TypeScript fixture(caller→target 2-파일)로 `analyze --stdin` 실행: `ok: true`,
+    `runtime.cli.version: "0.7.0"`, `runtime.runner.source: "release-fallback"`, `fixtureCaller`가
+    `fixtureTarget`의 direct caller로 정확히 검출됨(`completion.requestStatus: "succeeded"`,
+    `traversalStatus: "exhausted"`).
+  - session 전용 `npm_config_cache`를 사용했다(M0가 겪은 `~/.npm` 권한 문제 재현 방지 목적) — 이번에는
+    문제가 재현되지 않았지만 사용자 홈 권한은 바꾸지 않는 원칙을 그대로 지켰다.
+- **결과**: override 없이 release-fallback으로 `0.7.0`이 실제로 도달 가능함을 doctor와 analyze 양쪽에서
+  확인했다. **pin 404 창이 여기서 닫혔다.**
+
+### 2026-09-01 — 5단계: release decision과 milestone 상태 갱신
+
+- `docs/development-management/milestones/m1-provider-platform-ux.md`의 상태를 "In progress"에서 "Done"
+  으로 갱신했다(gate 3의 문구-구현 불일치는 별도 후속 결정 필요 항목으로 milestone 문서 자체에 이미
+  명시돼 있어 그대로 유지 — "Done"이 "8개 gate 전부 완벽히 일치"를 뜻하지 않는다는 것을 milestone 문서의
+  gate 3 항목이 스스로 밝히고 있다).
+- 사용자 검증 보류 release decision을 [`task-m1-gate-closure.md`](task-m1-gate-closure.md)에서 이미
+  기록한 문장을 그대로 인용해 이 문서에도 남긴다: 명세 작성·검토 완료(1회, 2회차 만료), 실제 참여자
+  모집·환경 준비는 별도 승인 사항, 사용자가 v0.7.0에서는 실행을 보류하기로 명시적으로 결정 — 이걸로 M1
+  milestone 종료 gate의 마지막 항목이 닫힌다.
+
+## 발행 요약
+
+- **v0.7.0 tag**: `3d5863c`를 가리킴, push 완료.
+- **GitHub Release**: https://github.com/moelee835/Impact-Lens/releases/tag/v0.7.0 (non-draft,
+  non-prerelease, `Latest`).
+- **asset**: `impact-lens-0.7.0.vsix`(SHA-256 `beb6bc90e33aea542efaa6b03df73480c772ce09bd2701ecd845e480e30634cd`),
+  `impact-lens-cli-0.7.0.tgz`(SHA-256 `f49a8549419e98dff45e80c3fbd3043b12d53f49f5834d3062f3531e68d5e396`)
+  — 둘 다 재다운로드 검증 통과.
+- **사후 검증**: override 없는 release-fallback 경로로 doctor·analyze 모두 성공, `cli.version: 0.7.0`,
+  `runner.source: release-fallback` 실측 확인.
+- M1 milestone "Done", 사용자 검증은 release decision으로 보류 종결.

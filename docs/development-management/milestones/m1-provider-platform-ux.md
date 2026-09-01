@@ -1,6 +1,8 @@
 # M1 Provider 플랫폼과 무설정 UX 기반
 
-- 상태: In progress
+- 상태: Done — v0.7.0으로 발행됨(2026-09-01, [`task-m1-release-0-7-0.md`](../../work/task-m1-release-0-7-0.md)).
+  "Done"은 8개 종료 gate가 전부 이견 없이 충족됐다는 뜻이 아니다 — gate 3(doctor의 indexing 구분)의
+  문구-구현 불일치는 아래에 그대로 열려 있고, 사용자 검증(gate 8)은 release decision으로 보류 종결됐다.
 - 완료 소유: IL-LIM-005, IL-LIM-009
 - 선행 기여: IL-LIM-004 1~2단계
 - 릴리스 성격: provider platform minor release
