@@ -1,6 +1,6 @@
 # M2 — Python provider preset 구현
 
-- 상태: Stage 1 진행 중
+- 상태: Stage 1 실측 완료(`bundled` 결정) — commander 확인 대기, Stage 2 착수 보류
 - branch: `feat/m2-python-preset`
 - 선행: `docs/m2-python-investigation`(PR #63, merged `f872074`) — "Call Hierarchy를 실제로 구현한
   OSS Python Language Server가 있는가"에 실행으로 답한 조사 lane. 이 문서는 그 결론을 preset으로
@@ -188,7 +188,8 @@ cli-contract, CHANGELOG, skill 문서)를 갱신한다. 문장·번역 표현으
 
 ## 테스트 및 완료 기준
 
-- [ ] Stage 1: install closure 증가분 실측 완료, tier 결정 기록, commander에게 보고 후 진행 승인.
+- [x] Stage 1: install closure 증가분 실측 완료(`bundled` 결정, 근거는 위 작업 로그) — commander
+      보고 및 진행 승인 대기.
 - [ ] Stage 2: 서버 선택과 탈락 사유 기록, fixture 통과.
 - [ ] Stage 3: `null`/`[]` 방향 구현, `Depends()` 모양 fixture가 `?? []` 경로를 실제로 밟는 것을 확인.
 - [ ] Stage 4: preset + fixture, `doctor --smoke --fixture` 통과, 실제 `.py` E2E 통과.
@@ -205,4 +206,62 @@ cli-contract, CHANGELOG, skill 문서)를 갱신한다. 문장·번역 표현으
 - commander가 작성한 요구사항 문서를 이 저장소 work 문서로 재작성 — "이미 확정된 입력" 표의
   `.py` 매핑과 교차 검사 guard 존재를 이 lane이 직접 코드로 재확인(`resolve.ts:594`,
   `providers.test.ts:734`) — 표에 재확인 주체를 추가했다.
-- Stage 1(tier 결정) 착수 예정.
+
+### 2026-09-02 — Stage 1 실측: install closure 증가분
+
+**측정 방법**(측정 주체: 이 lane, 2026-09-02): session scratchpad에 3개 격리 npm 프로젝트를 만들었다
+— (a) `baseline`: 현재 `cli/package.json`의 runtime dependencies만(`typescript@5.9.3`,
+`typescript-language-server@6.0.0`), (b) `with-pyright`: 위에 `pyright@1.1.413` 추가, (c)
+`with-basedpyright`: 위에 `basedpyright@1.39.10` 추가. 각각 **별도의 빈 `--cache` 디렉터리**로
+`npm install --no-audit --no-fund`를 실행해 실제 시스템 npm cache를 건드리지 않으면서 매번 진짜
+"clean cache" 상태에서 다운로드하게 했다. `time`으로 wall-clock을, `find ... stat -f%z`로 cache
+디렉터리(다운로드 바이트 근사치 — 압축된 tarball + 메타데이터)와 `node_modules`(unpacked 크기)의
+정확한 바이트 합을 쟀다.
+
+| 측정 | baseline | +pyright | +basedpyright |
+| --- | --- | --- | --- |
+| wall-clock (clean cache) | 0.80s | 2.36s | 2.47s |
+| cache 디렉터리 바이트(다운로드 근사) | 22,397,253 | 28,145,296 | 32,535,149 |
+| `node_modules` 바이트(unpacked) | 26,051,044 | 45,396,550 | 53,667,877 |
+
+**증가분(후보 하나만 추가했을 때)**:
+
+| 후보 | wall-clock 증가 | 다운로드 증가(근사) | unpacked 증가 |
+| --- | --- | --- | --- |
+| `pyright` | +1.56s | +5,748,043 bytes(≈5.5 MB) | +19,345,506 bytes(≈18.4 MB) |
+| `basedpyright` | +1.67s | +10,137,896 bytes(≈9.7 MB) | +27,616,833 bytes(≈26.3 MB) |
+
+**교차 검증**: 이 실측의 unpacked 증가분(pyright +19,345,506 / basedpyright +27,616,833)이 조사
+lane·계획 세션이 registry에서 조회한 `dist.unpackedSize` ballpark(pyright 19,344,986 /
+basedpyright 27,616,199)와 오차 범위 내로 거의 정확히 일치한다 — 서로 다른 두 방법(registry 메타데이터
+조회 vs 실제 설치 후 디스크 실측)이 같은 답을 내, 두 수치 모두에 대한 신뢰도가 올라간다.
+
+**한계**: (1) 이건 pyright *또는* basedpyright 하나만 추가했을 때다 — 두 후보를 같이 더한 값이 아니다
+(stage 2에서 어차피 하나만 고른다). (2) cache 디렉터리 바이트는 압축 tarball과 npm의 관련 메타데이터를
+합친 것이라 "순수 다운로드 바이트"보다 약간 크다 — 그래도 baseline·후보 측정을 같은 방법으로 재서
+증가분 비교는 공정하다. (3) `npm install`로 쟀고 실제 first-run 경로인 `npm exec` 자체로 재지 않았다
+— 다만 두 경로 모두 같은 npm 패키지 fetch·추출 메커니즘을 쓰므로 지배적 비용(네트워크 다운로드)은
+같다. (4) wall-clock은 이 machine·네트워크 조건에 의존한다 — 절대값이 아니라 baseline 대비 상대
+증가로 읽는다. (5) `Pyrefly`는 애초에 npm에 배포되지 않아 bundled 후보가 아니므로 이 실측 대상이
+아니다(이미 확정된 제약, 위 표 참고) — 측정하지 않았다.
+
+**tier 결정**: **`bundled`.** 근거:
+- 비용은 **1회성**이다 — `npm exec`는 받은 패키지를 npx cache에 남기므로(조사 lane이 `--offline`
+  재현으로 확인) 이 증가분은 딱 첫 실행에만 발생한다.
+- 절대 크기가 **이미 번들 중인 typescript보다 작다** — pyright(unpacked +18.4 MB)는 이미 bundled인
+  `typescript`(23.6 MB) 하나보다도 작다. Python 지원을 위해 새로 감수하는 무게가 기존에 이미 감수하고
+  있는 무게의 범위 안에 있다.
+- 1회성 지연도 절대값으로 작다 — baseline 0.8s에서 2.4s 안팎으로, **추가되는 시간은 채 2초가 안
+  된다.**
+- `verified-external`을 택하면 Python 사용자는 gopls처럼 별도 설치가 필요하다 — 그런데 gopls는
+  Go 바이너리라 npm 배포가 애초에 불가능했던 경우이고, pyright/basedpyright는 npm 패키지라 그 제약이
+  없다. 이 lane의 목적 자체가 "Python 사용자가 설정 없이 쓴다"(TS/JS와 동등한 경험)이므로, 배포
+  형태가 허용하는데도 사용자에게 설치를 요구할 이유가 약하다.
+- **이 결정이 stage 2를 제약한다**: `bundled`를 택했으므로 `Pyrefly`는 이 시점에 자동으로 후보에서
+  빠진다. stage 2는 `pyright` vs `basedpyright` 2자 선택으로 좁혀진다.
+
+**검증**: 선택한 tier(`bundled`)로 실제 first-run 재현은 stage 4(preset이 실제로 존재해야 `npm exec`
+경로를 진짜로 태울 수 있다)에서 수행한다 — 이 시점에는 아직 preset이 없어 "선택 후 재현"을 이 stage
+안에서 닫을 수 없다. 이 순서 자체를 다음 보고에서 commander에게 명시한다.
+- **commander 확인 대기**: 이 tier 결정과 실측값을 보고하고, stage 2로 진행하기 전 확인을 받는다
+  (계획 세션이 명시적으로 요구한 게이트).
