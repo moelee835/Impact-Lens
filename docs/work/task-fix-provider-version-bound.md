@@ -191,3 +191,25 @@ assertion만 했지 `response.schema.json`에 대조하지 않았다. `cli/src/t
 
 로컬 재검증: `npm run cli:build`, 신규 test 단독 실행 3/3 통과, `PATH`+`IMPACT_LENS_REQUIRE_GOPLS=1`로
 `npm run test:all` 전체(279 CLI test 포함) 통과.
+
+### 2026-09-02 — commander 독립 재검증, 관계 서술 정밀화, 인식 정정
+
+commander가 fix를 독립적으로 재구현해 한글·이모지·중국어·é·국기 이모지 5종 × offset 101개로 재스윕
+— 최대 256 byte, 254 codepoint, 초과 0건으로 확인했다.
+
+**관계 서술을 더 정밀하게 고쳤다.** commander가 지적한 대로, 안전의 진짜 조건은 "두 상수가 같다"가
+아니라 **"byte 상수가 정확히 지켜지고, 그 값이 schema `maxLength` 이하다"**이다. 우연히 두 값이
+같아서가 아니라 `SERVER_VERSION_MAX_BYTES <= maxLength`이기만 하면 되는 것 — `lspProvider.ts`의
+주석을 이 조건으로 다시 썼다(`truncate()`가 정확한 byte 상한을 보장하는 한, byte bound가 그 값
+이하인 codepoint bound를 구조적으로 만족시킨다는 것).
+
+commander의 사소한 관찰(`cut.replace(...)`가 원본에 이미 있던 trailing U+FFFD도 지울 수 있다 —
+무해하지만)도 `truncate()` 주석에 반영했다.
+
+**인식 정정 — 그대로 기록한다.** "reviewer가 본 258 byte는 push 안 된 이전 commit의 결과였을
+것"이라고 보고했는데, commander가 정확히 지적했다: **리뷰어는 공개된(push된) 상태를 검토하는 게
+맞는 절차이고, 그 시점 PR head가 `003df7f`였으니 리뷰어가 본 것이 맞다.** "검토자가 낡은 코드를
+봤다"는 프레이밍은 로컬에 fix가 있었다는 사실과 무관하게 부정확했다 — 검토 요청 전에 push했어야
+했다. 그리고 그 라운드의 나머지 발견(주석의 단위 불일치, ASCII fixture 때문에 발동 안 하는
+assertion, `validate()` 미사용)은 byte 초과 fix의 push 여부와 무관하게 전부 유효했다는 것도
+그대로 인정한다.

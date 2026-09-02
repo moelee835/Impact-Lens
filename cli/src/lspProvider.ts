@@ -61,14 +61,16 @@ const DYNAMIC_REGISTRATION_BUDGET_MS = 250;
  * This is NOT the same unit as `response.schema.json`'s `$defs/provider.version` `maxLength`, even
  * though both are the number 256 - the contract checker (`cli/src/test/jsonSchema.ts`) measures
  * `maxLength` in Unicode codepoints (`[...value].length`, matching the JSON Schema spec), not UTF-8
- * bytes. The two numbers matching is not a coincidence to preserve by hand, though: every codepoint
- * takes at least 1 UTF-8 byte, so a string's byte length is always >= its codepoint count, which means
- * bounding bytes to N always keeps codepoints <= N too - the safe direction holds structurally, not by
- * luck. This DOES depend on `truncate()` (`providers/discovery.ts`) enforcing an exact byte ceiling with
- * no overshoot; before that function stripped a trailing U+FFFD artifact, a cut landing mid-character
- * could come out 1-2 bytes over `SERVER_VERSION_MAX_BYTES`, and moving that budget or the marker's
- * length without re-checking the exactness of the underlying cut is what would actually let this drift -
- * not the byte/codepoint distinction itself. `cli/src/test/schema.test.ts` validates a real oversized,
+ * bytes. The two constants do not need to be equal for this to be safe, only `SERVER_VERSION_MAX_BYTES
+ * <= maxLength`: every codepoint takes at least 1 UTF-8 byte, so a string's byte length is always >= its
+ * codepoint count, and a value this function outputs is always <= `SERVER_VERSION_MAX_BYTES` bytes -
+ * therefore always <= that many codepoints too, which is <= `maxLength` as long as the byte constant here
+ * does not exceed it. Picking the same number for both was a choice, not a requirement the safety
+ * depends on. What the safety DOES depend on is `truncate()` (`providers/discovery.ts`) enforcing an
+ * exact byte ceiling with no overshoot; before that function stripped a trailing U+FFFD artifact, a cut
+ * landing mid-character could come out 1-2 bytes over `SERVER_VERSION_MAX_BYTES`, which is what would
+ * have actually let this drift - not the byte/codepoint distinction by itself, and not this constant
+ * ever exceeding `maxLength`. `cli/src/test/schema.test.ts` validates a real oversized,
  * multi-byte `serverInfo.version` against the live schema to catch a regression in either direction.
  *
  * `serverInfo.version` is a server-controlled, unbounded string handed straight to two response

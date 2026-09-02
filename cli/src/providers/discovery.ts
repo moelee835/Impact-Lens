@@ -156,6 +156,11 @@ export function probeVersion(executable: string, probe: ProviderVersionProbe): V
  * result within budget in every case checked. Any caller relying on "the result is never longer than
  * maxBytes" - `lspProvider.ts` budgets a fixed-width marker onto the remainder, for one - would otherwise
  * overrun by that same 1-2 bytes right at the boundary it computed from this function's contract.
+ *
+ * This also strips a U+FFFD that was already present at the very end of the *input* text, not only one
+ * this cut manufactured - harmless (the result is only ever shorter than it strictly needed to be, never
+ * longer than `maxBytes`), and not worth telling apart from the manufactured case for what this function
+ * is used for (version strings, process output), so it is not.
  */
 export function truncate(text: string, maxBytes: number): string {
   if (Buffer.byteLength(text, 'utf8') <= maxBytes) {
