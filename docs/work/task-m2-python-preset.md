@@ -324,6 +324,13 @@ gopls의 AdHoc 모드와 같은 모양이다. 조사 lane은 같은 디렉터리
 못했다. 사실이면 `requiredProjectFiles`와 limitations가 이 한계를 반영해야 한다 — stage 4에서
 실제로 확인한다.
 
+**stage 4 지시(commander, 지금 확정 — 코드는 stage 4에서 반영)**: `cli/package.json`을 직접 읽어
+확인했다 — `dependencies.typescript`는 `"5.9.3"`(caret 없음, 정확히 고정)인데 `devDependencies.
+typescript`는 `"^5.9.3"`이다. 이 비대칭은 의도적이다 — bundled preset이 `version` 필드를 두지 않는
+설계(위 참고) 자체가 "우리가 정확히 한 버전을 배송한다"는 전제 위에 서 있다. **stage 4에서
+`pyright`를 추가할 때 같은 방식으로 정확히 고정한다(caret 금지)** — caret을 쓰면 사용자마다 다른
+pyright가 설치될 수 있고, `doctor`가 보고하는 버전과 실제 동작이 갈릴 위험이 생긴다.
+
 **참고**: 위에서 인용한 `IL-LIM-004`의 "자동 설치를 하지 않는다"는 commander의 원래 메시지가
 `AGENTS.md`를 근거로 들었으나, 이 lane이 직접 확인한 결과 `AGENTS.md`에는 설치 관련 조항이 없다(grep
 결과 0건) — 실제 근거는 `il-lim-004-first-class-language-presets.md:103`이다. 주장 자체는 맞고
@@ -343,6 +350,17 @@ scratch node_modules를 그대로 재사용해 세 기준을 직접 확인했다
   dist-tag는 별도로 안정 버전만 가리킨다(`basedpyright@1.39.10` 자체가 `latest`임을 `npm view
   basedpyright dist-tags`로 확인) — canary 개수만 보고 "불안정하다"로 오판하지 않도록 이 구분을
   분명히 남긴다.
+- **정직하게 남긴다: "릴리스 주기"는 메인테이너 수·버전 개수·dist-tag 구조만 확인했고, `latest`
+  태그의 실제 배포 간격 분포(중앙값, 최대 공백 등)를 통계적으로 분석하지는 않았다** — 요구사항이
+  "유지보수 주체와 릴리스 주기"를 함께 확인하라고 했는데 후자는 이 표면 수준까지만 봤다. 아래 결정을
+  뒤집을 요소로 보이지 않아(npm 채널 우선순위 신호 하나로 이미 결정이 선다) 더 깊이 파지 않았지만,
+  "확인했다"로 뭉뚱그리지 않고 어디까지 봤는지를 그대로 적는다.
+- **공급망 관점(commander 지적)**: `bundled`를 택한 순간 이 저장소가 "사용자 머신에 이 패키지를
+  설치하는 주체"가 된다 — `verified-external`이었다면 사용자가 자기가 설치한 것에 스스로 책임을
+  졌겠지만, 지금은 우리가 그 선택을 대신 한다. 그래서 `repository.url =
+  git+https://github.com/Microsoft/pyright.git`와 `maintainers`에 `microsoft1es`/
+  `microsoft-oss-releases`(공식 조직 계정) + 원저자 `erictraut`가 포함돼 있다는 것을 "정품 확인"으로
+  이 기록에 명시한다 — 번들 이전에는 하지 않아도 됐을 확인이다.
 - **basedpyright 자신의 README가 npm을 2순위 채널이라고 명시한다**: `node_modules/basedpyright/
   README.md`(설치된 실제 파일에서 직접 인용) — "it's recommended to install basedpyright via
   pypi rather than npm... the basedpyright npm package is intended for users who are unable to use
