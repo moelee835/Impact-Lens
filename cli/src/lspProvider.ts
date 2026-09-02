@@ -58,20 +58,35 @@ const DYNAMIC_REGISTRATION_BUDGET_MS = 250;
 /**
  * Ceiling on `serverInfo.version` as reported in the response, in UTF-8 bytes.
  *
- * This is NOT the same unit as `response.schema.json`'s `$defs/provider.version` `maxLength`, even
- * though both are the number 256 - the contract checker (`cli/src/test/jsonSchema.ts`) measures
- * `maxLength` in Unicode codepoints (`[...value].length`, matching the JSON Schema spec), not UTF-8
- * bytes. The two constants do not need to be equal for this to be safe, only `SERVER_VERSION_MAX_BYTES
- * <= maxLength`: every codepoint takes at least 1 UTF-8 byte, so a string's byte length is always >= its
- * codepoint count, and a value this function outputs is always <= `SERVER_VERSION_MAX_BYTES` bytes -
- * therefore always <= that many codepoints too, which is <= `maxLength` as long as the byte constant here
- * does not exceed it. Picking the same number for both was a choice, not a requirement the safety
- * depends on. What the safety DOES depend on is `truncate()` (`providers/discovery.ts`) enforcing an
- * exact byte ceiling with no overshoot; before that function stripped a trailing U+FFFD artifact, a cut
- * landing mid-character could come out 1-2 bytes over `SERVER_VERSION_MAX_BYTES`, which is what would
- * have actually let this drift - not the byte/codepoint distinction by itself, and not this constant
- * ever exceeding `maxLength`. `cli/src/test/schema.test.ts` validates a real oversized,
- * multi-byte `serverInfo.version` against the live schema to catch a regression in either direction.
+ * This is NOT the same unit as `response.schema.json`'s `$defs/provider.version` `maxLength` - the
+ * contract checker (`cli/src/test/jsonSchema.ts`) measures `maxLength` in Unicode codepoints
+ * (`[...value].length`, matching the JSON Schema spec), not UTF-8 bytes. Both being 256 today is a
+ * choice, not a requirement; nothing enforces that they stay equal.
+ *
+ * Staying within `maxLength` needs BOTH of the following, independently - satisfying one does not imply
+ * the other, and losing either one breaks the schema guarantee on its own:
+ *
+ *   (i)  `truncate()` (`providers/discovery.ts`) must enforce its byte ceiling with no overshoot. This
+ *        was broken until it stripped a trailing U+FFFD artifact: a cut landing mid-character left an
+ *        incomplete UTF-8 sequence that `Buffer.toString('utf8')` replaces with U+FFFD, whose own
+ *        re-encoding could be wider than the bytes it replaced, so the naive cut came out 1-2 bytes OVER
+ *        `SERVER_VERSION_MAX_BYTES`. Guarded by the `truncate()` test in `cli/src/test/providers.test.ts`
+ *        - reverting the U+FFFD fix makes that test fail immediately.
+ *   (ii) `SERVER_VERSION_MAX_BYTES <= maxLength` (the schema constant, currently also 256) must hold on
+ *        its own - because every codepoint takes at least 1 UTF-8 byte, a value bounded to N bytes has
+ *        at most N codepoints, so a byte ceiling AT OR BELOW `maxLength` cannot produce more codepoints
+ *        than `maxLength` allows. This holds regardless of whether (i) is perfect: raising
+ *        `SERVER_VERSION_MAX_BYTES` past `maxLength` (e.g. to 500, marker unchanged) makes even a
+ *        flawless byte-exact `truncate()` emit ~498 ASCII codepoints, violating a `maxLength` of 256 -
+ *        confirmed directly. **No test currently fails if this constant is raised past the schema's
+ *        `maxLength` without raising `maxLength` to match** - this is a real, open gap, not something
+ *        already covered elsewhere.
+ *
+ * `cli/src/test/schema.test.ts` validates a real bounded `serverInfo.version` (ASCII and multi-byte)
+ * against the live schema and confirms `maxLength` still rejects an out-of-bounds value - but it checks
+ * codepoints like the schema does, so it CANNOT see a byte-ceiling overshoot from (i): reverting the
+ * U+FFFD fix leaves both of its cases passing even though a real 258-byte response goes out. Guarding (i)
+ * is `providers.test.ts`'s job alone; guarding (ii) has no dedicated test today.
  *
  * `serverInfo.version` is a server-controlled, unbounded string handed straight to two response
  * locations (`data.provider.version` and top-level `capabilities.version`, both projections of the same
@@ -88,7 +103,7 @@ const DYNAMIC_REGISTRATION_BUDGET_MS = 250;
  * not at either place that later reads it - a third consumer would otherwise need its own copy of this
  * same logic to stay safe.
  */
-const SERVER_VERSION_MAX_BYTES = 256;
+export const SERVER_VERSION_MAX_BYTES = 256;
 
 /**
  * Appended when `serverInfo.version` is cut, so a consumer can tell "the version is exactly this" from

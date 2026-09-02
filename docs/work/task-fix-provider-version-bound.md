@@ -213,3 +213,30 @@ commander의 사소한 관찰(`cut.replace(...)`가 원본에 이미 있던 trai
 했다. 그리고 그 라운드의 나머지 발견(주석의 단위 불일치, ASCII fixture 때문에 발동 안 하는
 assertion, `validate()` 미사용)은 byte 초과 fix의 push 여부와 무관하게 전부 유효했다는 것도
 그대로 인정한다.
+
+### 2026-09-02 — 세 번째 라운드: 정정문 자체의 자기모순, 그리고 미검증 조건을 실제로 닫음
+
+commander가 지적한 대로, 직전 라운드에서 고친 주석이 **한 문단 안에서 자기모순**이었다: 안전
+조건이 "byte 상수 ≤ maxLength"라고 정확히 적어 놓고, 바로 다음 문장에서 "이 상수가 maxLength를
+넘는 것은 drift 경로가 아니다"라고 그 조건을 부인했다.
+
+**reviewer의 반례를 직접 재현해 확인했다**: `SERVER_VERSION_MAX_BYTES`를 500으로(marker는 그대로)
+올리면, `truncate()`가 지금처럼 완벽하게 486 byte로 잘라도 ASCII 입력 기준 498 codepoint가 나와
+schema `maxLength: 256`을 위반한다 — **`truncate()`의 정확성과 완전히 무관한 실패 경로**라는 걸
+직접 스크립트로 확인했다.
+
+**주석을 두 개의 독립된 조건으로 다시 썼다**: (i) `truncate()`가 byte 상한을 overshoot 없이 지킬
+것(이게 깨졌던 게 U+FFFD 버그, `providers.test.ts`가 지킴), (ii)
+`SERVER_VERSION_MAX_BYTES ≤ maxLength`일 것(이게 (i)과 독립적으로 성립해야 하고, **지금까지 이
+조건을 자동으로 지키는 test가 없었다**는 것을 있는 그대로 적었다). 그리고 `schema.test.ts`가 (i)을
+못 본다는 것도 명시했다 — `truncate()`를 되돌려도 `schema.test.ts`의 두 test는 codepoint 기준이라
+여전히 통과한다(reviewer가 직접 확인한 결과, 이 세션은 이 특정 재확인을 반복하지 않고 그대로
+인용함 — 대신 이전에 이미 확인한 U+FFFD 메커니즘으로 원리를 재확인했다).
+
+**조건 (ii)를 문서화만 하지 않고 실제로 닫았다.** `SERVER_VERSION_MAX_BYTES`를 export하고,
+`schema.test.ts`에 `SERVER_VERSION_MAX_BYTES <= schema().$defs.provider.properties.version.maxLength`를
+직접 비교하는 test를 추가했다. schema의 `maxLength`를 일시적으로 100으로 낮춰 이 test가 실제로
+실패하는지 확인한 뒤 원복했다 — guard가 공허하지 않음을 증명.
+
+로컬 재검증: `npm run cli:build`, 신규 guard test 개별 실행 확인(음성 방향 포함),
+`PATH`+`IMPACT_LENS_REQUIRE_GOPLS=1`로 `npm run test:all` 전체(280 CLI test 포함) 통과.

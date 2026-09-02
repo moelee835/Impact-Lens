@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { SERVER_VERSION_MAX_BYTES } from '../lspProvider';
 import {
   COMPLETION_TRAVERSAL_STATUSES,
   INDEXING_STATUSES,
@@ -241,4 +242,20 @@ test('the schema checker actually rejects a version string over maxLength - the 
   ((envelope.data as Record<string, unknown>).provider as Record<string, unknown>).version = overLength;
   (envelope.capabilities as Record<string, unknown>).version = overLength;
   assert.notDeepEqual(validate(schema(), envelope), []);
+});
+
+// The gap named in lspProvider.ts's SERVER_VERSION_MAX_BYTES comment: bounding bytes to N only keeps
+// codepoints within a codepoint-counted `maxLength` of N when N itself does not exceed `maxLength`. No
+// other test would fail if SERVER_VERSION_MAX_BYTES were raised past `maxLength` while `truncate()`
+// stayed perfectly byte-exact - the two tests above check real output, not this constant relationship,
+// and neither would produce that scenario on its own. This closes that gap directly.
+test('the serverInfo.version byte ceiling never exceeds the schema\'s codepoint maxLength', () => {
+  const maxLength = (schema() as { $defs: { provider: { properties: { version: { maxLength: number } } } } })
+    .$defs.provider.properties.version.maxLength;
+  assert.ok(
+    SERVER_VERSION_MAX_BYTES <= maxLength,
+    `SERVER_VERSION_MAX_BYTES (${SERVER_VERSION_MAX_BYTES}) must not exceed the schema's maxLength ` +
+    `(${maxLength}) - a byte ceiling above the codepoint maxLength can violate it even with a perfectly ` +
+    'byte-exact truncate().',
+  );
 });
