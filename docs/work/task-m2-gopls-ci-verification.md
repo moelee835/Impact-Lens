@@ -99,13 +99,19 @@ executable discovery와 version policy"를 명시하고, 위험 대응에 "언�
   명시, Python/C·C++가 다음 후보라고 정정.
 - `README.md:305-308` 부근 — `working`/`ready`가 "오늘 사용자가 만들 수 없다"고 했던 문장을, gopls로
   Go 프로젝트를 분석하면 실제로 도달한다고 정정.
-- **`cli/README.md`(원래 목록에 없었다 — `git grep`을 CLI 하위 README까지 넓혀 재실행하다 발견)**:
-  `:184` "catalog has exactly one entry today, `bundled-typescript`" → 두 entry로 정정.
-  `:110-115` "No preset in the shipped catalog declares a readiness profile, so unknown is the only
-  value reachable today" → gopls는 선언한다고 정정. **이건 원래 "알면서 남겨둔 창" 목록 자체가
-  불완전했다는 뜻이다** — PR #55가 이미 겪은 "정적 목록이 낡는다"는 위험이 이번엔 발견 단계에서부터
-  나타났다. 다음에 이런 sweep을 할 땐 `README.md`뿐 아니라 하위 디렉터리의 모든 `README.md`/`*.md`를
-  `git grep`으로 훑어야 한다는 교훈으로 남긴다.
+- `cli/README.md`: `:184` "catalog has exactly one entry today, `bundled-typescript`" → 두 entry로
+  정정. `:110-115` "No preset in the shipped catalog declares a readiness profile, so unknown is the
+  only value reachable today" → gopls는 선언한다고 정정.
+
+  **2026-09-02 정정(commander 지적)**: 위에서 "`cli/README.md`가 원래 목록에 없었다"고 적었는데
+  틀렸다. commander가 이 lane 초반에 보낸 4단계 문서 목록에는 `cli/README.md:184`와
+  `cli/README.md:111-112`가 **이미 포함돼 있었다.** 이 stage 3 작업 문서의 "알면서 남겨둔 창"
+  섹션을 쓸 때 그 상류 목록을 옮겨 적으면서 두 항목이 빠졌을 뿐이다 — **진짜 교훈은 "목록을 처음 만들
+  때 부실했다"가 아니라 "정확한 목록도 옮겨 적으면 항목이 샌다"는 것이다.** 후자가 더 무서운 이유는
+  목록의 품질과 무관하게 복사 자체가 손실 경로이기 때문이다 — commander가 "정적 목록을 믿지 말고
+  `git grep`으로 재생성하라"고 반복해서 요구해 온 이유가 바로 이거였다. 결과적으로 `git grep`을 다시
+  돌려 정정한 것 자체는 맞은 방향이었지만, 그 이유를 "최초 목록이 허술해서"로 잘못 짚었던 것은
+  정정한다.
 - `docs/development-management/user-tests/m1-user-test-spec.md:60` 등 3행 — 원문은 지우지 않고(이
   표 자체가 M1 시점 기록으로서의 가치가 있음), 2026-09-02 정정 인용문을 표 바로 아래에 추가해 Go에
   한해 검증 가능해졌다고 명시.
@@ -274,14 +280,14 @@ suite를 다른 환경에서 돌려 서로 다른 것을 증명한다:
 - `catalog.ts`의 `lastVerified` 주석: darwin/arm64 전용 서술을 버전별로 정정 — **`0.19.1`은 CI가 3-OS
   전부에서 실제 auto-discovery+Call Hierarchy+readiness 왕복을 검증**, `0.23.0`은 여전히 darwin/arm64
   수동 검증뿐(CI는 `0.19.1`만 설치·검증하므로 `0.23.0`까지 3-OS로 확대 주장하지 않는다 — 과장 방지).
-- 문서 정정 4개 파일: `README.md`(2곳), `cli/README.md`(2곳 — **sweep 도중 새로 발견, 원래
-  "알면서 남겨둔 창" 목록에 없었다**), `m1-user-test-spec.md`(원문 유지, 정정 인용문 추가),
-  `cli-contract.md`(readiness 도달 불가 서술 정정, `test:response-policy`의 doc-invariant check로
-  구조적 정합성 재확인).
-- **`cli/README.md`가 원래 목록에 없었다는 사실 자체를 기록한다**: "알면서 남겨둔 창" 섹션을 처음 쓸
-  때 `README.md`/`m1-user-test-spec.md`/`cli-contract.md`만 `git grep`했고 하위 디렉터리의
-  `cli/README.md`는 빠뜨렸다. 이번 sweep에서 범위를 넓혀 재실행하다 발견했다 — PR #55가 이미 겪은
-  "정적 목록이 낡는다"는 위험이, 이번엔 목록을 처음 작성하는 단계에서부터 나타난 것이다.
+- 문서 정정 4개 파일: `README.md`(2곳), `cli/README.md`(2곳), `m1-user-test-spec.md`(원문 유지, 정정
+  인용문 추가), `cli-contract.md`(readiness 도달 불가 서술 정정, `test:response-policy`의
+  doc-invariant check로 구조적 정합성 재확인).
+- **2026-09-02 정정(commander 지적)**: 이 항목에 처음 "`cli/README.md`가 원래 '알면서 남겨둔 창' 목록에
+  없었고 이번 sweep에서 새로 발견했다"고 적었는데 틀렸다. commander가 이 lane 초반에 보낸 4단계 문서
+  목록에 `cli/README.md:184`, `:111-112`가 이미 있었고, "알면서 남겨둔 창" 섹션을 쓰면서 그 항목들을
+  옮겨 적다가 빠뜨렸을 뿐이다 — 상세 정정은 "실제 정정 내역" 섹션의 `cli/README.md` 항목 참고. 원인은
+  "최초 조사가 부실했다"가 아니라 "정확한 목록도 옮겨 적으면 항목이 샌다"는 것이다.
 - 로컬 재검증: `npm run cli:build`, `PATH`+`IMPACT_LENS_REQUIRE_GOPLS=1`로 `npm run test:all` 전체
   통과(cli-contract.md 수정이 `test:response-policy`의 doc-invariant check를 깨지 않음을 확인).
   `buildInvocation.sources.test.ts` 4/4 재확인 — `cli/src` 아래 `.ts` 파일만 스캔하므로
