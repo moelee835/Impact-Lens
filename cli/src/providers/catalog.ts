@@ -3,14 +3,20 @@ import { ProviderPreset } from './preset';
 /**
  * The shipped preset catalog.
  *
- * It has exactly one entry, and that is the whole point. M1 delivers the preset machinery, not a list
- * of languages. A preset may only enter this file once a real fixture has passed against a pinned
- * version range, because `verified-external` in a catalog is a claim users act on: it says "point this
- * at your project and the answer will be trustworthy". Listing a language we have not exercised would
- * make the tool's own support table the first thing it is wrong about.
+ * M1 shipped exactly one entry (`bundled-typescript`) on purpose: it delivered the preset machinery,
+ * not a list of languages. A preset may only enter this file once a real fixture has passed against a
+ * pinned version range, because `verified-external` in a catalog is a claim users act on: it says
+ * "point this at your project and the answer will be trustworthy". Listing a language we have not
+ * exercised would make the tool's own support table the first thing it is wrong about.
  *
- * gopls is the first external candidate (IL-LIM-004 stage 3, milestone M2). Python waits on IL-LIM-006
- * because Pylance cannot legally be discovered or bundled by an independent CLI.
+ * `gopls` (M2, IL-LIM-004 stage 3) is the first entry to actually earn that claim through the
+ * `verified-external` tier rather than through `bundled`'s shipped-in-the-tarball shortcut — see
+ * docs/work/task-m2-gopls-preset.md for the investigation this preset is built from. It is also the
+ * first preset to declare `readiness`, which is what lets `coverage.indexing.status` report anything
+ * other than `unknown`.
+ *
+ * Python waits on IL-LIM-006 because Pylance cannot legally be discovered or bundled by an independent
+ * CLI, and its alternatives have not yet been confirmed to support Call Hierarchy at all.
  */
 
 const TYPESCRIPT_FIXTURE_TSCONFIG = `${JSON.stringify(
@@ -84,7 +90,118 @@ const bundledTypeScript: ProviderPreset = {
   },
 };
 
-export const PROVIDER_CATALOG: readonly ProviderPreset[] = [bundledTypeScript];
+const GOPLS_FIXTURE_GOMOD = 'module fixture\n\ngo 1.21\n';
+
+export const GOPLS_PRESET_ID = 'gopls';
+
+const gopls: ProviderPreset = {
+  id: GOPLS_PRESET_ID,
+  displayName: 'gopls (Go)',
+  tier: 'verified-external',
+  languageIds: ['go'],
+  extensions: ['.go'],
+  command: {
+    // PATH lookup only, no shell — the same mechanism the doctor executable check already exercises
+    // generically. gopls speaks LSP over stdio when given this flag.
+    candidates: ['gopls'],
+    args: ['-mode=stdio'],
+    languageIdFrom: 'detected',
+  },
+  version: {
+    // Plain `gopls version`, never `-json`. `-json` prints `"GoVersion"` (the Go compiler's own
+    // version) before gopls's own `"Version"` field, and `parseVersion()` takes the first dotted
+    // number it finds in the combined output — so `-json` would report the *compiler's* version as
+    // gopls's, silently. Plain `gopls version` prints exactly one dotted number
+    // ("golang.org/x/tools/gopls v0.19.1"), which is what task-m2-gopls-preset.md's stage 1 confirmed
+    // by running both forms side by side. buildInvocation.sources.test.ts guards this file's spawn
+    // sites; versionProbe.test.ts guards this specific misparse.
+    args: ['version'],
+    timeoutMs: 5000,
+    maxOutputBytes: 4096,
+    // The floor actually run in stage 1 (v0.19.1, v0.23.0), not an assumed one. Lower versions were
+    // not tested — one (v0.16.2) failed to even build against this repo's Go toolchain, which is a
+    // toolchain fact, not evidence that 0.16.2 itself lacks Call Hierarchy support. Narrow this only
+    // after testing a lower version, never by guessing.
+    supported: { minimum: '0.19.1' },
+  },
+  // No `initializationOptions`, no `settings`: gopls answered the fixture's Call Hierarchy request
+  // correctly with an empty initialize frame in stage 1. A future preset revision can add settings
+  // (e.g. `build.buildFlags`) once a real need is observed.
+  readiness: {
+    // Read-only existence check, nothing else. Without a go.mod, gopls does not error — it silently
+    // falls back to an "AdHoc" view (observed in stage 1: `view_type="AdHoc"` in its own log, and the
+    // reported symbols carry a synthetic `_/abs/path` import path instead of the module name). AdHoc
+    // results are indistinguishable from complete ones on the wire, which is exactly what IL-LIM-009
+    // exists to prevent — an incomplete answer that reads like a proven one. So this preset still
+    // requires go.mod even though gopls itself would "work" without it.
+    //
+    // This field does real work `readiness.signals` below CANNOT do: the "Setting up workspace" progress
+    // cycle fires identically whether or not go.mod is present — readiness alone cannot tell a module
+    // view from an AdHoc one (confirmed by probing both side by side). A future edit that removes this
+    // as "redundant with readiness" would let an AdHoc result carry a `ready` label.
+    requiredProjectFiles: ['go.mod'],
+    signals: [
+      // The exact signal gopls sends, observed identically on v0.19.1 and v0.23.0 in stage 1: a
+      // work-done-progress cycle whose begin.title is "Setting up workspace" (message
+      // "Loading packages..."), ending with message "Finished loading packages." Only the end counts
+      // as ready — ReadinessTracker only promotes on the end of the token whose begin matched.
+      { kind: 'work-done-progress', means: 'ready', titlePattern: 'Setting up workspace' },
+    ],
+    // A judgement call, not a measured production ceiling: stage 1's trivial two-file fixture indexed
+    // in under a second, but real modules vary widely. proceed-partial over fail because a slow-but-
+    // still-indexing gopls should downgrade the result rather than hard-fail the request.
+    budgetMs: 10000,
+    onBudgetExceeded: 'proceed-partial',
+  },
+  fixture: {
+    files: [
+      { path: 'go.mod', content: GOPLS_FIXTURE_GOMOD },
+      {
+        path: 'target.go',
+        content: 'package fixture\n\nfunc FixtureTarget(value int) int {\n\treturn value + 1\n}\n',
+      },
+      {
+        path: 'caller.go',
+        content: [
+          'package fixture',
+          '',
+          'func FixtureCaller(value int) int {',
+          '\treturn FixtureTarget(value)',
+          '}',
+          '',
+        ].join('\n'),
+      },
+    ],
+    // Line 3, column 6 is the first character of "FixtureTarget" ("func " is 5 characters).
+    target: { file: 'target.go', line: 3, column: 6 },
+    expectedCaller: 'FixtureCaller',
+  },
+  docs: {
+    install: 'https://github.com/golang/tools/blob/master/gopls/README.md#installation',
+    limitations: [
+      // Observed directly (stage 1's AdHoc-mode probe): without a go.mod describing the module, gopls
+      // cannot reliably resolve cross-package references, which is why this preset requires one.
+      'Cross-package results depend on the project being described by a go.mod.',
+      // The universal static-analysis gap, not specific to gopls: calls reached only through
+      // reflection (the `reflect` package) or other runtime-constructed dispatch are not part of the
+      // Call Hierarchy result. (Ordinary interface method calls are resolved correctly — verified
+      // directly during stage 2 by probing a call through an interface-typed parameter and confirming
+      // it reached its concrete implementation; stage 1 did not test this, see
+      // docs/work/task-m2-gopls-preset.md.)
+      'Calls made only through reflection are not part of the Call Hierarchy result.',
+      'Code produced by go:generate is only visible if it has already been generated on disk.',
+    ],
+  },
+  // Evidence for the verified-external tier. Verified on darwin/arm64 only in this investigation
+  // (task-m2-gopls-preset.md stage 1) — linux/windows installation and behavior are not yet confirmed
+  // and should not be claimed until CI verifies them.
+  lastVerified: {
+    date: '2026-09-01',
+    versions: ['0.19.1', '0.23.0'],
+  },
+};
+
+export const PROVIDER_CATALOG: readonly ProviderPreset[] = [bundledTypeScript, gopls];
 
 export function findPreset(catalog: readonly ProviderPreset[], id: string): ProviderPreset | undefined {
   return catalog.find(preset => preset.id === id);
