@@ -469,6 +469,12 @@ const LEAK_SHAPES: ReadonlyArray<{ readonly name: string; readonly arguments: re
   // flag-shaped string through unchanged (no '/' to strip), so this token would otherwise leak
   // straight into the `compiler` field - the one field this check still reads a real token into.
   { name: "arguments[0] is itself a -D define (malformed database, compiler slot)", arguments: ['-DAPI_TOKEN=abc123secret', '-c', 'main.c'] },
+  // A second commander review found path.basename() is platform-bound: on POSIX (this suite's
+  // platform) it does not treat '\' as a separator, so a Windows-generated compile_commands.json
+  // (arguments[0] = an absolute path with a username in it) read on macOS/Linux passed the whole
+  // string through unchanged as "compiler" - a real cross-platform scenario, not hypothetical (a
+  // database committed to a repo and opened on a different OS than it was generated on).
+  { name: 'a Windows-style absolute compiler path read on a non-Windows platform', arguments: ['C:\\Users\\abc123secret\\LLVM\\bin\\clang.exe', '-c', 'main.c'] },
 ];
 
 for (const shape of LEAK_SHAPES) {
@@ -487,3 +493,22 @@ for (const shape of LEAK_SHAPES) {
     assert.match(rawContent, /abc123secret/);
   });
 }
+
+// The same cross-platform leak, in the `file` field instead of `compiler`: a Windows-style absolute
+// path in a compile database entry's `file` property, read on a non-Windows platform, is invisible to
+// the native (POSIX-bound) `path.isAbsolute()` and would otherwise be treated as an odd relative
+// filename and passed through whole by `workspaceRelativeOrUndefined()`.
+test('compile-database sample never leaks a secret via: a Windows-style absolute file path read on a non-Windows platform', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-cdb-leak-file-');
+  const rawContent = JSON.stringify([{
+    directory: workspace,
+    arguments: ['clang', '-c', 'main.c'],
+    file: 'C:\\Users\\abc123secret\\project\\main.c',
+  }]);
+  fs.writeFileSync(path.join(workspace, 'compile_commands.json'), rawContent);
+  const data = await runDoctor('fixture-external', { workspace, env: {}, catalog: [...PROVIDER_CATALOG, cFamilyPreset()] });
+  const result = check(data.checks as readonly DoctorCheck[], 'compile-database');
+
+  assert.doesNotMatch(JSON.stringify(result), /abc123secret/);
+  assert.match(rawContent, /abc123secret/);
+});

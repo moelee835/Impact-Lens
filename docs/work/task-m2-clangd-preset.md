@@ -735,3 +735,53 @@ true   # 정상 compiler인데도 flag로 잘못 분류됨
 **검증**: `npm run cli:build` 통과, `node --test cli/dist/test/doctor.test.js` 26/26(신규 1개),
 `npm run cli:test`(전체) 320 pass/2 skip/0 fail(322 total). 기존 "sample 모양" 테스트(`/usr/bin/clang`
 → `compiler: 'clang'`)가 정제된 조건에서도 그대로 통과함을 확인 — 정상 케이스를 깨지 않았다.
+
+### Stage 3 addendum 2 — commander가 정제한 조건을 승인하며 플랫폼 종속 버그 하나 더 지적, 고침
+
+commander가 정제한 `looksLikeFlag` 조건 자체는 직접 돌려 승인했다 — `/usr/bin/clang`·`clang-cl`·
+사용자 홈 경로 든 compiler는 정상 표시, `-DAPI_TOKEN=secret`류 넷은 전부 생략됨을 확인했다고
+했다. **그리고 자신이 준 원래 문구가 틀렸고 내가 구현 전에 잡은 것도 맞다고 확인했다.**
+
+**추가로 지적한 것**: `path.basename()` 자체가 **플랫폼 종속**이다. POSIX에서 실행하면 `\`를
+구분자로 안 본다 — Windows에서 생성된 `compile_commands.json`(`arguments[0]`이
+`C:\Users\me\LLVM\bin\clang.exe`류)을 macOS/Linux에서 열면 **경로 전체가 그대로 나간다.** 저장소에
+커밋된 database를 다른 OS에서 여는 것은 드물지 않은 시나리오라고 짚었다. **직접 재현**:
+
+```
+$ node -e "console.log(require('path').basename('C:\\\\Users\\\\me\\\\LLVM\\\\bin\\\\clang.exe'))"
+C:\Users\me\LLVM\bin\clang.exe   # POSIX에서 실행 시 전혀 안 잘림
+```
+
+**같은 근본 원인이 `file` 필드에도 있다는 것을 스스로 먼저 확인했다** — commander가 짚지 않은 두
+번째 자리였지만, 같은 클래스의 버그라 직접 점검했다. `workspaceRelativeOrUndefined()`의
+`path.isAbsolute()`도 플랫폼 종속이라, Windows 절대 경로가 POSIX에서는 "절대 경로 아님"으로
+읽혀 `path.resolve(workspace, file)`을 거쳐 그대로 relative처럼 반환된다:
+
+```
+$ node -e "... workspaceRelativeOrUndefined('/tmp/ws', 'C:\\\\Users\\\\me\\\\project\\\\main.c') ..."
+C:\Users\me\project\main.c   # 그대로 샘
+```
+
+**고쳤다**:
+- `crossPlatformBasename()` 신규 — `token.split(/[\\/]/).pop()`으로 두 구분자 전부에서 마지막
+  세그먼트를 취한다. `/usr/bin/clang`→`clang`, `C:\Users\me\LLVM\bin\clang.exe`→`clang.exe` 둘
+  다 정확히 확인.
+- `workspaceRelativeOrUndefined()`에 foreign-absolute 가드 추가 —
+  `(path.posix.isAbsolute(file) || path.win32.isAbsolute(file)) && !path.isAbsolute(file)`이면
+  절대 경로를 이 workspace에 안전하게 relate할 수 없다고 보고 즉시 생략한다. **검증한 방향은
+  "Windows 경로를 POSIX에서 읽는" 쪽뿐이다** — 반대 방향(POSIX 경로를 실제 win32 네이티브
+  프로세스에서 읽는 경우)은 따로 증명하지 않았다고 문서에 명시했다(이 저장소가 반복해서 요구하는
+  "확인 못 한 것을 확인한 척하지 않는다" 원칙).
+
+**`/DNDEBUG`(값 없는 MSVC define)는 고치지 않고 알려진 한계로 남겼다** — commander가 판단을
+맡겼다. `=`가 없어 `looksLikeFlag`에 안 걸리고 `compiler: "DNDEBUG"`로 잘못 표시되지만, **값이
+없으므로 시크릿 유출은 아니다.** 이걸 잡으려면 MSVC 단일 문자 flag 코드(`/D`, `/I`, `/O`, `/W`,
+`/U`...)를 이름으로 나열해야 하는데, 이게 정확히 이번 재설계가 피하려 한
+"모든 flag 형태를 나열" 함정이라 기각했다 — 코드 주석에 이유를 남겼다.
+
+**`LEAK_SHAPES`에 여섯 번째 케이스**(Windows 절대 compiler 경로) + **`file` 필드용 신규 테스트**
+(Windows 절대 file 경로) 추가. non-vacuity: 방금 고친 두 함수를 각각 재구성해 이 정확한 fixture에
+돌려보니 둘 다 실제로 샜음을 확인했다(위 재현 블록의 실측값과 일치).
+
+**검증**: `npm run cli:build` 통과, `node --test cli/dist/test/doctor.test.js` 28/28(신규 2개),
+`npm run cli:test`(전체) 322 pass/2 skip/0 fail(324 total).

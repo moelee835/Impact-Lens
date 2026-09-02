@@ -405,9 +405,16 @@ async function sampleCompileCommandMetadata(
     // the structural marker for that (a `-D<NAME>=<value>` or MSVC `/D<NAME>=<value>`) - a leading `-`
     // is excluded unconditionally since no real executable path is `-`-prefixed either way.
     const looksLikeFlag = compilerToken!.startsWith('-') || (compilerToken!.startsWith('/') && compilerToken!.includes('='));
+    // Known, accepted gap, not chased further: a valueless MSVC flag with no '=' (`/DNDEBUG`) has
+    // nothing sensitive to leak, but also isn't caught by the `=`-based guard above, so it displays as
+    // `compiler: "DNDEBUG"` - a wrong label, never a secret. Catching it would mean recognizing MSVC's
+    // single-letter flag codes (/D, /I, /O, /W, /U, ...) by name, which is exactly the kind of
+    // enumerate-every-flag-shape chase this redesign exists to avoid (see this function's own
+    // docstring). Left as a documented limitation, same call as gap 2 in AMBIGUOUS_LANGUAGE_ID's
+    // KNOWN LIMITATION comment (resolve.ts) for a different feature in this lane.
     const file = typeof first.file === 'string' ? workspaceRelativeOrUndefined(workspace, first.file) : undefined;
     return {
-      ...(looksLikeFlag ? {} : { compiler: path.basename(compilerToken!) }),
+      ...(looksLikeFlag ? {} : { compiler: crossPlatformBasename(compilerToken!) }),
       ...(file === undefined ? {} : { file }),
       argumentCount: rest.length,
     };
@@ -416,8 +423,38 @@ async function sampleCompileCommandMetadata(
   }
 }
 
-/** Relative path if `file` resolves inside `workspace`, `undefined` otherwise - never an absolute path. */
+/**
+ * `path.basename()` alone is platform-bound: on POSIX it does not treat `\` as a separator, so a
+ * Windows-generated absolute path (`C:\Users\name\LLVM\bin\clang.exe`) read by a doctor process running
+ * on macOS/Linux passes through unchanged - the exact user-environment-path leak this whole feature
+ * exists to prevent, just triggered by a cross-platform read instead of a flag shape (found via
+ * commander review; a `compile_commands.json` committed to a repo and opened on a different OS than it
+ * was generated on is not a rare scenario). Splitting on both separators unconditionally, instead of
+ * relying on the platform-bound module, closes it regardless of which OS produced the path or which OS
+ * this check is running on.
+ */
+function crossPlatformBasename(token: string): string {
+  const segments = token.split(/[\\/]/);
+  return segments[segments.length - 1] ?? token;
+}
+
+/**
+ * Relative path if `file` resolves inside `workspace`, `undefined` otherwise - never an absolute path.
+ *
+ * Rejects a foreign-platform absolute path outright (same cross-platform gap as `crossPlatformBasename()`
+ * above, applied here to the `file` field instead of `compiler`): `path.isAbsolute()` is also
+ * platform-bound, so a Windows-style absolute path is invisible to it when this check runs on POSIX,
+ * and would otherwise fall into the `path.resolve(workspace, file)` branch below and come back out
+ * through `path.relative()` still carrying its full foreign-absolute text (including a Windows
+ * username) - `relative.startsWith('..')` never catches this, because on POSIX `path.relative()` never
+ * recognizes it as a directory-escaping path in the first place, only as an oddly-named relative
+ * segment. Verified against exactly that direction (a Windows path read on POSIX, this test suite's
+ * platform); the reverse (a POSIX path read on a native win32 process) is not separately proven.
+ */
 function workspaceRelativeOrUndefined(workspace: string, file: string): string | undefined {
+  if ((path.posix.isAbsolute(file) || path.win32.isAbsolute(file)) && !path.isAbsolute(file)) {
+    return undefined;
+  }
   const absolute = path.isAbsolute(file) ? file : path.resolve(workspace, file);
   const relative = path.relative(workspace, absolute);
   if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
