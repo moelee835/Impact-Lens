@@ -338,3 +338,35 @@ test('an oversized serverInfo.version is bounded with a visible marker, in both 
   assert.ok(providerVersion.startsWith('v1.0.0-xxx'), 'expected the real prefix to survive truncation');
   assert.ok(providerVersion.endsWith('…[truncated]'), 'expected a visible marker, not a silently cut value');
 });
+
+// Same fixture, a multi-byte repeated character instead of ASCII - reproduces the byte-boundary-lands-
+// mid-character case truncate()'s fix guards. Without that fix this could come out over the 256-byte
+// schema maxLength once the truncation marker is appended (confirmed by reverting it locally: the naive
+// cut alone overshot by 1-2 bytes at several boundaries, which was enough to push the total over 256).
+test('an oversized non-ASCII serverInfo.version stays within the schema byte limit through the real CLI', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'hugeServerVersionServer.js');
+  const targetUri = pathToFileURL(path.resolve(__dirname, '..', '..', 'src', 'testFile.ts')).toString();
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    env: { ...process.env, IMPACT_LENS_MOCK_TARGET_URI: targetUri, IMPACT_LENS_MOCK_HUGE_VERSION_CHAR: '가' },
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.ok, true);
+
+  const providerVersion = response.data.provider.version as string;
+  assert.equal(providerVersion, response.capabilities.version);
+  assert.ok(
+    Buffer.byteLength(providerVersion, 'utf8') <= 256,
+    `expected <=256 bytes (the declared schema maxLength), got ${Buffer.byteLength(providerVersion, 'utf8')}: ${JSON.stringify(providerVersion)}`,
+  );
+  assert.ok(providerVersion.endsWith('…[truncated]'), 'expected a visible marker, not a silently cut value');
+});

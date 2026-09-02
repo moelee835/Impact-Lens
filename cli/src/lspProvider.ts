@@ -56,9 +56,20 @@ const CALL_HIERARCHY_METHOD = 'textDocument/callHierarchy';
 const DYNAMIC_REGISTRATION_BUDGET_MS = 250;
 
 /**
- * Ceiling on `serverInfo.version` as reported in the response, in UTF-8 bytes - matches
- * `response.schema.json`'s `$defs/provider.version` `maxLength` exactly, so the contract and the code
- * that produces it cannot drift apart.
+ * Ceiling on `serverInfo.version` as reported in the response, in UTF-8 bytes.
+ *
+ * This is NOT the same unit as `response.schema.json`'s `$defs/provider.version` `maxLength`, even
+ * though both are the number 256 - the contract checker (`cli/src/test/jsonSchema.ts`) measures
+ * `maxLength` in Unicode codepoints (`[...value].length`, matching the JSON Schema spec), not UTF-8
+ * bytes. The two numbers matching is not a coincidence to preserve by hand, though: every codepoint
+ * takes at least 1 UTF-8 byte, so a string's byte length is always >= its codepoint count, which means
+ * bounding bytes to N always keeps codepoints <= N too - the safe direction holds structurally, not by
+ * luck. This DOES depend on `truncate()` (`providers/discovery.ts`) enforcing an exact byte ceiling with
+ * no overshoot; before that function stripped a trailing U+FFFD artifact, a cut landing mid-character
+ * could come out 1-2 bytes over `SERVER_VERSION_MAX_BYTES`, and moving that budget or the marker's
+ * length without re-checking the exactness of the underlying cut is what would actually let this drift -
+ * not the byte/codepoint distinction itself. `cli/src/test/schema.test.ts` validates a real oversized,
+ * multi-byte `serverInfo.version` against the live schema to catch a regression in either direction.
  *
  * `serverInfo.version` is a server-controlled, unbounded string handed straight to two response
  * locations (`data.provider.version` and top-level `capabilities.version`, both projections of the same

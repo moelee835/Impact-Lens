@@ -11,6 +11,7 @@ import {
   isVersionSupported,
   parseVersion,
   probeVersion,
+  truncate,
 } from '../providers/discovery';
 import {
   MANIFEST_LIMITS,
@@ -435,6 +436,25 @@ test('version probe truncates output to the declared ceiling', t => {
   assert.ok(outcome.kind === 'found' || outcome.kind === 'failed');
   if (outcome.kind === 'found') {
     assert.ok(outcome.output.length <= 64);
+  }
+});
+
+// Found by reviewing task-fix-provider-version-bound.md's cut: a byte-boundary cut through the middle of
+// a multi-byte character makes `Buffer.toString('utf8')` replace the incomplete trailing bytes with
+// U+FFFD, whose own UTF-8 re-encoding (3 bytes) can be *wider* than what it replaced - so a naive cut can
+// come out 1-2 bytes OVER the requested ceiling, not under it. Every caller that budgets a fixed-width
+// suffix onto the remainder (lspProvider.ts's truncation marker, for one) relies on this never happening.
+test('truncate() never returns more bytes than requested, even when the cut lands mid-character', () => {
+  for (const char of ['가', '🚀', 'é', '中']) {
+    const text = char.repeat(2000);
+    for (let maxBytes = 1; maxBytes <= 40; maxBytes += 1) {
+      const cut = truncate(text, maxBytes);
+      assert.ok(
+        Buffer.byteLength(cut, 'utf8') <= maxBytes,
+        `truncate(${JSON.stringify(char)}.repeat(2000), ${maxBytes}) returned ` +
+        `${Buffer.byteLength(cut, 'utf8')} bytes: ${JSON.stringify(cut)}`,
+      );
+    }
   }
 });
 

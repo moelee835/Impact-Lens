@@ -4,7 +4,12 @@ import { respond, serve } from './mockServer';
 // shape gopls hit in production (its `-json`-flavoured self-description, thousands of bytes) once it
 // shipped as a catalog preset. Exists to prove `lspProvider.ts` bounds this field at its one ingestion
 // point rather than trusting whatever a server chooses to report.
-const hugeVersion = 'v1.0.0-' + 'x'.repeat(4000);
+//
+// IMPACT_LENS_MOCK_HUGE_VERSION_CHAR swaps the repeated character - a multi-byte one exercises the case
+// where the byte-boundary cut lands mid-character, which is the exact scenario
+// task-fix-provider-version-bound.md's truncate() fix guards.
+const hugeVersionChar = process.env.IMPACT_LENS_MOCK_HUGE_VERSION_CHAR ?? 'x';
+const hugeVersion = 'v1.0.0-' + hugeVersionChar.repeat(4000);
 
 // A real file, supplied by the test (`dynamicCallHierarchyServer.ts` uses the same pattern) - the CLI
 // reads this URI's contents for diagnostics regardless of which mock answered the LSP round trip, so it

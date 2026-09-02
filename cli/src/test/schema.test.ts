@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 import {
   COMPLETION_TRAVERSAL_STATUSES,
   INDEXING_STATUSES,
@@ -190,4 +191,54 @@ test('the contract checker rejects envelopes the schema forbids', { timeout: 400
   for (const [name, envelope] of broken) {
     assert.notDeepEqual(validate(schema(), envelope), [], `expected the checker to reject: ${name}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// serverInfo.version bound (task-fix-provider-version-bound.md)
+//
+// Neither of `contract.test.ts`'s two tests for this bound runs the response through this file's real
+// `validate()` against the live `response.schema.json` - they check `Buffer.byteLength(...) <= 256`
+// directly. That is a real gap: nothing before this exercised the checker's own `maxLength` handling
+// against a *populated* `version` field at all (a real typescript-language-server analysis never
+// produces one to check). These two close that gap for the real thing this preset produces, and the
+// third proves the checker's `maxLength` on this field actually rejects an out-of-bounds value in the
+// first place - a positive-only check could pass vacuously if `maxLength` on this field were silently
+// dropped from the schema.
+// ---------------------------------------------------------------------------
+
+function analyzeWithHugeServerVersion(versionChar: string): Record<string, unknown> {
+  const server = path.resolve(__dirname, 'fixtures', 'hugeServerVersionServer.js');
+  const targetUri = pathToFileURL(path.resolve(__dirname, '..', '..', 'src', 'testFile.ts')).toString();
+  const result = spawnSync(process.execPath, [EXECUTABLE, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    env: { ...process.env, IMPACT_LENS_MOCK_TARGET_URI: targetUri, IMPACT_LENS_MOCK_HUGE_VERSION_CHAR: versionChar },
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+test('a real oversized ASCII serverInfo.version, once bounded, satisfies response.schema.json', () => {
+  assert.deepEqual(validate(schema(), analyzeWithHugeServerVersion('x')), []);
+});
+
+test('a real oversized multi-byte serverInfo.version, once bounded, satisfies response.schema.json', () => {
+  // The case that actually exercises the byte-vs-codepoint distinction: a cut that lands mid-character
+  // widens under naive truncation (see providers/discovery.ts's truncate()), so this is the version of
+  // the fixture that would have caught a regression there.
+  assert.deepEqual(validate(schema(), analyzeWithHugeServerVersion('가')), []);
+});
+
+test('the schema checker actually rejects a version string over maxLength - the positive checks above are not vacuous', { timeout: 40000 }, () => {
+  const envelope = analyzeInFixtureWorkspace();
+  const overLength = 'v'.repeat(257);
+  ((envelope.data as Record<string, unknown>).provider as Record<string, unknown>).version = overLength;
+  (envelope.capabilities as Record<string, unknown>).version = overLength;
+  assert.notDeepEqual(validate(schema(), envelope), []);
 });

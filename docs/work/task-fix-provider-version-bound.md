@@ -126,6 +126,13 @@ blob은 확실히 자른다. commander가 요청한 "실측 근거"는 만족하
   확인.
 - [x] `npm run test:all` 전체 통과(274개 CLI test, response-policy 16, plugin-artifact e2e) — 실제
   gopls PATH에 두고 확인.
+- [x] `truncate()`가 multi-byte 문자 경계에서 byte 예산을 초과하지 않는다 — 실제 재현(한국어·이모지로
+  offset 1~300 스윕) 후 수정, guard가 실제로 결함을 잡는지 되돌려서 확인.
+- [x] byte 기준 상수와 schema의 codepoint 기준 `maxLength`가 "같은 단위"라는 잘못된 주석을 정정 —
+  왜 지금 안전한지(구조적 성질)와 무엇이 그 안전을 깨는지를 명시.
+- [x] populated된 `version` 필드가 실제 `validate()`(schema checker)를 거치는 test 추가(ASCII·
+  multi-byte 둘 다), 그리고 그 양성 test가 공허하지 않다는 것을 증명하는 음성 test 추가.
+- [x] `npm run test:all` 재검증(279개 CLI test 포함) 전체 통과.
 
 ## 소유 경로 확인 (commander 요청)
 
@@ -147,3 +154,40 @@ blob은 확실히 자른다. commander가 요청한 "실측 근거"는 만족하
 - 로컬 검증: `npm run cli:build`, 신규 test 단독 실행 확인, 실제 gopls로 전후 byte 수 실측
   (11,219→4,957), 실제 TypeScript 분석으로 무영향 확인, `PATH`+`IMPACT_LENS_REQUIRE_GOPLS=1`로
   `npm run test:all` 전체(274 CLI test 포함) 통과.
+- PR #62를 열고 CI 대기 중 commander에게 이 시점까지의 설계·전제 차이를 보고했다.
+
+### 2026-09-02 — reviewer가 발견한 실제 결함 셋과 반영
+
+commander가 reviewer의 재검토 결과를 전달했다. **push 전에(같은 세션에서 이미) 직접 재현해 확인한
+것과 그렇지 않은 것을 구분해 기록한다.**
+
+**1) multi-byte 경계에서 `truncate()`가 byte 예산을 초과할 수 있다.** commander가 먼저 지적했고,
+**push하기 전에 이미 직접 재현해 고쳐 놓은 상태였다** — `Buffer.subarray(0,
+n).toString('utf8')`가 불완전한 trailing UTF-8 sequence를 U+FFFD(재인코딩 시 3 byte)로 치환하면서
+1~2 byte를 초과할 수 있다는 것을 한국어·이모지 문자로 실제 스윕(offset 1~300)해 확인했고,
+`truncate()`가 잘린 결과의 trailing U+FFFD를 제거하도록 고쳤다(`discovery.ts`). 고치기 전 상태로
+되돌려 새 test가 실제로 실패하는지도 확인한 뒤 복원했다. **이 수정은 `reviewer`가 실제 CI에서
+관측한 "258 byte" 결과보다 먼저 로컬에 반영돼 있었다** — reviewer가 본 것은 이 fix가 아직 push되지
+않은 이전 commit(`003df7f`)의 CI 결과였을 것이다.
+
+**2) `SERVER_VERSION_MAX_BYTES`(byte)와 schema `maxLength`(codepoint)가 "정확히 일치"한다는 주석의
+주장이 틀렸다.** `cli/src/test/jsonSchema.ts:110`을 직접 읽어 `const length = [...value].length`가
+**codepoint를 센다**는 것을 확인했다(JSON Schema 스펙을 따른 정확한 설계). **다만 이게 "우연히 같은
+숫자를 쓴 취약한 설계"라는 지적에는 부분적으로만 동의한다** — UTF-8에서 모든 codepoint는 최소 1
+byte를 쓰므로 **문자열의 byte 길이는 항상 codepoint 수 이상**이다. 즉 `truncate()`가 실제로
+"최대 N byte"를 보장하기만 하면(위 1번 수정으로 지금 보장된다), 그 결과의 codepoint 수는 **항상**
+N 이하다 — 이건 우연이 아니라 UTF-8의 구조적 성질이다. 다만 **원래 주석이 "두 값이 같은 단위를
+측정한다"고 잘못 말한 것은 사실**이라 그 부분을 정정했다: 단위가 다르다는 것, 왜 지금 안전한지(byte
+bound가 codepoint bound를 항상 만족시키는 방향), 무엇이 그 안전을 깨는지(`truncate()`가 정확한
+byte 상한을 보장하지 못하게 되는 경우 — 1번이 고친 바로 그 문제)를 명시했다.
+
+**3) populated된 `version` 필드가 실제 `validate()`(schema checker)를 거치는 test가 하나도 없었다.**
+TypeScript는 이 필드를 아예 안 보내고, 새로 추가했던 두 test(`contract.test.ts`)는 수동 byte 길이
+assertion만 했지 `response.schema.json`에 대조하지 않았다. `cli/src/test/schema.test.ts`에 세 개
+추가: (1)(2) `hugeServerVersionServer.js` fixture(ASCII/multi-byte 버전 모두)로 실제 CLI를 왕복시킨
+응답을 `validate(schema(), response)`로 검증 — `[]`(오류 없음)을 확인. (3) **양성 test들이 공허하지
+않다는 것을 증명**하기 위해, 실제 유효한 envelope의 `version` 필드를 257 codepoint로 강제 조작해
+`validate()`가 실제로 거부하는지 확인(`assert.notDeepEqual(..., [])`).
+
+로컬 재검증: `npm run cli:build`, 신규 test 단독 실행 3/3 통과, `PATH`+`IMPACT_LENS_REQUIRE_GOPLS=1`로
+`npm run test:all` 전체(279 CLI test 포함) 통과.
