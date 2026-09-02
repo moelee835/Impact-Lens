@@ -37,3 +37,29 @@ jobs:
         run: npm run cli:test
       - name: Run plugin response-policy eval
         run: npm run test:response-policy
+
+  # cli:test only, on the two OSes `unit` above does not cover - not a matrix merge with `unit` because
+  # this fix's whole point is proving cli:test now works cross-OS, not adding to what `unit` already
+  # proves about ubuntu. Deliberately does NOT run `npm test` (the Extension suite): that suite has never
+  # run outside ubuntu either and likely has its own undiscovered non-POSIX assumptions, but widening this
+  # job to it would risk an open-ended cascade of unrelated fixes - tracked as a follow-up instead (see
+  # docs/work/task-fix-cli-test-windows-compat.md).
+  cli-tests-cross-os:
+    name: cli:test / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pnpm
+        run: npm install --global pnpm@10.34.5
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run Agent CLI tests
+        run: npm run cli:test

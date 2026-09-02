@@ -61,15 +61,28 @@ host의 절대 경로**를 그대로 쓴다. Windows CI runner에서 이 경로�
 ## 범위와 범위에서 제외할 항목
 
 **포함**: 위 8건의 원인 A·B 수정, 제품 코드는 건드리지 않는다(원인 둘 다 test 자체의 가정 문제 — 아래
-"판정" 참고).
+"판정" 참고). **`unit-tests.yml`에 `cli:test`를 windows-latest/macos-latest에서 실행하는 새 job
+(`cli-tests-cross-os`) 추가** — 아래 "결정 정정" 참고.
 
 **포함하지 않는 것(commander 지시)**: 이 8건을 **Windows에서 skip 처리하지 않는다** — 그건 방금 찾은
 커버리지를 그 자리에서 다시 잃는 것과 같다. 실제로 3개 OS 모두에서 의미 있게 통과하도록 고친다.
 
-**후속 과제로만 기록(지금 하지 않음)**: 지금 구조에서 Windows의 `cli:test` 커버리리지는 M2 gopls
-lane의 `go-provider` job 부수 효과로만 존재한다. Go lane이 나중에 바뀌거나 정리되면 Windows 커버리지가
-조용히 사라질 위험이 있다. 제대로 하려면 `unit` job 자체가 3-OS matrix가 되고 `go-provider` job은 Go
-전용 test만 돌아야 하지만, **이건 이 lane의 판단 범위를 벗어난다** — 별도 결정으로 남긴다.
+**후속 과제로만 기록(지금 하지 않음)**: `npm test`(Extension test suite)도 `cli:test`와 똑같이 지금까지
+ubuntu에서만 돌았다 — Windows에서 한 번도 실행된 적이 없어 이 fix가 고친 것과 같은 종류의 미검증 POSIX
+가정이 남아 있을 가능성이 높다. **의도적으로 이 PR 범위에 포함하지 않는다** — `unit` job 전체를
+3-OS matrix로 바꾸면 Extension test에서도 사전 존재 결함이 쏟아질 수 있고, 그러면 이 PR이 무한정
+커진다. `cli:test`만 새 job으로 분리해 범위를 통제한다.
+
+### 결정 정정(2026-09-02, commander) — Windows CI를 이 PR에 추가한다
+
+원래 계획은 "Windows `cli:test` CI 추가는 후속 과제, 지금 하지 않는다"였다. **commander가 이 판단을
+철회했다.** 이유: 이 PR 자체가 "`cli:test`를 Windows에서 동작하게 만드는" lane인데, 그 결과를 이 PR의
+CI가 증명하지 못하면 검증 없이 주장한 것이 된다 — PR #58(gopls preset)이 걸렸던 바로 그 실패 모드다.
+또한 지금 구조(Windows `cli:test` 커버리지가 M2 gopls `go-provider` job의 부수 효과로만 존재)는 Go
+lane이 바뀌면 조용히 사라질 위험이 있다는 점도 이 결정 정정의 근거다. 그래서 `unit-tests.yml`에
+`cli-tests-cross-os`(windows-latest, macos-latest, `fail-fast: false`) job을 추가해 `cli:test`만
+돌린다 — ubuntu는 이미 `unit` job이 돈다. `npm test`(Extension)는 범위 밖으로 명시적으로 남겨
+후속 과제로 기록한다(바로 위 문단).
 
 ## 판정 — 제품 결함이 아니라 test 결함이다
 
@@ -101,9 +114,15 @@ inspection이 만드는 실제 경로도 각 OS에서 올바른 네이티브 경
 - [x] 아무 test도 `win32`에서 skip되지 않는다 — `grep -n "win32"` 재확인: 남은 매치는 새 헬퍼의 주석과
   `platform: 'win32'`를 명시적으로 테스트하는 기존 test(이미 옳게 설계돼 있던 것) 하나뿐이다.
 - [x] 로컬(macOS) `npm run cli:test` 271/271, `npm run test:all` 전체 통과(회귀 없음).
-- [ ] 이 branch가 merge된 뒤 PR #60(`test/m2-gopls-ci-verification`)을 rebase하고, `go-provider`
-  windows-latest job이 `npm run cli:test` 전체로 green이 되는 것을 실제 CI 실행으로 확인한다 — **로컬은
-  macOS라 Windows 자체를 재현할 수 없으므로 이 단계가 유일한 실제 검증이다.**
+- [ ] **이 PR 자신의 CI**에 `cli-tests-cross-os`(windows-latest, macos-latest) job을 추가해
+  `npm run cli:test`가 실제로 두 OS에서 green이 되는 것을 이 PR 안에서 직접 확인한다 —
+  `/tmp/...` 합성 경로가 Windows CI runner에서 실제로 쓰기 가능한지에 대한 유일한 실제 답.
+- [ ] green이면 merge → PR #60(`test/m2-gopls-ci-verification`)을 rebase → `go-provider`
+  windows-latest job도 전체 `cli:test`로 green인지 재확인(같은 fix가 다른 job에서도 성립하는지 교차
+  확인 — 결과가 다르면 그 자체가 결함).
+- [ ] red면(예: `/tmp` 드라이브 루트 쓰기 불가) **추측으로 미리 바꾸지 않고** 실제 CI 로그를 근거로
+  합성 경로의 형태를 다시 설계한다(commander가 제시한 대안: 실제 temp 디렉터리 안에 콜론 없는 상대
+  구조를 만들거나, 디스크 없이 lookup 로직만 stub).
 
 ## 작업 로그
 
