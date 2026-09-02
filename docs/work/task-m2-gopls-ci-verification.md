@@ -124,7 +124,36 @@ executable discovery와 version policy"를 명시하고, 위험 대응에 "언�
   실제 검증, 0.23.0은 여전히 darwin/arm64 수동 검증뿐"이라고 버전별로 정정(과장 방지 — 0.23.0까지
   3-OS로 확대 주장하지 않는다).
 
-## 현재 구현 조사 결과
+### 2026-09-02 정정(commander/reviewer 2차 재검토) — `INSTALL.md` 누락, `CHANGELOG.md` 미기재, sweep 방법 자체의 결함
+
+reviewer의 2차 재검토에서 두 가지가 더 발견됐다.
+
+**`INSTALL.md:130-131`이 여전히 거짓이었다**: "오늘 shipped catalog에는 `bundled-typescript` **하나만**
+있습니다." 위의 4개 문서 정정과 완전히 같은 종류·같은 심각도의 결함인데 이 PR의 sweep에서 놓쳤다.
+`gopls`를 두 번째 preset으로 명시해 정정했다.
+
+**`CHANGELOG.md`의 `## Unreleased`가 비어 있었다**: gopls 기능(PR #58·#59·#60에 걸친 이 lane 전체의
+결과물)이 다음 릴리스 노트에서 조용히 빠질 뻔했다. `Unreleased`에 사용자 결과 중심으로 두 항목을
+추가했다 — "Go 프로젝트를 gopls만 설치하면 provider 설정 없이 분석할 수 있다"는 것과
+"`coverage.indexing.status`가 처음으로 `unknown` 외의 값(`working`/`ready`)을 보고한다"는 것.
+`## 0.7.0` 절(이미 발행된 릴리스 노트, 발행 시점엔 사실이었다)은 건드리지 않았다.
+
+**sweep 방법 자체를 고친다 — 이게 이번 정정의 핵심이다.** 이 lane에서 "grep으로 전수 확인했다"는
+주장이 이번까지 **세 번** 틀렸다:
+1. PR #61: `win32` grep을 파일 세 개에만 돌리고 저장소 전체로 넓히지 않음.
+2. PR #60(1차): "알면서 남겨둔 창" 목록을 상류(commander) 목록에서 옮겨 적다가 `cli/README.md` 항목이
+   샘.
+3. PR #60(2차, 지금): `git grep`을 "하나뿐"/"하나도 없다"라는 **문구**로 돌렸다. `cli/README.md`를
+   찾은 뒤 **디렉터리 범위는 넓혔지만 문구 범위는 넓히지 않았다** — `INSTALL.md`는 "하나**만**"이라고
+   달리 써서 그 grep에 안 걸렸다.
+
+**세 실패의 공통 원인은 성실성이 아니라 방법이다: 주장을 서술하는 문구로 grep하면, 같은 주장을 다른
+말로 쓴 자리를 놓친다.** 문구는 패러프레이즈되지만 코드 식별자는 패러프레이즈되지 않는다. 이번엔
+`git grep -n "bundled-typescript" -- '*.md' ':!docs/work' ':!CHANGELOG.md'`처럼 **주장이 반드시
+언급해야 하는 식별자**(preset id, 파일 경로, 필드명)로 다시 돌려 `INSTALL.md`가 유일한 잔여 항목임을
+확인했다 — 이 결과로 범위가 닫힌다(`.claude/agents/il-provider-platform.md`와 M0/M1 story·user-test
+문서의 언급은 조사 시점 기록이므로 정정 대상이 아니다). **앞으로 이런 sweep을 할 때는 처음부터 문구가
+아니라 식별자로 grep한다** — 이게 이번 lane이 세 번 반복한 뒤에야 확정한 규칙이다.
 
 - `.github/workflows/unit-tests.yml`: job 하나(`ubuntu-latest`)에서 `npm test` + `cli:test` +
   `test:response-policy`. Go 툴체인 없음.
@@ -172,10 +201,12 @@ executable discovery와 version policy"를 명시하고, 위험 대응에 "언�
   (guard 소스를 직접 읽어 확인, 4/4 재실행 통과).
 - [x] CI에 push한 뒤 3개 OS 전부 green 확인 — 1차(`33585611214`)에서 확인, PR #61 merge 후 rebase한
   2차(같은 run)에서도 재확인.
-- [x] 3개 OS 전부 green 확인 **후**, `git grep`을 재실행해 README.md/`cli/README.md`(sweep 중 새로
-  발견)/`m1-user-test-spec.md`/`cli-contract.md`의 "preset 하나뿐"/"readiness 도달 불가" 서술과
-  `catalog.ts`의 `lastVerified` 주석(버전별로 구분: 0.19.1은 3-OS, 0.23.0은 여전히 darwin/arm64만)을
-  한 commit에서 정정했다.
+- [x] 3개 OS 전부 green 확인 **후**, README.md/`cli/README.md`/`m1-user-test-spec.md`/`cli-contract.md`/
+  `INSTALL.md`(2차 재검토에서 추가로 발견)의 "preset 하나뿐"/"readiness 도달 불가" 서술과
+  `catalog.ts`의 `lastVerified` 주석(버전별로 구분: 0.19.1은 3-OS, 0.23.0은 여전히 darwin/arm64만),
+  `CHANGELOG.md`의 `Unreleased` 항목을 전부 정정했다. **2026-09-02 정정**: 이 항목이 처음
+  `[x]`였을 때는 `INSTALL.md`를 놓친 채 "정정했다"고 표시한 것이었다 — 문구 기반 grep의 한계 때문
+  (아래 작업 로그 참고). 지금은 식별자 기반 grep으로 재확인한 뒤의 상태다.
 
 ## 작업 로그
 

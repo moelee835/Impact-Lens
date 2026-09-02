@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A Go developer with `gopls` installed and discoverable on `PATH` now gets function-impact analysis
+  with no provider configuration at all — `gopls` is a second `verified-external` catalog preset,
+  verified end to end (Call Hierarchy, version policy, readiness) on darwin/arm64 by hand and, for its
+  pinned minimum version, on Linux/macOS/Windows CI on every push.
+- `coverage.indexing.status` (and `completion.indexingStatus`) can now report `working`/`ready`, not only
+  `unknown` — `gopls` is the first shipped preset to declare a `readiness` profile, so a Go analysis
+  distinguishes "still indexing" and "index confirmed ready" instead of always reading as "no claim
+  made."
+
 ## 0.7.0
 
 - Pick a provider by name with `doctor <preset>` and see partial failures instead of an all-or-nothing
