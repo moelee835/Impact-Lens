@@ -34,6 +34,7 @@ import {
   resolveSessionValues,
 } from '../providers/resolve';
 import { CliError } from '../types';
+import { syntheticPosixDirectory } from './testFsHelpers';
 
 const NO_ENV: NodeJS.ProcessEnv = {};
 
@@ -167,7 +168,7 @@ test('auto-discovery reports the bundled tier for the shipped TypeScript preset'
 });
 
 test('auto-discovery reports the auto tier for a discovered external preset', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-discovery-bin-');
+  const binaries = syntheticPosixDirectory(t, 'discovery-bin-');
   writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
   const resolved = resolveProvider('src/a.py', undefined, {
     env: NO_ENV,
@@ -205,7 +206,7 @@ test('an explicitly named preset is refused for a language it does not claim', (
 });
 
 test('a matching preset with no installed executable is not replaced by another language', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-discovery-empty-');
+  const binaries = syntheticPosixDirectory(t, 'discovery-empty-');
   assert.throws(
     () => resolveProvider('src/a.py', undefined, {
       env: NO_ENV,
@@ -227,7 +228,7 @@ test('a matching preset with no installed executable is not replaced by another 
 });
 
 test('two installed verified providers for one language are reported, not guessed between', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-discovery-ambiguous-');
+  const binaries = syntheticPosixDirectory(t, 'discovery-ambiguous-');
   writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
   writeExecutable(binaries, 'impact-lens-other-server', '#!/bin/sh\nexit 0\n');
   assert.throws(
@@ -270,7 +271,9 @@ test('the TypeScript reference preset produces the command the bundled path prod
   assert.equal(resolved.command.command, process.execPath);
   const args = resolved.command.args ?? [];
   assert.equal(args.length, 2);
-  assert.ok((args[0] as string).endsWith('lib/cli.mjs'));
+  // Not a literal 'lib/cli.mjs' suffix: the real path is built with path.join(), which uses '\' on
+  // Windows, so a forward-slash literal never matches there.
+  assert.ok((args[0] as string).endsWith(path.join('lib', 'cli.mjs')));
   assert.equal(args[1], '--stdio');
   assert.equal(resolved.command.languageId, 'typescript');
   // The opt-in log level is a conditional the manifest cannot express, so the resolver appends it.
@@ -326,7 +329,7 @@ test('an unknown preset name is a bad request, and an unknown one in a project f
 // ---------------------------------------------------------------------------
 
 test('PATH lookup treats shell metacharacters as ordinary filename characters', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-metachar-');
+  const binaries = syntheticPosixDirectory(t, 'metachar-');
   const hostile = 'srv; touch pwned && echo $(whoami)';
   writeExecutable(binaries, hostile, '#!/bin/sh\nexit 0\n');
   const found = findExecutable(hostile, { env: { PATH: binaries }, platform: 'linux' });
@@ -336,8 +339,8 @@ test('PATH lookup treats shell metacharacters as ordinary filename characters', 
 });
 
 test('PATH lookup returns the first directory that has the file and undefined when none does', t => {
-  const first = temporaryDirectory(t, 'impact-lens-path-first-');
-  const second = temporaryDirectory(t, 'impact-lens-path-second-');
+  const first = syntheticPosixDirectory(t, 'path-first-');
+  const second = syntheticPosixDirectory(t, 'path-second-');
   writeExecutable(second, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
   assert.equal(
     findExecutable('impact-lens-fixture-server', { env: { PATH: `${first}:${second}` }, platform: 'linux' }),
@@ -350,14 +353,20 @@ test('PATH lookup returns the first directory that has the file and undefined wh
 });
 
 test('a name containing a separator is verified as a path and never searched for', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-path-explicit-');
-  const executable = writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
-  assert.equal(findExecutable(executable, { env: { PATH: '' }, platform: 'linux' }), executable);
+  const binaries = syntheticPosixDirectory(t, 'path-explicit-');
+  writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
+  // Built with a literal '/', not via writeExecutable()'s path.join()-based return value: on a real
+  // Windows host, path.join() normalizes to '\', but findExecutable() under this test's forced
+  // `platform: 'linux'` only recognizes '/' as marking an explicit path (a bare backslash is just an
+  // ordinary filename character on Linux). The two must be built independently, or whichever separator
+  // the host's path.join() happens to produce silently decides which branch of findExecutable() runs.
+  const explicitPath = `${binaries}/impact-lens-fixture-server`;
+  assert.equal(findExecutable(explicitPath, { env: { PATH: '' }, platform: 'linux' }), explicitPath);
   assert.equal(findExecutable('./impact-lens-fixture-server', { env: { PATH: binaries }, platform: 'linux' }), undefined);
 });
 
 test('a directory on PATH is not mistaken for an executable', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-path-directory-');
+  const binaries = syntheticPosixDirectory(t, 'path-directory-');
   fs.mkdirSync(path.join(binaries, 'impact-lens-fixture-server'));
   assert.equal(
     findExecutable('impact-lens-fixture-server', { env: { PATH: binaries }, platform: 'linux' }),

@@ -45,7 +45,9 @@ test('bundled artifact inspection reports package versions without exposing its 
   assert.equal(artifact.serverVersion, '6.0.0');
   assert.equal(artifact.typescriptVersion, '5.9.3');
   assert.equal(artifact.entry, 'lib/cli.mjs');
-  assert.ok(artifact.entryPath.endsWith(artifact.entry));
+  // `entry` is the package.json-style forward-slash specifier; `entryPath` is a real path built with
+  // path.join(), which uses '\' on Windows - normalize before comparing so this holds on every OS.
+  assert.ok(artifact.entryPath.endsWith(artifact.entry.split('/').join(path.sep)));
 });
 
 test('bundled artifact inspection maps resolution failure to a stable reinstall error', () => {
@@ -95,7 +97,9 @@ test('raises the bundled provider log level only for an allowed opt-in value', (
 });
 
 test('the manifest module reference resolves only the bundled server entry', () => {
-  assert.ok(bundledModuleEntryPath('typescript-language-server/lib/cli.mjs').endsWith('lib/cli.mjs'));
+  // The returned path is built with path.join(), so it uses '\' on Windows - compare against the
+  // OS-native form of the suffix rather than a forward-slash literal.
+  assert.ok(bundledModuleEntryPath('typescript-language-server/lib/cli.mjs').endsWith(path.join('lib', 'cli.mjs')));
   // A manifest that could resolve any specifier would be a way to read where this package is
   // installed, so the allowlist is one entry long and everything else is a configuration error.
   assert.throws(
