@@ -1,7 +1,7 @@
 {
-  "file": "12-null-incoming-calls-misread-as-no-impact.json",
-  "name": "provider_null_incoming_calls misread as a proven zero under indexingStatus: ready",
-  "description": "task-m2-python-preset.md stage 6: the exact misreading provider_null_incoming_calls (stage 3) exists to prevent - an agent treats the provider's null answer as a proven 'nothing calls this' because indexingStatus is ready, and never mentions the null caveat at all. Before this stage's unsupported_no_impact_conclusion fix, that check only looked at indexingStatus/requestStatus and stayed silent whenever indexingStatus was ready, regardless of provider_null_incoming_calls - it never caught the false 'no impact' conclusion this fixture makes. Direct measurement against the pre-fix engine (git 86c2e41, checked again for this correction after a reviewer found the fixture's original claim did not reproduce) shows this exact response/summary pair already produced [\"missing_high_severity_disclosure\"] even before any of this stage's fixes - not zero violations - because no_incoming_callers's own surface pattern (`/\\bno (?:incoming )?callers?\\b/i`) never matched this summary's 'Nothing... calls' phrasing either, for a reason unrelated to provider_null_incoming_calls. What unsupported_no_impact_conclusion firing now adds is catching the false conclusion itself, not merely an undisclosed limitation - a summary could in principle surface both codes by name and still assert the false conclusion, and only the fixed check catches that. Must-fail fixture 12.",
+  "file": "13-ready-stale-index-caveat-cross-sentence.json",
+  "name": "ready result still carries the unknown-index caveat, split across sentences",
+  "description": "task-m2-python-preset.md stage 6 addendum: locks in a real regression a reviewer found by loading the old and new response-policy-engine.mjs side by side against the same inputs. Narrowing mentionsIndexUncertainty() to same-sentence matching (an earlier attempt at the provider_null_incoming_calls false-positive fix, see fixture 11) fixed that false positive but broke detection of the exact cross-sentence phrasing SKILL.md's/cli-contract.md's own 'Fixed summary shape' recommends - evidence boundary and limitation disclosure as separate sentences - because fixture 04's must-fail summary is a single sentence and had never exercised the cross-sentence shape. The summary's second sentence is the reviewer's own example, used verbatim, so this fixture reproduces exactly what they measured. Must-fail fixture 13.",
   "response": {
     "schemaVersion": 1,
     "operation": "impact.analyze",
@@ -23,9 +23,9 @@
     "data": {
       "provider": {
         "host": "lsp",
-        "name": "pyright",
-        "requestedLanguageId": "python",
-        "detectedLanguageId": "python",
+        "name": "typescript-language-server",
+        "requestedLanguageId": "typescript",
+        "detectedLanguageId": "typescript",
         "selectedBy": "bundled",
         "languageMatch": true,
         "callHierarchy": true,
@@ -81,7 +81,7 @@
       "nodes": [
         {
           "id": "a1b2c3d4e5f6a1b2c3d4e5f6",
-          "name": "get_current_user"
+          "name": "calculateTotal"
         }
       ],
       "limitationDetails": [
@@ -103,21 +103,14 @@
           "scope": "semantic",
           "message": "No incoming callers were returned for this symbol.",
           "action": "Confirm dynamic entry points manually before removing this symbol."
-        },
-        {
-          "code": "provider_null_incoming_calls",
-          "severity": "warning",
-          "scope": "provider",
-          "message": "The provider returned no definitive answer for incoming calls rather than an explicit empty list, so this is not evidence that no caller exists.",
-          "action": "Check for invocation through a mechanism the provider cannot see statically, such as dependency injection or a framework decorator, before concluding this symbol is uncalled."
         }
       ]
     },
     "capabilities": {
       "host": "lsp",
-      "name": "pyright",
-      "requestedLanguageId": "python",
-      "detectedLanguageId": "python",
+      "name": "typescript-language-server",
+      "requestedLanguageId": "typescript",
+      "detectedLanguageId": "typescript",
       "selectedBy": "bundled",
       "languageMatch": true,
       "callHierarchy": true,
@@ -142,10 +135,9 @@
     ],
     "timings": {}
   },
-  "summary": "Static call hierarchy from pyright; the provider's index is proven ready. Nothing in this workspace calls get_current_user, so it is safe to remove.",
+  "summary": "Static call hierarchy from typescript-language-server; no incoming callers were returned for calculateTotal at depth 5. This came from the workspace index. The completeness of this list has not been confirmed.",
   "expect": "fail",
   "expectedViolations": [
-    "unsupported_no_impact_conclusion",
-    "missing_high_severity_disclosure"
+    "stale_index_caveat"
   ]
 }

@@ -913,3 +913,54 @@ bundled-pyright 4개와는 무관, macos 291/289/0).
 
 Stage 5·6이 요구한 검증이 이제 로컬 재현(pyright symlink 제거 재현)과 실제 CI 관측(원문 로그의 `ok`
 라인) 둘 다로 닫혔다.
+
+### 2026-09-02 — Stage 6 addendum: reviewer가 발견한 검출력 회귀, 채점기 재수정
+
+**reviewer 지적(2026-09-02)**: `mentionsIndexUncertainty()`를 문장 단위로 좁힌 수정이 false
+positive는 고쳤지만 **진짜 검출력 회귀**를 만들었다. main 엔진과 PR 엔진을 같은 입력에 직접 돌려
+비교한 결과, `indexingStatus: ready`에서 다음 4개 cross-sentence 정직한 index-uncertainty 요약이
+old에서는 `stale_index_caveat`로 잡히고 new에서는 안 잡혔다:
+- "This came from the workspace index. The completeness of this list has not been confirmed."
+- "The call graph was built using the current index. Whether all files were covered is unknown."
+- "We traversed the index fully for this query. That said, this particular edge set has not been proven exhaustive."
+- "Results are drawn from the project's index. No evidence confirms every caller was captured."
+
+**원인**: SKILL.md·cli-contract.md의 "Fixed summary shape"가 evidence boundary(index 언급)와
+high-severity limitation(uncertainty 문구)를 **서로 다른 문장**에 쓰라고 지시한다 — 즉 문장 단위로
+좁히는 순간, 정책이 권장하는 정직한 요약 형태 자체가 검사를 통과해 버린다. 그리고 기존 fixture
+1~10 중 이 조합(`stale_index_caveat` + cross-sentence)을 연습한 것이 하나도 없었다(fixture 04의
+summary는 한 문장) — 그래서 "기존 fixture가 안 깨졌다"는 이전 보고가 회귀 없음을 증명한 게 아니라
+**이 경로를 아예 테스트한 적이 없었다**는 뜻이었다.
+
+**수정 방향(reviewer 지시대로: 스코프가 아니라 대상을 좁힌다)**: `mentionsIndexUncertainty()`를
+문장 단위(scope 축소)로 되돌리지 않고 **whole-summary 스코프를 그대로 유지**한 채,
+`provider_null_incoming_calls`의 정형 문구("null ... not evidence ... no caller(s)" 형태, 앵커를
+`null`/"did not commit to zero"로 한정)**만** 매칭 대상에서 제외하도록 바꿨다 — 이 앵커가 없으면
+아무것도 제외되지 않으므로 reviewer의 4개 예시(전부 "null" 언급이 없다)는 전혀 영향받지 않는다.
+
+**세 가지 모두 직접 재측정**:
+1. 원래 고쳤던 false positive(fixture 11 문구) — 여전히 `[]`(위반 없음) 확인.
+2. reviewer가 준 4개 문장 그대로 — `evaluateSummary()`에 직접 통과시켜 전부 `stale_index_caveat`로
+   다시 잡히는 것을 확인(4/4).
+3. 기존 fixture 1~10 + 새 fixture 11·12 — `node scripts/test-response-policy.mjs` 재실행으로 전부
+   그대로 통과.
+
+**cross-sentence fixture 추가**: `13-ready-stale-index-caveat-cross-sentence.json`(must-fail) —
+reviewer가 준 문장 중 하나("This came from the workspace index. The completeness of this list has
+not been confirmed.")를 **그대로** 사용해 `stale_index_caveat`를 기대한다. 이 fixture가 실제로
+회귀를 잡는지도 직접 확인했다 — 고치기 전(문장 단위 스코프) 버전의 `mentionsIndexUncertainty`를
+별도로 재구성해 같은 요약에 돌려보니 `false`(미검출)였다 — 즉 수정 전 코드였다면 이 fixture는
+`expect: "fail"`인데 위반 0건이 나와 **자체가 실패했을 것**이다.
+
+**fixture 12 description 정정**: "이 fix 이전엔 zero violations를 냈다"는 원래 설명이 재현되지
+않는다는 reviewer 지적을 그대로 실측으로 재확인했다 — stage 6 엔진 수정 이전 commit(`86c2e41`)의
+엔진 원본을 그대로 불러와 fixture 12의 정확한 response/summary로 돌린 결과는
+`["missing_high_severity_disclosure"]`였다(zero violations 아님). 원인은
+`unsupported_no_impact_conclusion`의 원래 결함과 무관하게, `no_incoming_callers`의 서페이스
+패턴(`/\bno (?:incoming )?callers?\b/i`)이 이 요약의 "Nothing... calls" 문구와 애초에 안 맞아
+그 코드도 unsurfaced였기 때문이다. description을 실측값으로 고쳤다 — 판정 로직(3번째 수정,
+`nullIncomingCallsPresent`)은 정확하고, `|| nullIncomingCallsPresent`만 되돌리면 fixture 12가
+여전히 실패한다는 것도 reviewer가 확인했다. description만 과신(부정확한 "이전 상태" 주장)이었다.
+
+**검증**: `node scripts/test-response-policy.mjs`(19 check, fixture 13개 전부 통과),
+`npm run cli:test`(289 pass/2 skip/0 fail, 무관 코드라 회귀 없음).

@@ -156,15 +156,29 @@ function matchesAny(patterns, text) {
   return patterns.some(pattern => pattern.test(text));
 }
 
-// Sentence-scoped, not whole-summary: `provider_null_incoming_calls`'s own canonical wording ("this is
-// not evidence that no caller exists") satisfies INDEX_UNCERTAINTY_PATTERN on its own, so a summary that
-// mentions "index" while correctly confirming `ready` in one sentence and separately surfaces that
-// warning's "not evidence" phrasing in another sentence was tripping `stale_index_caveat` on a fully
-// compliant summary (found via direct measurement, task-m2-python-preset.md stage 6) - the two claims are
-// about different things (index completeness vs. one query's answer) and must not be conflated just
-// because both words appear somewhere in the same multi-sentence summary.
+// `provider_null_incoming_calls`'s own canonical wording ("this is not evidence that no caller exists")
+// satisfies INDEX_UNCERTAINTY_PATTERN on its own ("not evidence"), so a summary that mentions "index"
+// while correctly confirming `ready` and separately surfaces that warning's "not evidence" phrasing was
+// tripping `stale_index_caveat` on a fully compliant summary (found via direct measurement,
+// task-m2-python-preset.md stage 6) - the two claims are about different things (index completeness vs.
+// one query's answer) and must not be conflated just because both words appear in the same summary.
+//
+// The scope stays whole-summary on purpose (an earlier attempt narrowed this to same-sentence matching,
+// which broke detection of the very cross-sentence phrasing SKILL.md's/cli-contract.md's own "Fixed
+// summary shape" recommends - evidence boundary and limitation disclosure as separate sentences; a
+// reviewer measured old-vs-new engine output on genuinely honest, cross-sentence index-uncertainty
+// summaries and found real detection regressed, see task-m2-python-preset.md stage 6 addendum). Only the
+// null-caveat's own anchored phrase is excluded, not the sentence it lives in and not the "index" scope.
+const NULL_CAVEAT_MARKER_PATTERN = /\b(?:null|did not commit to zero)\b/i;
+const NULL_CAVEAT_UNCERTAINTY_PHRASE = new RegExp(
+  `${NULL_CAVEAT_MARKER_PATTERN.source}[^.!?]*\\b(?:not evidence|not proof)\\b[^.!?]*\\bno\\s+callers?\\b` +
+  `|\\b(?:not evidence|not proof)\\b[^.!?]*\\bno\\s+callers?\\b[^.!?]*${NULL_CAVEAT_MARKER_PATTERN.source}`,
+  'i',
+);
+
 function mentionsIndexUncertainty(text) {
-  return splitSentences(text).some(sentence => INDEX_WORD_PATTERN.test(sentence) && INDEX_UNCERTAINTY_PATTERN.test(sentence));
+  const withoutNullCaveatPhrase = text.replace(NULL_CAVEAT_UNCERTAINTY_PHRASE, ' ');
+  return INDEX_WORD_PATTERN.test(withoutNullCaveatPhrase) && INDEX_UNCERTAINTY_PATTERN.test(withoutNullCaveatPhrase);
 }
 
 function surfacesLimitation(code, summaryText) {
