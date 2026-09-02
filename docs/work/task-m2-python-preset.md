@@ -1166,3 +1166,62 @@ whole-summary 패턴을 재구성해 4개 전부 실제로 잘못 걸림을 확�
 
 **남은 작업**: commander에게 재보고 후 reviewer 확인·merge 판단 대기. commander가 명시한 대로, 남은
 대명사-참조 틈 때문에 다섯 번째 라운드는 돌지 않는다 — 위 주석과 이 로그가 그 자리를 대신한다.
+
+### 2026-09-02 — Stage 6 addendum 5: reviewer가 다섯 번째 오탐 3건 발견, commander가 시도한 수정이
+### 실측으로 실패, 술어는 그대로 두고 기록만 추가
+
+**목적과 사용자 가치**: addendum 4에서 문장 스코프로 좁힌 뒤에도, 접속사(but/though/and)로 index
+얘기와 무관한 "may not" 캐비엇을 같은 문장에 묶은 경우는 여전히 오탐이 남는다는 것을 reviewer가
+발견했다. commander가 지시 전에 접속사 경계 수정안을 **직접 구현·측정**했고 실패를 확인한 뒤, 술어는
+더 건드리지 않고 기록만 추가하기로 결정했다. 이 세션은 (a) reviewer의 3개 문장이 실제로
+`stale_index_caveat`를 잘못 띄운다는 것을 독립 재현하고, (b) 술어를 전혀 건드리지 않았다는 것을
+diff로 확인한 뒤, commander가 지시한 기록만 반영했다.
+
+**재현(직접 측정)**: 3개 문장 전부 `["stale_index_caveat"]`로 잘못 걸림을 확인 —
+- "The index is ready, but reflection may not cover every call site."
+- "...an index that is proven ready, though dynamic dispatch may not include..."
+- "Within static call-hierarchy scope and a fully-built index, decorator-based routing may not include
+  every entry point."
+
+이전 4건(addendum 4)과 근본 원인이 같다 — "index"와 "may not X"가 같은 문장에 있다는 것이
+`INDEX_SCOPED_MAY_NOT_UNCERTAINTY`의 유일한 조건이라, index가 "may not X"의 실제 문법적 주어인지는
+전혀 확인하지 않는다. 다른 점은 이전 4건은 두 문장으로 나뉘어 있었고 이번 3건은 접속사로 한 문장에
+묶여 있다는 것뿐이다.
+
+**commander가 시도하고 실측으로 실패를 확인한 수정안**: index와 "may not X" 사이에
+but/though/and/while/although/whereas 같은 절 경계 접속사가 없을 것을 요구하는 안. 두 방향 모두
+실패:
+- 위 세 번째 예문("...scope **and** a fully-built index, decorator-based routing may not
+  include...")은 여전히 못 잡는다 — "and"가 index **앞**에 있어서, index와 "may not" **사이**의
+  접속사만 보는 이 조건을 통과한다.
+- addendum 4에서 검증했던 정당한 124자 삽입절 예문("The index, which was built... **and** reported
+  completion, may not cover every file...")이 새로 막힌다 — 그 삽입절 자체에 들어있는 "and"가
+  절 경계로 오인된다.
+한 번의 수정이 오탐 하나를 못 잡으면서 정당한 케이스 하나를 새로 깨뜨렸다 — 이미 파일 주석에 적어
+둔 구조적 사실("정규식 기반 어휘 매칭은 자유 텍스트 산문에서 진술의 진짜 주어를 일반적으로 판별할
+수 없다")의 다섯 번째 실증이다. 이번엔 추론이 아니라 commander의 직접 구현·측정이었다.
+
+**이 검사에 한해 남는 부정확성을 감수하는 추가 근거**: `VIOLATION_CODES` 여덟 개 중
+`stale_index_caveat`를 제외한 일곱 개(forbidden_phrase, unsupported_no_impact_conclusion,
+missing_index_caveat, partial_reported_as_complete, missing_high_severity_disclosure,
+conclusion_before_boundary, failure_reported_as_empty)는 전부 "증명한 것보다 더 말하는 것"(overclaiming)을
+잡는다. `stale_index_caveat`만 유일하게 "증명된 것보다 더 조심하는 것"(underclaiming)을 잡는다.
+즉 이 검사의 오탐은 더 신중하게 쓴 저자를 나무라는 방향이라, 다른 일곱 개의 오탐(사용자에게 틀린
+주장이 흘러가는 것)과 위험의 방향이 반대다. 이 비대칭이 이 검사에 한해 남는 오탐을 감수 가능하게
+만드는 근거이고, 이 채점기가 CI 전용 dev-time 도구라는 범위(addendum 4에서 기록)와 별개로 성립하는
+독립적인 이유다.
+
+**반영 내용(술어 변경 없음, 기록만)**: `INDEX_SCOPED_MAY_NOT_UNCERTAINTY`의 KNOWN LIMITATION 절에
+reviewer의 3개 문장을 그대로 추가하고(항목 3), commander가 시도한 접속사 경계 수정안과 그 두 실패
+방향을 각각의 정확한 예문과 함께 적었다 — 다음 사람이 가장 먼저 떠올릴 해법이 이것이므로, "이미
+시도했고 측정으로 실패했다"는 기록을 남겨 다섯 번째 라운드를 막는다. 위 비대칭 논거도 같은 주석
+블록에 추가했다. **fixture는 추가하지 않았다** — 통과하는 fixture는 미검출(틀린 동작)을 정답으로
+못박기 때문(이전 결정과 동일한 이유).
+
+**검증**: `git diff scripts/lib/response-policy-engine.mjs`로 이번 변경이 전부 주석 줄(`//`)뿐이고
+실행 코드는 한 줄도 바뀌지 않았음을 확인 — `npm run test:response-policy` 25/25(fixture 19개, 변화
+없음), `npm run cli:test` 289 pass/2 skip/0 fail(변화 없음). 술어 변경이 없으므로 이 결과는 당연히
+이전과 동일해야 하고, 실제로 동일함을 재확인했다.
+
+**남은 작업**: commander에게 재보고, CI green 확인 후 merge 판단(commander가 "확인하고 CI green
+나오면 바로 merge합니다"라고 명시) 대기.

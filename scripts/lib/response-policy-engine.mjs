@@ -134,9 +134,9 @@ const INDEX_WORD_PATTERN = /\bindex(?:ing)?\b/i;
 // from the genuine case (found via commander/reviewer review, task-m2-python-preset.md stage 6 addendum 4).
 //
 // KNOWN LIMITATION, DELIBERATELY NOT FIXED - read this before tightening this predicate further. This is a
-// lexical-heuristic match, not parsing, so a genuine index caveat can still slip past it in two ways a
-// reviewer found while checking a fix proposal (not yet real bugs, so no fixture locks these in - a
-// passing fixture would enshrine the wrong behavior as correct):
+// lexical-heuristic match, not parsing, so a genuine index caveat can still slip past it, or an unrelated
+// one can still be swallowed, in ways a reviewer found while checking fix proposals (not yet real bugs, so
+// no fixture locks these in - a passing fixture would enshrine the wrong behavior as correct):
 //   1. Pronoun reference, no literal "index" in the caveat's own sentence: "The index is large. It may not
 //      cover every file." - undetected, because INDEX_WORD_PATTERN requires the literal word "index"/
 //      "indexing" somewhere in the same [^.!?]* span as "may not X", and "It" doesn't match that word.
@@ -145,14 +145,44 @@ const INDEX_WORD_PATTERN = /\bindex(?:ing)?\b/i;
 //      specifically because it uses sentence scoping ([^.!?]*, no numeric bound) rather than a character
 //      window, so an arbitrarily long insertion clause is still caught as long as no sentence boundary
 //      falls between "index" and "may not X".
+//   3. An unrelated "may not" caveat sharing a sentence with "index" via a conjunction, rather than two
+//      separate sentences - reviewer's exact examples: "The index is ready, but reflection may not cover
+//      every call site." / "...an index that is proven ready, though dynamic dispatch may not include..."
+//      / "Within static call-hierarchy scope and a fully-built index, decorator-based routing may not
+//      include every entry point." - false-flagged stale_index_caveat, same root cause as the four cases
+//      fixtures 16-19 lock in (a same-sentence "index" and "may not X" that don't actually share a
+//      subject), just with the two clauses joined by but/though/and instead of split into two sentences.
+//      Same-sentence proximity was never sufficient to prove "index" is the grammatical subject of "may
+//      not X"; it just happened to be necessary for fixtures 16-19's specific shape.
+//      commander measured a conjunction-boundary fix (require no but/though/and/while/although/whereas
+//      between "index" and "may not X") and it failed in both directions on the reviewer's own examples:
+//      the third example above still slips past it, because its "and" sits BEFORE "index" ("...scope and a
+//      fully-built index, decorator-based routing may not include...") rather than between "index" and
+//      "may not X"; and the addendum-4 legitimate 124-character insertion clause ("The index, which was
+//      built... and reported completion, may not cover every file...") gets newly blocked by it, because
+//      its own "and" (inside the appositive, describing when indexing finished) now reads as a clause
+//      boundary. One fix, one still-open false positive, one newly-broken legitimate case - not
+//      implemented, per the same reasoning as gaps 1 and 2 above.
 // Four rounds of this addendum each closed one axis of this same lexical/semantic tradeoff and opened
 // another (narrow the null-caveat exclusion -> misses cross-sentence marker placement; widen it -> masks a
 // genuine index caveat sharing vocabulary; widen INDEX_UNCERTAINTY_PATTERN whole-summary -> catches
 // unrelated "may not" disclosures; scope it to the sentence -> still can't resolve a pronoun with no
-// antecedent lookup). That pattern is not a sequence of bugs to keep chasing - it is the structural fact
-// that a regex-based lexical match over free-text prose cannot, in general, attribute a claim to its true
-// subject. See task-m2-python-preset.md stage 6 addendum 4 for the round-by-round history and why the lane
-// stops chasing precision here rather than starting a fifth round.
+// antecedent lookup, or a same-sentence conjunction that doesn't bind "index" to "may not X"). That pattern
+// is not a sequence of bugs to keep chasing - it is the structural fact that a regex-based lexical match
+// over free-text prose cannot, in general, attribute a claim to its true subject, confirmed a fifth time by
+// actually building and measuring the next candidate fix rather than reasoning about it. See
+// task-m2-python-preset.md stage 6 addendum 5 for the round-by-round history and why the lane stops here.
+//
+// One more reason this specific residual imprecision is acceptable where the other seven VIOLATION_CODES
+// entries would not be: stale_index_caveat is the only one of the eight that catches UNDERclaiming (a
+// summary being more cautious than the evidence requires) rather than OVERclaiming (a summary asserting
+// more than the evidence supports). forbidden_phrase, unsupported_no_impact_conclusion,
+// missing_index_caveat, partial_reported_as_complete, missing_high_severity_disclosure,
+// conclusion_before_boundary and failure_reported_as_empty all exist to stop a false claim from reaching a
+// reader. A stale_index_caveat false positive instead penalizes an author for being MORE careful than
+// necessary - it never lets a false claim through. That asymmetry, not just this predicate's dev-time-only
+// blast radius (see the file-top SCOPE comment), is why the remaining gaps above are left as documented
+// limitations instead of a fifth implementation attempt.
 //
 // This predicate's actual blast radius, and why that scope is what sets how much precision it needs: the
 // only caller of evaluateSummary() (which uses this predicate) is scripts/test-response-policy.mjs, a
