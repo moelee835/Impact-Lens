@@ -164,14 +164,17 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
 - header가 여러 target에 포함될 때 사용자에게 target 선택을 언제 요청할지 결정해야 한다.
 - compile database staleness를 mtime만으로 판단할지 build-system adapter가 필요한지 검토해야 한다.
 - MSVC/clang-cl과 Apple clangd를 같은 verified matrix로 볼 수 있는지 실제 fixture가 필요하다.
-- **readiness 신호가 파일 open 이후에만 오는 provider의 일반 문제.** M2 Python preset lane
-  (`docs/work/task-m2-python-preset.md`, "아키텍처 발견 독립 기록" 항목)이 실측으로 확인:
-  pyright의 work-done-progress는 workspace 초기화가 아니라 `textDocument/didOpen`이 트리거하는데,
-  `cli/src/lspProvider.ts`의 `LspCallHierarchyProvider.awaitReadiness()`는 `doInitialize()` 안에서
-  어떤 파일도 열리기 전에 호출된다 — 그래서 이런 provider의 readiness 신호는 지금 구조에서 구조적으로
-  도달 불가능하다. clangd도 background index를 쓰고(위 "조사 결과") 그 신호가 파일 open 전에
-  workspace 단위로 오는지 아직 확인되지 않았다 — Python과 같은 함정을 다시 밟을 수 있다. 3단계
-  착수 전에 clangd의 신호가 gopls형(workspace 단위, open 불필요)인지 pyright형(`didOpen` 트리거)인지
-  raw probe로 먼저 확인해야 한다. `awaitReadiness()`를 `open()` 뒤로 옮기는 재설계는 TS·gopls·custom이
-  공유하는 경로라 이런 provider 하나만의 fix가 아니라 별도 lane 규모다(gopls readiness의 3-OS
-  재검증이 필요).
+- **readiness 신호가 파일 open 이후에만 오는 provider의 일반 문제 — 지금까지 조사한 non-bundled
+  provider 셋 중 gopls만 예외다.** M2 Python preset lane(`docs/work/task-m2-python-preset.md`,
+  "아키텍처 발견 독립 기록" 항목)이 pyright의 work-done-progress가 workspace 초기화가 아니라
+  `textDocument/didOpen`이 트리거한다는 것을 실측으로 확인했다. M2 clangd lane stage 1
+  (`docs/work/task-m2-clangd-preset.md`)이 clangd도 같은 형태임을 실측으로 확인했다 — `with-db`
+  fixture에서 `initialize` 후 15초 동안 어떤 파일도 열지 않았을 때 `$/progress` 0건, `didOpen`
+  직후 즉시 도착. Apple clangd 17.0.0과 upstream LLVM clangd 23.1.0 양쪽에서 재현해 빌드 특성이
+  아님을 확인했다. **즉 "readiness는 파일 open 전에 workspace 단위로 온다"는 것이 다수 사례가
+  아니라 gopls 하나의 사례다** — 지금 구조(`cli/src/lspProvider.ts`의
+  `LspCallHierarchyProvider.awaitReadiness()`가 `doInitialize()` 안, 어떤 `open()`보다 먼저 호출됨,
+  `:585` vs `:651`)가 전제하는 순서가 실제로는 소수 provider에만 맞는다. `awaitReadiness()`를
+  `open()` 뒤로 옮기는 재설계는 TS·gopls·custom이 공유하는 경로라 provider 하나만의 fix가 아니라
+  별도 lane 규모다(gopls readiness의 3-OS 재검증이 필요) — 이 사실을 이제 두 provider(pyright,
+  clangd)가 뒷받침하므로, 그 별도 lane의 우선순위를 다음 계획 세션이 재평가할 근거가 됐다.

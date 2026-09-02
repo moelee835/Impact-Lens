@@ -1,12 +1,15 @@
 # M2 — C/C++ clangd provider preset
 
-- 상태: Stage 1 진행 중 (조사 게이트, 구현 없음)
-- branch: `docs/m2-clangd-investigation`
+- 상태: Stage 2 완료(`.h` 결정 + 구현), commander 보고 후 stage 3 승인 대기
+- branch: `feat/m2-clangd-preset`(stage 1까지는 `docs/m2-clangd-investigation` — 조사만 있던 단계의
+  이름. stage 2부터 실제 코드 변경이 생겨 AGENTS.md 명명 규칙에 맞춰 이 시점에 개명했다. commit
+  history는 그대로 이어진다.)
 - 선행: PR #64(`feat/m2-python-preset`, M2 Python lane) merge 완료 후 착수.
 - 스토리: `docs/development-management/stories/il-lim-014-c-cpp-clangd-support.md`
 - 요구사항 전문(계획 세션 작성, 저장소 밖): `m2-clangd.md`(commander scratchpad)
 - 성격: **조사 + 구현을 한 lane에서 한다.** Python lane(조사 lane과 구현 lane을 분리)과 다르다.
-  다만 stage 1은 게이트다 — 관측 결과가 stage 2 이후의 설계를 바꾼다.
+  다만 stage 1은 게이트였다 — 관측 결과가 stage 2 이후의 설계를 바꿨다(readiness 제외 확정).
+  stage 2는 `.h` 결정 자체가 이 lane 고유의 설계 문제라 결정과 구현·검증을 모두 포함한다.
 
 ## 목적과 사용자 가치
 
@@ -210,6 +213,179 @@ ASTWorker building file .../without-db/target.c version 1 with command clangd fa
 compile-database-존재 게이트/limitation)가 gopls와 같은 이유로 필요하다** — 요구사항 문서 stage 1
 항목 5가 예상한 그대로다. 정확한 형태(하드 게이트 vs. limitation 표시)는 stage 3에서 결정한다.
 
+### commander 승인 (2026-09-02)
+
+Stage 1 보고에 commander가 승인 회신 — readiness 제외 결정 확정. commander가 추가로 짚은 두 가지:
+
+1. **"gopls만 예외"로 프레이밍을 뒤집어야 한다.** 지금까지 조사한 non-bundled provider 셋(gopls,
+   pyright, clangd) 중 gopls만 workspace형이고 나머지 둘은 didOpen형이다 — "현재 설계가 전제하는
+   순서가 소수 사례"라는 뜻이다. 스토리의 "미해결 질문" 절을 이 프레이밍으로 갱신했다(아래 작업
+   로그).
+2. **stage 2(`.h`)에 새 입력**: compile database는 보통 소스 파일만 담고 헤더는 안 담는다 — `.h`를
+   어떻게 처리하든 그 파일 자체의 compile command는 database에 없을 가능성이 높다. clangd가 헤더를
+   어떻게 다루는지(연관 소스의 command를 유추하는지)를 stage 2에서 같이 관측하라고 지시했다. 아래
+   Stage 2 절이 그 관측을 포함한다.
+
+## Stage 2 — `.h` 결정
+
+**목적**: `.h` 파일을 조회하는 사용자가 틀린 답이나 침묵 중 무엇도 받지 않게 한다. `.h`는 매핑이
+없어서 `plaintext`로 떨어지는데, 이건 단순 누락이 아니라 **진짜 모호성**이다 — C 헤더일 수도 C++
+헤더일 수도 있다.
+
+### 관측 — commander가 추가한 입력: clangd는 헤더의 compile command를 어떻게 얻는가
+
+`lsp-probe-clangd-header.mjs`(scratchpad, 미commit)로 헤더 파일을 **직접** 열어(연관 `.c`/`.cpp`를
+먼저 열지 않고) 세 가지 fixture를 실측했다.
+
+**(a) 헤더가 정확히 하나의 source에만 포함될 때 — 정확히 추론된다.**
+
+`target.h`를 `target.c`(정의)·`caller.c`(호출자) 둘 다 `#include`하는 `header-c-only/` fixture에서,
+`target.h`만 열고 `prepareCallHierarchy`→`incomingCalls`를 실행했다.
+
+```
+ASTWorker building file .../target.h version 1 with command inferred from .../target.c
+```
+
+**`clangd fallback`이 아니라 `inferred from target.c`다** — 파일명 stem이 일치하는 같은 디렉터리의
+source를 찾아 그 진짜 compile command(모든 include path 포함)를 헤더에도 적용한다. 결과: `caller.c`의
+`fixture_caller`가 정확히 발견됐다 — **cross-file 정확도가 완전히 유지된다.**
+
+**(b) 헤더가 C 소스와 C++ 소스 양쪽에 포함될 때 — 조용히 하나만 고른다.**
+
+`shared.h`를 C로 컴파일되는 `a.c`(호출자 `a_caller`)와 C++로 컴파일되는 `b.cpp`(호출자 `b_caller`)
+양쪽이 `#include`하는 `ambiguous-header/` fixture를 만들어 같은 방식으로 열었다.
+
+```
+ASTWorker building file .../shared.h version 1 with command inferred from .../a.c
+incomingCalls result: [{"from":{"name":"a_caller", ...}}]   -- b_caller는 없음
+```
+
+**`a_caller`만 발견되고 `b_caller`는 발견되지 않는다** — clangd가 `a.c`를 골라 그 컴파일 단위 하나만
+분석했고, **`b.cpp`가 존재하고 같은 헤더를 포함한다는 사실 자체를 client에 전혀 알리지 않는다.**
+
+세 가지 변수를 바꿔가며 이 선택을 흔들어봤다 — **전부 실패, 여전히 `a.c`만 선택됨**:
+- 우리가 didOpen에 보내는 `languageId`를 `'c'`→`'cpp'`로 바꿔도 동일 (clangd의 선택은 우리 languageId
+  주장과 무관).
+- `compile_commands.json`에서 `b.cpp` 항목을 `a.c`보다 먼저 배치해도 동일 (listing 순서 무관).
+
+**결론**: clangd는 모호한 헤더에 대해 **결정론적이지만 client에게 불투명한** 내부 휴리스틱으로 정확히
+하나의 TU를 고른다. **우리 CLI가 관여할 방법이 없다** — languageId도, compile_commands.json 순서도
+그 선택에 영향을 주지 못한다. 이건 "우리가 c/cpp 중 뭘 고르든" 문제가 아니라 **clangd 자신의 선택이
+이미 불투명하다**는 문제다.
+
+**(c) 헤더에 compile database가 아예 없을 때 — fallback이지만 cross-file 지식이 없다.**
+
+`without-db/`의 `target.h`를 직접 열면: `"command clangd fallback"`(generic), `incomingCalls`
+결과가 **`[]`** — `caller.c`가 같은 디렉터리에 실재하는데도 못 찾는다. compile database가 없으면
+background index 자체가 안 서므로(stage 1 항목 5), fallback 모드는 열린 파일 하나만 고립되게 파싱할
+뿐 워크스페이스의 다른 파일을 전혀 모른다. **"호출자가 0개"처럼 보이는 결과가 실제로는 "다른
+파일을 아예 못 찾음"이다** — IL-LIM-009가 막으려는 정확히 그 실패 형태다.
+
+**(d) 우리가 선언하는 `languageId`가 clangd의 실제 파싱 방언을 바꾸는지 — 아니다.**
+
+`without-db/`에 C++ 전용 문법(`namespace fixture_ns { ... }`)을 담은 헤더를 만들어
+`languageId='c'`로 열었다 — **문법 오류 없이 파싱됐다**(`publishDiagnostics: []`). 진단 자체가
+동작하는지 sanity check으로 명백히 틀린 문법(`this is not valid c or c++ syntax !!! ###`)을 같은
+방식으로 열어 확인 — `"Expected unqualified-id"` 진단이 정확히 떴다(진단 파이프라인은 살아있다,
+단지 이 경우엔 안 걸렸을 뿐). **즉 clangd의 fallback은 우리가 보낸 `languageId`에 의존해 C/C++ 방언을
+고르지 않는다** — 파일 확장자 기반의 자체 판단으로 보인다(추가 조사 없음, 이 stage 범위 밖).
+
+### 결정: `.h` → 새 값 `AMBIGUOUS_LANGUAGE_ID`(`'c-cpp-header'`). `c`도 `cpp`도 `plaintext`도 아니다.
+
+이 저장소의 선례(`languageMatch: 'unknown'`, `advertised`/`observed` — 요구사항 문서가 먼저 읽으라고
+지목한 그 타입들)를 따랐다: **모르는 것을 아는 척하지 않는 세 번째 값**을 만들었다. 위 관측이 이
+선택을 직접 뒷받침한다:
+
+- **`c`나 `cpp`로 확정하면 거짓 확신이 된다** — (b)가 보여주듯 clangd 자신도 어느 언어인지 결정론적
+  이지만 불투명하게 고르고, 그 선택은 **우리가 뭐라고 주장하든 안 바뀐다((d))**. 우리 언어 주장이
+  clangd의 실제 동작을 바꾸지 못하므로, 확정 주장은 clangd의 실제 선택을 정확히 반영한다는 보장이
+  없는 **순전한 허구**다.
+- **매핑하지 않으면(`plaintext`) (a)의 흔한 경우조차 버려진다** — `resolve.ts`의 `autoDiscover()`는
+  `detectedLanguageId`가 preset의 `languageIds`에 있는지로만 매칭하므로(`catalog.ts:328`,
+  `presetsForLanguage`), `plaintext`는 **어떤 preset의 `languageIds`에도 없어 auto-discovery가 항상
+  `provider_required_for_language`로 끝난다** — 단일 언어 프로젝트의 명확한 헤더 조회조차 절대 답을
+  못 받는다. (a)가 증명한, clangd가 완벽하게 답할 수 있는 케이스를 이유 없이 버리는 것이다.
+- **`AMBIGUOUS_LANGUAGE_ID`는 두 요구를 동시에 만족한다**: preset이 `languageIds`에 이 값을 포함하면
+  auto-discovery가 정상적으로 clangd에 도달하고((a)의 정확한 답을 살린다), 그러면서도
+  `languageMatch`는 `'unknown'`을 보고해 **"확인된 일치"라는 거짓 확신을 절대 만들지 않는다.**
+
+### 구현 (`cli/src/providers/resolve.ts`)
+
+1. `languageId()`에 `case '.h': return AMBIGUOUS_LANGUAGE_ID;` 추가, 새 export
+   `AMBIGUOUS_LANGUAGE_ID = 'c-cpp-header'` 정의(주변 `.c`/`.cc`/`.cpp`/`.cxx`/`.hh`/`.hpp`/`.hxx`
+   케이스는 그대로).
+2. `languageMatch` 계산: `detectedLanguageId === 'plaintext'`뿐 아니라
+   `=== AMBIGUOUS_LANGUAGE_ID`일 때도 `'unknown'`.
+3. `presetLanguageId()`의 wire-level languageId 폴백(현재는 `plaintext`일 때만
+   `preset.languageIds[0]`으로 대체): `AMBIGUOUS_LANGUAGE_ID`일 때도 같은 폴백 — **어느 구체 언어로
+   말할지는 preset의 1순위 선언이 고르는 추측이지, 이 CLI가 확인한 사실이 아니다**(plaintext와 같은
+   근거).
+4. **`assertPresetSpeaksLanguage()`는 의도적으로 건드리지 않았다** — `plaintext`는 아무것도
+   주장하지 않아 이름이 명시된 어떤 preset이든 통과시키지만, `.h`는 "C 계열"이라는 것은 주장한다.
+   그래서 무관한 언어의 preset이 `.h`를 조용히 받아가면 안 된다 — `AMBIGUOUS_LANGUAGE_ID`를 자기
+   `languageIds`에 명시적으로 선언한 preset만 `.h`를 받을 수 있다(clangd preset이 stage 4에서 이걸
+   선언할 것이다). 두 값이 `assertPresetSpeaksLanguage`에서 다르게 취급되는 이유를 주석에 남겼다 —
+   미래 편집자가 "plaintext처럼 스킵 안 하는 게 버그 아닌가"로 오해하지 않도록.
+
+### 검증
+
+**단위 테스트**(`cli/src/test/providers.test.ts`, `npm run cli:test`로 293 pass/2 skip/0 fail —
+회귀 없음, 신규 4개 포함):
+- `.h`/`.H` → `AMBIGUOUS_LANGUAGE_ID`, 이웃한 `.c`/`.cc`/`.cpp`/`.cxx`/`.hh`/`.hpp`/`.hxx`는 그대로
+  (새 `case` 추가가 기존 `case`들을 건드리지 않았음을 직접 확인).
+- raw custom provider로 `.h` 열면 `detectedLanguageId === AMBIGUOUS_LANGUAGE_ID`(≠ `'plaintext'`),
+  `languageMatch === 'unknown'`.
+- `AMBIGUOUS_LANGUAGE_ID`를 선언하지 **않은** preset을 명시로 `.h`에 지정하면
+  `provider_language_mismatch`로 거부됨(plaintext와 다른 취급을 직접 증명).
+- `AMBIGUOUS_LANGUAGE_ID`를 선언한 preset은 `.h`를 받고, wire-level `requestedLanguageId`가
+  preset의 1순위 언어로 폴백됨을 직접 증명.
+
+**실제 clangd로 real end-to-end**(`header-c-only/` fixture, raw custom provider로 `/usr/bin/clangd`
+직접 지정 — clangd preset이 아직 없으므로 stage 4 전 단계에서 가능한 최대 실측):
+```
+$ node cli/dist/index.js analyze --stdin <<< '{"workspace":"...", "file":"target.h", "line":3,
+  "column":6, "provider":{"command":"clangd","args":["--background-index"],"languageId":"cpp"}}'
+```
+```json
+"ok": true,
+"provider": {"detectedLanguageId": "c-cpp-header", "languageMatch": "unknown", "name": "clangd", ...},
+"nodes": [{"name":"fixture_target","file":"target.h"}, {"name":"fixture_caller","file":"caller.c"}],
+"edges": [{"source":"...fixture_caller...","target":"...fixture_target...", "callSites":[...]}]
+```
+`target.h`에서 시작한 쿼리가 `caller.c`의 실제 호출자를 정확히 찾았고, `languageMatch: "unknown"`이
+정직하게 보고됐다 — 설계 의도대로 동작.
+
+**전환기(stage 4 이전, 실제 catalog에 clangd preset이 아직 없는 지금) 동작도 확인**: provider 필드
+없이 실제 `.h` 파일로 analyze를 실행하면 `provider_required_for_language`,
+`"No bundled provider supports c-cpp-header; configure a Language Server provider for this
+language."` — 조용한 실패나 크래시가 아니라 사용자가 이유를 읽을 수 있는 명확한 에러(exit 5).
+
+### 고르지 않은 선택지와 이유
+
+| 선택지 | 왜 안 골랐나 |
+| --- | --- |
+| `.h` → `c` 고정 | clangd 자신의 실제 선택이 우리 주장과 무관하다는 것을 (d)로 직접 확인했다 — 확정 주장은 clangd의 진짜 동작을 반영한다는 보장이 없는 허구다. C++ 프로젝트에서 조용히 틀린 라벨을 붙이는 것과 같은 효과. |
+| `.h` → `cpp` 고정 | 위와 대칭 — C 프로젝트에서 같은 문제. |
+| 매핑하지 않음(`plaintext`, 현상 유지) | (a)가 증명한 가장 흔하고 명확한 경우(헤더가 정확히 하나의 source에만 속함)조차 `provider_required_for_language`로 항상 버려진다 — clangd가 완벽하게 답할 수 있는 요청을 이유 없이 거부하는 것. |
+| 내용/프로젝트 문맥으로 판정(compile database 직접 파싱) | `resolve.ts`의 `languageId()`는 파일 확장자만 보는 순수 함수이고 어떤 provider 세션과도 독립적으로 호출된다 — compile database를 읽으려면 이 계층에 파일시스템 I/O와 JSON 파싱을 추가해야 하는 구조 변경이고, stage 3(compile database 처리)이 이제 막 다룰 주제다. 게다가 (b)가 보여주듯 **clangd 자신도 이미 이 판정을 하고 있고 우리에게 알려주지 않는다** — 우리가 같은 판정을 다시 구현해도 clangd의 실제 선택과 어긋날 수 있다. 이 lane은 그 판정을 clangd에게 위임하고(이미 (a)에서 정확하게 하는 것을 확인했다), 대신 **판정이 모호했다는 사실 자체를 표시**하는 쪽을 선택했다. |
+
+### stage 3와의 연결 (commander가 예고한 얽힘, 관측으로 확인됨)
+
+commander가 "compile database는 보통 소스 파일만 담고 헤더는 안 담는다"고 지적한 것이 (a)·(b)·(c)
+관측으로 정확히 확인됐다 — 내 fixture의 `compile_commands.json` 어디에도 `target.h`/`shared.h`
+자체는 등장하지 않는다, `.c`/`.cpp`만 있다. clangd는 그 간극을 **자기 나름의 방식으로**(파일명 stem
+매칭 추정) 메우지만, 그 과정이 client에게 불투명하다((b))는 것이 이제 이 lane의 실측 사실이다.
+
+**stage 3/4로 넘기는 것**: 헤더가 여러 타겟에 걸치는 모호성을 실제로 사용자에게 표시하려면(스토리의
+수용 기준), `AMBIGUOUS_LANGUAGE_ID`만으로는 부족하다 — 그건 "언어 자체가 모호하다"만 표시한다.
+"이 헤더가 N개의 서로 다른 compile command를 가진 소스에 포함돼 있고, 답은 그중 정확히 하나만
+반영한다"는 것은 **우리가 compile_commands.json을 직접 읽어 해당 헤더를 include하는 source가 여러
+개인지 확인해야만** 알 수 있다(clangd는 이걸 알려주지 않는다) — 이건 stage 3의 compile database
+처리 범위다. `provider_null_incoming_calls`와 같은 계열의 새 `limitationDetails` 코드(가칭)가
+필요할 수 있다는 것이 stage 2가 stage 3에 남기는 구체적 입력이다. **이 lane은 stage 2에서 이
+코드를 만들지 않는다** — commander의 승인 없이 stage 3로 넘어가지 않는다는 게이트 규칙을 그대로
+따른다.
+
 ## 작업 로그
 
 ### 2026-09-02 — Stage 1 착수·완료
@@ -234,13 +410,39 @@ compile-database-존재 게이트/limitation)가 gopls와 같은 이유로 필�
 - `git status`로 작업 트리 확인, 이 문서만 staged. `node --check`나 lint 대상 코드 변경이 없어
   해당 검증은 이 단계에 적용되지 않는다(AGENTS.md 4절 — 검증할 수 없는 항목이 아니라 "이 단계는
   코드가 없다"는 것을 명시).
+- commander가 stage 1을 승인, stage 2 진행 지시(위 "commander 승인" 절). 스토리의 "미해결 질문"
+  절을 "gopls만 예외"로 프레이밍 갱신.
+
+### 2026-09-02 — Stage 2 착수·완료
+
+- 지시받은 대로 branch를 `feat/m2-clangd-preset`으로 개명(코드 변경이 생겨 `docs/` 접두어가 더 이상
+  맞지 않음).
+- `lsp-probe-clangd-header.mjs`(scratchpad, 미commit) 새로 작성, `header-c-only/`(비모호),
+  `ambiguous-header/`(C+C++ 둘 다 포함, 순서 뒤집은 변형도)와 `header-nodb-*`(compile database
+  없음, C++ 전용 문법·명백한 오류 문법 각각) fixture로 4개 관측(a)~(d) 완료.
+- `cli/src/providers/resolve.ts`: `AMBIGUOUS_LANGUAGE_ID` export 추가, `.h` case,
+  `languageMatch`·`presetLanguageId()` 확장, `assertPresetSpeaksLanguage()`는 의도적으로 미변경
+  (주석으로 이유 명시).
+- `cli/src/test/providers.test.ts`: 신규 테스트 4개(확장자 매핑, `languageMatch: 'unknown'`,
+  preset 거부, preset 수락+wire fallback) — `npm run cli:build` 통과, `npm run cli:test` 293
+  pass/2 skip/0 fail(회귀 없음).
+- 실제 `/usr/bin/clangd`를 raw custom provider로 지정해 `header-c-only/target.h`에 real CLI
+  end-to-end 실행 — `caller.c`의 `fixture_caller`를 정확히 찾음, `languageMatch: "unknown"` 정직하게
+  보고됨.
+- 전환기(clangd preset 미존재) 동작도 실측 — provider 필드 없이 real `.h` 파일 analyze 시
+  `provider_required_for_language`로 명확히, 조용한 실패 없음.
+- 이 작업 문서에 결정과 "고르지 않은 선택지" 표를 기록.
 
 ## 남은 작업
 
-- **Stage 1 완료. commander에게 보고 후 승인 대기 — stage 2(`.h` 결정) 이후는 이 세션이 임의로
-  시작하지 않는다.** 요구사항 문서가 명시한 게이트("pyright형이면 여기서 멈추고 보고하라")이고,
-  결론이 실제로 pyright형으로 나왔으므로 게이트가 발동했다.
-- 보고에 포함할 stage 1 결론 요약: (1) Call Hierarchy 왕복 PASS, (2) **readiness는 pyright형 — 이
+- **Stage 2 완료. commander에게 보고 후 승인 대기 — stage 3(compile database) 이후는 이 세션이
+  임의로 시작하지 않는다.** 요구사항 문서와 commander 지시("`.h` 결정이 나오면 보고하고, stage 3
+  결정은 그다음입니다")가 명시한 순서다.
+- stage 3에 남기는 구체적 입력: 헤더의 target 모호성을 실제로 표시하려면 compile_commands.json을
+  직접 읽어 해당 헤더를 포함하는 source가 여럿인지 확인해야 한다 — `AMBIGUOUS_LANGUAGE_ID`(언어
+  모호성)와는 다른 축이다. `provider_null_incoming_calls`류의 새 limitationDetails 코드가 필요할
+  수 있다.
+- 이전 stage 1 결론 요약(변경 없음): (1) Call Hierarchy 왕복 PASS, (2) **readiness는 pyright형 — 이
   lane은 `readiness`를 preset에 넣지 않는다**, (3) 이 fixture에서는 `null` 아닌 `[]`(일반화 아님),
   (4) version 배너는 배포자별로 접두어가 다른 평문 — JSON 함정 없음, 파서는 `X.Y.Z` 숫자 패턴
   매칭으로, (5) compile database 없으면 **조용히 fallback으로 저하 — gopls AdHoc형**,

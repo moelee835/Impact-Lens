@@ -29,6 +29,7 @@ import {
   readProjectProviderChoice,
 } from '../providers/projectConfig';
 import {
+  AMBIGUOUS_LANGUAGE_ID,
   ProviderResolutionOptions,
   languageId,
   resolveProvider,
@@ -268,6 +269,52 @@ test('a configured languageId that contradicts the file is still a mismatch', ()
 test('an unrecognised extension asserts nothing about the language', () => {
   const resolved = resolveProvider('notes.txt', { command: '/x', languageId: 'typescript' }, { env: NO_ENV });
   assert.equal(resolved.detectedLanguageId, 'plaintext');
+  assert.equal(resolved.languageMatch, 'unknown');
+});
+
+// ---------------------------------------------------------------------------
+// `.h` - a recognized extension that still cannot claim a single language (M2 clangd lane stage 2)
+// ---------------------------------------------------------------------------
+
+test('.h is recognized as C-family but reports languageMatch unknown, not plaintext', () => {
+  const resolved = resolveProvider('src/target.h', { command: '/x', languageId: 'cpp' }, { env: NO_ENV });
+  // Distinct from an unrecognized extension: `.h` DOES assert something (a C-family header), unlike
+  // `notes.txt` above which asserts nothing at all - so it must not collapse to the same 'plaintext'
+  // value, even though both currently report languageMatch: 'unknown'.
+  assert.equal(resolved.detectedLanguageId, AMBIGUOUS_LANGUAGE_ID);
+  assert.notEqual(resolved.detectedLanguageId, 'plaintext');
+  assert.equal(resolved.languageMatch, 'unknown');
+});
+
+test('an explicit preset that does not claim AMBIGUOUS_LANGUAGE_ID is rejected for .h, unlike plaintext', () => {
+  // fixtureUnclaimedLanguagePreset declares languageIds: ['c'] only - not AMBIGUOUS_LANGUAGE_ID. A
+  // preset must opt in explicitly to serve ambiguous headers; unlike plaintext, `.h` is not a free pass.
+  assert.throws(
+    () => resolveProvider('src/target.h', undefined, {
+      env: NO_ENV,
+      providerPreset: 'fixture-c',
+      catalog: [fixtureUnclaimedLanguagePreset()],
+    }),
+    (error: unknown) => error instanceof CliError && error.code === 'provider_language_mismatch',
+  );
+});
+
+test("a preset that explicitly claims AMBIGUOUS_LANGUAGE_ID can serve .h, and the wire languageId falls back to the preset's primary language", t => {
+  const binaries = syntheticPosixDirectory(t, 'ambiguous-header-bin-');
+  writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
+  const preset = fixtureUnclaimedLanguagePreset({
+    languageIds: ['c', 'cpp', AMBIGUOUS_LANGUAGE_ID],
+  });
+  const resolved = resolveProvider('src/target.h', undefined, {
+    env: NO_ENV,
+    providerPreset: 'fixture-c',
+    catalog: [preset],
+    lookup: { env: { PATH: binaries }, platform: 'linux' },
+  });
+  assert.equal(resolved.detectedLanguageId, AMBIGUOUS_LANGUAGE_ID);
+  // Same fallback rule as plaintext: the guess about which language to speak on the wire is the
+  // preset's primary declared language, not a fact this CLI confirmed.
+  assert.equal(resolved.requestedLanguageId, 'c');
   assert.equal(resolved.languageMatch, 'unknown');
 });
 
@@ -733,6 +780,25 @@ test('language detection still maps the extensions it mapped before', () => {
   assert.equal(languageId('a.go'), 'go');
   assert.equal(languageId('a.kt'), 'kotlin');
   assert.equal(languageId('a.unknown'), 'plaintext');
+});
+
+// M2 clangd lane stage 2 (`docs/work/task-m2-clangd-preset.md`): `.h` is a real, recognized extension
+// but genuinely ambiguous between C and C++ - a raw stdio probe against a real clangd found it silently
+// picks one translation unit when a header is included by both a C and a C++ source, with no signal to
+// the client about which one it picked, so this CLI cannot resolve the ambiguity by guessing either.
+// This locks in that `.h` gets its own honest value (AMBIGUOUS_LANGUAGE_ID), not a guessed 'c' or
+// 'cpp', and that adding the new case did not disturb the unambiguous C/C++ extensions next to it in
+// the same switch.
+test('.h maps to AMBIGUOUS_LANGUAGE_ID; the unambiguous C/C++ extensions next to it are unaffected', () => {
+  assert.equal(languageId('a.h'), AMBIGUOUS_LANGUAGE_ID);
+  assert.equal(languageId('a.H'), AMBIGUOUS_LANGUAGE_ID);
+  assert.equal(languageId('a.c'), 'c');
+  assert.equal(languageId('a.cc'), 'cpp');
+  assert.equal(languageId('a.cpp'), 'cpp');
+  assert.equal(languageId('a.cxx'), 'cpp');
+  assert.equal(languageId('a.hh'), 'cpp');
+  assert.equal(languageId('a.hpp'), 'cpp');
+  assert.equal(languageId('a.hxx'), 'cpp');
 });
 
 // `catalog.ts`'s `extensions` field and `languageId()`'s switch above are two independent sources of

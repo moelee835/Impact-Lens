@@ -128,8 +128,11 @@ export function resolveProvider(
 
   const requestedLanguageId = actual.languageId ?? detectedLanguageId;
   // An unrecognized extension carries no claim about the language, so a configured provider is not
-  // contradicted by it. That is 'unknown', not a mismatch.
-  const languageMatch = detectedLanguageId === 'plaintext'
+  // contradicted by it. That is 'unknown', not a mismatch. A recognized-but-ambiguous extension
+  // (AMBIGUOUS_LANGUAGE_ID, currently only `.h`) gets the same 'unknown' treatment for the same reason:
+  // whichever concrete language the provider ends up using is a guess this CLI made, not a confirmed
+  // fact, so it must not be reported as a match either.
+  const languageMatch = detectedLanguageId === 'plaintext' || detectedLanguageId === AMBIGUOUS_LANGUAGE_ID
     ? 'unknown'
     : requestedLanguageId === detectedLanguageId;
   if (languageMatch === false) {
@@ -334,6 +337,10 @@ function requirePreset(
  * TypeScript preset and handing it a `.py` file would otherwise start tsserver on Python and return
  * an empty graph. The check is skipped for `plaintext` because an unrecognized extension asserts
  * nothing, which is the same rule `languageMatch: 'unknown'` already encodes.
+ *
+ * Deliberately NOT skipped for AMBIGUOUS_LANGUAGE_ID (`.h`): unlike `plaintext`, it does assert
+ * something (a C-family header), so a preset for an unrelated language is still rejected. A preset
+ * must list AMBIGUOUS_LANGUAGE_ID in its own `languageIds` to opt into serving ambiguous headers.
  */
 function assertPresetSpeaksLanguage(
   preset: ProviderPreset,
@@ -434,10 +441,12 @@ function presetLanguageId(preset: ProviderPreset, detectedLanguageId: string): s
   if (preset.command.languageIdFrom !== 'detected') {
     return preset.command.languageIdFrom;
   }
-  // An unrecognized extension tells us nothing, but naming a preset does. Falling back to the
-  // preset's primary language is the explicit claim the caller made; `languageMatch` still reports
-  // `unknown` so nothing downstream reads it as confirmation.
-  return detectedLanguageId === 'plaintext'
+  // An unrecognized extension tells us nothing, but naming a preset does. An ambiguous-but-recognized
+  // extension (AMBIGUOUS_LANGUAGE_ID) tells us "C or C++" but not which - the preset's own language
+  // order breaks the tie the same way. Either way, falling back to the preset's primary language is
+  // the explicit claim the caller made; `languageMatch` still reports `unknown` so nothing downstream
+  // reads it as confirmation.
+  return detectedLanguageId === 'plaintext' || detectedLanguageId === AMBIGUOUS_LANGUAGE_ID
     ? (preset.languageIds[0] ?? detectedLanguageId)
     : detectedLanguageId;
 }
@@ -582,6 +591,26 @@ export function resolveSessionValues(
   };
 }
 
+/**
+ * A language id that intentionally makes no language claim beyond "C or C++" - the extension is real
+ * and recognized, but which of the two it is cannot be told from the extension alone. `.h` is the only
+ * case today: it is a valid header for both C and C++, and this repository's own compile-database
+ * probe (M2 clangd lane stage 2, `docs/work/task-m2-clangd-preset.md`) found clangd itself resolves
+ * that ambiguity per translation unit, silently, with no signal to the client about which one it
+ * picked - so this CLI cannot resolve it either by guessing.
+ *
+ * Treated the same as `plaintext` wherever the code already asks "did we actually confirm a language,
+ * or just guess" - `languageMatch` below and `presetLanguageId()`'s wire-value fallback - because a
+ * guessed `'c'` or `'cpp'` would let `languageMatch` report a confirmed match it never earned, the same
+ * failure mode `languageMatch: 'unknown'` already exists to prevent for unrecognized extensions.
+ *
+ * Deliberately NOT treated like `plaintext` in `assertPresetSpeaksLanguage()`: `plaintext` asserts
+ * nothing, so any explicitly-named preset is allowed to claim it, but `.h` does assert something (a
+ * C-family header) - a preset for an unrelated language must still be rejected. A preset that wants to
+ * serve `.h` files must list this value in its own `languageIds`, the same way it lists `'c'`/`'cpp'`.
+ */
+export const AMBIGUOUS_LANGUAGE_ID = 'c-cpp-header';
+
 export function languageId(file: string): string {
   switch (path.extname(file).toLowerCase()) {
     case '.ts': return 'typescript';
@@ -601,6 +630,7 @@ export function languageId(file: string): string {
     case '.hh': return 'cpp';
     case '.hpp': return 'cpp';
     case '.hxx': return 'cpp';
+    case '.h': return AMBIGUOUS_LANGUAGE_ID;
     case '.swift': return 'swift';
     case '.kt': return 'kotlin';
     case '.kts': return 'kotlin';
