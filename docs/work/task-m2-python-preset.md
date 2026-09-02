@@ -489,3 +489,44 @@ FastAPI 사용자가 `Depends()`로만 불리는 함수를 조회했을 때 `com
 `provider_null_incoming_calls`가 나타나는 경우, 에이전트가 여전히 "안 불림"이라고 결론 내리면
 fail)를 추가하지 않았다 — 채점 스크립트의 `expectedViolations` 어휘를 먼저 이해해야 하는 별도
 단위 작업이라 이 stage의 범위를 넘는다고 판단했다. **"확인했다"고 적지 않고 이 목록에 남긴다.**
+
+### 2026-09-02 — Stage 3 보완 2건(commander 검토)
+
+**보완 1 — 세션 플래그가 왜 "정확히 root 질의 한 번"에 대응하는지가 코드에 없었다.** commander가
+`impact.ts:99,136`을 직접 읽고 "`incomingCallerCount === 0` ⟺ `incoming()` 질의가 정확히 한 번"이라는
+불변식을 도출해 지적했다 — `entries`는 root로 시작하고, 두 번째 질의가 일어나려면 `entries.push`가
+선행해야 하는데 그러면 count가 이미 0이 아니게 된다는 논증이다. 재귀(root가 자기를 호출)도 `seen`에
+걸려 edge만 남고 entry도 질의도 하나뿐이라는 것까지 포함해 이 lane이 직접 다시 따라가 확인했다 —
+정확했다. 반영:
+- `impact.ts`의 `incomingCallerCount: traversal.entries.length - 1` 옆에 이 불변식과, 이게 깨지면
+  무엇이 틀려지는지(다른 질의에서 관측된 `null`이 `[]`로 증명된 0-caller 결과에 잘못 붙는다)를
+  명시하는 주석을 추가했다 — gopls preset의 `requiredProjectFiles` 주석이 미래의 편집을 지목한 것과
+  같은 형식.
+- `coverage.ts`의 `nullIncomingCallsObserved` 소비 지점에 위 불변식을 역참조하는 주석을 추가했다.
+- **guard test 추가(`cli/src/test/impact.test.ts`)**: `FakeProvider`에 `incomingCallCount` 카운터를
+  붙이고, (1) 기존 "callers 없음" 테스트에 `incomingCallCount === 1` 단언을 추가, (2) 새 테스트
+  "a self-recursive root still queries incoming() exactly once"를 추가해 재귀 케이스에서도 질의가
+  정확히 1회임을 확인했다. 이 테스트들은 `null` 자체가 아니라 **"질의 횟수" 구조적 불변식**을
+  증명한다 — `null`이 실제로 플래그로 이어지는지는 이미 stage 3 본문의 e2e fixture 테스트가 증명한다.
+  둘이 합쳐야 전체 주장(불변식이 성립하고, 성립한 그 지점에서 null이 정확히 관측된다)이 닫힌다.
+
+**보완 2 — 이미 shipped된 `bundled-typescript` 경로에 대한 실측이 없었다(commander 핵심 지적).**
+새 코드는 provider를 안 가리므로 TS 사용자도 대상이다. 그런데 지금까지의 음성 대조군은 mock
+(`dynamicCallHierarchyServer.ts`)뿐이었다 — **실제 `typescript-language-server`가 caller 0인 심볼에
+`null`을 주는지 `[]`를 주는지 아무도 실측하지 않았다.** 이 lane이 직접 쟀다:
+
+- session scratchpad에 실제 TS 프로젝트(`tsconfig.json` + caller가 전혀 없는 `export function
+  neverCalled(...)`)를 만들었다.
+- 빌드된 CLI(`cli/dist/index.js`)로 `providerPreset: "bundled-typescript"`를 통해 이 심볼을 실제로
+  분석했다(mock이 아니라 shipped된 진짜 `typescript-language-server@6.0.0` 경로).
+- 3회 반복 실행 — 매번 `limitationDetails`에 `no_incoming_callers`, `index_state_unknown`은 있고
+  **`provider_null_incoming_calls`는 없었다.**
+
+**결론: `typescript-language-server@6.0.0`은 caller가 없는 심볼에 `[]`를 반환한다, `null`이
+아니다.** commander가 예상한 "영향 없음, 오히려 설계가 의도대로 작동한다는 강한 증거" 쪽으로
+확인됐다 — 오늘 TS 사용자가 caller 없는 심볼을 조회해도 이 새 경고를 받지 않는다. 방향 (나)를
+재논의할 필요가 없다.
+
+**한계**: 이 실측은 `typescript-language-server@6.0.0`(이 저장소가 실제로 번들한 버전) 하나에
+대한 것이다. 다른 버전이나 다른 TS 파일 모양(메서드, private 함수 등)까지 전부 확인하지는 않았다 —
+"caller 없는 심볼 하나면 된다"는 commander의 요청 범위 그대로다.

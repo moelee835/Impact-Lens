@@ -285,6 +285,12 @@ function limitationDetailsFor(
       // let this be read as a proven zero. A framework-mediated call (FastAPI `Depends()` and similar
       // dependency-injection patterns) is the case this exists for: the function is genuinely invoked,
       // but not through a call expression a static Call Hierarchy can see.
+      //
+      // This is a session-level flag (`LspCallHierarchyProvider.nullIncomingCallsObserved`), not one
+      // scoped to this particular query - it is only safe to attach here because `facts.incomingCallerCount
+      // === 0` already proves exactly one `incoming()` call happened this session (see the comment at
+      // `impact.ts`'s `incomingCallerCount` field). If that invariant ever breaks, this could attach a
+      // `null` observed on an unrelated query to a result it says nothing about.
       details.push({
         code: 'provider_null_incoming_calls',
         severity: 'warning',
