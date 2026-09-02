@@ -295,16 +295,19 @@ export function projectConfigCheck(state: 'absent' | 'valid', error?: unknown): 
  * The `sample` field is why this function exists in `checks.ts` and not only in
  * `providers/compileDatabase.ts` - it exists to prove the database is readable and real, and a
  * commander review found that redacting compiler-flag CONTENT to do that is an unbounded surface, not
- * a bounded one: a first pass caught `-DNAME=value` but missed a space-separated `-D NAME=value`
- * (reachable through this very code, since `arguments.join(' ')` below turns `["-D",
- * "API_TOKEN=secret"]` - a common shape for a real JSON Compilation Database - back into exactly that
- * leaking text), a quoted value whose closing quote lands past the naive token boundary, and MSVC's
- * `/D` spelling (relevant because CI runs windows-latest). Each fix would only close the hole just
- * found, the same shape the response-policy-engine lane in this same session burned five rounds
- * discovering: a lexical pattern match over free-form compiler-flag text does not have a boundary.
- * `sample` closes the surface instead of chasing it - it reports only what the stated purpose actually
- * needs (readable, real, roughly how big) and never touches a flag NAME or VALUE at all, so there is no
- * text left for a secret to hide inside.
+ * a bounded one: a first pass caught `-DNAME=value` but missed a space-separated `-D NAME=value` (a
+ * common real shape for a JSON Compilation Database's `arguments` array, and reachable through this
+ * check's own token-joining logic), a quoted value whose closing quote lands past the naive token
+ * boundary, and MSVC's `/D` spelling (relevant because CI runs windows-latest). Each fix would only
+ * close the hole just found, the same shape the response-policy-engine lane in this same session
+ * burned five rounds discovering: a lexical pattern match over free-form compiler-flag text does not
+ * have a boundary. `sample` closes the surface instead of chasing it - it reports only what the stated
+ * purpose actually needs (readable, real, roughly how big) and never puts a flag NAME or VALUE into
+ * the response, so there is no text left for a secret to hide inside. That includes the one token this
+ * check does read as a name rather than a count - `compiler` - which is itself guarded against a
+ * malformed entry whose first token is a flag rather than an executable (see
+ * `sampleCompileCommandMetadata()`'s own comment) so the "no flag content" guarantee has no silent
+ * exception.
  */
 export async function compileDatabaseCheck(
   preset: ProviderPreset,
@@ -342,8 +345,16 @@ export async function compileDatabaseCheck(
 }
 
 interface CompileCommandSample {
-  /** The compiler executable's basename only (`clang`, not `/usr/bin/clang`) - never the full path. */
-  readonly compiler: string;
+  /**
+   * The compiler executable's basename only (`clang`, not `/usr/bin/clang`) - never the full path.
+   * Omitted, not shown, if the first token looks like a flag (`-`/`/` prefixed) rather than an
+   * executable name - a malformed entry whose `arguments[0]` is itself a flag would otherwise pass its
+   * literal text through `path.basename()` unchanged (no separator to strip), which is exactly the
+   * flag-content leak this function exists to never produce (found via commander review - `compiler:
+   * path.basename(compilerToken!)` was an unconditional pass-through, so a hand-written or malformed
+   * database with a flag in the compiler slot defeated the whole point of this redesign).
+   */
+  readonly compiler?: string;
   /** Workspace-relative; omitted entirely (not shown as absolute) if the entry's file resolves outside the workspace. */
   readonly file?: string;
   /** Count only - the flag names and values themselves are never read into this check's output. */
@@ -352,12 +363,14 @@ interface CompileCommandSample {
 
 /**
  * Proof that the first entry of a real `compile_commands.json` is readable and has the shape a
- * compiler invocation actually has - compiler name, target file, how many arguments - without reading
- * a single flag's name or value into the response. This is the fix for the leak `redactPreprocessorDefines()`
- * (removed) could not close: there is no redaction to defeat when the field never carries the content
- * that would need redacting. Never throws: a database that exists but fails to parse is a fact worth
- * swallowing quietly here, not a doctor crash - the `state` field on the caller's response already told
- * the user the file exists, which is what matters for `pass`/`warn`.
+ * compiler invocation actually has - compiler name, target file, how many arguments - without ever
+ * putting a flag's name or value into the response. This is the fix for the leak
+ * `redactPreprocessorDefines()` (removed) could not close: there is no redaction to defeat when the
+ * field never carries the content that would need redacting. `compiler` is the one field that reads a
+ * token from `arguments`/`command` at all, and it is guarded (see `looksLikeFlag` below) precisely so
+ * that claim stays true even for a malformed entry. Never throws: a database that exists but fails to
+ * parse is a fact worth swallowing quietly here, not a doctor crash - the `state` field on the
+ * caller's response already told the user the file exists, which is what matters for `pass`/`warn`.
  */
 async function sampleCompileCommandMetadata(
   workspace: string,
@@ -377,9 +390,24 @@ async function sampleCompileCommandMetadata(
       return undefined;
     }
     const [compilerToken, ...rest] = tokens;
+    // A well-formed compile database's first token is always the compiler executable, never a flag -
+    // but `path.basename()` passes a flag-shaped string through unchanged (no `/` to strip means
+    // nothing gets removed), so a hand-written or malformed entry whose arguments[0] is itself, say, a
+    // -D define would otherwise leak that define's full text as "the compiler name". Guarded instead of
+    // documented as an exception: the value of this redesign is that there is NO content path left to a
+    // secret, and one silent exception invites the next one.
+    //
+    // Not a bare "starts with '-' or '/'" check: a real absolute compiler path (`/usr/bin/clang`,
+    // `/opt/homebrew/opt/llvm/bin/clang`) also starts with `/`, and that is the overwhelmingly common
+    // real shape of arguments[0] - flagging every `/`-rooted path would omit `compiler` on nearly every
+    // real compile database, not just the malformed ones (confirmed by direct measurement before
+    // choosing this condition). What actually needs to be excluded is a VALUE-bearing flag, and `=` is
+    // the structural marker for that (a `-D<NAME>=<value>` or MSVC `/D<NAME>=<value>`) - a leading `-`
+    // is excluded unconditionally since no real executable path is `-`-prefixed either way.
+    const looksLikeFlag = compilerToken!.startsWith('-') || (compilerToken!.startsWith('/') && compilerToken!.includes('='));
     const file = typeof first.file === 'string' ? workspaceRelativeOrUndefined(workspace, first.file) : undefined;
     return {
-      compiler: path.basename(compilerToken!),
+      ...(looksLikeFlag ? {} : { compiler: path.basename(compilerToken!) }),
       ...(file === undefined ? {} : { file }),
       argumentCount: rest.length,
     };

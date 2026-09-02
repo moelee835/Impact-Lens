@@ -464,6 +464,11 @@ const LEAK_SHAPES: ReadonlyArray<{ readonly name: string; readonly arguments: re
   { name: 'space-separated -D (reachable via arguments.join)', arguments: ['clang', '-D', 'API_TOKEN=abc123secret', '-c', 'main.c'] },
   { name: 'quoted value with an embedded space', arguments: ['clang', '-DGREETING=tok abc123secret', '-c', 'main.c'] },
   { name: 'MSVC /D spelling', arguments: ['clang-cl', '/DAPI_TOKEN=abc123secret', '-c', 'main.c'] },
+  // A commander review found this fifth shape after the other four were already fixed: a malformed
+  // entry whose arguments[0] IS a flag rather than a compiler executable. path.basename() passes a
+  // flag-shaped string through unchanged (no '/' to strip), so this token would otherwise leak
+  // straight into the `compiler` field - the one field this check still reads a real token into.
+  { name: "arguments[0] is itself a -D define (malformed database, compiler slot)", arguments: ['-DAPI_TOKEN=abc123secret', '-c', 'main.c'] },
 ];
 
 for (const shape of LEAK_SHAPES) {

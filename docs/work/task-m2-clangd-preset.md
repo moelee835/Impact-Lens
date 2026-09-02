@@ -686,3 +686,52 @@ command의 전체 flags는 기본 출력하지 않는다"고 적어 뒀다(이 �
   이전에 한 번 더 검토받는다**(commander가 명시). 나머지 stage 3 결정(표면화, `provider_null_incoming_calls`와의
   차이, `status`에 `'fail'`을 아예 안 쓰는 것, `traversalStatus` 무변경, `stateReachability` 분류
   확장)은 이미 승인받았다 — redaction만 재작업했다.
+
+### Stage 3 addendum — commander가 `9634b33`을 승인하며 남은 구멍 하나 지적, 고침
+
+**commander가 `9634b33`(표면 제거 재설계)을 승인했다** — "패턴을 늘리는 대신 표면을 없앴다"는 방향,
+네 형태 양방향 테스트, `workspaceRelativeOrUndefined()`의 절대 경로 미노출까지 전부 맞다고 확인했다.
+
+**남은 구멍 하나**: `compiler: path.basename(compilerToken!)`가 토큰 하나를 무조건 통과시킨다.
+`arguments[0]`이 컴파일러가 아니라 flag인 손으로 만든/손상된 database(규격 위반이지만 가능)라면
+그 토큰이 그대로 나간다 — `path.basename('-DAPI_TOKEN=secret')`은 슬래시가 없어 전체 문자열을
+그대로 돌려준다. **직접 재현해 확인**:
+
+```
+$ node -e "console.log(require('path').basename('-DAPI_TOKEN=secret'))"
+-DAPI_TOKEN=secret
+```
+
+commander가 "구멍을 닫는다"(첫 토큰이 `-`/`/`로 시작하면 `compiler` 생략)를 권했다 — **다만 그
+정확한 조건을 그대로 구현하기 전에 직접 검증했다.** `/`로 시작하는지만 보면 `/usr/bin/clang`
+같은 **정상적인 절대 경로 compiler(내 테스트 fixture 전부가 쓰는 흔한 형태)까지 flag로
+오분류**된다:
+
+```
+$ node -e "const t='/usr/bin/clang'; console.log(t.startsWith('-')||t.startsWith('/'))"
+true   # 정상 compiler인데도 flag로 잘못 분류됨
+```
+
+**그래서 조건을 정제했다** — `startsWith('-')`(Unix flag, 실제 실행 파일 경로는 `-`로 시작하지
+않음)이거나 `startsWith('/') && includes('=')`(MSVC `/D<NAME>=<value>` 형태만 정확히 잡고,
+`/usr/bin/clang`처럼 `=`가 없는 정상 절대 경로는 건드리지 않음). 직접 테스트로 재확인:
+
+| 토큰 | 정제된 조건 |
+| --- | --- |
+| `/usr/bin/clang` | `false`(정상 표시) |
+| `-DAPI_TOKEN=secret` | `true`(생략) |
+| `/DAPI_TOKEN=secret` | `true`(생략) |
+| `-D`(손상된 database) | `true`(생략) |
+| `clang`/`clang-cl` | `false`(정상 표시) |
+
+**commander의 정확한 문구를 그대로 구현하지 않고 정제한 이유를 코드 주석에 남겼다** — 문구 그대로
+구현했다면 정상적인 테스트가 깨졌을 것이고(기존 "sample 모양" 테스트가 `/usr/bin/clang`→`clang`을
+기대), 이건 그 자체로 좋은 반증 사례다: peer 리뷰의 제안이라도 구현 전에 직접 검증한다.
+
+`LEAK_SHAPES`에 다섯 번째 케이스(`arguments[0]`이 그 자체로 `-D` define인 손상된 database)를
+추가했다. non-vacuity: 방금 고친 무조건 통과 로직을 재구성해 이 정확한 fixture에 돌려보니
+`{"compiler":"-DAPI_TOKEN=abc123secret"}`로 실제로 샜다는 것을 확인했다.
+
+**검증**: `npm run cli:build` 통과, `node --test cli/dist/test/doctor.test.js` 26/26(신규 1개),
+`npm run cli:test`(전체) 320 pass/2 skip/0 fail(322 total). 기존 "sample 모양" 테스트(`/usr/bin/clang`
+→ `compiler: 'clang'`)가 정제된 조건에서도 그대로 통과함을 확인 — 정상 케이스를 깨지 않았다.
