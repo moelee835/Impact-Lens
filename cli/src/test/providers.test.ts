@@ -373,8 +373,14 @@ test('PATH lookup returns the first directory that has the file and undefined wh
 
 test('a name containing a separator is verified as a path and never searched for', t => {
   const binaries = syntheticPosixDirectory(t, 'path-explicit-');
-  const executable = writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
-  assert.equal(findExecutable(executable, { env: { PATH: '' }, platform: 'linux' }), executable);
+  writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
+  // Built with a literal '/', not via writeExecutable()'s path.join()-based return value: on a real
+  // Windows host, path.join() normalizes to '\', but findExecutable() under this test's forced
+  // `platform: 'linux'` only recognizes '/' as marking an explicit path (a bare backslash is just an
+  // ordinary filename character on Linux). The two must be built independently, or whichever separator
+  // the host's path.join() happens to produce silently decides which branch of findExecutable() runs.
+  const explicitPath = `${binaries}/impact-lens-fixture-server`;
+  assert.equal(findExecutable(explicitPath, { env: { PATH: '' }, platform: 'linux' }), explicitPath);
   assert.equal(findExecutable('./impact-lens-fixture-server', { env: { PATH: binaries }, platform: 'linux' }), undefined);
 });
 

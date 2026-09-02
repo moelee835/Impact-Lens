@@ -153,3 +153,37 @@ inspection이 만드는 실제 경로도 각 OS에서 올바른 네이티브 경
 - 로컬 검증: `npm run cli:build`, `npm run cli:test`(271/271), `npm run test:all`(전체) 통과. `grep`으로
   `win32` skip 패턴이 새로 생기지 않았음을 확인 — 남은 매치는 주석 하나와 원래부터 있던
   `platform: 'win32'` 명시 test 하나뿐이다.
+- commander가 "검증 못 하는 fix는 약한 fix"라고 지적하며 앞서 후속 과제로 미룬 "Windows CI 추가"
+  결정을 철회 — `unit-tests.yml`에 `cli-tests-cross-os`(windows-latest, macos-latest,
+  `fail-fast: false`, `npm run cli:test`만) job을 이 PR 자신에 추가했다. `npm test`(Extension)는
+  범위 밖으로 명시하고 후속 과제로 남김(위 "결정 정정" 참고).
+
+### 2026-09-02 — 실제 Windows CI 1차 결과: `/tmp` 가정은 맞았고, 별도 결함 1건을 추가로 잡음
+
+PR #61(이 branch)에 새로 추가한 `cli-tests-cross-os` job을 실제로 돌린 결과:
+`macos-latest` 271/271 통과, **`windows-latest` 270/271, 1건만 추가 실패** —
+"a name containing a separator is verified as a path and never searched for".
+
+**`/tmp/...` 합성 경로 가정은 검증됐다 — 실제로 Windows CI runner(`D:\a\...`에서 실행 중)에서 쓰기
+가능했다.** 원인 A로 고쳤던 6개 test 중 5개가 이 실행에서 처음으로 Windows에서 통과했다. 추측이 아니라
+CI가 답을 준 사례.
+
+**남은 1건의 원인은 원인 A와 다른, 세 번째 결함**이다: `writeExecutable()`의 반환값은
+`path.join(directory, name)`로 만드는데, 이건 **실제 host의 `path.join()`**이라 Windows에서 항상
+backslash로 정규화한다(내가 넘긴 원본 `directory` 문자열이 forward slash였어도 무관하다). 이 test는
+그 반환값을 그대로 `findExecutable(executable, { platform: 'linux' })`에 "명시적 경로"로 넘기는데,
+`findExecutable()`의 명시적 경로 판정(`name.includes('/') || (platform === 'win32' &&
+name.includes('\\'))`)은 **`platform`이 `'linux'`일 때는 backslash를 경로 구분자로 인정하지 않는다**
+(실제 Linux에서 backslash는 평범한 파일명 문자이므로 이건 production 코드로서 올바른 설계다). 그 결과
+backslash로 정규화된 문자열은 두 조건 다 거짓이 돼 PATH 검색 분기로 새고, 빈 PATH에서 당연히 못
+찾는다.
+
+이것도 원인 A와 같은 계열의 실수다 — platform을 시뮬레이션하면서 그 시뮬레이션이 요구하는 문자열
+형태(여기서는 forward slash 구분자)를 실제 host가 만든 문자열(`path.join()`의 native separator)로
+대체한 것. `writeExecutable()`의 반환값을 재사용하지 않고, `${binaries}/impact-lens-fixture-server`로
+forward slash를 직접 만들어 해결했다 — `binaries` 자체가 이미 forward-slash 리터럴이므로 이 조합은
+어느 host에서도 forward slash를 유지한다. `fs.statSync`는 Windows에서도 forward slash 경로를 그대로
+받아들이므로 실제 파일 조회에는 문제가 없다.
+
+로컬(macOS) 재검증: `npm run cli:test` 271/271. 이 수정을 실제 Windows CI로 재확인하는 것이 다음
+단계다.
