@@ -78,6 +78,27 @@ incomingCalls result: [{ "from": { "name": "fixture_caller", ... }, "fromRanges"
 RESULT: fixture_caller found as incoming call? true
 ```
 
+### 리뷰 시점에 추가 확인된 후보 — 이 lane의 조사가 아님, 출처를 그대로 남긴다
+
+이 문서가 완성된 뒤 PR #63 검토 과정에서 `reviewer` 세션이 위 4개 후보 표가 후보군을 닫아버린 것이
+부정확하다는 것을 지적하고 직접 추가로 측정했다. 아래 사실은 **이 lane이 만든 것이 아니라 reviewer가
+review 시점(2026-09-02)에 직접 설치·실행해 확인한 것**이다 — 나중에 재현 주체를 추적할 수 있도록
+"무엇이 나왔는가"와 "누가 쟀는가"를 함께 남긴다.
+
+- **`Pyrefly`**(Meta, MIT, pip+npm 배포, Rust 구현) **1.2.0**: reviewer가 이 lane과 같은 probe 방식으로
+  직접 설치·실행해 `callHierarchyProvider: true`와 실제 caller 왕복 성공을 확인했다 — (A)·(B) 모두
+  pyright/basedpyright와 동일하게 통과한다.
+- **같은 `Depends()` 모양 케이스에서 Pyrefly는 `[]`를 반환했다 — pyright의 `null`과 다르다.** (아래
+  null/`[]` 절에 실측 근거로 반영했다.)
+- **`ty`**: GitHub issue #1976에서 프로젝트 자신이 Call Hierarchy 미지원을 확인했다 — 실행 왕복 테스트를
+  하지 않아도 (B)에서 탈락이 확정된다.
+- **`Zuban`**: 공개된 기능 목록에 Call Hierarchy가 없어 탈락 가능성이 높다 — **다만 이 lane도
+  reviewer도 실제 왕복 테스트는 하지 않았다.** 탈락을 확정하지 않는다. 목록에 없다는 것과 실행으로
+  탈락을 확인한 것은 다른 확실성이다 — 이 문서는 그 둘을 같은 문장으로 쓰지 않는다.
+
+**갈래 1 결론(문서 초입)은 바뀌지 않는다** — pyright/basedpyright가 이미 (A)·(B) 통과 후보였다. 바뀌는
+것은 다음 lane에 넘기는 미결 항목의 개수와 성격이다(아래 결론 절의 미결 1·2 참고).
+
 ## 구조적 발견 — gopls와 다른 결정 지점 (다음 lane을 위해 기록)
 
 **pyright/basedpyright는 npm 패키지다.** gopls는 Go 바이너리라 `verified-external`(PATH 탐색, 사용자
@@ -199,6 +220,15 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
 구분한다. **어느 쪽이 맞는지는 이 문서가 정하지 않는다** — 위 두 선례의 설계 방식을 참고해 다음 lane이
 결정한다.
 
+**review 시점에 이 스펙 해석 논증을 뒷받침하는 실측이 생겼다**(위 "리뷰 시점에 추가 확인된 후보" 절
+참고): 같은 `Depends()` 모양 입력에 pyright는 `null`을, `Pyrefly`(1.2.0, reviewer 측정)는 `[]`를
+반환했다 — **provider마다 이미 실제로 다른 값을 내보낸다는 것이 스펙 해석이 아니라 관측 사실이 됐다.**
+이 데이터는 위 세 방향 판단에 직접 걸린다: (나)(구분을 포기하고 "구분할 수 없다"는 사실만 한계로
+명시)를 고르면 이미 벌어지고 있는 이 차이 자체를 감추는 선택이 되고, (가)(provider별 선언)나
+(다)(관측된 provider 한정 구분)는 이 관측을 그대로 반영할 수 있다는 점에서 유리해진다 — **그렇다고
+어느 쪽이 맞는지를 이 문서가 정하는 것은 아니다.** provider 두 곳의 관측만으로 일반화하기엔 이르다는
+반론도 남아 있고, 그 판단은 여전히 다음 lane의 몫이다.
+
 ### 버전 정책 — 하한을 추측하지 않는다
 
 이 조사는 `npm install pyright basedpyright`로 **당시 최신 버전**(1.1.413 / 1.39.10)만 설치해
@@ -208,6 +238,10 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
 
 ## 확인하지 못한 것 (정직하게 기록)
 
+- **후보군 범위.** 이 lane이 직접 실행으로 검증한 것은 4개 후보(`pyright`, `basedpyright`,
+  `python-lsp-server`, `jedi-language-server`)뿐이다. 이후 등장한 Rust 기반 신규 진입자(`Pyrefly`,
+  `ty`, `Zuban`)는 이 lane의 조사 대상이 아니었다 — PR #63 review 시점에 reviewer가 추가로 확인한
+  내용은 위 "리뷰 시점에 추가 확인된 후보" 절에 출처와 함께 별도로 기록했다.
 - **3-OS 설치 가능성.** npm과 pip 자체는 3개 OS 모두에서 동작하는 생태계이지만, 이 lane은 CI를
   만들지 않았으므로 실제로 windows/linux에서 pyright/basedpyright를 설치해 확인한 적이 없다. darwin
   관측을 3-OS로 확대해 주장하지 않는다.
@@ -223,10 +257,17 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
 왕복에 성공했고 라이선스·배포 모두 문제가 없다. Python은 M2에서 분리되지 않는다.
 
 **다음 lane(preset 구현)이 결정해야 할 것(전부 미결, 기본값으로 흘려보내지 않는다)**:
-1. `pyright` vs `basedpyright` — 유지보수 주체·릴리스 주기·기능 차이 기준으로 명시적으로 선택한다.
+1. `pyright` vs `basedpyright` vs `Pyrefly`(review 시점 추가 확인, 1.2.0) — **2자 선택이 아니라 3자
+   선택이다.** 유지보수 주체·릴리스 주기·기능 차이에 더해, Pyrefly는 배포 형태 자체가 다르다(컴파일된
+   Rust 바이너리 — 나머지 둘은 npm에 typeshed를 함께 번들한 JS/Node 패키지). `ty`는 Call Hierarchy
+   미지원이 프로젝트 자체 확인(GitHub issue #1976)으로 이미 탈락, `Zuban`은 기능 목록상 탈락 가능성이
+   높으나 왕복 테스트를 하지 않아 탈락을 확정하지 않는다 — 이 둘은 선택지에서 제외하되 그 근거의
+   확실성 차이를 그대로 남긴다.
 2. `bundled`(자체 npm dependency로 번들) vs `verified-external`(gopls처럼 PATH 탐색) — **번들 시
    CLI tarball 크기 증가분을 실측한 뒤** 결정한다(release-fallback이 매번 그 tarball을 내려받으므로
-   크기가 곧 첫 실행 지연이다). 지금 그 실측값이 없다.
+   크기가 곧 첫 실행 지연이다). 지금 그 실측값이 없다. **Pyrefly가 미결 1의 선택지에 들어온 이상, 이
+   실측은 pyright/basedpyright 몫 하나로 끝나지 않는다** — Pyrefly는 컴파일된 Rust 바이너리라 배포
+   형태 자체가 달라, tarball 크기 증가분을 별도로 실측해야 하는 대상이 하나 더 있다.
 3. `lspProvider.ts:364,371`의 `?? []`가 provider의 `null`과 `[]`를 구분하지 않는다는 사실을 preset
    설계 전에 반영한다 — FastAPI `Depends()`류가 이 경로를 실제로 밟는다. **"구분하면 된다"가 아니라
    무엇을 할지가 미결이다**: LSP가 `null`에 단일 의미를 부여하지 않으므로, `languageMatch: 'unknown'`
@@ -265,7 +306,7 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
   `basedpyright` 선택을 별도의 명시적 미결 항목으로 분리(기본값으로 흘려보내지 않음).
 - commander의 두 번째 검토 라운드 반영: "`null`/`[]`를 구분해야 한다"가 자명한 해법처럼 다음 lane에
   전달되지 않도록, LSP가 `null`에 단일 의미를 부여하지 않는다는 점과 저장소의 기존 선례
-  (`languageMatch: 'unknown'` — `cli/src/types.ts:201`, `cli/src/providers/resolve.ts:130-132`; 
+  (`languageMatch: 'unknown'` — `cli/src/types.ts:201`, `cli/src/providers/resolve.ts:130-134`; 
   `advertised`/`observed` capability 분리 — `cli/src/types.ts:204-212`)를 근거로 최소 세 방향의 설계
   선택지를 추가하고, 어느 쪽도 이 문서에서 확정하지 않았다.
 - **절차 이탈 기록**: 위 인용 확보를 forked subagent(`precedent-check`)에게 위임하면서 "파일 경로·줄
@@ -280,3 +321,12 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
   근거는 아니다. 다음에 조사만 위임할 때는 "read-only: commit·push·파일 변경 금지, 발견만 보고"를
   프롬프트에 명시적으로 적는다 — 저장소의 `il-reviewer` agent 정의가 이미 쓰는 제약 문구를 그대로
   재사용한다.
+- **reviewer의 PR #63 검토 반영(3건)**: (1) `Pyrefly`(1.2.0, reviewer 측정)가 (A)·(B) 모두 통과하고
+  같은 `Depends()` 모양 케이스에서 `[]`를 반환한다는 사실, `ty`의 확정 탈락 근거(GitHub issue #1976),
+  `Zuban`의 미확정 탈락 가능성을 출처와 함께 새 절로 기록하고 "확인하지 못한 것"에 후보군 범위 한
+  줄을 추가 — 후보군이 4개로 닫혀 있다는 인상을 주지 않도록 했다. (2) 미결 1을 `pyright`/`basedpyright`
+  2자 선택에서 `Pyrefly`를 포함한 3자 선택으로, 미결 2에 Pyrefly의 다른 배포 형태(컴파일 Rust
+  바이너리) 때문에 tarball 크기 실측 대상이 하나 더 있다는 것을 반영. (3) Pyrefly의 `[]`를 null/`[]`
+  절의 각주가 아니라 "provider마다 이미 다른 값을 낸다"는 실측 근거로 승격하고, 이 데이터가 미결 3의
+  세 방향 판단에 어떻게 걸리는지 한 줄 추가(방향을 확정하지는 않았다). 부수적으로 `resolve.ts` 인용
+  범위(`130-132` → `130-134`)를 작업 로그와 본문 사이에서 통일했다.
