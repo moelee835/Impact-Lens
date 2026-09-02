@@ -202,3 +202,30 @@ executable discovery와 version policy"를 명시하고, 위험 대응에 "언�
   건드리지 않았다 — 3단계 merge 후 별도 lane으로 다룬다.
 - 다음 단계: push → 3개 OS CI 실제 실행·확인 → green이면 "알면서 남겨둔 창" 섹션의 문서 정정과
   `lastVerified` OS 확대를 같은 PR에 추가.
+
+### 2026-09-02 — PR #61 merge 후 rebase, `unit-tests.yml` 충돌 해결
+
+- PR #59(hotfix)에 이어 PR #61(`fix/cli-test-windows-compat`, Windows에서 `cli:test` 8건이 실패하던
+  gopls·Go와 무관한 사전 존재 결함 수정)이 merge됐다(`331dd6f`). local `main` fast-forward 후 이
+  branch를 `main`에 rebase.
+- `.github/workflows/unit-tests.yml`에서 실제 충돌 발생 — PR #61의 `cli-tests-cross-os` job과 이
+  branch의 `go-provider` job이 같은 위치에 각자 새 job을 추가했다. **둘 다 유지**하는 방향으로 수동
+  해결(`unit` → `cli-tests-cross-os` → `go-provider` 순서). 두 번째 commit은 충돌 없이 재적용됐다.
+- 로컬(macOS, 실제 gopls + `IMPACT_LENS_REQUIRE_GOPLS=1`) `npm run test:all` 전체 통과 확인 후
+  `git push --force-with-lease`로 rebase 결과를 반영.
+
+**`cli:test` 중복 실행에 대한 정정(commander 지적, PR #61 작업 문서의 후속 3번 항목에도 반영 필요)**:
+merge 후 ubuntu에서 `unit`과 `go-provider` 둘 다, windows/macos에서 `cli-tests-cross-os`(gopls
+없음)와 `go-provider`(gopls 필수)가 각각 `cli:test`를 돈다. **이건 순수한 중복이 아니다** — 같은
+suite를 다른 환경에서 돌려 서로 다른 것을 증명한다:
+- `unit`/`cli-tests-cross-os`(gopls 없는 환경): "gopls가 없어도 나머지 CLI가 정상 동작한다"(실사용자
+  대다수의 조건). gopls-gated test는 skip된다.
+- `go-provider`(gopls 설치 + `IMPACT_LENS_REQUIRE_GOPLS=1`): "gopls가 있으면 auto-discovery가 실제로
+  그걸 고르고 readiness를 관측한다"뿐 아니라, **gopls가 PATH에 있어도 기존(비-Go) test들이 여전히
+  통과하는지** — 예를 들어 auto-discovery가 TypeScript 요청에 실수로 gopls를 고르는 회귀가 없는지도
+  같이 증명한다.
+- 나중에 이 중복을 "ubuntu에서 두 번 도네, 하나 지우자"는 식으로 정리하면 안 된다. 특히 `go-provider`의
+  `cli:test`를 gopls 전용 test로만 좁히면, gopls가 PATH에 있는 환경에서 기존 test 전체가 통과하는지
+  아무도 안 보게 된다. **PR #61 작업 문서(`task-fix-cli-test-windows-compat.md`)의 후속 과제 3번
+  ("`unit` job과 `cli-tests-cross-os` job의 구조 정리")에 이 구분을 후속 커밋으로 추가해야 한다** —
+  이건 별도 커밋 대상이라 지금 이 branch에서 처리하지 않는다.
