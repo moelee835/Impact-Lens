@@ -85,7 +85,8 @@ RESULT: fixture_caller found as incoming call? true
 review 시점(2026-09-02)에 직접 설치·실행해 확인한 것**이다 — 나중에 재현 주체를 추적할 수 있도록
 "무엇이 나왔는가"와 "누가 쟀는가"를 함께 남긴다.
 
-- **`Pyrefly`**(Meta, MIT, pip+npm 배포, Rust 구현) **1.2.0**: reviewer가 이 lane과 같은 probe 방식으로
+- **`Pyrefly`**(Meta, MIT, PyPI(pip) 배포, Rust 구현) **1.2.0** — npm에는 배포되지 않는다(아래
+  "Pyrefly는 이 축의 3번째 선택지가 아니다" 절에서 확정): reviewer가 이 lane과 같은 probe 방식으로
   직접 설치·실행해 `callHierarchyProvider: true`와 실제 caller 왕복 성공을 확인했다 — (A)·(B) 모두
   pyright/basedpyright와 동일하게 통과한다.
 - **같은 `Depends()` 모양 케이스에서 Pyrefly는 `[]`를 반환했다 — pyright의 `null`과 다르다.** (아래
@@ -119,13 +120,13 @@ tier(설정 없이 즉시 동작)로 제공하는 게 기술적으로 가능하�
   받아 확인했다(`impact-lens-cli-0.7.0.tgz` = 75,059 bytes, 31 entries, node_modules 항목 0) — 이
   lane도 로컬 `npm pack --dry-run`으로 같은 구조를 재현했다(31 files, node_modules 항목 없음). pyright를
   `dependencies`에 추가해도 **이 tarball 자체는 package.json 한 줄만큼만 커진다.**
-- release-fallback은 "매번"이 아니라 **최초 실행 시**에만 네트워크 접근이 필요하다 — `INSTALL.md:184`
-  ("마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다"). commander가 인용한
-  출처(`README.md:271`)는 이 checkout에 그 내용이 없어 이 lane이 직접 찾아 `INSTALL.md:184`로
-  바로잡았다 — 문장 자체(매번 → 최초 실행)는 정확하다. `npm exec`는 받은 패키지를 로컬 npx cache에
-  남기므로 이후 실행은 재다운로드하지 않는다 — 이 lane이 `npm exec --yes --package=<pkg>`를 두 번
-  연속 호출해(두 번째는 `--offline`) 직접 재현했다: 첫 실행 1.8s, 두 번째(오프라인) 0.35s, 오프라인에서도
-  그대로 성공.
+- release-fallback은 "매번"이 아니라 **최초 실행 시**에만 네트워크 접근이 필요하다 — 두 문서가 같은
+  사실을 말한다. `README.md:271`("release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크
+  접근이 **필요하며**")이 release fallback을 직접 지목하는 더 단정적인 근거이고, `INSTALL.md:184`
+  ("마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 **필요할 수 있습니다**")가 보조
+  근거다. `npm exec`는 받은 패키지를 로컬 npx cache에 남기므로 이후 실행은 재다운로드하지 않는다 —
+  이 lane이 `npm exec --yes --package=<pkg>`를 두 번 연속 호출해(두 번째는 `--offline`) 직접
+  재현했다: 첫 실행 1.8s, 두 번째(오프라인) 0.35s, 오프라인에서도 그대로 성공.
 
 **진짜 재야 할 것은 tarball 크기가 아니라 첫 실행 install closure 증가분이다.** 실제 비용이 생기는
 지점은 `plugins/impact-lens/scripts/run-impact-lens:133,140`의 `npm exec --yes
@@ -446,3 +447,23 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
      생략하면 된다. 진짜 남는 것은 이 lane이 이미 괄호로 적어 뒀던 검증 질문 하나
      (pyright/basedpyright가 다른 목적의 progress도 보내는가) 뿐이라는 것을 명시하고, 설계 확장은
      그 검증이 실패했을 때만 필요한 조건부 경로로 순서를 뒤집었다.
+- **정정(2026-09-02) — 방금 위에서 "README.md:271은 이 checkout에 없다"고 적은 것 자체가 틀렸다
+  (commander 재지적).** `sed -n '271p' README.md`로 직접 확인하니 그 줄이 그대로 있다: "release
+  fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요하며 ...". 위 절을 "없다"고 삭제
+  서술하는 대신 **두 출처를 모두** 인용하도록 고쳤다 — `README.md:271`(release fallback을 직접
+  지목하고 "필요하며"로 단정)을 주 근거로, `INSTALL.md:184`("필요할 수 있습니다")를 보조 근거로.
+  같은 문단에서 `Pyrefly`를 처음 소개한 88행이 "pip+npm 배포"로 남아 있어 160행 이후의 "npm 미배포
+  확정" 결론과 정면으로 모순되는 것도 함께 고쳤다(`Pyrefly` 식별자로 grep해 두 곳이 어긋난 것을
+  찾았다) — 새 절을 정확히 쓰면서 그 사실을 처음 소개한 문장은 안 고친, 부분 수정이 남기는 전형적인
+  자국이었다.
+  **왜 못 찾았는지**: commander는 "문장 기반 검색의 거짓 음성"(M1 문서 lane에서 3회 반복된 패턴)으로
+  진단했으나, 직접 재구성해보니 이번 원인은 다르다 — 같은 turn 안에서 `cd cli && npm pack --dry-run`을
+  실행한 뒤 그 디렉터리에서 벗어나지 않은 채로 이어서 `README.md`/`INSTALL.md`를 상대 경로로 참조해
+  검색했다. 그 결과 모든 검색이 `cli/README.md`(우연히 같은 232줄이라 눈치채지 못함)와
+  `cli/INSTALL.md`(존재하지 않음)를 대상으로 실행됐고, "찾지 못했다"를 "없다"로 잘못 결론지었다.
+  뒤이은 무관한 명령(`npm exec` 캐시 테스트)이 우연히 저장소 루트로 cwd를 되돌려 줬을 때는 이미
+  "README.md에 없다"고 결론 내린 뒤였다. **일반 원칙은 commander의 진단과 같다** — "찾지 못했다"와
+  "없다"는 다른 진술이고, 이 lane은 후자를 적었다. 다만 이번 구체적 원인은 문구 표현이 아니라 **cwd
+  drift**였다: bash 호출 중 `cd`로 디렉터리를 바꿨으면 같은 호출 안에서 되돌리거나, 되돌리지 않을
+  경우 이어지는 모든 상대 경로 파일 참조 전에 `pwd`로 위치를 확인한다 — 이번처럼 무관한 명령이 우연히
+  cwd를 되돌려 줄 것이라고 가정하지 않는다.
