@@ -1,0 +1,148 @@
+{
+  "file": "14-null-incoming-calls-surfaced-via-di-not-null.json",
+  "name": "provider_null_incoming_calls surfaced via 'dependency injection'/'Depends()' wording, never saying 'null'",
+  "description": "task-m2-python-preset.md stage 6 addendum, second correction: LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls accepts four phrases ('null', 'did not commit to zero', 'dependency injection', 'Depends()' - all four straight from coverage.ts's own action text, 'such as dependency injection or a framework decorator'), but the stale_index_caveat exclusion anchor only recognized the first two. A summary that surfaced the limitation the way coverage.ts itself suggests - 'dependency injection' or 'Depends()', never saying 'null' - was wrongly flagged stale_index_caveat under indexingStatus: ready, punishing an agent for following the CLI's own recommended wording (found by a commander review that reran fixture 11's response with only the surfacing phrase changed; confirmed non-vacuous here by reconstructing the just-fixed two-phrase anchor inline and showing it would flag this exact summary). Fix: NULL_CAVEAT_MARKER_SOURCE and LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls now both read from one PROVIDER_NULL_INCOMING_CALLS_MARKERS array, so all four accepted phrases are excluded identically and a future fifth phrase cannot drift the two checks apart again. Must-pass fixture 14 - the suite's only fixture that surfaces this code without the word 'null' (fixture 11 always used 'null').",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.7.0"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "pyright",
+        "requestedLanguageId": "python",
+        "detectedLanguageId": "python",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": true
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        }
+      },
+      "coverage": {
+        "traversal": {
+          "status": "complete",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "ready",
+          "evidence": {
+            "signal": "work-done-progress",
+            "detail": "indexing"
+          }
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable"
+        ]
+      },
+      "completion": {
+        "requestStatus": "succeeded",
+        "traversalStatus": "exhausted",
+        "semanticScope": "provider-static",
+        "indexingStatus": "ready"
+      },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "a1b2c3d4e5f6a1b2c3d4e5f6",
+          "name": "get_current_user"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "no_incoming_callers",
+          "severity": "warning",
+          "scope": "semantic",
+          "message": "No incoming callers were returned for this symbol.",
+          "action": "Confirm dynamic entry points manually before removing this symbol."
+        },
+        {
+          "code": "provider_null_incoming_calls",
+          "severity": "warning",
+          "scope": "provider",
+          "message": "The provider returned no definitive answer for incoming calls rather than an explicit empty list, so this is not evidence that no caller exists.",
+          "action": "Check for invocation through a mechanism the provider cannot see statically, such as dependency injection or a framework decorator, before concluding this symbol is uncalled."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "pyright",
+      "requestedLanguageId": "python",
+      "detectedLanguageId": "python",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": true
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      }
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable"
+    ],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from pyright; the provider's index is proven ready (work-done-progress signal). No incoming callers were returned for get_current_user at depth 5. The provider's answer for this specific query is not evidence that no caller exists, since invocation could occur through dependency injection or a framework decorator such as FastAPI's Depends(). That caveat is about this one query, not about the already-confirmed index.",
+  "expect": "pass",
+  "expectedViolations": []
+}

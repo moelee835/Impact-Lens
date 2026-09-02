@@ -964,3 +964,53 @@ not been confirmed.")를 **그대로** 사용해 `stale_index_caveat`를 기대�
 
 **검증**: `node scripts/test-response-policy.mjs`(19 check, fixture 13개 전부 통과),
 `npm run cli:test`(289 pass/2 skip/0 fail, 무관 코드라 회귀 없음).
+
+### 2026-09-02 — Stage 6 addendum 2: commander가 발견한 두 번째 회귀(제외 앵커의 절반 누락), 재수정
+
+**목적과 사용자 가치**: `unsupported_no_impact_conclusion` fix가 검출력을 늘렸지만, 그 부작용을 막던
+`stale_index_caveat` 제외 앵커가 CLI 자신이 권장하는 문구 절반을 인식하지 못해 **CLI 문서가 시키는
+대로 쓴 agent를 오히려 벌점 주는** 상태였다. 이걸 고치지 않으면 pyright의 `provider_null_incoming_calls`
+경고를 `dependency injection`/`Depends()` 표현으로 정직하게 설명한 요약이 `stale_index_caveat`
+위반으로 잘못 걸려, agent가 정확한 설명 대신 어색하게 "null"이라는 단어를 억지로 넣도록 유도하는
+결과를 낳는다. 이 채점기가 실제로 무엇을 "정직한 요약"으로 인정하는지가 M2 lane 전체의 신뢰성이므로,
+merge 전에 반드시 닫아야 하는 gap이었다.
+
+**commander 지적(2026-09-02)**: `LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls`(엔진
+134행, addendum 1 이전 기준)는 4개 문구를 인정한다 — `null`, "did not commit to zero",
+"dependency injection", `Depends()`(coverage.ts의 action 텍스트 "such as dependency injection or a
+framework decorator"에서 그대로 옴). 그런데 `stale_index_caveat`의 제외 앵커
+`NULL_CAVEAT_MARKER_PATTERN`은 앞의 두 개만 인식했다. commander가 fixture 11의 response를 그대로
+쓰고 요약만 "dependency injection"/"Depends()"로 표면화(둘 다 "null" 언급 없음)해서 직접 돌려본
+결과, 두 경우 모두 `missing_high_severity_disclosure`는 안 뜨는데(= 한계를 제대로 표면화했다는 뜻)
+`stale_index_caveat`는 잘못 뜬다는 것을 확인했다. 이 저장소에서 직접 같은 두 문장으로 재현: 수정
+전 `["stale_index_caveat"]`, fixture 11(A, "null" 사용)은 여전히 `[]`.
+
+**원인**: addendum 1에서 `NULL_CAVEAT_MARKER_PATTERN`을 `LIMITATION_SURFACE_PATTERNS`와 별도로
+하드코딩했다(`/\b(?:null|did not commit to zero)\b/i`) — 인정 문구 목록이 두 곳에 따로 있었고, 그중
+하나만 넷을 다 반영했다. commander 지적대로 이 형태의 결함이 이번이 두 번째다(addendum 1도 검출
+로직과 fixture가 같은 실제 코드 경로를 다른 스코프로 검증하다 벌어진 drift).
+
+**수정**: `PROVIDER_NULL_INCOMING_CALLS_MARKERS` 배열 하나를 단일 출처로 두고,
+`LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls`와 `NULL_CAVEAT_MARKER_SOURCE`(제외
+앵커) 둘 다 이 배열에서 파생시켰다 — 다섯 번째 인정 문구가 추가돼도 한 곳만 고치면 두 검사가 같이
+갱신된다.
+
+**네 가지 모두 직접 재측정**:
+1. commander의 B("dependency injection", null 미언급)·C(`Depends()`, null 미언급) 문장을 이
+   저장소에서 재현 — 수정 전 둘 다 `["stale_index_caveat"]`(재현 성공), 수정 후 둘 다 `[]`.
+2. fixture 11(A, "null" 사용) — 수정 후에도 여전히 `[]`.
+3. fixture 13 + reviewer의 4개 cross-sentence 예문(addendum 1에서 검증한 것과 동일한 4문장) —
+   앵커를 넓히는 수정이라 검출력이 반대 방향으로 깎일 위험이 있었으므로 재확인 필요; 전부 여전히
+   `stale_index_caveat`로 잡힘(5/5, fixture 13 포함).
+4. 신규 must-pass fixture `14-null-incoming-calls-surfaced-via-di-not-null.json` 추가 — fixture
+   11의 response를 그대로 쓰고 요약만 "dependency injection"/"Depends()"로 표면화("null" 단어 없음).
+   non-vacuity 증명: addendum 1에서 고친 두 단어짜리 앵커(`null`|"did not commit to zero")를
+   인라인으로 재구성해 이 fixture의 정확한 요약에 돌려보니 `stale_index_caveat`를 잘못 띄운다는 것을
+   확인했다 — 즉 이번 수정 전 코드였다면 이 fixture는 실패했을 것이다.
+
+**검증**: `node scripts/test-response-policy.mjs`(20 check, fixture 14개 전부 통과),
+`npm run cli:test`(289 pass/2 skip/0 fail, 무관 코드라 회귀 없음).
+
+**남은 작업**: commander에게 재보고 후 merge 판단 대기. 이 채점기 파일을 다시 건드릴 일이 생기면,
+`provider_null_incoming_calls`처럼 "인정 문구 목록"과 "그 목록에서 파생된 제외/포함 앵커"가 서로
+다른 리터럴로 중복 선언되어 있지 않은지 먼저 확인한다(이번이 같은 형태의 두 번째 결함이었다).

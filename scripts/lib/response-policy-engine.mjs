@@ -114,6 +114,19 @@ const INDEX_WORD_PATTERN = /\bindex(?:ing)?\b/i;
 // fallback derived from the code itself (underscores to spaces) covers any future code this table has not
 // been taught yet, so a new severity:error/warning reason does not silently pass unnoticed — it just gets
 // checked against its literal words instead of a hand-tuned phrase.
+// The vocabulary SKILL.md/cli-contract.md actually teach an agent to use for provider_null_incoming_calls
+// (`null`, "did not commit to zero", "dependency injection", `Depends()`) - coverage.ts's own `action` text
+// for this code says "such as dependency injection or a framework decorator" verbatim, so an agent that
+// follows the CLI's own suggested wording must be recognized here too, not just an agent that says "null".
+// Single source of truth, read by both LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls below (is
+// the limitation surfaced at all) and NULL_CAVEAT_MARKER_SOURCE (is this the null-caveat's own uncertainty
+// phrase, to exclude from stale_index_caveat's index check) - a commander review found these had drifted
+// apart once already: the exclusion anchor only recognized 2 of these 4 phrases, so a fully compliant
+// summary that surfaced the limitation via "dependency injection" or "Depends()" (instead of "null") was
+// wrongly flagged stale_index_caveat (found via direct measurement, task-m2-python-preset.md stage 6
+// addendum). Reading both checks from one array means a future fifth accepted phrase updates both at once.
+const PROVIDER_NULL_INCOMING_CALLS_MARKERS = [/\bnull\b/i, /\bdid not commit to zero\b/i, /\bdependency injection\b/i, /Depends\(\)/i];
+
 const LIMITATION_SURFACE_PATTERNS = {
   no_incoming_callers: [/\bno (?:incoming )?callers?\b/i],
   index_state_unknown: [INDEX_UNCERTAINTY_PATTERN], // paired with INDEX_WORD_PATTERN, see surfacesLimitation
@@ -125,13 +138,7 @@ const LIMITATION_SURFACE_PATTERNS = {
   provider_not_ready: [/\bstill indexing\b/i, /\bnot ready\b/i, /\bprovider_not_ready\b/i],
   inferred_edges_included: [/\binferred edges?\b/i],
   observed_edges_included: [/\bobserved edges?\b/i, /\bruntime observation\b/i],
-  // task-m2-python-preset.md stage 6: matches the vocabulary SKILL.md/cli-contract.md actually teach an
-  // agent to use for this code (`null`, "did not commit to zero", "dependency injection", `Depends()`),
-  // not the underscored code name - without this entry every summary fell back to the generic
-  // `/\bprovider null incoming calls\b/i` pattern, which no natural-language sentence ever matches, so a
-  // fully compliant summary always failed `missing_high_severity_disclosure` (found via direct
-  // measurement against the real engine, not assumed).
-  provider_null_incoming_calls: [/\bnull\b/i, /\bdid not commit to zero\b/i, /\bdependency injection\b/i, /Depends\(\)/i],
+  provider_null_incoming_calls: PROVIDER_NULL_INCOMING_CALLS_MARKERS,
 };
 
 function escapeRegExp(text) {
@@ -169,10 +176,16 @@ function matchesAny(patterns, text) {
 // reviewer measured old-vs-new engine output on genuinely honest, cross-sentence index-uncertainty
 // summaries and found real detection regressed, see task-m2-python-preset.md stage 6 addendum). Only the
 // null-caveat's own anchored phrase is excluded, not the sentence it lives in and not the "index" scope.
-const NULL_CAVEAT_MARKER_PATTERN = /\b(?:null|did not commit to zero)\b/i;
+//
+// The anchor itself must cover all four PROVIDER_NULL_INCOMING_CALLS_MARKERS phrases, not just "null" and
+// "did not commit to zero" - a summary that surfaces the same limitation via "dependency injection" or
+// "Depends()" is equally compliant (coverage.ts's own action text suggests that exact wording) and must be
+// excluded the same way, or stale_index_caveat penalizes an agent for following the CLI's own suggested
+// phrasing (found via commander review, task-m2-python-preset.md stage 6 addendum).
+const NULL_CAVEAT_MARKER_SOURCE = `(?:${PROVIDER_NULL_INCOMING_CALLS_MARKERS.map(pattern => pattern.source).join('|')})`;
 const NULL_CAVEAT_UNCERTAINTY_PHRASE = new RegExp(
-  `${NULL_CAVEAT_MARKER_PATTERN.source}[^.!?]*\\b(?:not evidence|not proof)\\b[^.!?]*\\bno\\s+callers?\\b` +
-  `|\\b(?:not evidence|not proof)\\b[^.!?]*\\bno\\s+callers?\\b[^.!?]*${NULL_CAVEAT_MARKER_PATTERN.source}`,
+  `${NULL_CAVEAT_MARKER_SOURCE}[^.!?]*\\b(?:not evidence|not proof)\\b[^.!?]*\\bno\\s+callers?\\b` +
+  `|\\b(?:not evidence|not proof)\\b[^.!?]*\\bno\\s+callers?\\b[^.!?]*${NULL_CAVEAT_MARKER_SOURCE}`,
   'i',
 );
 
