@@ -143,14 +143,18 @@ different statement about an empty or partial result; do not treat them intercha
 ### `unknown` — the provider made no claim
 
 The provider never reported an index state. An empty result is not evidence that no caller exists, which is
-why the response carries `index_state_unknown`. `bundled-typescript` still declares no `readiness` profile
-(`cli/src/providers/catalog.ts` marks it "claims nothing about indexing"), so `unknown` is what agents see
-for every TypeScript/JavaScript analysis. `gopls` (the shipped Go preset, M2) does declare `readiness`, so
-`working`/`ready` are real for Go: no request field or `.impact-lens/provider.json` field lets a user
-attach a `readiness` profile directly — `readiness` is still not part of either schema — but a user reaches
-`ready`/`working` simply by having `gopls` installed and analyzing a Go project through ordinary
-auto-discovery, no extra configuration needed. Implement handling for all three states: which one appears
-depends on which preset auto-discovery selects, not on anything the request configures.
+why the response carries `index_state_unknown`. `bundled-typescript` and `bundled-pyright` (the shipped
+Python preset, M2) both declare no `readiness` profile, so `unknown` is what agents see for every
+TypeScript/JavaScript and Python analysis. For `bundled-pyright` this is not "no signal exists": pyright
+sends a real indexing-progress notification, but only once a file is opened, and this CLI's readiness wait
+runs before that point in the current call order, so the signal cannot arrive in time — declaring
+`readiness` anyway would only add a fixed timeout with no benefit (`cli/src/providers/catalog.ts` records
+the measurement). `gopls` (the shipped Go preset, M2) does declare `readiness`, so `working`/`ready` are
+real for Go: no request field or `.impact-lens/provider.json` field lets a user attach a `readiness`
+profile directly — `readiness` is still not part of either schema — but a user reaches `ready`/`working`
+simply by having `gopls` installed and analyzing a Go project through ordinary auto-discovery, no extra
+configuration needed. Implement handling for all three states: which one appears depends on which preset
+auto-discovery selects, not on anything the request configures.
 
 ### `working` — the provider is still indexing
 

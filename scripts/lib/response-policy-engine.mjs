@@ -125,6 +125,13 @@ const LIMITATION_SURFACE_PATTERNS = {
   provider_not_ready: [/\bstill indexing\b/i, /\bnot ready\b/i, /\bprovider_not_ready\b/i],
   inferred_edges_included: [/\binferred edges?\b/i],
   observed_edges_included: [/\bobserved edges?\b/i, /\bruntime observation\b/i],
+  // task-m2-python-preset.md stage 6: matches the vocabulary SKILL.md/cli-contract.md actually teach an
+  // agent to use for this code (`null`, "did not commit to zero", "dependency injection", `Depends()`),
+  // not the underscored code name - without this entry every summary fell back to the generic
+  // `/\bprovider null incoming calls\b/i` pattern, which no natural-language sentence ever matches, so a
+  // fully compliant summary always failed `missing_high_severity_disclosure` (found via direct
+  // measurement against the real engine, not assumed).
+  provider_null_incoming_calls: [/\bnull\b/i, /\bdid not commit to zero\b/i, /\bdependency injection\b/i, /Depends\(\)/i],
 };
 
 function escapeRegExp(text) {
@@ -149,8 +156,15 @@ function matchesAny(patterns, text) {
   return patterns.some(pattern => pattern.test(text));
 }
 
+// Sentence-scoped, not whole-summary: `provider_null_incoming_calls`'s own canonical wording ("this is
+// not evidence that no caller exists") satisfies INDEX_UNCERTAINTY_PATTERN on its own, so a summary that
+// mentions "index" while correctly confirming `ready` in one sentence and separately surfaces that
+// warning's "not evidence" phrasing in another sentence was tripping `stale_index_caveat` on a fully
+// compliant summary (found via direct measurement, task-m2-python-preset.md stage 6) - the two claims are
+// about different things (index completeness vs. one query's answer) and must not be conflated just
+// because both words appear somewhere in the same multi-sentence summary.
 function mentionsIndexUncertainty(text) {
-  return INDEX_WORD_PATTERN.test(text) && INDEX_UNCERTAINTY_PATTERN.test(text);
+  return splitSentences(text).some(sentence => INDEX_WORD_PATTERN.test(sentence) && INDEX_UNCERTAINTY_PATTERN.test(sentence));
 }
 
 function surfacesLimitation(code, summaryText) {
@@ -210,9 +224,17 @@ export function evaluateSummary(response, summary) {
   const requestStatus = completion?.requestStatus;
   const empty = isEmptyResult(response);
 
+  // `provider_null_incoming_calls` (task-m2-python-preset.md stage 3) is a per-query "did not commit to
+  // zero" signal, independent of index completeness - coverage.ts and cli-contract.md are explicit that it
+  // "can appear together with `indexingStatus: ready`" (proving the index is built says nothing about what
+  // this one query returned). Without checking for it here, a `ready` + `succeeded` response with this code
+  // present let a "nothing calls this" conclusion through unflagged, because the pre-existing condition only
+  // ever looked at indexingStatus/requestStatus - exactly the misreading this code exists to prevent (found
+  // via direct measurement against the real engine, not assumed; see stage 6 of the same document).
+  const nullIncomingCallsPresent = highSeverityLimitations(response).some(detail => detail.code === 'provider_null_incoming_calls');
   const noImpactAsserted = sentences.some(sentence => matchesAny(NO_IMPACT_ASSERTION_PATTERNS, sentence) && !isNegated(sentence.toLowerCase()));
-  if (noImpactAsserted && (indexingStatus !== 'ready' || requestStatus === 'partial')) {
-    violations.push({ code: 'unsupported_no_impact_conclusion', message: `Summary asserts nothing calls the symbol, but indexingStatus is "${indexingStatus}" and requestStatus is "${requestStatus}", which does not support that conclusion.` });
+  if (noImpactAsserted && (indexingStatus !== 'ready' || requestStatus === 'partial' || nullIncomingCallsPresent)) {
+    violations.push({ code: 'unsupported_no_impact_conclusion', message: `Summary asserts nothing calls the symbol, but indexingStatus is "${indexingStatus}" and requestStatus is "${requestStatus}"${nullIncomingCallsPresent ? ' and the provider answered this query with null (provider_null_incoming_calls)' : ''}, which does not support that conclusion.` });
   }
 
   if (indexingStatus === 'unknown' && empty && !mentionsIndexUncertainty(summaryLower)) {

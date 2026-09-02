@@ -108,12 +108,22 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
 - `coverage.traversal` distinguishes complete, depth-limited, and node-limited traversal.
 - `coverage.semantic` is `static-only` until provenance-bearing augmentation is implemented.
 - `coverage.indexing` (mirrored in `completion.indexingStatus`) is one of `unknown`, `working`, or `ready`.
-  `bundled-typescript` still declares no readiness profile, so TypeScript/JavaScript analysis only ever
-  reports `unknown` — an empty result under `unknown` is not evidence that no caller exists. `gopls` (the
-  shipped Go preset) does declare a readiness profile, so `working`/`ready` are reachable for Go: no
+  `bundled-typescript` and `bundled-pyright` both declare no readiness profile, so TypeScript/JavaScript
+  and Python analysis only ever report `unknown` — an empty result under `unknown` is not evidence that no
+  caller exists. (pyright does send a real indexing-progress signal, but only after a file is opened, and
+  this CLI's readiness wait runs before that point in the current call order — declared as reachable-in-
+  principle but not usable today, not as "no signal exists"; see `cli/src/providers/catalog.ts`.) `gopls`
+  (the shipped Go preset) does declare a readiness profile, so `working`/`ready` are reachable for Go: no
   request field or `.impact-lens/provider.json` field lets a user attach `readiness` directly (it is still
   not part of either schema), but having `gopls` installed and analyzing a Go project through ordinary
   auto-discovery is enough — no extra configuration needed.
+- `data.limitationDetails` can carry `provider_null_incoming_calls` (severity `warning`) for any provider:
+  LSP gives `callHierarchy/incomingCalls` no method-specific meaning for a `null` response, so the CLI
+  keeps that distinct from an explicit `[]` instead of collapsing both into the same empty result. This
+  code can appear even under `indexingStatus: ready`, since it reports on what this one query returned,
+  not on index completeness — do not treat an empty result carrying it as proof the symbol has no callers.
+  The motivating case is a symbol invoked only through a mechanism a static Call Hierarchy provider cannot
+  see, such as FastAPI's `Depends()` or other dependency injection.
 - Top-level `runtime` records the CLI and Node versions plus the allowlisted runner source without
   exposing an absolute executable, package URL, or full argument list.
 - Top-level `capabilities` and `limitations` remain schema v1 compatibility projections.
@@ -140,6 +150,9 @@ Run machine-readable checks for any catalog preset, not just `bundled-typescript
 impact-lens doctor bundled-typescript
 impact-lens doctor bundled-typescript --smoke
 impact-lens doctor bundled-typescript --fixture
+impact-lens doctor bundled-pyright
+impact-lens doctor bundled-pyright --smoke
+impact-lens doctor bundled-pyright --fixture
 ```
 
 The default preflight checks the active Node engine, CLI package, the provider executable/artifact and its
@@ -155,7 +168,7 @@ Only catalog presets can be diagnosed this way. A raw custom `provider` (no pres
 `doctor`; an id that is not in the catalog returns `invalid_command` without diagnosing anything:
 
 ```json
-{"error":{"code":"invalid_command","message":"Unknown provider preset: not-a-real-preset","retryable":false,"details":{"stage":"startup","knownPresetIds":["bundled-typescript"]}}}
+{"error":{"code":"invalid_command","message":"Unknown provider preset: not-a-real-preset","retryable":false,"details":{"stage":"startup","knownPresetIds":["bundled-typescript","gopls","bundled-pyright"]}}}
 ```
 
 Inspect `runtime.runner.source` to distinguish `direct`, `explicit`, `checkout`, `global`, and
@@ -182,9 +195,13 @@ provider, whichever tier picked it.
 
 ### Shipped catalog
 
-The catalog (`cli/src/providers/catalog.ts`) has two entries today: `bundled-typescript`, covering
-`.ts`/`.mts`/`.cts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, and `gopls` (`verified-external`), covering `.go`
-when `gopls` is installed and discoverable on `PATH`. Every other language still ends at
+The catalog (`cli/src/providers/catalog.ts`) has three entries today: `bundled-typescript` (`bundled`),
+covering `.ts`/`.mts`/`.cts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`; `gopls` (`verified-external`), covering
+`.go` when `gopls` is installed and discoverable on `PATH`; and `bundled-pyright` (`bundled`), covering
+`.py`. The two `bundled` presets ship their server inside the CLI package itself, so they need no
+separate install — the only difference from `bundled-typescript` in practice is the language. `gopls`
+stays `verified-external`: the CLI never installs it, so a Go project only reaches Auto once `gopls` is
+on `PATH` at a version the preset accepts. Every other language still ends at
 `provider_required_for_language` unless a custom `provider` or a project preset is configured — this is
 today's shipped state, not a preview of languages that will arrive soon.
 

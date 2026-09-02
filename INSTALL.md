@@ -128,8 +128,9 @@ impact-lens note list --workspace /path/to/project
 두 번째 명령은 stdout에 `schemaVersion`, `operation`, `ok`, `data`를 포함한 compact JSON 한 줄을 출력해야 합니다.
 
 기본 TypeScript/JavaScript provider까지 점검합니다. `doctor`는 `bundled-typescript`뿐 아니라 provider
-catalog의 어떤 preset id도 받는 일반 명령입니다. 오늘 shipped catalog에는 `bundled-typescript`와
-`gopls`(Go, `gopls`가 PATH에 설치돼 있을 때) 두 preset이 있습니다.
+catalog의 어떤 preset id도 받는 일반 명령입니다. 오늘 shipped catalog에는 세 preset이 있습니다:
+`bundled-typescript`와 `bundled-pyright`(Python, CLI에 포함돼 있어 설정 없이 바로 동작)와 `gopls`
+(Go, `gopls`가 PATH에 설치돼 있을 때만 동작하는 `verified-external`).
 
 ```sh
 impact-lens doctor bundled-typescript

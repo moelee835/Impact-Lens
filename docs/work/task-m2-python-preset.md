@@ -1,9 +1,9 @@
 # M2 — Python provider preset 구현
 
-- 상태: Stage 1~5 구현 완료(preset shipped, `.py` 실제 동작 확인, CI 커버리지 확인). **readiness
-  cross-cutting 재설계는 commander 결정으로 이 lane에서 하지 않음** — readiness 없이
-  (indexingStatus: unknown) 유지, 후속 lane 목록(`il-lim-014`)에 일반화해 등록 완료. Stage 6(문서)
-  착수 전
+- 상태: Stage 1~6 구현 완료(preset shipped, `.py` 실제 동작 확인, CI 커버리지 확인, 사용자 문서 갱신
+  + response-policy eval fixture 추가). **readiness cross-cutting 재설계는 commander 결정으로 이
+  lane에서 하지 않음** — readiness 없이(indexingStatus: unknown) 유지, 후속 lane 목록(`il-lim-014`)에
+  일반화해 등록 완료. PR 생성 및 CI 실행 로그 확인 대기 중
 - branch: `feat/m2-python-preset`
 - 선행: `docs/m2-python-investigation`(PR #63, merged `f872074`) — "Call Hierarchy를 실제로 구현한
   OSS Python Language Server가 있는가"에 실행으로 답한 조사 lane. 이 문서는 그 결론을 preset으로
@@ -203,7 +203,8 @@ cli-contract, CHANGELOG, skill 문서)를 갱신한다. 문장·번역 표현으
       결정 대기.
 - [x] Stage 5: 3-OS 실측 커버리지 확인(새 job 없이 기존 `unit`+`cli-tests-cross-os`가 담당),
       서버 부재 시 실패(스킵 아님) 로컬 재현으로 확인.
-- [ ] Stage 6: 식별자 기반 grep으로 문서 갱신 완료 확인.
+- [x] Stage 6: 식별자 기반 grep + 전체 파일 read로 문서 갱신 완료, response-policy eval fixture
+      2개(+ 그 과정에서 발견한 engine 결함 2건 수정) 추가.
 - [ ] 전체: `npm run cli:test` 통과, README/INSTALL/CHANGELOG/cli-contract가 실제 catalog와 일치.
 
 ## 작업 로그
@@ -776,3 +777,114 @@ scratchpad `pyright-readiness-race/`, 저장소 밖 — 실제 fixture가 아니
 이 lane의 커밋이 push된 뒤 실제 CI 실행 결과로 재확인할 수 있다. 로컬 재현은 "그 CI가 실패할 능력이
 있는가"를 증명하고, 실제 CI 실행은 "지금 그 CI가 통과하는가"를 증명한다 — 후자는 이 커밋이 push된
 뒤의 CI 로그로 확인한다.
+
+### 2026-09-02 — Stage 6: 사용자 문서
+
+**목적**: 사용자가 Python을 쓸 수 있다는 것과 그 결과의 한계를 알게 한다.
+
+**commander 지시**: `bundled-typescript`/`gopls`를 식별자로 grep하되 **부분 파일 grep 금지** — 전체
+파일을 읽는다. 대상: README, INSTALL, cli-contract, CHANGELOG, SKILL.md, `.claude/agents/*.md`. 반드시
+들어가야 할 것 둘: (1) Python이 이제 설정 없이 동작한다는 것(gopls의 `verified-external`과 대비),
+(2) `provider_null_incoming_calls`가 모든 provider에 걸리는 응답 계약이라는 것. stage 3에서 미룬
+`scripts/fixtures/response-policy/` eval fixture도 이 stage 범위 — 채점 스크립트의 violation 어휘를
+먼저 파악하고 넣는다.
+
+**grep + 전체 read 방법**: `grep -rn "bundled-typescript"`/`"gopls"`/`"bundled-pyright"`를 저장소
+전체에 먼저 돌려 후보 파일을 추린 뒤, `docs/work/**`(작업 기록, "정정 표시·원문 유지" 관례상 소급
+수정 대상 아님)와 `docs/development-management/{stories,milestones,user-tests}/**`(이 lane이 만든
+변경과 무관한 별도 스토리/기록)를 범위에서 제외하고, commander가 지정한 6곳
+(`README.md`, `INSTALL.md`, `CHANGELOG.md`, `cli/README.md`, `plugins/impact-lens/skills/impact-lens-cli/
+{SKILL.md,references/cli-contract.md}`, `.claude/agents/*.md` 7개, 총 2,246줄)을 전부 `Read`로
+전체 읽었다 — grep 스니펫만으로는 "shipped catalog에 preset이 N개"류 문장이 식별자 없이도 존재할 수
+있어서다(실제로 SKILL.md의 결함이 이 방식으로만 잡혔다, 아래 참고).
+
+**preset 개수(2→3) 갱신**: `README.md`(Auto 설정 없이 동작하는 언어 목록에 Python 추가, C/C++만
+"다음 후보"로 남김), `INSTALL.md`, `cli/README.md`의 `### Shipped catalog` 절과 `doctor` 예시·
+`knownPresetIds` 오류 예시(실제로는 `presetIds(catalog)`가 동적으로 만드는데 예시가
+`["bundled-typescript"]`로 하드코딩돼 실제보다 적게 보여주고 있었다 — `cli/src/providers/resolve.ts:321,326`
+직독으로 확인). `CHANGELOG.md`의 `## Unreleased`에 gopls 항목과 같은 형식으로 Python bundled
+항목과 `provider_null_incoming_calls` 항목을 추가했다 — `## 0.7.0`(이미 배포된 버전) 절의 "catalog가
+`bundled-typescript` 하나뿐"이라는 서술은 그 시점의 사실이므로 소급 수정하지 않았다("정정 표시,
+원문 유지").
+
+**필수 항목 2건**:
+1. Python 무설정 동작 vs gopls: `README.md`·`INSTALL.md`·`cli/README.md`(`### Shipped catalog`)에
+   "`bundled-typescript`·`bundled-pyright`는 CLI 자체에 포함돼 사용자가 아무것도 설치하지 않아도
+   동작하고, `gopls`는 `verified-external`이라 사용자가 직접 설치해야 Auto가 찾는다"는 대비를 명시했다.
+2. `provider_null_incoming_calls`의 일반성: `provider_null_incoming_calls`는 이미 SKILL.md·
+   cli-contract.md·analyze.md(stage 3, "3곳")에 잘 문서화돼 있었지만, **CLI 자체의 정식 계약 문서인
+   `cli/README.md`의 `## Contract` 절에는 전혀 언급이 없었다** — agent 대상 plugin 문서에만 있고
+   사람이 읽는 CLI README에는 없는 공백이었다. `cli/README.md`와 `README.md`(`complete: true`가
+   증명하지 않는 것 절), `cli-contract.md`(`unknown` 절에 `bundled-pyright` 추가)에 "특정 provider
+   하나의 한계가 아니라 모든 provider에 적용되는 응답 계약"이라는 문장과 함께 추가했다.
+
+**전체 read로만 잡은 진짜 결함 2건(grep만으로는 못 잡음, commander의 "부분 파일 grep 금지"가 정확히
+막으려던 것)**:
+- **`SKILL.md:30`이 사실과 다른 주장을 하고 있었다**: "`unknown`(indexingStatus)은 오늘 모든 shipped
+  catalog provider가 만드는 값이다"라고 적혀 있었는데, 이건 gopls가 `readiness`를 선언해
+  `working`/`ready`를 실제로 만드는 M2 gopls lane 이후로 **거짓**이 됐다(gopls lane이 이 문장을
+  갱신하지 않고 지나감 — Python lane이 처음 발견). `bundled-typescript`/`bundled-pyright`(readiness
+  없음)와 `gopls`(readiness 있음)를 구분하는 문장으로 고쳤다.
+- **`.claude/agents/il-provider-platform.md`의 "알려진 결함" 절 전체가 stale였다**(commander가 예시로
+  지목한 바로 그 파일): "doctor 서브커맨드가 `bundled-typescript` 하나뿐"·"모든 check의 status가
+  `'pass'` 리터럴 고정"·"provider 선택이 삼항 연산자 두 줄"이라고 적혀 있었는데, 인용된 파일 경로
+  (`cli/src/doctor.ts`, `cli/src/index.ts:202-204`)조차 지금 존재하지 않는다 — M1 doctor 일반화
+  때 이미 고쳐진 상태를 한 번도 반영하지 않은 것이다(M2보다 훨씬 이전부터 stale였다). 현재 실제
+  코드 위치(`cli/src/providers/resolve.ts`의 `resolveProvider()`, `cli/src/doctor/{checks,index}.ts`)와
+  3-preset 상태로 다시 썼다.
+
+**의도적으로 손대지 않은 것(범위 확인 필요, commander에게 보고)**: `.claude/agents/*.md` 나머지
+4개(`il-lsp-protocol.md`의 "알려진 결함", `il-plugin-docs.md`의 "현재 문서 상태",
+`il-test-release.md`의 "알려진 공백", `il-host-ux.md`의 "알려진 구조")도 전체를 읽었고 **모두
+stale였다**(예: `il-test-release.md`가 "워크플로가 `plugin-artifact-e2e.yml` 하나뿐"이라고 적는데
+지금 `unit-tests.yml`에 3개 job이 있다) — 그런데 이 staleness는 preset 개수나 Python과 무관하고
+M2보다 훨씬 이전부터, 이 lane과 관계없는 이유로 낡아 있었다. `il-provider-platform.md`만 고치고
+나머지 넷은 그대로 뒀다 — 이 lane의 범위(Python preset)를 벗어나는 별도 정리이기 때문이다. commander
+확인이 필요하면 별도 lane으로 제안한다.
+
+**response-policy eval fixture — commander 경고("채점 스크립트의 violation 어휘를 먼저 파악하고
+넣으세요") 그대로 따름, 그 결과 fixture 추가 전에 engine 결함 2건을 실측으로 발견·수정**:
+
+1. `scripts/lib/response-policy-engine.mjs`를 먼저 읽었다. `LIMITATION_SURFACE_PATTERNS`가
+   `no_incoming_callers`/`provider_not_ready` 등은 자연어 패턴을 갖고 있는데
+   `provider_null_incoming_calls`는 **항목이 아예 없어서** 코드명을 밑줄→공백으로 바꾼
+   `/\bprovider null incoming calls\b/i` fallback으로 떨어졌다 — 어떤 자연스러운 영어 문장도 이
+   구문을 그대로 쓰지 않으므로, `provider_null_incoming_calls`가 있는 어떤 응답이든 실질적으로
+   **항상** `missing_high_severity_disclosure`에 걸린다.
+2. **직접 실측으로 확인**: cli-contract.md의 실제 메시지 문구("The provider returned no definitive
+   answer... not evidence that no caller exists")를 그대로 쓴, 완전히 올바른 요약을 만들어
+   `evaluateSummary()`에 직접 통과시켰다 — `stale_index_caveat`와 `missing_high_severity_disclosure`
+   **두 가지 모두 거짓 실패**했다. `stale_index_caveat`는 `mentionsIndexUncertainty()`가 요약
+   **전체 텍스트**에서 "index" 단어와 "not evidence" 류 표현의 존재만 보고, 서로 다른 문장에
+   있어도 같은 것으로 묶어 버린 게 원인이었다 — `provider_null_incoming_calls`의 표준 문구 자체가
+   "not evidence"를 쓰기 때문에, `ready`를 정확히 확인하는 문장과 null caveat를 정확히 설명하는
+   문장이 같은 요약 안에 있기만 하면(둘 다 맞는 말인데도) 오탐이 났다.
+3. **수정**: (a) `LIMITATION_SURFACE_PATTERNS`에 `provider_null_incoming_calls` 항목을 추가했다
+   (`null`, "did not commit to zero", "dependency injection", `Depends()` — SKILL.md/cli-contract.md가
+   실제로 가르치는 어휘를 그대로 반영). (b) `mentionsIndexUncertainty()`를 전체 텍스트가 아니라
+   **문장 단위**로 바꿔, 서로 다른 문장에 있는 "index" 언급과 "not evidence" 언급을 더 이상
+   합치지 않게 했다. 기존 fixture 1~10과 doc-invariant 자가검증 6개는 수정 후에도 전부 그대로
+   통과한다(재실행으로 확인) — 이 변경이 기존 동작을 깨지 않았다.
+4. **세 번째 결함, fixture를 쓰다가 발견**: `unsupported_no_impact_conclusion`의 원래 조건은
+   `indexingStatus !== 'ready' || requestStatus === 'partial'`일 때만 발동했다 — 그런데
+   `provider_null_incoming_calls`는 정의상 `indexingStatus: ready`에서도 나타날 수 있다(색인 완성과
+   이번 질의 하나의 답은 별개이기 때문, `coverage.ts`·`cli-contract.md`가 이미 그렇게 적어 뒀다).
+   즉 **"ready + null" 조합에서 "아무도 호출하지 않는다"는 요약이 이 check로 전혀 잡히지 않았다** —
+   commander가 경고한 바로 그 오독("`null`이면 stage 3의 신호가 잡지만... 재발")이 이 채점기
+   안에서 실제로 재발해 있었다. `response.data.limitationDetails`에 `provider_null_incoming_calls`가
+   있으면 `indexingStatus === 'ready'`여도 조건이 발동하도록 고쳤다.
+5. **fixture 추가**: `11-null-incoming-calls-correctly-reported.json`(must-pass — `ready` +
+   `provider_null_incoming_calls`를 정확히 구분해 설명하는 요약, 위 (a)(b) 수정 둘 다 실제로
+   태운다)와 `12-null-incoming-calls-misread-as-no-impact.json`(must-fail — "nothing calls this,
+   safe to remove"; (a)~(c) 수정 전이었다면 이 fixture는 **위반 0건으로 조용히 통과했을 것**이다 —
+   지금은 `unsupported_no_impact_conclusion` + `missing_high_severity_disclosure` 둘 다 잡는다).
+   `node scripts/test-response-policy.mjs`로 12개 fixture + doc invariant + negative-direction
+   proof 총 18개 check 전부 통과 확인.
+
+**검증**: `npm test`(Extension, 58 pass), `npm run cli:test`(291개 중 289 pass/2 skip, 회귀 없음),
+`npm run test:response-policy`(18/18 pass, fixture 12개 포함). `test:plugin-artifact`는 이번
+라운드에서 CLI 런타임·패키징 코드를 건드리지 않아 재실행하지 않았다(stage 4에서 이미 검증됨).
+
+**다음**: 이 커밋을 push하고 PR을 올린 뒤, commander가 요청한 대로 windows/macos job **로그**에서
+bundled-pyright 관련 4개 테스트가 실제로 실행됐는지(스킵이 아니라 실행 증거)를 확인한다 — "게이트가
+없다"는 코드 읽기이고 "실행됐다"는 관측이라는 구분을 그대로 따른다.

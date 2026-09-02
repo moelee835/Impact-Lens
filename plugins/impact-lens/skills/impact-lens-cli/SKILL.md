@@ -27,8 +27,9 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
   [references/cli-contract.md](references/cli-contract.md) for the full table and JSON examples before
   summarizing an empty or partial result.
   - `unknown`: the provider made no claim about its index. An empty result is not evidence that no caller
-    exists; carry that caveat. This is what every shipped catalog provider produces today, but a
-    user-configured provider can still produce the other two states below.
+    exists; carry that caveat. `bundled-typescript` and `bundled-pyright` always produce this state (they
+    declare no `readiness` profile); `gopls` does declare one and can produce `working`/`ready` instead — do
+    not assume `unknown` just because no provider was configured.
   - `working`: the provider is still indexing (`requestStatus: partial`, `traversalStatus: unknown`,
     `complete: false`, and an `error`-severity `provider_not_ready` limitation). Report the result as
     incomplete because indexing was in progress and recommend re-running; never report it as "no callers".

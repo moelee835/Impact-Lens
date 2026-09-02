@@ -198,12 +198,15 @@ CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는
 5. 위 네 단계 모두 실패하면 다른 언어의 provider로 대체하지 않고 `provider_required_for_language`로
    실패합니다.
 
-**오늘 shipped catalog에는 preset이 두 개입니다: `bundled-typescript`와 `gopls`.** Auto가 설정 없이
-동작하는 언어는 TypeScript/JavaScript(`.ts`, `.tsx`, `.js`, `.jsx` 등)와, `gopls`가 PATH에 설치돼
-있는 경우의 Go(`.go`)입니다. 그 외 언어는 "곧 지원 예정"이 아니라 **오늘 검증된 preset이 없어서 항상
-provider를 직접 설정해야 하는 상태**입니다. Python/C·C++가 다음 preset 후보이고, 실제 fixture 검증을
-통과해 catalog에 들어오기 전까지는 그 언어들이 `verified-external`로 표시되지 않습니다. 지원되지 않는
-언어에서는 아래처럼 표준 LSP Call Hierarchy provider를 요청에 직접 지정합니다.
+**오늘 shipped catalog에는 preset이 세 개입니다: `bundled-typescript`, `gopls`, `bundled-pyright`.**
+Auto가 설정 없이 동작하는 언어는 TypeScript/JavaScript(`.ts`, `.tsx`, `.js`, `.jsx` 등)와
+Python(`.py`)이고, `gopls`가 PATH에 설치돼 있는 경우의 Go(`.go`)도 여기 더해집니다. `bundled-typescript`와
+`bundled-pyright`는 CLI 자체에 포함돼 있어(`bundled` tier) 사용자가 아무것도 설치하지 않아도 동작하고,
+`gopls`는 `verified-external` tier라 사용자가 gopls를 직접 설치해야 Auto가 그 실행 파일을 찾습니다. 그
+외 언어는 "곧 지원 예정"이 아니라 **오늘 검증된 preset이 없어서 항상 provider를 직접 설정해야 하는
+상태**입니다. C/C++가 다음 preset 후보이고, 실제 fixture 검증을 통과해 catalog에 들어오기 전까지는 그
+언어가 `verified-external`로 표시되지 않습니다. 지원되지 않는 언어에서는 아래처럼 표준 LSP Call
+Hierarchy provider를 요청에 직접 지정합니다.
 
 ```json
 {
@@ -303,12 +306,21 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 - `coverage.semantic.status`: 오늘 유일하게 가능한 값은 `static-only`입니다. reflection, runtime
   dependency injection, decorator routing, event bus, 문자열 기반 import처럼 provider가 정적으로 추론하지
   못하는 관계는 `complete: true`여도 그래프에 없을 수 있습니다.
-- `coverage.indexing.status`: `unknown` / `working` / `ready` 셋 중 하나입니다. `bundled-typescript`는
-  색인 상태를 선언하지 않으므로 TypeScript/JavaScript 분석에서는 여전히 `unknown`만 나옵니다 —
-  `unknown`은 "provider가 색인이 끝났다고 증명하지 않았다"는 뜻이라 caller 0개인 결과가 "callee 없음"의
-  증거가 되지 못합니다. `gopls`는 `readiness`를 선언하므로, Go 프로젝트를 gopls로 분석하면
-  `working`/`ready`가 실제로 나타납니다 — 사용자가 요청 JSON이나 `.impact-lens/provider.json`을 직접
-  건드릴 필요 없이, gopls가 설치돼 있고 색인이 끝났는지 여부만으로 결정됩니다.
+- `coverage.indexing.status`: `unknown` / `working` / `ready` 셋 중 하나입니다. `bundled-typescript`와
+  `bundled-pyright`는 색인 상태를 선언하지 않으므로 TypeScript/JavaScript·Python 분석에서는 여전히
+  `unknown`만 나옵니다(pyright는 색인 진행 신호를 실제로 보내지만 지금 CLI 호출 순서에서는 그 신호가
+  구조적으로 도착할 수 없다는 것을 실측으로 확인했습니다 — 신호가 없어서가 아니라 도달 불가능해서
+  뺐습니다) — `unknown`은 "provider가 색인이 끝났다고 증명하지 않았다"는 뜻이라 caller 0개인 결과가
+  "callee 없음"의 증거가 되지 못합니다. `gopls`는 `readiness`를 선언하므로, Go 프로젝트를 gopls로
+  분석하면 `working`/`ready`가 실제로 나타납니다 — 사용자가 요청 JSON이나 `.impact-lens/provider.json`을
+  직접 건드릴 필요 없이, gopls가 설치돼 있고 색인이 끝났는지 여부만으로 결정됩니다.
+- `limitationDetails`의 `provider_null_incoming_calls`: 특정 provider 하나의 한계가 아니라 **모든
+  provider**에 적용되는 응답 계약입니다. LSP `callHierarchy/incomingCalls`는 명시적 빈 배열 `[]`과
+  `null`을 구분해 반환할 수 있는데, `null`은 "호출자가 없다고 확정한다"는 뜻이 아닙니다. Impact Lens는
+  이 차이를 응답에서 지우지 않고 `provider_null_incoming_calls`로 남깁니다 — `indexingStatus: ready`
+  아래에서도 사라지지 않습니다(색인 완성 여부와 이 질의 하나의 답은 별개이기 때문입니다). caller
+  0개인 결과에 이 코드가 있으면 "이 함수를 아무도 호출하지 않는다"로 요약하지 마세요 — FastAPI의
+  `Depends()`처럼 정적 Call Hierarchy가 볼 수 없는 경로로 실제로 호출되고 있을 수 있습니다.
 
 `complete: true`인 빈 결과(caller 0개)를 보고 **"안전하게 지워도 된다", "영향 없음", "완전히 분석됨", "모든
 호출자를 확인함"**으로 결론짓지 마세요. 정적 Call Hierarchy 근거는 그 결론이 요구하는 runtime/색인

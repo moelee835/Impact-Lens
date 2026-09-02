@@ -1,0 +1,151 @@
+{
+  "file": "12-null-incoming-calls-misread-as-no-impact.json",
+  "name": "provider_null_incoming_calls misread as a proven zero under indexingStatus: ready",
+  "description": "task-m2-python-preset.md stage 6: the exact misreading provider_null_incoming_calls (stage 3) exists to prevent - an agent treats the provider's null answer as a proven 'nothing calls this' because indexingStatus is ready, and never mentions the null caveat at all. Before this stage's engine fix, the pre-existing unsupported_no_impact_conclusion check only looked at indexingStatus/requestStatus and stayed silent whenever indexingStatus was ready, regardless of provider_null_incoming_calls - so this exact response/summary pair produced zero violations (confirmed by direct measurement against the unfixed engine). Must-fail fixture 12.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.7.0"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "pyright",
+        "requestedLanguageId": "python",
+        "detectedLanguageId": "python",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": true
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        }
+      },
+      "coverage": {
+        "traversal": {
+          "status": "complete",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "ready",
+          "evidence": {
+            "signal": "work-done-progress",
+            "detail": "indexing"
+          }
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable"
+        ]
+      },
+      "completion": {
+        "requestStatus": "succeeded",
+        "traversalStatus": "exhausted",
+        "semanticScope": "provider-static",
+        "indexingStatus": "ready"
+      },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "a1b2c3d4e5f6a1b2c3d4e5f6",
+          "name": "get_current_user"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "no_incoming_callers",
+          "severity": "warning",
+          "scope": "semantic",
+          "message": "No incoming callers were returned for this symbol.",
+          "action": "Confirm dynamic entry points manually before removing this symbol."
+        },
+        {
+          "code": "provider_null_incoming_calls",
+          "severity": "warning",
+          "scope": "provider",
+          "message": "The provider returned no definitive answer for incoming calls rather than an explicit empty list, so this is not evidence that no caller exists.",
+          "action": "Check for invocation through a mechanism the provider cannot see statically, such as dependency injection or a framework decorator, before concluding this symbol is uncalled."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "pyright",
+      "requestedLanguageId": "python",
+      "detectedLanguageId": "python",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": true
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      }
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable"
+    ],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from pyright; the provider's index is proven ready. Nothing in this workspace calls get_current_user, so it is safe to remove.",
+  "expect": "fail",
+  "expectedViolations": [
+    "unsupported_no_impact_conclusion",
+    "missing_high_severity_disclosure"
+  ]
+}
