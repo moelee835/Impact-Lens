@@ -298,7 +298,10 @@ test('the shipped catalog only claims languages that have been verified', () => 
       `${preset.id} claims verified-external without evidence`,
     );
   }
-  assert.deepEqual(PROVIDER_CATALOG.map(preset => preset.id), ['bundled-typescript']);
+  // 'gopls' entered here as a real deepEqual member, not a placeholder: M2 stage 1
+  // (docs/work/task-m2-gopls-preset.md) ran Call Hierarchy against it on a pinned version range, which
+  // is exactly the evidence the loop above requires of every verified-external preset.
+  assert.deepEqual(PROVIDER_CATALOG.map(preset => preset.id), ['bundled-typescript', 'gopls']);
   assert.deepEqual(bundledLanguageIds(PROVIDER_CATALOG), [
     'typescript', 'typescriptreact', 'javascript', 'javascriptreact',
   ]);

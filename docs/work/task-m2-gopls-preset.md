@@ -1,6 +1,8 @@
 # M2 — gopls verified-external preset
 
-- 상태: 1단계 완료 — **통과.** 2단계 착수 승인 대기(계획 세션에 보고 후).
+- 상태: 1단계·2단계 완료 — **통과.** `cli/src/providers/catalog.ts`에 `gopls` preset이 shipped catalog에
+  들어갔고, `npm run test:all` 전체가 통과한다. 3단계(CI에 gopls 설치)와 4단계(사용자 문서 갱신, M1 gate 3
+  재검토)는 이 PR 범위 밖 — 이 PR merge 후 별도로 진행한다.
 - branch: `feat/m2-gopls-preset`
 - 상위 문서: [M2 요구사항](/private/tmp/claude-503/-Users-woony6-dev-Impact-Lens/a1b3df98-1132-476d-abd0-e925cedac750/scratchpad/m2-gopls-plan.md)
   (계획 세션이 작성, 저장소 밖 scratchpad — 이 문서에 핵심 판단 근거를 옮겨 적는다)
@@ -130,25 +132,99 @@ fixture workspace(`go.mod` 있음)를 열었을 때 gopls가 실제로 보낸 �
   없다")를 "gopls가 실패한다"가 아니라 **"gopls가 신뢰할 수 있는 결과를 낸다고 보장할 수 없는 모드로
   전환한다"**로 정확히 써야 한다 — 계획 문서가 암묵적으로 가정한 "실패"라는 틀은 사실과 다르다.
 
+**2단계 review에서 추가로 확인된 것 (reviewer 세션이 제기, 이 lane이 검증하지 않고 그대로 기록):**
+readiness의 `work-done-progress`("Setting up workspace" → 종료) 신호는 `go.mod`가 있든 없든 동일하게
+발생한다 — 즉 **readiness만으로는 module view와 AdHoc view를 구분할 수 없다.** 둘 다 결국 `ready`가
+된다. 이건 `requiredProjectFiles`가 readiness가 못 하는 일을 하고 있고 서로 대체할 수 없다는 뜻이다.
+`readiness`가 있으니 `requiredProjectFiles`가 중복이라며 나중에 지우면 **AdHoc 결과가 `ready` 딱지를
+달고 통과하게 된다.** 이 사실은 `catalog.ts`의 `requiredProjectFiles` 주석에 반영했다.
+
 ## 판정
 
 **1단계 통과.** (1)이 확인돼 나머지 조사를 계속할 근거가 있었고, (2)~(5) 전부 실행 근거를 확보했다.
 유일하게 계획과 다르게 나온 지점은 (5)(go.mod 부재가 실패가 아니라 저하)이며, 이는 gate를 흔들지 않고
 2단계 구현의 세부(에러 메시지 문구, doctor 진단 문구)에 반영할 사항이다.
 
-**2단계 착수는 계획 세션의 승인을 받은 뒤 진행한다.**
+**2단계는 계획 세션의 승인을 받고 착수했다.** 아래는 실제로 구현되고 검증된 결과다.
 
-## 2단계 착수 시 반영할 결정 사항 (승인 대기 중이므로 아직 구현하지 않음)
+## 2단계 — preset 구현 결과
 
-- `tier: 'verified-external'`, `command.candidates: ['gopls']`(PATH 탐색, shell 미사용).
-- `version.args: ['version']`(반드시 `-json` 금지 — 위 (2) 근거), `supported.minimum: '0.19.1'`.
+`cli/src/providers/catalog.ts`에 `gopls` preset을 추가했다(`GOPLS_PRESET_ID`로 id export).
+
+- `tier: 'verified-external'`, `command.candidates: ['gopls']`, `args: ['-mode=stdio']`(PATH 탐색, shell
+  미사용 — `discovery.ts`의 기존 실행 경로 그대로 재사용).
+- `version.args: ['version']`(`-json` 금지 — 아래 versionProbe.test.ts가 이유를 실행으로 고정한다),
+  `supported.minimum: '0.19.1'`.
 - `readiness.signals: [{ kind: 'work-done-progress', means: 'ready', titlePattern: 'Setting up workspace' }]`,
-  `requiredProjectFiles: ['go.mod']`.
-- fixture: 이번 조사에 쓴 `go.mod`+`target.go`+`caller.go` 2-파일 구조를 그대로 재사용(이미
-  `FixtureCaller`→`FixtureTarget` 관계로 검증됨).
-- `docs.limitations`: 이번 조사에서 실제로 관측한 것만(정적 Call Hierarchy 한계, AdHoc 모드로의 저하
-  가능성) — interface 디스패치 등 아직 관측하지 않은 항목은 2단계에서 별도로 테스트 후 적는다.
-- `lastVerified`: 이 조사를 실제로 수행한 날짜와 테스트한 버전(v0.19.1, v0.23.0)을 기록.
+  `requiredProjectFiles: ['go.mod']`, `onBudgetExceeded: 'proceed-partial'`(budgetMs 10000 — 실측
+  프로덕션 상한이 아니라 판단값이라고 주석에 명시).
+- fixture: 1단계 조사에 쓴 `go.mod`+`target.go`+`caller.go` 2-파일 구조를 `ProviderFixture` 형식으로
+  재구성(`FixtureCaller`→`FixtureTarget` 관계 그대로 유지).
+- `docs.limitations`: 정적 Call Hierarchy의 보편적 한계(reflection, `go:generate` 산출물 미생성 시)와
+  `go.mod` 부재 시 AdHoc 저하. **interface 디스패치 결과는 1단계 결정 사항 문서가 "아직 관측하지 않았다"고
+  적어 2단계에서 별도로 실행해 확인했다** — 아래 "2단계 중 새로 확인한 것" 참고.
+- `lastVerified`: `{ date: '2026-09-01', versions: ['0.19.1', '0.23.0'] }`, darwin/arm64 한정이라고
+  주석에 명시(linux/windows는 3단계 CI에서 확인 전까지 주장하지 않는다).
+
+### 2단계 중 새로 확인한 것 — interface 디스패치 (1단계가 미룬 항목)
+
+1단계 결정 사항 문서는 "interface 디스패치는 아직 관측하지 않았으니 2단계에서 별도로 테스트 후 적는다"고
+명시했다. 이번 커밋에 포함된 코드 주석 초안이 이걸 건너뛰고 "stage 1이 검증했다"고 잘못 적어 놨던 것을
+작업 문서와 대조해 발견하고, `~/go/bin/gopls`(1단계가 설치한 바이너리, 새로 설치하지 않음)로 직접
+실행해 검증했다:
+
+```go
+type Doer interface { Do(value int) int }
+type ConcreteDoer struct{}
+func (c ConcreteDoer) Do(value int) int { return value + 1 }
+func CallThroughInterface(d Doer, value int) int { return d.Do(value) }
+```
+
+`ConcreteDoer.Do`의 선언 위치에서 `prepareCallHierarchy` → `incomingCalls`를 호출한 결과,
+`CallThroughInterface`의 `d.Do(value)` 호출이 정확히 incoming call로 반환됐다. **결론 자체(interface
+파라미터를 통한 호출이 구체 구현으로 정확히 연결된다)는 맞았지만, 주석의 "stage 1이 검증했다"는 귀속이
+틀렸다** — 실제로는 stage 2 연속 세션이 검증했다. 코드 주석을 "stage 2에서 직접 검증" 문구로 정정했다.
+검증되지 않은 주장을 검증된 것처럼 적어두면 다음 사람이 그대로 믿는다는 것이 이 저장소가 반복해서
+경계해 온 실패 모드이므로, 결과가 우연히 맞았더라도 귀속 오류는 정정해야 한다고 판단했다.
+
+### 2단계 test 정합성 — 실패한 2건을 "통과시키려고" 고치지 않은 이유
+
+`npm run cli:test`가 264/266으로 실패한 상태에서 이어받았다. 둘 다 "catalog엔 `bundled-typescript` 하나
+뿐"이라는 가정을 못박은 guard였다:
+
+- `providers.test.ts`의 "the shipped catalog only claims languages that have been verified" — 이 test
+  이름 자체가 "검증된 언어만 주장한다"는 것이고, 1단계가 그 검증(Call Hierarchy 실제 왕복, 버전 하한
+  실측)을 만들었으므로 `gopls`를 `deepEqual` 목록에 추가하는 것이 정당하다. **이 test를 gopls 없이
+  그대로 두는 것이 아니라, "gopls는 이제 이 검증을 통과했다"는 사실을 반영한 것.**
+- `doctor.test.ts`의 "the doctor subcommand accepts any preset name and rejects a missing one" —
+  이 test는 `'gopls'`를 "catalog에 없는 preset 이름"의 자리표시자로 썼던 것이다. gopls가 진짜 preset이
+  된 지금 그 자리에 `'no-such-preset'`(이미 `providers.test.ts`가 쓰는 관례적 문자열)을 넣어 "존재하지
+  않는 preset은 거부된다"는 원래 의도를 유지했다.
+
+### 새로 발견한 문서 정합성 문제 — `stateReachability.integration.test.ts`
+
+다른 세션(reviewer 역할)이 2단계 진행 중 알려온 내용을 확인해 같은 커밋에 반영했다: 이 test 파일의
+주석과 test 제목 일부가 "readiness는 test 전용 API로만 도달 가능하고 실사용자는 도달 못 한다"고
+적어 놨는데, `gopls`가 shipped catalog에 readiness를 선언하며 들어가는 순간 이게 거짓이 된다 — 실사용자가
+`gopls`만 설치돼 있으면 `resolution.catalog` 같은 test 전용 옵션 없이 `ready`/`working`에 도달한다.
+CI에 `gopls`가 없어 test 자체는 계속 mock 경로로 통과하므로 **주석만 조용히 썩고 test는 초록으로
+남는** 실패 모드였다. 원문을 지우지 않고 2026-09-02 날짜의 정정 주석을 덧붙였다 — "상태 자체는 이제
+실사용자가 도달 가능하지만, 이 test가 그 상태를 만드는 경로는 여전히(그리고 의도적으로) mock이다. CI가
+gopls를 설치하지 않으므로(3단계 범위) 이 저장소의 어떤 자동 test도 아직 실제 gopls로 이 상태 도달을
+독립 관측하지 않았다"는 구분을 명시했다. `assertReachableSetMatches`가 검증하는 실제 tuple 집합은
+바뀌지 않았다 — 문서 정확성 문제였지 로직 문제가 아니었다.
+
+### 신규 test — `versionProbe.test.ts`
+
+catalog.ts 주석이 "versionProbe.test.ts guards this specific misparse"라고 참조하는데 파일이 없었다.
+`~/go/bin/gopls version -json`과 `gopls version`을 실제로 실행해 캡처한 출력(2026-09-02,
+darwin/arm64, v0.23.0)을 fixture로 고정해 다음을 검증한다:
+- `-json` 출력을 `parseVersion()`에 넣으면 `GoVersion`의 `"go1.26.1"`이 gopls 버전(`"0.23.0"`이어야
+  할 값)으로 잘못 파싱된다는 것을 실행으로 증명(위험이 실재함을 보여줌).
+- plain 출력은 올바르게 `0.23.0`을 반환한다는 것.
+- `probeVersion()`(실제 spawn 경로)로도 같은 결과가 재현된다는 것.
+- 실제 shipped `gopls` preset의 `version.args`가 정확히 `['version']`이고 `-json`을 포함하지 않는다는
+  정적 guard.
 
 ## 테스트 및 완료 기준 (1단계)
 
@@ -158,6 +234,20 @@ fixture workspace(`go.mod` 있음)를 열었을 때 gopls가 실제로 보낸 �
 - [x] 라이선스 확인(BSD-3). 3-OS 설치는 darwin만 확인, linux/windows는 3단계로 이월.
 - [x] readiness 신호의 실제 관측값 확보, `ReadinessTracker` 매칭 규칙과 대조해 올바른 선언 형태 확정.
 - [x] `go.mod` 부재 시 실제 동작 확인 — 계획의 "실패" 가정이 틀렸음을 실행으로 확인하고 정정.
+
+## 테스트 및 완료 기준 (2단계)
+
+- [x] `cli/src/providers/catalog.ts`에 `gopls` preset 추가, `npm run cli:build` 통과.
+- [x] `npm run cli:test` 270/270 통과(신규 `versionProbe.test.ts` 4건 포함, 기존 실패 2건은 원래 의도에
+  맞게 수정).
+- [x] `npm run test:all` 전체 통과 — `test:response-policy`(16 checks)와 `test:plugin-artifact`(TypeScript
+  fixture가 여전히 `selectedBy: 'bundled'`) 포함, gopls 추가로 인한 선택 로직 회귀 없음을 확인.
+- [x] interface 디스패치를 2단계에서 직접 실행해 검증하고, 잘못된 귀속("stage 1이 검증")을 정정.
+- [x] `stateReachability.integration.test.ts`의 "test-only, 실사용자 도달 불가" 서술을 gopls 도입 이후의
+  사실로 정정(원문 유지, 정정 주석 추가).
+- [ ] 3단계(CI에 Go/gopls 설치, 3-OS 검증) — 범위 밖, 이 PR 이후.
+- [ ] 4단계(README/cli-contract.md/user-test-spec 등 "하나뿐"/"도달 불가" 서술 갱신, M1 gate 3 재검토) —
+  범위 밖, 3단계 이후.
 
 ## 작업 로그
 

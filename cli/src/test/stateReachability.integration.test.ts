@@ -56,10 +56,19 @@ function tupleOf(data: Record<string, unknown>): CompletionTuple {
 }
 
 /**
- * What a request to the shipped catalog alone can produce today: `indexingStatus` is always `unknown`,
- * because no preset in the shipped catalog declares a `readiness` profile (confirmed against
- * `cli/src/providers/catalog.ts`, and re-checked by stateReachability.sources.test.ts's field-producer
- * check). This is the direct answer to "what do I see today, with no provider configuration of my own".
+ * What a request to the shipped catalog's bundled-TypeScript path can produce today: `indexingStatus` is
+ * always `unknown`, because the `bundled-typescript` preset itself declares no `readiness` profile. This
+ * is the direct answer to "what do I see today, analyzing a TypeScript project with no provider
+ * configuration of my own".
+ *
+ * 2026-09-02 correction (M2 stage 2, docs/work/task-m2-gopls-preset.md): this comment used to claim "no
+ * preset in the shipped catalog declares a readiness profile" - that stopped being true the moment
+ * `gopls` entered `PROVIDER_CATALOG` (`cli/src/providers/catalog.ts`), which does declare one. See the
+ * correction on `CATALOG_DECLARED_READINESS_REACHABLE` below for what that opens up. What survives here
+ * is narrower but still true: the bundled-TypeScript scenarios in this file construct
+ * `LspCallHierarchyProvider` against `.ts` files, and `gopls` only serves `languageIds: ['go']`, so
+ * nothing below ever resolves to it - `indexingStatus` stays `unknown` for these rows regardless of what
+ * else the catalog contains.
  */
 const SHIPPED_CATALOG_REACHABLE: readonly CompletionTuple[] = [
   { requestStatus: 'succeeded', traversalStatus: 'exhausted', semanticScope: 'provider-static', indexingStatus: 'unknown' },
@@ -88,6 +97,21 @@ const SHIPPED_CATALOG_REACHABLE: readonly CompletionTuple[] = [
  * lines down in this file and in `readiness.integration.test.ts` - a test-only TypeScript API with no
  * counterpart in the CLI's stdin JSON, CLI arguments, or project config surface. No real user, however
  * they configure their provider, can reach either row today.
+ *
+ * 2026-09-02 correction (M2 stage 2, docs/work/task-m2-gopls-preset.md): everything above this line was
+ * true when written and is still true of the request/project-config surface itself - no user-facing
+ * field carries a `readiness` profile in from outside the catalog. But the closing sentence, "no real
+ * user... can reach either row today", stopped being true the moment `gopls` entered `PROVIDER_CATALOG`.
+ * `gopls` declares its own `readiness` profile, so a real user with `gopls` on PATH analyzing a real Go
+ * project reaches these same two completion tuples (`ready` on natural completion, `working` while still
+ * indexing) through ordinary auto-discovery - no `resolution.catalog` override needed, and no test-only
+ * API involved. What the scenario below still exercises only through a mock is the ROUTE to these states
+ * in THIS test - a fake LSP server with a `titlePattern: 'Indexing'` readiness signal, chosen because it
+ * is deterministic in a way no live `gopls` run in a shared CI could guarantee - not the states
+ * themselves, which are real-user-reachable now. Separately: this CI does not install `gopls` (that is
+ * M2 stage 3 scope, not yet done), so no automated run in this repository has independently observed
+ * `gopls` actually producing `ready`/`working` end-to-end; the claim above rests on the manual
+ * investigation recorded in task-m2-gopls-preset.md, not on a test this suite runs.
  */
 const CATALOG_DECLARED_READINESS_REACHABLE: readonly CompletionTuple[] = [
   { requestStatus: 'succeeded', traversalStatus: 'exhausted', semanticScope: 'provider-static', indexingStatus: 'ready' },
@@ -176,8 +200,9 @@ async function bundledTypeScriptRows(t: TestContext): Promise<BundledTypeScriptR
 
 // ---------------------------------------------------------------------------
 // Mock servers with a declared readiness profile, reached through the test-only `resolution.catalog`
-// constructor option - not a path a real user can reach (see the comment on
-// CATALOG_DECLARED_READINESS_REACHABLE above).
+// constructor option. As of M2 stage 2, this is no longer the only route to the states these scenarios
+// produce - see the 2026-09-02 correction on CATALOG_DECLARED_READINESS_REACHABLE above - but it is still
+// the only DETERMINISTIC one available to this test suite, since it does not depend on a live `gopls`.
 //
 // Reuses the exact `mockPreset`/`resolution: { catalog: [...] }` pattern and the `readinessServer.ts`
 // fixture from readiness.integration.test.ts - both already produce `ready` and `working` deterministically,
@@ -305,7 +330,11 @@ test('the shipped catalog produces exactly its declared reachable completion sta
   );
 });
 
-test('a catalog preset that declares readiness produces exactly its declared additional states (test-only path, not reachable by a real user)', { timeout: 30000 }, async t => {
+// Title note, 2026-09-02 (M2 stage 2): this test previously read "...(test-only path, not reachable by a
+// real user)". That was true when written and stopped being true once `gopls` shipped its own readiness
+// profile - see the correction on CATALOG_DECLARED_READINESS_REACHABLE above. Only this test's ROUTE to
+// the states below is test-only (a mock server, for determinism); the states themselves are not.
+test('a catalog preset that declares readiness produces exactly its declared additional states (via a mock server here; gopls now reaches the same states for a real user)', { timeout: 30000 }, async t => {
   const rows = await catalogDeclaredReadinessRows(t);
   assertReachableSetMatches('catalog-declared-readiness (additional)', rows, CATALOG_DECLARED_READINESS_REACHABLE);
 });

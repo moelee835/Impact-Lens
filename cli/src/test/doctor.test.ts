@@ -328,7 +328,9 @@ test('preflight stays silent on stderr and leaks no absolute path to stdout', ()
 });
 
 test('the doctor subcommand accepts any preset name and rejects a missing one', () => {
-  const unknown = spawnSync(process.execPath, [EXECUTABLE, 'doctor', 'gopls'], { encoding: 'utf8' });
+  // 'gopls' used to be this test's stand-in for a preset name absent from the catalog; M2 stage 2 made
+  // it a real shipped preset, so the unknown-preset path now needs a name that still isn't real.
+  const unknown = spawnSync(process.execPath, [EXECUTABLE, 'doctor', 'no-such-preset'], { encoding: 'utf8' });
   assert.equal(unknown.status, 2);
   assert.equal(unknown.stdout, '');
   assert.equal(JSON.parse(unknown.stderr).error.code, 'invalid_command');
