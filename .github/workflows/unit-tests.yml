@@ -107,3 +107,16 @@ jobs:
         run: gopls version
       - name: Run Agent CLI tests (gopls required, not optional)
         run: npm run cli:test
+
+  # No `python-provider` job here on purpose (M2 Python preset, stage 5, task-m2-python-preset.md).
+  # `bundled-pyright` needs no analogue of the `go install` step above: pyright ships as a pinned
+  # `dependencies` entry in cli/package.json (not a separately installed external tool), so
+  # `pnpm install --frozen-lockfile` already resolves it identically on all three OSes in `unit` and
+  # `cli-tests-cross-os`, and `cli/src/test/contract.test.ts`'s bundled-pyright tests (preflight,
+  # --smoke, --fixture, and a real .py auto-discovery E2E) run unconditionally there - no
+  # IMPACT_LENS_REQUIRE_-style gate exists or is needed, because there is no environment-dependent
+  # install step to gate. Verified directly: temporarily moving cli/node_modules/pyright aside and
+  # rerunning `npm run cli:test` fails those four tests loudly (bundled_provider_artifact_missing),
+  # never skips them - so a broken pyright resolution on any of the three OSes already fails `unit` or
+  # `cli-tests-cross-os` today. A dedicated job would rerun the exact same command on the exact same
+  # matrix for no new signal.

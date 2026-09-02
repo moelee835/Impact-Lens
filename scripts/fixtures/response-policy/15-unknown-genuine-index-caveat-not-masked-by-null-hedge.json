@@ -1,0 +1,151 @@
+{
+  "file": "15-unknown-genuine-index-caveat-not-masked-by-null-hedge.json",
+  "name": "genuine index-unknown caveat survives alongside a null-caveat hedge phrased without the word 'null'",
+  "description": "task-m2-python-preset.md stage 6 addendum 3: 'MASK' - a response that has BOTH index_state_unknown (indexingStatus: unknown) AND provider_null_incoming_calls in limitationDetails at once (the two are independent axes and can co-occur). The summary correctly discloses both: a genuine index-completeness caveat ('the index may not cover every file') and the null-caveat hedge surfaced via 'dependency injection' (no 'null' word anywhere). The marker-anchored fix (widening the exclusion anchor to all four provider_null_incoming_calls phrases, still requiring the marker nearby) broke this: once 'dependency injection' became a recognized marker, the exclusion span grew to swallow 'not evidence that no caller exists — check dependency injection' whole, and because the genuine index caveat ('may not cover every file') sat right next to it with no separator recognized by the old INDEX_UNCERTAINTY_PATTERN, the ENTIRE index-uncertainty signal in this summary was lost - producing missing_index_caveat AND missing_high_severity_disclosure (for index_state_unknown) together, since both route through mentionsIndexUncertainty(). Reconstructing that fix and running it against this exact response/summary confirms both would fire (non-vacuity). The real fix (1) excludes 'not evidence/proof ... no caller(s) exist(s)' unconditionally, without needing any marker word nearby, so the swallowed span shrinks back to just that clause, and (2) widens INDEX_UNCERTAINTY_PATTERN to recognize 'may not cover/include/reflect/capture' as a genuine index-uncertainty phrase in its own right, so it no longer depends on surviving next to a null-caveat marker by accident. Must-pass fixture 15.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.7.0"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "pyright",
+        "requestedLanguageId": "python",
+        "detectedLanguageId": "python",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": true
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        }
+      },
+      "coverage": {
+        "traversal": {
+          "status": "complete",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "unknown"
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable"
+        ]
+      },
+      "completion": {
+        "requestStatus": "succeeded",
+        "traversalStatus": "exhausted",
+        "semanticScope": "provider-static",
+        "indexingStatus": "unknown"
+      },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "a1b2c3d4e5f6a1b2c3d4e5f6",
+          "name": "get_current_user"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "no_incoming_callers",
+          "severity": "warning",
+          "scope": "semantic",
+          "message": "No incoming callers were returned for this symbol.",
+          "action": "Confirm dynamic entry points manually before removing this symbol."
+        },
+        {
+          "code": "index_state_unknown",
+          "severity": "warning",
+          "scope": "indexing",
+          "message": "The provider did not report an index state, so an empty result is not evidence that no caller exists.",
+          "action": "Re-run after the provider finishes indexing, or verify with a workspace search."
+        },
+        {
+          "code": "provider_null_incoming_calls",
+          "severity": "warning",
+          "scope": "provider",
+          "message": "The provider returned no definitive answer for incoming calls rather than an explicit empty list, so this is not evidence that no caller exists.",
+          "action": "Check for invocation through a mechanism the provider cannot see statically, such as dependency injection or a framework decorator, before concluding this symbol is uncalled."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "pyright",
+      "requestedLanguageId": "python",
+      "detectedLanguageId": "python",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": true
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      }
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable"
+    ],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from pyright; no incoming callers were returned for get_current_user. The index may not cover every file, so this is not evidence that no caller exists — check dependency injection.",
+  "expect": "pass",
+  "expectedViolations": []
+}

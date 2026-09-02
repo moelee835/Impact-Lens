@@ -178,6 +178,8 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
   private readonly published = new Set<string>();
   private readonly diagnosticsWaiters = new Set<() => void>();
   private readonly timeoutMs: number;
+  /** Set the first time `callHierarchy/incomingCalls` answers `null` instead of `[]` this session. */
+  private nullIncomingCallsObserved = false;
 
   constructor(
     private readonly workspace: string,
@@ -346,7 +348,7 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
    * which is byte-for-byte the response the analyze path already produced.
    */
   analysisObservations(): AnalysisObservations {
-    return { indexing: this.indexing() };
+    return { indexing: this.indexing(), nullIncomingCallsObserved: this.nullIncomingCallsObserved };
   }
 
   private indexing(): IndexingCoverage {
@@ -368,6 +370,13 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     await this.initialize();
     const calls = await this.query<IncomingCall[] | null>('callHierarchy/incomingCalls', { item });
     this.observe({ incomingCalls: true });
+    // `null` and `[]` both become "no callers" here, but the distinction is not thrown away - it
+    // survives as a session-level fact (`nullIncomingCallsObserved`, via `analysisObservations()`) so a
+    // 0-caller result whose only evidence was `null` can be flagged as unproven rather than read as a
+    // provider's affirmative "zero" (docs/work/task-m2-python-preset.md stage 3).
+    if (calls === null) {
+      this.nullIncomingCallsObserved = true;
+    }
     return calls ?? [];
   }
 

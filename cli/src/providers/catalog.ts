@@ -15,8 +15,15 @@ import { ProviderPreset } from './preset';
  * first preset to declare `readiness`, which is what lets `coverage.indexing.status` report anything
  * other than `unknown`.
  *
- * Python waits on IL-LIM-006 because Pylance cannot legally be discovered or bundled by an independent
- * CLI, and its alternatives have not yet been confirmed to support Call Hierarchy at all.
+ * `bundled-pyright` (M2, docs/work/task-m2-python-preset.md) is Python's entry. The catalog comment this
+ * replaced conflated two different questions into one sentence: "Pylance cannot legally be discovered or
+ * bundled" (true, and irrelevant here - Pylance and pyright are different projects) and "its alternatives
+ * have not been confirmed to support Call Hierarchy" (was true, no longer is -
+ * docs/work/task-m2-python-investigation.md ran a real JSON-RPC round trip against pyright, basedpyright
+ * and Pyrefly and all three answered correctly). `pyright` was chosen over `basedpyright` because it is
+ * the canonical Microsoft-maintained upstream and treats the npm channel this preset bundles as primary,
+ * where `basedpyright`'s own README tells users to prefer PyPI - see task-m2-python-preset.md stage 2 for
+ * the full comparison. `Pyrefly` was never a `bundled` candidate: it has no npm distribution at all.
  */
 
 const TYPESCRIPT_FIXTURE_TSCONFIG = `${JSON.stringify(
@@ -205,7 +212,106 @@ const gopls: ProviderPreset = {
   },
 };
 
-export const PROVIDER_CATALOG: readonly ProviderPreset[] = [bundledTypeScript, gopls];
+const PYRIGHT_FIXTURE_TARGET = 'def fixture_target(value: int) -> int:\n    return value + 1\n';
+const PYRIGHT_FIXTURE_CALLER = [
+  'from target import fixture_target',
+  '',
+  '',
+  'def fixture_caller(value: int) -> int:',
+  '    return fixture_target(value)',
+  '',
+].join('\n');
+
+export const BUNDLED_PYRIGHT_PRESET_ID = 'bundled-pyright';
+
+/** The specifier `bundledModuleEntry` is allowed to resolve for this preset. See `cli/src/runtime.ts`. */
+export const BUNDLED_PYRIGHT_MODULE = 'pyright/langserver.index.js';
+
+const bundledPyright: ProviderPreset = {
+  id: BUNDLED_PYRIGHT_PRESET_ID,
+  displayName: 'Bundled pyright (Python)',
+  tier: 'bundled',
+  languageIds: ['python'],
+  extensions: ['.py'],
+  command: {
+    candidates: [{ $ref: 'nodeExecutable' }],
+    args: [{ $ref: 'bundledModuleEntry', module: BUNDLED_PYRIGHT_MODULE }, '--stdio'],
+    languageIdFrom: 'detected',
+  },
+  // No `version`: same reasoning as `bundled-typescript` - it ships inside the tarball at a pinned
+  // version (`cli/package.json`'s `dependencies.pyright`, no caret, same asymmetry as `typescript`), so
+  // its version is read from package metadata by the bundled artifact check, not by starting a process.
+  // No `initializationOptions`, no `settings`: pyright answered the fixture's Call Hierarchy request
+  // correctly with an empty initialize frame (task-m2-python-investigation.md, reconfirmed by
+  // task-m2-python-preset.md stage 2).
+  //
+  // No `readiness`, unlike gopls - found NOT to be safely usable, not simply skipped. pyright's
+  // work-done-progress cycle is real (begin/report "N files to analyze"/end, confirmed both in the
+  // investigation lane and this lane) but it is entirely `didOpen`-triggered: a probe that never opens a
+  // file observes zero progress notifications even after 6 seconds, and the real transcript
+  // (`IMPACT_LENS_LSP_TRANSCRIPT=1`) from an actual analyze run shows `"progress":[]` -
+  // `LspCallHierarchyProvider.awaitReadiness()` runs inside `doInitialize()`, before `prepare()`'s
+  // `open()` call ever fires, so pyright has nothing to analyze yet and never sends the signal this
+  // preset would be waiting for. Declaring `readiness` here without changing that call order would not
+  // improve `coverage.indexing.status` - it would just make every Python analysis pay the full
+  // `budgetMs` as dead latency before `onBudgetExceeded: 'proceed-partial'` falls back to querying
+  // anyway, for a query that then succeeds correctly. task-m2-python-preset.md stage 4 records this as
+  // an open architectural question (reorder `open()` before `awaitReadiness()`, cross-cutting across
+  // every provider) rather than deciding it here. Until it is resolved, `coverage.indexing.status` stays
+  // `unknown` for Python - the same honest "no claim" default `bundled-typescript` already uses, not a
+  // regression from some better state this preset could reach today.
+  //
+  // No `requiredProjectFiles`, unlike gopls's `go.mod`. This is a deliberate absence, not an oversight:
+  // gopls needed it because a missing go.mod silently drops it into an AdHoc mode that is
+  // indistinguishable on the wire from a complete module-aware result (task-m2-gopls-preset.md).
+  // task-m2-python-preset.md stage 4 tested the equivalent pyright risk directly, twice: (1) a bare
+  // multi-directory layout with no pyproject.toml, no setup.py and no __init__.py anywhere still
+  // resolved a cross-directory import correctly (pyright's implicit-namespace-package resolution
+  // roots at the workspace itself) - no gopls-style AdHoc fallback exists to gate against. (2) A
+  // third-party import pyright cannot resolve (no venv configured) does NOT silently degrade - it
+  // produces an explicit `reportMissingImports` diagnostic on the affected line, which this CLI already
+  // surfaces per-node via `collectDiagnostics`. That gap is real (see `docs.limitations` below) but it
+  // is not the silent-completeness failure `requiredProjectFiles` exists to prevent, and gating on a
+  // project file's mere presence would not fix it anyway - a bare `.venv/` directory with no
+  // `pyrightconfig.json` was tested and still left the import unresolved, while a `pythonPath` supplied
+  // through `workspace/configuration` fixed it with no project file involved at all. Auto-detecting a
+  // venv and supplying it that way is a real option this preset does not implement yet - flagged for
+  // the next review rather than built speculatively here.
+  fixture: {
+    files: [
+      { path: 'target.py', content: PYRIGHT_FIXTURE_TARGET },
+      { path: 'caller.py', content: PYRIGHT_FIXTURE_CALLER },
+    ],
+    // Line 1, column 5 is the first character of "fixture_target" ("def " is 4 characters).
+    target: { file: 'target.py', line: 1, column: 5 },
+    expectedCaller: 'fixture_caller',
+  },
+  docs: {
+    install: 'https://microsoft.github.io/pyright/#/installation',
+    limitations: [
+      'Calls made only through reflection or other runtime-constructed dispatch are not part of the Call Hierarchy result.',
+      // The observed pyright/Pyrefly null-vs-[] divergence for exactly this shape (Depends()-style
+      // reference-only calls) is what task-m2-python-preset.md stage 3's `provider_null_incoming_calls`
+      // exists to flag per-response; this line documents the underlying static-analysis gap itself.
+      'Calls made only through framework mechanisms such as dependency injection (for example FastAPI\'s Depends()) are not part of the Call Hierarchy result.',
+      // Verified directly, task-m2-python-preset.md stage 4: this preset does not auto-detect a virtual
+      // environment. A project needs its own pyrightconfig.json/pyproject.toml naming venvPath, or a
+      // workspace/configuration response naming pythonPath, or symbols reached only through an
+      // unresolved third-party import are missing from the graph - visibly, as a reportMissingImports
+      // diagnostic on the affected file, never silently.
+      'Third-party imports are not resolved unless pyright is told where the interpreter that has them installed lives; this preset does not auto-detect a virtual environment.',
+    ],
+  },
+  // Evidence for the bundled tier. Verified on darwin/arm64 only, by hand (task-m2-python-preset.md
+  // stage 4) - this preset has no CI job yet exercising windows-latest/ubuntu-latest, unlike gopls's
+  // go-provider job. Stage 5 of the same document is where that gap closes.
+  lastVerified: {
+    date: '2026-09-02',
+    versions: ['1.1.413'],
+  },
+};
+
+export const PROVIDER_CATALOG: readonly ProviderPreset[] = [bundledTypeScript, gopls, bundledPyright];
 
 export function findPreset(catalog: readonly ProviderPreset[], id: string): ProviderPreset | undefined {
   return catalog.find(preset => preset.id === id);

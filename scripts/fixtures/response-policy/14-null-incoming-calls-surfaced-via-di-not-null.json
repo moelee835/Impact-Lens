@@ -1,0 +1,148 @@
+{
+  "file": "14-null-incoming-calls-surfaced-via-di-not-null.json",
+  "name": "provider_null_incoming_calls surfaced via 'dependency injection'/'Depends()' wording, marker and hedge in separate sentences",
+  "description": "task-m2-python-preset.md stage 6 addendum 3, revised: the marker ('dependency injection'/'Depends()') and the 'this is not evidence that no caller exists' hedge are deliberately in DIFFERENT sentences, not one - this is the shape cli-contract.md's/SKILL.md's own 'Fixed summary shape' actually recommends (evidence boundary and limitation disclosure as separate sentences), so it is the representative case, not the same-sentence phrasing this fixture originally used. An earlier fix (widening the exclusion anchor to all four LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls phrases, still requiring the marker to be nearby) covered the same-sentence shape but not this one, because its [^.!?]* span cannot cross a sentence boundary to find the marker - reviewer measurement (task-m2-python-preset.md stage 6 addendum 3) found this exact separate-sentence summary still wrongly flagged stale_index_caveat under indexingStatus: ready. The real fix drops the marker requirement entirely: 'not evidence/proof ... no caller(s) exist(s)' is, by its own grammar, always a claim about caller existence, so it is excluded unconditionally, in whatever sentence it appears (see CALLER_EXISTENCE_UNCERTAINTY_PHRASE). Non-vacuity: reconstructing the marker-anchored fix (the version this fixture originally locked in) and running it against this exact summary confirms it would still wrongly flag stale_index_caveat. Must-pass fixture 14.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.7.0"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "pyright",
+        "requestedLanguageId": "python",
+        "detectedLanguageId": "python",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": true
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        }
+      },
+      "coverage": {
+        "traversal": {
+          "status": "complete",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "ready",
+          "evidence": {
+            "signal": "work-done-progress",
+            "detail": "indexing"
+          }
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable"
+        ]
+      },
+      "completion": {
+        "requestStatus": "succeeded",
+        "traversalStatus": "exhausted",
+        "semanticScope": "provider-static",
+        "indexingStatus": "ready"
+      },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "a1b2c3d4e5f6a1b2c3d4e5f6",
+          "name": "get_current_user"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "no_incoming_callers",
+          "severity": "warning",
+          "scope": "semantic",
+          "message": "No incoming callers were returned for this symbol.",
+          "action": "Confirm dynamic entry points manually before removing this symbol."
+        },
+        {
+          "code": "provider_null_incoming_calls",
+          "severity": "warning",
+          "scope": "provider",
+          "message": "The provider returned no definitive answer for incoming calls rather than an explicit empty list, so this is not evidence that no caller exists.",
+          "action": "Check for invocation through a mechanism the provider cannot see statically, such as dependency injection or a framework decorator, before concluding this symbol is uncalled."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "pyright",
+      "requestedLanguageId": "python",
+      "detectedLanguageId": "python",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": true
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      }
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable"
+    ],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from pyright; the provider's index is proven ready (work-done-progress signal). No incoming callers were returned for get_current_user at depth 5. Check for invocation through dependency injection or a framework decorator such as FastAPI's Depends() before concluding this symbol is uncalled. This is not evidence that no caller exists. That caveat is about this one query, not about the already-confirmed index.",
+  "expect": "pass",
+  "expectedViolations": []
+}

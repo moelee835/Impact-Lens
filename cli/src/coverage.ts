@@ -37,17 +37,21 @@ export const UNKNOWN_INDEXING_COVERAGE: IndexingCoverage = { status: 'unknown' }
 /**
  * The reason codes the v1 `limitations` / `coverage.reasons` arrays do not carry yet.
  *
- * Both codes describe a state that already happens today (a symbol with no incoming callers), and today the
- * response says nothing about it. Adding them changes the value of two fields that are already deployed,
- * which the additive decision for schemaVersion 1 does not cover on its own. They are therefore emitted in
- * `limitationDetails` only, and this constant is the single place that has to change when the release that
- * updates `cli-contract.md`, the plugin summary template and the plugin eval lands together.
+ * Every code here describes a state that already happens today (a symbol with no incoming callers, in
+ * one of several ways), and today the response says nothing about it. Adding them changes the value of
+ * two fields that are already deployed, which the additive decision for schemaVersion 1 does not cover
+ * on its own. They are therefore emitted in `limitationDetails` only, and this constant is the single
+ * place that has to change when the release that updates `cli-contract.md`, the plugin summary template
+ * and the plugin eval lands together.
  *
- * See docs/work/task-m1-completeness-emit.md decision D6. Emptying this set is the whole change.
+ * See docs/work/task-m1-completeness-emit.md decision D6 for the first two codes, and
+ * docs/work/task-m2-python-preset.md stage 3 for `provider_null_incoming_calls`. Emptying this set is
+ * the whole change.
  */
 export const V1_WITHHELD_REASON_CODES: ReadonlySet<string> = new Set([
   'no_incoming_callers',
   'index_state_unknown',
+  'provider_null_incoming_calls',
 ]);
 
 /** How `completion.traversalStatus` is written in the v1 `coverage.traversal.status` field. */
@@ -156,7 +160,7 @@ export function projectCompletion(
   const indexing = observations.indexing ?? UNKNOWN_INDEXING_COVERAGE;
   const semantic = semanticCoverage(completion.semanticScope, observations);
   const complete = completion.traversalStatus === 'exhausted';
-  const limitationDetails = limitationDetailsFor(completion, facts);
+  const limitationDetails = limitationDetailsFor(completion, facts, observations);
   const reasons = limitationDetails
     .map(detail => detail.code)
     .filter(code => !V1_WITHHELD_REASON_CODES.has(code));
@@ -210,7 +214,11 @@ function semanticCoverage(scope: GraphSemanticScope, observations: AnalysisObser
  * No message here may state a conclusion. The forbidden phrases (`no impact`, `safe to change`, `unused`,
  * `fully analyzed`, `complete analysis`, `all callers`) are enforced by cli/src/test/forbidden.test.ts.
  */
-function limitationDetailsFor(completion: GraphCompletion, facts: TraversalFacts): readonly LimitationDetail[] {
+function limitationDetailsFor(
+  completion: GraphCompletion,
+  facts: TraversalFacts,
+  observations: AnalysisObservations,
+): readonly LimitationDetail[] {
   const details: LimitationDetail[] = [
     {
       code: 'dynamic_calls_not_inferred',
@@ -269,6 +277,26 @@ function limitationDetailsFor(completion: GraphCompletion, facts: TraversalFacts
         scope: 'indexing',
         message: 'The provider did not report an index state, so an empty result is not evidence that no caller exists.',
         action: 'Re-run after the provider finishes indexing, or verify with a workspace search.',
+      });
+    }
+    if (observations.nullIncomingCallsObserved) {
+      // LSP gives `callHierarchy/incomingCalls` no method-specific meaning for `null`, so this does not
+      // claim to know what the provider meant - only that it did not send `[]`, the one value that would
+      // let this be read as a proven zero. A framework-mediated call (FastAPI `Depends()` and similar
+      // dependency-injection patterns) is the case this exists for: the function is genuinely invoked,
+      // but not through a call expression a static Call Hierarchy can see.
+      //
+      // This is a session-level flag (`LspCallHierarchyProvider.nullIncomingCallsObserved`), not one
+      // scoped to this particular query - it is only safe to attach here because `facts.incomingCallerCount
+      // === 0` already proves exactly one `incoming()` call happened this session (see the comment at
+      // `impact.ts`'s `incomingCallerCount` field). If that invariant ever breaks, this could attach a
+      // `null` observed on an unrelated query to a result it says nothing about.
+      details.push({
+        code: 'provider_null_incoming_calls',
+        severity: 'warning',
+        scope: 'provider',
+        message: 'The provider returned no definitive answer for incoming calls rather than an explicit empty list, so this is not evidence that no caller exists.',
+        action: 'Check for invocation through a mechanism the provider cannot see statically, such as dependency injection or a framework decorator, before concluding this symbol is uncalled.',
       });
     }
   }

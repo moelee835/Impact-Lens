@@ -14,6 +14,17 @@
 // place that reads files or exits). A pure function over plain values is what lets the doc-invariant
 // self-test in that runner feed this module mutated in-memory document text and assert the check itself
 // can fail, which is the negative-direction proof the response-policy work document requires.
+//
+// SCOPE (read this before deciding a false positive/negative here is worth another round of precision
+// work): evaluateSummary()'s only caller is scripts/test-response-policy.mjs, run as `npm run
+// test:response-policy` in .github/workflows/unit-tests.yml. Nothing under cli/ or plugins/ imports this
+// module (response-policy-doc-invariants.mjs imports only FORBIDDEN_PHRASES from it, not evaluateSummary).
+// It is not shipped in the CLI or the plugin, never runs in a user's runtime, and never grades a real
+// agent's live output - it is a dev-time regression harness over fixtures this repository wrote and the
+// worked examples extracted from cli-contract.md. That scope is what should set the required precision:
+// the real cost of a false positive here is blocking a future fixture/doc-example author (or worse,
+// tempting them to reword a correct doc example to satisfy the checker), not a live miscue reaching a
+// user. See INDEX_SCOPED_MAY_NOT_UNCERTAINTY's comment below for a concrete case history of this tradeoff.
 
 /** The six phrases the response-policy story names. Kept identical to SKILL.md and cli-contract.md; the
  * doc-invariant checker in response-policy-doc-invariants.mjs asserts both files still contain them. */
@@ -110,10 +121,96 @@ const BOUNDARY_MARKERS = [
 const INDEX_UNCERTAINTY_PATTERN = /(unknown|did not report|not proof|not evidence|unproven|no evidence|not confirmed|has not (?:been )?(?:proven|confirmed))/i;
 const INDEX_WORD_PATTERN = /\bindex(?:ing)?\b/i;
 
+// "may not cover/include/reflect/capture" is only a genuine index-completeness caveat when the index is
+// its own grammatical subject ("the index may not cover every file"). Left in whole-summary
+// INDEX_UNCERTAINTY_PATTERN (as it briefly was), it fired on any summary that happened to mention "index"
+// ANYWHERE and separately, honestly disclosed an unrelated limitation using "may not" phrasing elsewhere -
+// "the index is ready. This static analysis may not capture dynamic dispatch..." is not an index caveat at
+// all, it is dynamic_calls_not_inferred in different words, but the two checks don't require the same
+// sentence, only the same summary. Scoped to `[^.!?]*` (no numeric character bound - the same
+// sentence-boundary idiom CALLER_EXISTENCE_UNCERTAINTY_PHRASE already uses in this file) so "index" and
+// "may not X" must share a sentence, which is enough to separate all four false positives above (each puts
+// the "index...ready" claim and the unrelated "may not" caveat in different sentences, see fixtures 16-19)
+// from the genuine case (found via commander/reviewer review, task-m2-python-preset.md stage 6 addendum 4).
+//
+// KNOWN LIMITATION, DELIBERATELY NOT FIXED - read this before tightening this predicate further. This is a
+// lexical-heuristic match, not parsing, so a genuine index caveat can still slip past it, or an unrelated
+// one can still be swallowed, in ways a reviewer found while checking fix proposals (not yet real bugs, so
+// no fixture locks these in - a passing fixture would enshrine the wrong behavior as correct):
+//   1. Pronoun reference, no literal "index" in the caveat's own sentence: "The index is large. It may not
+//      cover every file." - undetected, because INDEX_WORD_PATTERN requires the literal word "index"/
+//      "indexing" somewhere in the same [^.!?]* span as "may not X", and "It" doesn't match that word.
+//   2. (Considered, did not materialize here) a very long appositive/insertion clause between "index" and
+//      "may not X" was suspected to escape a character-count window - moot for this implementation
+//      specifically because it uses sentence scoping ([^.!?]*, no numeric bound) rather than a character
+//      window, so an arbitrarily long insertion clause is still caught as long as no sentence boundary
+//      falls between "index" and "may not X".
+//   3. An unrelated "may not" caveat sharing a sentence with "index" via a conjunction, rather than two
+//      separate sentences - reviewer's exact examples: "The index is ready, but reflection may not cover
+//      every call site." / "...an index that is proven ready, though dynamic dispatch may not include..."
+//      / "Within static call-hierarchy scope and a fully-built index, decorator-based routing may not
+//      include every entry point." - false-flagged stale_index_caveat, same root cause as the four cases
+//      fixtures 16-19 lock in (a same-sentence "index" and "may not X" that don't actually share a
+//      subject), just with the two clauses joined by but/though/and instead of split into two sentences.
+//      Same-sentence proximity was never sufficient to prove "index" is the grammatical subject of "may
+//      not X"; it just happened to be necessary for fixtures 16-19's specific shape.
+//      commander measured a conjunction-boundary fix (require no but/though/and/while/although/whereas
+//      between "index" and "may not X") and it failed in both directions on the reviewer's own examples:
+//      the third example above still slips past it, because its "and" sits BEFORE "index" ("...scope and a
+//      fully-built index, decorator-based routing may not include...") rather than between "index" and
+//      "may not X"; and the addendum-4 legitimate 124-character insertion clause ("The index, which was
+//      built... and reported completion, may not cover every file...") gets newly blocked by it, because
+//      its own "and" (inside the appositive, describing when indexing finished) now reads as a clause
+//      boundary. One fix, one still-open false positive, one newly-broken legitimate case - not
+//      implemented, per the same reasoning as gaps 1 and 2 above.
+// Four rounds of this addendum each closed one axis of this same lexical/semantic tradeoff and opened
+// another (narrow the null-caveat exclusion -> misses cross-sentence marker placement; widen it -> masks a
+// genuine index caveat sharing vocabulary; widen INDEX_UNCERTAINTY_PATTERN whole-summary -> catches
+// unrelated "may not" disclosures; scope it to the sentence -> still can't resolve a pronoun with no
+// antecedent lookup, or a same-sentence conjunction that doesn't bind "index" to "may not X"). That pattern
+// is not a sequence of bugs to keep chasing - it is the structural fact that a regex-based lexical match
+// over free-text prose cannot, in general, attribute a claim to its true subject, confirmed a fifth time by
+// actually building and measuring the next candidate fix rather than reasoning about it. See
+// task-m2-python-preset.md stage 6 addendum 5 for the round-by-round history and why the lane stops here.
+//
+// One more reason this specific residual imprecision is acceptable where the other seven VIOLATION_CODES
+// entries would not be: stale_index_caveat is the only one of the eight that catches UNDERclaiming (a
+// summary being more cautious than the evidence requires) rather than OVERclaiming (a summary asserting
+// more than the evidence supports). forbidden_phrase, unsupported_no_impact_conclusion,
+// missing_index_caveat, partial_reported_as_complete, missing_high_severity_disclosure,
+// conclusion_before_boundary and failure_reported_as_empty all exist to stop a false claim from reaching a
+// reader. A stale_index_caveat false positive instead penalizes an author for being MORE careful than
+// necessary - it never lets a false claim through. That asymmetry, not just this predicate's dev-time-only
+// blast radius (see the file-top SCOPE comment), is why the remaining gaps above are left as documented
+// limitations instead of a fifth implementation attempt.
+//
+// This predicate's actual blast radius, and why that scope is what sets how much precision it needs: the
+// only caller of evaluateSummary() (which uses this predicate) is scripts/test-response-policy.mjs, a
+// dev-time-only CI check (`npm run test:response-policy`, wired into .github/workflows/unit-tests.yml). It
+// is never imported by anything under cli/ or plugins/, is not part of the shipped CLI or plugin runtime,
+// and never sees a real user's or a real agent's live output - it only grades fixtures this repository
+// wrote and the worked examples extracted from cli-contract.md. A false positive here blocks a future
+// fixture/doc-example author and, worse, tempts them to reword a correct doc example to satisfy the
+// checker instead of the other way around (exactly what reviewer's 4 examples would have caused) - that is
+// the real cost this addendum's work closes. A missed case (the two gaps above) is a precision gap against
+// hypothetical prose this corpus does not currently contain, not a live miscue reaching a user.
+const INDEX_SCOPED_MAY_NOT_UNCERTAINTY = /\bindex(?:ing)?\b[^.!?]*\bmay not\s+(?:cover|include|reflect|capture)\b/i;
+
 // Per-code natural-language stand-ins for a limitationDetails entry being "surfaced" in a summary. A
 // fallback derived from the code itself (underscores to spaces) covers any future code this table has not
 // been taught yet, so a new severity:error/warning reason does not silently pass unnoticed — it just gets
 // checked against its literal words instead of a hand-tuned phrase.
+// The vocabulary SKILL.md/cli-contract.md actually teach an agent to use for provider_null_incoming_calls
+// (`null`, "did not commit to zero", "dependency injection", `Depends()`) - coverage.ts's own `action` text
+// for this code says "such as dependency injection or a framework decorator" verbatim, so an agent that
+// follows the CLI's own suggested wording must be recognized here too, not just an agent that says "null".
+// Feeds only LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls below (is the limitation surfaced at
+// all). It used to also anchor stale_index_caveat's exclusion of this code's own uncertainty phrase
+// (widening it there once fixed a false positive but caused a worse one - see
+// CALLER_EXISTENCE_UNCERTAINTY_PHRASE's comment, which excludes that phrase without needing any marker at
+// all, task-m2-python-preset.md stage 6 addendum 3).
+const PROVIDER_NULL_INCOMING_CALLS_MARKERS = [/\bnull\b/i, /\bdid not commit to zero\b/i, /\bdependency injection\b/i, /Depends\(\)/i];
+
 const LIMITATION_SURFACE_PATTERNS = {
   no_incoming_callers: [/\bno (?:incoming )?callers?\b/i],
   index_state_unknown: [INDEX_UNCERTAINTY_PATTERN], // paired with INDEX_WORD_PATTERN, see surfacesLimitation
@@ -125,6 +222,7 @@ const LIMITATION_SURFACE_PATTERNS = {
   provider_not_ready: [/\bstill indexing\b/i, /\bnot ready\b/i, /\bprovider_not_ready\b/i],
   inferred_edges_included: [/\binferred edges?\b/i],
   observed_edges_included: [/\bobserved edges?\b/i, /\bruntime observation\b/i],
+  provider_null_incoming_calls: PROVIDER_NULL_INCOMING_CALLS_MARKERS,
 };
 
 function escapeRegExp(text) {
@@ -149,8 +247,38 @@ function matchesAny(patterns, text) {
   return patterns.some(pattern => pattern.test(text));
 }
 
+// `provider_null_incoming_calls`'s own canonical wording ("this is not evidence that no caller exists")
+// satisfies INDEX_UNCERTAINTY_PATTERN on its own ("not evidence"), so a summary that mentions "index"
+// while correctly confirming `ready` and separately surfaces that warning's "not evidence" phrasing was
+// tripping `stale_index_caveat` on a fully compliant summary (found via direct measurement,
+// task-m2-python-preset.md stage 6) - the two claims are about different things (index completeness vs.
+// one query's answer) and must not be conflated just because both words appear in the same summary.
+//
+// A claim that an answer "is not evidence/proof that no caller(s) exist(s)" is, by its own grammar, a
+// statement about caller existence - not a statement about index completeness - regardless of which
+// provider_null_incoming_calls marker word (if any) is nearby, and regardless of which sentence it is
+// written in relative to that marker. Excluding by marker proximity (an earlier attempt, see git history)
+// either missed the marker-in-a-different-sentence case (too narrow: SKILL.md's/cli-contract.md's own
+// "Fixed summary shape" puts the marker and this hedge in separate sentences) or, once the marker list
+// widened to match LIMITATION_SURFACE_PATTERNS, started swallowing an unrelated GENUINE index-uncertainty
+// caveat that happened to share this exact "not evidence ... no caller exists" wording with
+// `index_state_unknown`'s own canonical CLI message (see fixture 01's limitationDetails, which uses the
+// identical construction for a completely different limitation) - a masking false positive under
+// indexingStatus: unknown that broke both missing_index_caveat and missing_high_severity_disclosure at
+// once, since both route through this same function (surfacesLimitation('index_state_unknown', ...) below
+// calls it directly - found via commander/reviewer review, task-m2-python-preset.md stage 6 addendum 3).
+// Scoped to the "no caller(s) exist(s)" construction specifically - not bare "no caller(s)", which is also
+// how the CLI legitimately reports "no callers were returned/found", a different claim - so this exclusion
+// cannot be satisfied by anything except this one clause, and never needs a marker word to fire.
+const CALLER_EXISTENCE_UNCERTAINTY_PHRASE =
+  /\b(?:not evidence|not proof)\b[^.!?]*\bno\s+callers?\s+exists?\b|\bno\s+callers?\s+exists?\b[^.!?]*\b(?:not evidence|not proof)\b/i;
+
 function mentionsIndexUncertainty(text) {
-  return INDEX_WORD_PATTERN.test(text) && INDEX_UNCERTAINTY_PATTERN.test(text);
+  const withoutCallerExistencePhrase = text.replace(CALLER_EXISTENCE_UNCERTAINTY_PHRASE, ' ');
+  if (INDEX_WORD_PATTERN.test(withoutCallerExistencePhrase) && INDEX_UNCERTAINTY_PATTERN.test(withoutCallerExistencePhrase)) {
+    return true;
+  }
+  return INDEX_SCOPED_MAY_NOT_UNCERTAINTY.test(withoutCallerExistencePhrase);
 }
 
 function surfacesLimitation(code, summaryText) {
@@ -210,9 +338,17 @@ export function evaluateSummary(response, summary) {
   const requestStatus = completion?.requestStatus;
   const empty = isEmptyResult(response);
 
+  // `provider_null_incoming_calls` (task-m2-python-preset.md stage 3) is a per-query "did not commit to
+  // zero" signal, independent of index completeness - coverage.ts and cli-contract.md are explicit that it
+  // "can appear together with `indexingStatus: ready`" (proving the index is built says nothing about what
+  // this one query returned). Without checking for it here, a `ready` + `succeeded` response with this code
+  // present let a "nothing calls this" conclusion through unflagged, because the pre-existing condition only
+  // ever looked at indexingStatus/requestStatus - exactly the misreading this code exists to prevent (found
+  // via direct measurement against the real engine, not assumed; see stage 6 of the same document).
+  const nullIncomingCallsPresent = highSeverityLimitations(response).some(detail => detail.code === 'provider_null_incoming_calls');
   const noImpactAsserted = sentences.some(sentence => matchesAny(NO_IMPACT_ASSERTION_PATTERNS, sentence) && !isNegated(sentence.toLowerCase()));
-  if (noImpactAsserted && (indexingStatus !== 'ready' || requestStatus === 'partial')) {
-    violations.push({ code: 'unsupported_no_impact_conclusion', message: `Summary asserts nothing calls the symbol, but indexingStatus is "${indexingStatus}" and requestStatus is "${requestStatus}", which does not support that conclusion.` });
+  if (noImpactAsserted && (indexingStatus !== 'ready' || requestStatus === 'partial' || nullIncomingCallsPresent)) {
+    violations.push({ code: 'unsupported_no_impact_conclusion', message: `Summary asserts nothing calls the symbol, but indexingStatus is "${indexingStatus}" and requestStatus is "${requestStatus}"${nullIncomingCallsPresent ? ' and the provider answered this query with null (provider_null_incoming_calls)' : ''}, which does not support that conclusion.` });
   }
 
   if (indexingStatus === 'unknown' && empty && !mentionsIndexUncertainty(summaryLower)) {

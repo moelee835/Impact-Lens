@@ -26,11 +26,19 @@ tools: Bash, Read, Edit, Write, Grep, Glob
 - workspace 설정에는 preset ID와 최소 override만 저장하고 절대 경로를 쓰지 않는다.
 - executable 탐색에 shell을 사용하지 않는다. version command는 timeout과 출력 크기 제한 안에서 실행한다.
 
-## 알려진 결함 (조사 결과, `main` 기준)
+## 현재 구조 (M1 doctor 일반화 + M2 bundled-pyright 이후 기준 — 아래 항목은 한때 결함이었고 이미 고쳐졌다)
 
-- provider 선택이 `cli/src/lspProvider.ts:63-64`의 삼항 연산자 두 줄이다.
-- doctor 서브커맨드가 `bundled-typescript` 하나뿐이고(`cli/src/index.ts:202-204`),
-  모든 check의 `status`가 `'pass'` 리터럴 고정(`cli/src/doctor.ts:4-47`)이라 부분 실패를 보고할 수 없다.
+- provider 선택은 `cli/src/providers/resolve.ts`의 `resolveProvider()`가 담당한다(더 이상 두 줄
+  삼항 연산자가 아니다): raw custom > explicit preset > trusted project(`.impact-lens/provider.json`) >
+  verified auto-discovery > unsupported, 순서대로 첫 매치에서 멈춘다.
+- doctor는 `cli/src/index.ts`가 인자로 받은 임의의 preset id를 그대로 `provider.doctor`의 대상으로
+  넘긴다(하드코딩된 단일 id 아님). 실제 check 구현은 `cli/src/doctor/checks.ts`·`cli/src/doctor/index.ts`에
+  있고, check마다 독립적으로 `pass`/`warn`/`fail`을 내 첫 실패에서 멈추지 않는다.
+- shipped catalog(`cli/src/providers/catalog.ts`)는 오늘 3개 preset이다: `bundled-typescript`,
+  `gopls`(verified-external), `bundled-pyright`(M2, `bundled`). 새 bundled preset을 추가할 때는
+  `cli/src/doctor/checks.ts`의 `inspectBundledArtifact()` dispatcher에 분기를 추가해야 한다 — 빠뜨리면
+  그 preset의 doctor 결과가 다른 bundled preset의 artifact를 잘못 보고하는 대신 `internal_error`로
+  시끄럽게 실패하도록 이미 만들어져 있다(분기 추가 자체를 잊는 것까지 막지는 못한다).
 - 검증 근거 없는 언어를 `verified-external`로 문서화하면 안 된다. 실제 fixture 통과가 승격 조건이다.
 
 ## 원칙

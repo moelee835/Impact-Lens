@@ -16,6 +16,10 @@ export const CLASSIFIED_OBSERVATION_FIELDS: Readonly<Record<string, ObservationF
   indexing: 'has-producer', // LspCallHierarchyProvider.analysisObservations() returns { indexing: this.indexing() }.
   interruption: 'no-producer', // see UNREACHABLE_TRAVERSAL_STATES in stateReachability.sources.test.ts.
   semantic: 'no-producer', // see UNREACHABLE_SEMANTIC_SCOPES in stateReachability.sources.test.ts.
+  // LspCallHierarchyProvider.analysisObservations() always returns nullIncomingCallsObserved (defaulting
+  // to false), set true the first time incoming() sees a raw `null` (docs/work/task-m2-python-preset.md
+  // stage 3).
+  nullIncomingCallsObserved: 'has-producer',
 };
 
 export function fieldsClassified(classification: ObservationFieldClassification): readonly string[] {

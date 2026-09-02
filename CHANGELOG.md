@@ -10,6 +10,18 @@
   `unknown` — `gopls` is the first shipped preset to declare a `readiness` profile, so a Go analysis
   distinguishes "still indexing" and "index confirmed ready" instead of always reading as "no claim
   made."
+- A Python developer now gets function-impact analysis with no provider configuration and nothing to
+  install — `bundled-pyright` ships `pyright` inside the CLI itself (`bundled` tier, like
+  `bundled-typescript`), unlike `gopls`'s `verified-external` tier where the user still installs the
+  server. Verified end to end (Call Hierarchy, doctor, real `.py` auto-discovery) by hand on darwin/arm64
+  and covered unconditionally by the existing cross-OS `cli:test` jobs (no separate CI job needed, since
+  a pinned `dependencies` entry has no install step to gate, unlike `gopls`).
+- `limitationDetails` can now carry `provider_null_incoming_calls`, a response-contract addition that
+  applies to every provider, not only Python: LSP's `callHierarchy/incomingCalls` lets a server answer
+  `null` instead of an explicit `[]`, and Impact Lens used to collapse both into the same empty result.
+  `null` no longer reads as a proven zero — it can appear even under `indexingStatus: ready`, since it
+  reports on this one query, not on index completeness. The motivating case is a symbol invoked only
+  through a mechanism static Call Hierarchy cannot see, such as FastAPI's `Depends()`.
 
 ## 0.7.0
 

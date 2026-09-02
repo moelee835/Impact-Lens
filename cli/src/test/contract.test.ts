@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -45,6 +47,87 @@ test('doctor smoke initializes the bundled TypeScript Call Hierarchy provider', 
   assert.equal(response.data.mode, 'smoke');
   assert.equal(response.data.checks.at(-1).id, 'initialize-capability-smoke');
   assert.equal(response.data.checks.at(-1).callHierarchy, true);
+});
+
+// task-m2-python-preset.md stage 4: `executableCheck`'s `tier === 'bundled'` branch used to call
+// `inspectBundledTypeScriptArtifact()` unconditionally, which was only correct while `bundled-typescript`
+// was the sole bundled preset. Once `bundled-pyright` shipped, that bug would have made this exact
+// command report TypeScript's package/version/entry as a `pass` for a pyright check - a wrong answer
+// reported as success, never a failure a user would notice. This is the regression guard: it fails if
+// that bug ever comes back, for this preset or the next bundled one.
+test('reports bundled pyright runtime preflight as compact JSON, not TypeScript\'s artifact', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const result = spawnSync(process.execPath, [executable, 'doctor', 'bundled-pyright'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, '');
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.operation, 'provider.doctor');
+  assert.equal(response.data.status, 'ready');
+  assert.equal(response.data.mode, 'preflight');
+  const artifact = response.data.checks[2];
+  assert.equal(artifact.id, 'bundled-provider-artifact');
+  assert.equal(artifact.package, 'pyright');
+  assert.equal(artifact.version, '1.1.413');
+  assert.equal(artifact.entry, 'langserver.index.js');
+  assert.equal(artifact.typescriptVersion, undefined, 'pyright has no separate compiler package to report');
+  assert.doesNotMatch(result.stdout, new RegExp(process.cwd()));
+});
+
+test('doctor smoke initializes the bundled pyright Call Hierarchy provider', { timeout: 30000 }, () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const result = spawnSync(process.execPath, [executable, 'doctor', 'bundled-pyright', '--smoke'], {
+    encoding: 'utf8',
+    timeout: 25000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.data.mode, 'smoke');
+  assert.equal(response.data.checks.at(-1).id, 'initialize-capability-smoke');
+  assert.equal(response.data.checks.at(-1).callHierarchy, true);
+});
+
+test('doctor fixture proves a real pyright Call Hierarchy round trip', { timeout: 30000 }, () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const result = spawnSync(process.execPath, [executable, 'doctor', 'bundled-pyright', '--fixture'], {
+    encoding: 'utf8',
+    timeout: 25000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.data.mode, 'fixture');
+  const fixtureCheck = response.data.checks.at(-1);
+  assert.equal(fixtureCheck.id, 'fixture-call-hierarchy');
+  assert.equal(fixtureCheck.status, 'pass');
+  assert.deepEqual(fixtureCheck.observedCallers, ['fixture_caller']);
+});
+
+// The guard `providers.test.ts:734`'s cross-check ("every preset's declared extensions are actually
+// reachable through languageId()") cannot provide on its own: it proves `.py` -> `bundled-pyright` is
+// declared consistently, not that the whole path actually produces a correct answer for a real file.
+// task-m2-python-preset.md stage 4 requires this real end-to-end proof, mirroring the gopls lane's own
+// "auto-discovery through no test-only override" requirement.
+test('auto-discovery reaches bundled-pyright for a real .py file with no provider field at all', { timeout: 30000 }, t => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'impact-lens-py-e2e-'));
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(workspace, 'target.py'), 'def fixture_target(value: int) -> int:\n    return value + 1\n');
+  fs.writeFileSync(
+    path.join(workspace, 'caller.py'),
+    'from target import fixture_target\n\n\ndef fixture_caller(value: int) -> int:\n    return fixture_target(value)\n',
+  );
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    timeout: 25000,
+    input: JSON.stringify({ workspace, file: 'target.py', line: 1, column: 5 }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.ok, true);
+  assert.equal(response.data.provider.selectedBy, 'bundled');
+  assert.equal(response.data.provider.detectedLanguageId, 'python');
+  assert.equal(response.data.completion.requestStatus, 'succeeded');
+  const callerNames = (response.data.nodes as Array<{ name: string }>).map(node => node.name);
+  assert.ok(callerNames.includes('fixture_caller'), JSON.stringify(callerNames));
 });
 
 test('doctor rejects a non-positive smoke timeout', () => {
@@ -100,13 +183,17 @@ test('reports a missing Language Server as a launch failure', () => {
   assert.equal(error.details.executable, 'impact-lens-language-server');
 });
 
-test('does not launch the bundled TypeScript provider for Python', () => {
+// Python moved from "no bundled preset" to `bundled-pyright` in M2 (task-m2-python-preset.md), so this
+// guard now needs a language the catalog genuinely does not cover. `.c` -> `c` is that language today
+// (clangd is a future lane, not yet a preset) - the point being tested is unchanged: an unclaimed
+// language must fail with `provider_required_for_language`, never silently fall back to bundled-typescript.
+test('does not launch the bundled TypeScript provider for an unclaimed language', () => {
   const executable = path.resolve(__dirname, '..', 'index.js');
   const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
     encoding: 'utf8',
     input: JSON.stringify({
       workspace: path.resolve(__dirname, '..', '..'),
-      file: 'not-created.py',
+      file: 'not-created.c',
       line: 1,
       column: 1,
     }),
@@ -116,7 +203,7 @@ test('does not launch the bundled TypeScript provider for Python', () => {
   assert.equal(error.code, 'provider_required_for_language');
   assert.equal(error.retryable, false);
   assert.equal(error.details.stage, 'discovery');
-  assert.equal(error.details.detectedLanguageId, 'python');
+  assert.equal(error.details.detectedLanguageId, 'c');
 });
 
 test('rejects an explicit languageId mismatch before launching the provider', () => {
@@ -369,4 +456,62 @@ test('an oversized non-ASCII serverInfo.version stays within the schema byte lim
     `expected <=256 bytes (the declared schema maxLength), got ${Buffer.byteLength(providerVersion, 'utf8')}: ${JSON.stringify(providerVersion)}`,
   );
   assert.ok(providerVersion.endsWith('…[truncated]'), 'expected a visible marker, not a silently cut value');
+});
+
+// docs/work/task-m2-python-preset.md stage 3: `lspProvider.ts`'s `incoming()` folds a raw JSON-RPC
+// `null` into the same `[]` a real "zero callers" answer would return. This drives the actual `?? []`
+// line through a real subprocess round trip, not a mock at the `CallHierarchyProvider` interface level
+// that would bypass it - the risk this stage's own plan flagged as easiest to get a vacuous pass on.
+test('a provider answering null (not []) for incoming calls gets an explicit, unpromoted limitation', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'nullIncomingCallsServer.js');
+  const targetUri = pathToFileURL(path.resolve(__dirname, '..', '..', 'src', 'testFile.ts')).toString();
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    env: { ...process.env, IMPACT_LENS_MOCK_TARGET_URI: targetUri },
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.ok, true);
+  assert.equal(response.data.nodes.length, 1, 'only the root - the null collapsed to no expanded callers');
+
+  const codes = (response.data.limitationDetails as Array<{ code: string }>).map(detail => detail.code);
+  assert.ok(codes.includes('provider_null_incoming_calls'), JSON.stringify(codes));
+  // Withheld from the v1 array by design (docs/work/task-m1-completeness-emit.md decision D6's
+  // mechanism, reused here) - an old consumer of `limitations`/`coverage.reasons` sees no new value.
+  assert.ok(!(response.data.limitations as string[]).includes('provider_null_incoming_calls'));
+  assert.ok(!(response.data.coverage.reasons as string[]).includes('provider_null_incoming_calls'));
+});
+
+// The negative control for the test above: `dynamicCallHierarchyServer.ts` is the same shape but answers
+// an explicit `[]`. Without this, the previous test could pass vacuously for any 0-caller result.
+test('a provider answering an explicit [] for incoming calls never gets the null-specific limitation', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'dynamicCallHierarchyServer.js');
+  const targetUri = pathToFileURL(path.resolve(__dirname, '..', '..', 'src', 'testFile.ts')).toString();
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    env: { ...process.env, IMPACT_LENS_MOCK_TARGET_URI: targetUri },
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.ok, true);
+  assert.equal(response.data.nodes.length, 1);
+
+  const codes = (response.data.limitationDetails as Array<{ code: string }>).map(detail => detail.code);
+  assert.ok(!codes.includes('provider_null_incoming_calls'), JSON.stringify(codes));
 });

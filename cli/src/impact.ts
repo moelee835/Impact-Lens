@@ -96,6 +96,19 @@ export async function analyzeImpact(
     reachedDepth,
     maxNodes,
     // The traversal seeds `entries` with the root, so this is 0 exactly when the provider returned no caller.
+    //
+    // Load-bearing invariant `coverage.ts` depends on for `nullIncomingCallsObserved`: this is 0 if and
+    // only if `traverse()` below called `provider.incoming()` exactly once (for the root). `entries` only
+    // grows inside the `entries.push(entry)` branch of the loop below, which runs only when a returned
+    // call's source is unseen - so a second `incoming()` call happens only after that branch already
+    // pushed a new entry, which this being 0 rules out. A root that calls itself does not break this: the
+    // self-reference hits `seen.has(source)` and becomes an edge only, so `entries.length` and the query
+    // count both still read 1. (`impact.test.ts`: "the invariant..." and "a self-recursive root..." guard
+    // this by counting `incoming()` calls directly.) If `traverse()` is ever changed to query anything
+    // before deciding there are no callers - a pre-check, a provider instance reused across requests, or
+    // any second query on the root's own path - this count can exceed 1 while still leaving
+    // `incomingCallerCount` at 0, and a `null` observed on that *other* query would then attach to a
+    // result it says nothing about. Re-verify this invariant before making that kind of change.
     incomingCallerCount: traversal.entries.length - 1,
     diagnosticsSupported: provider.capabilities.diagnostics,
   }, { ...provider.analysisObservations?.(), ...observations });
