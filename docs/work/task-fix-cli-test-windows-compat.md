@@ -86,11 +86,32 @@ lane이 바뀌면 조용히 사라질 위험이 있다는 점도 이 결정 정�
 
 ## 판정 — 제품 결함이 아니라 test 결함이다
 
-원인 A·B 둘 다 `cli/src/providers/discovery.ts`, `cli/src/runtime.ts`의 실제 프로덕션 동작에는 문제가
-없다. `findExecutable()`의 platform별 분기는 의도대로 동작하고, `bundledModuleEntryPath()`/artifact
-inspection이 만드는 실제 경로도 각 OS에서 올바른 네이티브 경로다. 문제는 오직 **test가 그 경로를
-검증하는 방식**(host가 만든 진짜 절대경로를 다른 platform 시뮬레이션에 섞어 씀, 그리고 OS 무관해야
-할 assertion에 forward slash를 하드코딩함)에 있다.
+원인 A·B·C(아래 "원인 C" 참고) 전부 `cli/src/providers/discovery.ts`, `cli/src/runtime.ts`의 실제
+프로덕션 동작에는 문제가 없다. `findExecutable()`의 platform별 분기는 의도대로 동작하고,
+`bundledModuleEntryPath()`/artifact inspection이 만드는 실제 경로도 각 OS에서 올바른 네이티브 경로다.
+문제는 오직 **test가 그 경로를 검증하는 방식**(host가 만든 진짜 절대경로를 다른 platform 시뮬레이션에
+섞어 씀, OS 무관해야 할 assertion에 forward slash를 하드코딩함, host의 `path.join()` 반환값을 다른
+platform 시뮬레이션에 명시 경로로 투입함)에 있다.
+
+**특히 원인 C에 대해 명시적으로 판정한다: `findExecutable()`을 고치지 않는다.**
+`name.includes('/') || (platform === 'win32' && name.includes('\\'))`가 `platform: 'linux'`에서
+backslash를 경로 구분자로 인정하지 않는 건 **버그가 아니라 올바른 설계**다 — 실제 Linux/macOS에서
+backslash는 파일명에 쓸 수 있는 평범한 문자이고, 그걸 구분자로 오인하면 `a\b`라는 이름의 실제 파일을
+경로 두 조각으로 잘못 쪼갤 수 있다. 이 판정을 놓치고 production 코드 쪽을 "고쳐서" 통과시켰다면 실제
+Linux 사용자에게 영향을 주는 새 버그를 심는 것이었다. 다음에 같은 실패를 보는 사람은 test의 문자열
+생성 방식을 의심해야지 `findExecutable()`을 의심하면 안 된다.
+
+### 세 원인의 공통 규칙 (guard test 대신 코드 주석으로 남김)
+
+A·B·C 전부 뿌리가 같다: **platform을 인자로 시뮬레이션하면서 host가 실제로 만든 문자열을 그 안에
+섞어 썼다.** `os.tmpdir()`의 드라이브 콜론(A), assertion의 forward-slash 하드코딩(B),
+`path.join()`의 반환값을 명시 경로로 재사용(C) — 형태는 다르지만 전부 "시뮬레이션이 요구하는 문자열
+형태를 실제로 보장하지 않았다"는 하나의 실수다. **regex source-scan guard는 추가하지 않는다** —
+`cli-tests-cross-os` CI job 자체가 이미 이보다 강한 guard이고(네 번째 사례가 생기면 실행 결과로 바로
+잡힌다), 이 저장소는 이미 두 번(`stateReachability.sources.test.ts`의 shorthand 맹점,
+`buildInvocation.sources.test.ts`의 정규식 구멍) source-scan guard의 한계에 시간을 썼다. 대신 이
+규칙을 test가 실제로 작성되는 자리(`syntheticPosixDirectory()`/`writeExecutable()` 옆 주석)에
+직접 적어 다음 사람이 유혹을 느끼는 순간 바로 보이게 했다.
 
 ## 단계별 구현 계획
 
@@ -114,15 +135,16 @@ inspection이 만드는 실제 경로도 각 OS에서 올바른 네이티브 경
 - [x] 아무 test도 `win32`에서 skip되지 않는다 — `grep -n "win32"` 재확인: 남은 매치는 새 헬퍼의 주석과
   `platform: 'win32'`를 명시적으로 테스트하는 기존 test(이미 옳게 설계돼 있던 것) 하나뿐이다.
 - [x] 로컬(macOS) `npm run cli:test` 271/271, `npm run test:all` 전체 통과(회귀 없음).
-- [ ] **이 PR 자신의 CI**에 `cli-tests-cross-os`(windows-latest, macos-latest) job을 추가해
-  `npm run cli:test`가 실제로 두 OS에서 green이 되는 것을 이 PR 안에서 직접 확인한다 —
-  `/tmp/...` 합성 경로가 Windows CI runner에서 실제로 쓰기 가능한지에 대한 유일한 실제 답.
-- [ ] green이면 merge → PR #60(`test/m2-gopls-ci-verification`)을 rebase → `go-provider`
-  windows-latest job도 전체 `cli:test`로 green인지 재확인(같은 fix가 다른 job에서도 성립하는지 교차
-  확인 — 결과가 다르면 그 자체가 결함).
-- [ ] red면(예: `/tmp` 드라이브 루트 쓰기 불가) **추측으로 미리 바꾸지 않고** 실제 CI 로그를 근거로
-  합성 경로의 형태를 다시 설계한다(commander가 제시한 대안: 실제 temp 디렉터리 안에 콜론 없는 상대
-  구조를 만들거나, 디스크 없이 lookup 로직만 stub).
+- [x] **이 PR 자신의 CI**에 `cli-tests-cross-os`(windows-latest, macos-latest) job을 추가해
+  `npm run cli:test`가 실제로 두 OS에서 green이 되는 것을 이 PR 안에서 직접 확인했다 —
+  1차 실행: `/tmp/...` 합성 경로 자체는 유효(6개 중 5개 통과), 원인 C(별도 결함) 1건 추가 발견.
+  2차 실행(원인 C 수정 후): windows-latest·macos-latest·ubuntu-latest 전부 green, `mergeStateStatus:
+  CLEAN`.
+- [x] 원인 A·B·C 공통 규칙을 guard test가 아니라 `syntheticPosixDirectory()`/`writeExecutable()` 옆
+  코드 주석으로 남겼다(commander 판단: `cli-tests-cross-os` 자체가 이미 이보다 강한 guard).
+- [ ] merge 후 PR #60(`test/m2-gopls-ci-verification`)을 rebase → `go-provider` windows-latest job도
+  전체 `cli:test`로 green인지 재확인(같은 fix가 다른 job에서도 성립하는지 교차 확인 — 결과가 다르면
+  그 자체가 결함).
 
 ## 작업 로그
 
