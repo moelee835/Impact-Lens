@@ -134,15 +134,14 @@ different statement about an empty or partial result; do not treat them intercha
 ### `unknown` — the provider made no claim
 
 The provider never reported an index state. An empty result is not evidence that no caller exists, which is
-why the response carries `index_state_unknown`. No preset in the shipped catalog declares a `readiness`
-profile yet (`cli/src/providers/catalog.ts` marks every bundled preset "claims nothing about indexing"), so
-`unknown` is what agents see with every bundled and catalog provider today. No request field or
-`.impact-lens/provider.json` field lets a user attach a `readiness` profile — `readiness` is not part of
-either schema, so a user cannot reach `ready` or `working` through any configuration available today.
-Those two states only start appearing once a preset that declares `readiness` enters the shipped catalog,
-which is a code change, not something this CLI's current surface exposes. Implement handling for both
-states anyway: they are part of the schema and will become reachable without warning once that catalog
-change ships, so do not hard-code an assumption that only `unknown` exists.
+why the response carries `index_state_unknown`. `bundled-typescript` still declares no `readiness` profile
+(`cli/src/providers/catalog.ts` marks it "claims nothing about indexing"), so `unknown` is what agents see
+for every TypeScript/JavaScript analysis. `gopls` (the shipped Go preset, M2) does declare `readiness`, so
+`working`/`ready` are real for Go: no request field or `.impact-lens/provider.json` field lets a user
+attach a `readiness` profile directly — `readiness` is still not part of either schema — but a user reaches
+`ready`/`working` simply by having `gopls` installed and analyzing a Go project through ordinary
+auto-discovery, no extra configuration needed. Implement handling for all three states: which one appears
+depends on which preset auto-discovery selects, not on anything the request configures.
 
 ### `working` — the provider is still indexing
 

@@ -56,9 +56,14 @@ executable discovery와 version policy"를 명시하고, 위험 대응에 "언�
 **제외(stage 4 이후)**:
 - Python/clangd(M2의 나머지 lane) — 이 lane은 gopls 하나만 다룬다.
 
-## 알면서 남겨둔 창 — README·user-test-spec의 "preset 하나뿐" 서술
+## 알면서 남겨둔 창 — README·user-test-spec의 "preset 하나뿐" 서술 (닫힘, 2026-09-02)
 
-`git grep`으로 재생성한 현재(`main` `fe0c239` 기준) 결과:
+**CI가 3개 OS(ubuntu-latest, macos-latest, windows-latest) 전부에서 green이 된 뒤, 아래 목록을
+`git grep`으로 재생성해 한 번에 정정했다.** `README.md`, `cli/README.md`(재생성 과정에서 처음
+발견 — 아래 참고), `m1-user-test-spec.md`, `cli-contract.md` 전부 반영. `lastVerified` OS 확대는
+`catalog.ts`에 별도로 반영(아래 "OS 확대" 참고).
+
+원래 발견 시점(`main` `fe0c239` 기준) 목록:
 
 - `README.md:196` — "검증된 auto-discovery — ... 정확히 하나뿐이고" (일반 서술, 그 자체로는 여전히 참 —
   "정확히 하나"라는 선택 규칙 자체는 맞고, 문제는 다음 줄).
@@ -87,6 +92,31 @@ executable discovery와 version policy"를 명시하고, 위험 대응에 "언�
 **발행된 v0.7.0과의 구분**: v0.7.0(이미 발행 완료, `docs/work/task-...v0.7.0...` 참고)은 gopls가 없는
 시점에 발행됐으므로, 그 릴리스가 가리키는 README/문서 스냅샷에 대해서는 위 서술이 **여전히 참**이다.
 이 gap은 `main`(다음 release 후보)에만 해당한다.
+
+### 실제 정정 내역
+
+- `README.md:201` — "preset이 `bundled-typescript` 하나뿐" → 두 preset(`bundled-typescript`, `gopls`)
+  명시, Python/C·C++가 다음 후보라고 정정.
+- `README.md:305-308` 부근 — `working`/`ready`가 "오늘 사용자가 만들 수 없다"고 했던 문장을, gopls로
+  Go 프로젝트를 분석하면 실제로 도달한다고 정정.
+- **`cli/README.md`(원래 목록에 없었다 — `git grep`을 CLI 하위 README까지 넓혀 재실행하다 발견)**:
+  `:184` "catalog has exactly one entry today, `bundled-typescript`" → 두 entry로 정정.
+  `:110-115` "No preset in the shipped catalog declares a readiness profile, so unknown is the only
+  value reachable today" → gopls는 선언한다고 정정. **이건 원래 "알면서 남겨둔 창" 목록 자체가
+  불완전했다는 뜻이다** — PR #55가 이미 겪은 "정적 목록이 낡는다"는 위험이 이번엔 발견 단계에서부터
+  나타났다. 다음에 이런 sweep을 할 땐 `README.md`뿐 아니라 하위 디렉터리의 모든 `README.md`/`*.md`를
+  `git grep`으로 훑어야 한다는 교훈으로 남긴다.
+- `docs/development-management/user-tests/m1-user-test-spec.md:60` 등 3행 — 원문은 지우지 않고(이
+  표 자체가 M1 시점 기록으로서의 가치가 있음), 2026-09-02 정정 인용문을 표 바로 아래에 추가해 Go에
+  한해 검증 가능해졌다고 명시.
+- `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md:137-145` — "No preset...
+  declares a readiness profile yet... cannot reach ready or working through any configuration available
+  today"를 gopls 기준으로 정정. `test:response-policy`의 doc-invariant check(SKILL.md/cli-contract.md/
+  analyze.md의 구조적 불변식을 검증)가 이 수정 후에도 통과함을 확인 — 이 파일은 자유 형식 문서가
+  아니라 검증되는 계약이므로 이 확인이 필요했다.
+- `cli/src/providers/catalog.ts`의 `lastVerified` 주석 — darwin/arm64 전용 서술을, "0.19.1은 CI가 3-OS
+  실제 검증, 0.23.0은 여전히 darwin/arm64 수동 검증뿐"이라고 버전별로 정정(과장 방지 — 0.23.0까지
+  3-OS로 확대 주장하지 않는다).
 
 ## 현재 구현 조사 결과
 
@@ -120,20 +150,26 @@ executable discovery와 version policy"를 명시하고, 위험 대응에 "언�
 
 ## 테스트 및 완료 기준
 
-- [ ] 새 Go CI job이 `unit-tests.yml`의 기존 job과 분리돼 있고 `fail-fast: false`인 3-OS matrix다.
-- [ ] gopls가 버전 고정으로 설치되고(`@latest` 아님), job 로그에 실제 `gopls version` 출력이 남는다.
-- [ ] Go job에서 `IMPACT_LENS_REQUIRE_GOPLS=1`이 설정돼 있고, gopls가 없으면 skip이 아니라 fail한다는
-  것을 로컬에서 직접 재현해 확인한다.
-- [ ] `stateReachability.integration.test.ts`에 real gopls 기반 `ready` row 추가, 로컬(gopls 있음)에서
+- [x] 새 Go CI job(`go-provider`)이 `unit-tests.yml`의 기존 job과 분리돼 있고 `fail-fast: false`인
+  3-OS matrix다.
+- [x] gopls가 버전 고정(`v0.19.1`, `@latest` 아님)으로 설치되고, job 로그에 실제 `gopls version` 출력이
+  남는다.
+- [x] Go job에서 `IMPACT_LENS_REQUIRE_GOPLS=1`이 설정돼 있고, gopls가 없으면 skip이 아니라 fail한다는
+  것을 로컬에서 직접 재현해 확인했다.
+- [x] `stateReachability.integration.test.ts`에 real gopls 기반 `ready` row 추가, 로컬(gopls 있음)에서
   통과 확인.
-- [ ] 가능하면 `working` row도 추가(실패해도 gate는 아님 — 계획 문서가 "가능하면"으로 남겨둠).
-- [ ] `npm run test:all` 로컬 통과, 특히 `test:plugin-artifact`의 TypeScript `selectedBy: 'bundled'` 유지.
-- [ ] `buildInvocation.sources.test.ts`가 CI workflow의 `go install`을 대상으로 하지 않는다는 구분을
-  작업 로그에 명시(guard는 제품 코드만 스캔, CI yaml은 스캔하지 않음 — 이것도 한계로 기록).
-- [ ] CI에 push한 뒤 3개 OS 전부 green 확인(GitHub Actions run 링크를 작업 로그에 남긴다).
-- [ ] 3개 OS 전부 green 확인 **전에는** `lastVerified`/README/`stateReachability` 주석의 OS 범위를
-  넓히지 않는다. green 확인 **후**, 같은 PR 안에서 `git grep`을 재실행해 "알면서 남겨둔 창" 섹션의
-  README/`m1-user-test-spec.md` 서술과 `lastVerified` OS 범위를 한 번에 정정한다.
+- [x] `working` row도 추가해 통과 확인(readiness budget만 override, 나머지는 shipped preset 그대로).
+- [x] `npm run test:all` 로컬 통과(gopls 있음/없음 양쪽), `test:plugin-artifact`의 TypeScript
+  `selectedBy: 'bundled'` 유지 확인.
+- [x] `buildInvocation.sources.test.ts`는 `cli/src` 아래 `.ts` 파일만 스캔하고 `.github/workflows/`의
+  `go install`은 대상이 아니다 — CI 설정은 제품 코드가 아니므로 이 guard의 범위 밖이라는 구분을 확인
+  (guard 소스를 직접 읽어 확인, 4/4 재실행 통과).
+- [x] CI에 push한 뒤 3개 OS 전부 green 확인 — 1차(`33585611214`)에서 확인, PR #61 merge 후 rebase한
+  2차(같은 run)에서도 재확인.
+- [x] 3개 OS 전부 green 확인 **후**, `git grep`을 재실행해 README.md/`cli/README.md`(sweep 중 새로
+  발견)/`m1-user-test-spec.md`/`cli-contract.md`의 "preset 하나뿐"/"readiness 도달 불가" 서술과
+  `catalog.ts`의 `lastVerified` 주석(버전별로 구분: 0.19.1은 3-OS, 0.23.0은 여전히 darwin/arm64만)을
+  한 commit에서 정정했다.
 
 ## 작업 로그
 
@@ -229,3 +265,24 @@ suite를 다른 환경에서 돌려 서로 다른 것을 증명한다:
   아무도 안 보게 된다. **PR #61 작업 문서(`task-fix-cli-test-windows-compat.md`)의 후속 과제 3번
   ("`unit` job과 `cli-tests-cross-os` job의 구조 정리")에 이 구분을 후속 커밋으로 추가해야 한다** —
   이건 별도 커밋 대상이라 지금 이 branch에서 처리하지 않는다.
+
+### 2026-09-02 — 3-OS green 확인 후 문서 정정 커밋
+
+- CI 3-OS(ubuntu-latest, macos-latest, windows-latest) 전부 green(`mergeStateStatus: CLEAN`) 확인 후,
+  계획대로 `lastVerified` OS 확대와 README/user-test-spec/cli-contract.md 정정을 같은 PR의 후속
+  commit으로 추가했다.
+- `catalog.ts`의 `lastVerified` 주석: darwin/arm64 전용 서술을 버전별로 정정 — **`0.19.1`은 CI가 3-OS
+  전부에서 실제 auto-discovery+Call Hierarchy+readiness 왕복을 검증**, `0.23.0`은 여전히 darwin/arm64
+  수동 검증뿐(CI는 `0.19.1`만 설치·검증하므로 `0.23.0`까지 3-OS로 확대 주장하지 않는다 — 과장 방지).
+- 문서 정정 4개 파일: `README.md`(2곳), `cli/README.md`(2곳 — **sweep 도중 새로 발견, 원래
+  "알면서 남겨둔 창" 목록에 없었다**), `m1-user-test-spec.md`(원문 유지, 정정 인용문 추가),
+  `cli-contract.md`(readiness 도달 불가 서술 정정, `test:response-policy`의 doc-invariant check로
+  구조적 정합성 재확인).
+- **`cli/README.md`가 원래 목록에 없었다는 사실 자체를 기록한다**: "알면서 남겨둔 창" 섹션을 처음 쓸
+  때 `README.md`/`m1-user-test-spec.md`/`cli-contract.md`만 `git grep`했고 하위 디렉터리의
+  `cli/README.md`는 빠뜨렸다. 이번 sweep에서 범위를 넓혀 재실행하다 발견했다 — PR #55가 이미 겪은
+  "정적 목록이 낡는다"는 위험이, 이번엔 목록을 처음 작성하는 단계에서부터 나타난 것이다.
+- 로컬 재검증: `npm run cli:build`, `PATH`+`IMPACT_LENS_REQUIRE_GOPLS=1`로 `npm run test:all` 전체
+  통과(cli-contract.md 수정이 `test:response-policy`의 doc-invariant check를 깨지 않음을 확인).
+  `buildInvocation.sources.test.ts` 4/4 재확인 — `cli/src` 아래 `.ts` 파일만 스캔하므로
+  `.github/workflows/`의 `go install`은 이 guard의 대상이 아니라는 한계를 직접 소스로 재확인했다.
