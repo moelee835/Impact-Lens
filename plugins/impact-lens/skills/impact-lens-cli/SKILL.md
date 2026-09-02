@@ -45,6 +45,12 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
 - When a result has only the root node and no edges, inspect `no_incoming_callers` and, when present,
   `index_state_unknown` in `limitationDetails`. `index_state_unknown` accompanies only `indexingStatus:
   unknown`; its absence under `working` or `ready` is correct, not a gap to fill in.
+- Also check for `provider_null_incoming_calls` in `limitationDetails`, including under `indexingStatus:
+  ready` — unlike `index_state_unknown` it is not suppressed there, since it says something about this one
+  query, not about the index. It means the provider answered with `null` rather than an explicit `[]`, most
+  often because the symbol is invoked only through dependency injection or another framework mechanism a
+  static Call Hierarchy provider cannot see (FastAPI's `Depends()` is the reference case). When present, do
+  not state or imply that nothing calls the symbol.
 - State a summary in this order, conclusion last, because readers act on the first sentence: (1) evidence
   boundary — scope, indexing state, traversal completeness; (2) every `error`-severity then
   `warning`-severity `limitationDetails` entry, before any findings; (3) findings; (4) a conclusion

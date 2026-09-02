@@ -131,6 +131,43 @@ test('S3 - natural end, no callers, index state unknown', () => {
   assert.deepEqual(codes(projection).slice(2), ['no_incoming_callers', 'index_state_unknown']);
 });
 
+// docs/work/task-m2-python-preset.md stage 3: a 0-caller result whose only evidence was a raw `null`
+// (not `[]`) must not read the same as a provider's affirmative empty answer.
+test('S3-null - no callers, index unknown, and the provider never sent an explicit []', () => {
+  const projection = project({ incomingCallerCount: 0 }, { nullIncomingCallsObserved: true });
+  assert.equal(projection.complete, true);
+  assert.deepEqual(codes(projection).slice(2), [
+    'no_incoming_callers',
+    'index_state_unknown',
+    'provider_null_incoming_calls',
+  ]);
+});
+
+test('S2-null - no callers, index proven ready, but the null still stands on its own', () => {
+  const projection = project({ incomingCallerCount: 0 }, { indexing: READY, nullIncomingCallsObserved: true });
+  const reasons = codes(projection);
+  assert.ok(reasons.includes('no_incoming_callers'));
+  assert.ok(reasons.includes('provider_null_incoming_calls'));
+  // A proven-ready index says nothing about whether this specific query got `null` or `[]` - the two
+  // codes are independent axes, not one implying the other.
+  assert.ok(!reasons.includes('index_state_unknown'));
+});
+
+// The vacuous-pass guard this stage exists to close: without an observed `null`, a plain empty result
+// must not carry the new code just because the caller count happens to be 0.
+test('an empty result the provider answered with plain [] never carries provider_null_incoming_calls', () => {
+  const projection = project({ incomingCallerCount: 0 });
+  assert.ok(!codes(projection).includes('provider_null_incoming_calls'));
+});
+
+// The observation is session-level, but the code it produces is scoped to the exact result it is about:
+// a traversal that found real callers must not carry a warning about the 0-caller case, even if some
+// other node's query in the same session happened to answer null.
+test('a null observation does not leak into a result that found callers', () => {
+  const projection = project({ incomingCallerCount: 3 }, { nullIncomingCallsObserved: true });
+  assert.ok(!codes(projection).includes('provider_null_incoming_calls'));
+});
+
 test('S4 - depth limit', () => {
   const projection = project({ limits: new Set<TraversalLimit>(['depth']) });
   assert.deepEqual(projection.completion, {
@@ -277,7 +314,10 @@ test('the structured list and the v1 array differ only by the withheld codes', (
     codes(projection).filter(code => !V1_WITHHELD_REASON_CODES.has(code)),
     [...projection.limitations],
   );
-  assert.deepEqual([...V1_WITHHELD_REASON_CODES], ['no_incoming_callers', 'index_state_unknown']);
+  assert.deepEqual(
+    [...V1_WITHHELD_REASON_CODES],
+    ['no_incoming_callers', 'index_state_unknown', 'provider_null_incoming_calls'],
+  );
 });
 
 test('every structured detail carries a severity, a scope and a message', () => {

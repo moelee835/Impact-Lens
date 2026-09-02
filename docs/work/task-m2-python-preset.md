@@ -1,6 +1,7 @@
 # M2 — Python provider preset 구현
 
-- 상태: Stage 1·2 완료(`bundled` + `pyright`) — Stage 3(`null`/`[]` 방향) 착수 전 보고 대기
+- 상태: Stage 1·2·3 완료(`bundled` + `pyright` + `null`/`[]` 방향 (나) 구현) — commander 보고 대기,
+  Stage 4 착수 전
 - branch: `feat/m2-python-preset`
 - 선행: `docs/m2-python-investigation`(PR #63, merged `f872074`) — "Call Hierarchy를 실제로 구현한
   OSS Python Language Server가 있는가"에 실행으로 답한 조사 lane. 이 문서는 그 결론을 preset으로
@@ -191,7 +192,9 @@ cli-contract, CHANGELOG, skill 문서)를 갱신한다. 문장·번역 표현으
 - [x] Stage 1: install closure 증가분 실측 완료(`bundled` 결정, 근거는 위 작업 로그), commander 승인.
 - [x] Stage 2: `pyright` 선택, 탈락 사유(basedpyright의 자체 문서상 npm 2급 채널 표시) 기록,
       fixture 재현 통과.
-- [ ] Stage 3: `null`/`[]` 방향 구현, `Depends()` 모양 fixture가 `?? []` 경로를 실제로 밟는 것을 확인.
+- [x] Stage 3: 방향 (나) 구현(`provider_null_incoming_calls`), `nullIncomingCallsServer.ts` fixture로
+      `?? []` 경로를 실제로 밟는 e2e 테스트 + 음성 대조군 통과, 사용자 문서 3곳 갱신. eval fixture
+      추가는 stage 6로 flagging.
 - [ ] Stage 4: preset + fixture, `doctor --smoke --fixture` 통과, 실제 `.py` E2E 통과.
 - [ ] Stage 5: 3-OS CI job, 서버 부재 시 실패 확인.
 - [ ] Stage 6: 식별자 기반 grep으로 문서 갱신 완료 확인.
@@ -409,3 +412,80 @@ lane이 이미 같은 fixture에서 두 provider의 결과가 byte-identical이�
 **검증**: 이 scratch에 이미 설치된 pyright로 `lsp-probe.mjs`를 다시 실행해 Call Hierarchy 왕복을
 재확인했다(`fixture_caller found as incoming call? true`, 이 lane이 2026-09-02에 직접 재현) — 조사
 lane의 결과를 그대로 믿지 않고 이 lane에서 다시 왕복시켰다.
+
+### 2026-09-02 — Stage 3: `null`/`[]` 처리 방향 결정 및 구현
+
+**목표를 다시 명확히 한다(commander 지적)**: `null`과 `[]`를 구분하는 것 자체가 목표가 아니다. 목표는
+FastAPI 사용자가 `Depends()`로만 불리는 함수를 조회했을 때 `complete: true` + 빈 결과를 "아무도 안
+부른다"로 잘못 읽지 않게 하는 것이다.
+
+**선례 확인(구현 전에 필수로 읽음)**: `cli/src/types.ts:201`의 `languageMatch: boolean | 'unknown'`과
+`:204-212`의 `advertised`/`observed` capability 분리를 다시 읽었다. 둘 다 같은 패턴이다 — **provider
+편차를 억지로 하나의 값으로 밀어 넣지 않고, "모른다"를 표현하는 세 번째 값(또는 별도 필드)을 만든다.**
+
+**선택한 방향: (나) — 구분하지 않되 "구분할 수 없다는 사실 자체"를 한계로 표면화한다.** (가)(provider별
+`null` 의미 선언)와 (다)(관측된 provider 한정 구분)를 고르지 않은 이유:
+- (가)는 pyright의 `null`이 "답할 수 없음"과 "0건 계산함" 중 무엇인지 이 lane도, 조사 lane도 확인하지
+  못한 채로 특정 의미를 선언하는 것이 된다 — 확인하지 못한 것을 확인한 것처럼 적는 것과 같다.
+- (다)는 "관측된 provider"가 지금은 pyright 하나뿐이라 (가)와 사실상 같은 문제를 가지면서, 나중에
+  `verified-external`/custom provider가 추가될 때마다 이 목록을 유지보수해야 하는 부담이 더 생긴다.
+- (나)는 pyright에 대해서든 앞으로 추가될 어떤 provider에 대해서든 똑같이 적용된다 — "이 provider가
+  `null`로 무엇을 의미하는지 모른다"는 사실만 그대로 전달하고, 그 사실 자체를 프로덕션이 아는 척하지
+  않는다. `languageMatch: 'unknown'`이 정확히 같은 형태의 결정이다(감지 불가능한 언어를 `false`도
+  `true`도 아닌 별도 값으로 표현).
+
+**구현(코드 변경, 4곳)**:
+1. `cli/src/types.ts` — `AnalysisObservations`에 `nullIncomingCallsObserved?: boolean`을 추가.
+   `null`과 `[]`의 구분이 사실이지 해석이 아님을 doc comment에 명시(LSP가 이 메서드의 `null`에
+   단일 의미를 주지 않는다는 점 포함).
+2. `cli/src/lspProvider.ts` — `incoming()`이 여전히 `calls ?? []`로 반환하지만(호출부 타입은 안
+   바꿈), raw 응답이 `null`이었는지를 세션 단위 private 필드(`nullIncomingCallsObserved`)에 남기고
+   `analysisObservations()`가 항상 이 필드를 포함해 반환한다(`indexing`과 같은 패턴 — 조건부로
+   생략하면 아래 3번 guard test가 요구하는 "has-producer 필드는 항상 key로 존재" 불변식이 깨진다는
+   것을 `stateReachability.integration.test.ts`가 실제로 잡아냈다).
+3. `cli/src/coverage.ts` — `limitationDetailsFor`가 `observations`를 세 번째 인자로 받도록 확장(기존
+   호출부 1곳만 수정). `completion.requestStatus === 'succeeded' && facts.incomingCallerCount === 0`
+   분기 안에서 `observations.nullIncomingCallsObserved`가 참이면 새 코드
+   `provider_null_incoming_calls`(severity: warning, scope: provider)를 추가. **범위를 root 질의로
+   제한**했다 — 이 분기 자체가 "전체 traversal이 root 하나뿐"인 경우에만 참이므로(callers가 하나라도
+   있으면 이 분기에 안 들어옴), 세션 단위 플래그를 여기서 쓰는 것이 root 질의만을 정확히 가리킨다.
+   `V1_WITHHELD_REASON_CODES`에도 추가해 `no_incoming_callers`/`index_state_unknown`과 같은 방식으로
+   레거시 `limitations`/`coverage.reasons` 배열에는 노출하지 않는다(schemaVersion을 additive로 유지하는
+   기존 메커니즘 그대로 재사용 — 새 메커니즘을 발명하지 않았다).
+4. `cli/src/test/stateReachabilityClassification.ts` — `nullIncomingCallsObserved: 'has-producer'`로
+   분류(빌드 중 `stateReachability.sources.test.ts`가 "분류 안 된 새 필드"로 실제로 실패시켜 이 갱신을
+   강제했다 — guard가 설계대로 작동함을 확인).
+
+**schemaVersion 확인**: 올리지 않았다. `code`는 `response.schema.json`에서 plain string이라 enum
+제약이 없고(`grep`으로 직접 확인), `limitationDetails`는 이미 배열이라 새 코드 추가는 순수 additive다.
+
+**테스트(vacuous pass 방지가 핵심 요구사항이었다)**:
+- `cli/src/test/coverage.test.ts`에 truth-table 스타일 신규 테스트 4개 추가: `S3-null`(index unknown +
+  null), `S2-null`(index ready + null — `index_state_unknown`과 독립임을 확인), 그리고 두 개의 **부정
+  guard**: "plain `[]`는 새 코드를 절대 얻지 않는다"(가장 중요 — 이게 없으면 "0건이면 항상 이 코드"로
+  vacuous하게 통과할 수 있었다), "callers가 있으면 세션에 null 관측이 있어도 새 코드가 새지 않는다."
+- **`?? []` 라인 자체를 실제로 밟는 e2e 테스트**: `cli/src/test/fixtures/nullIncomingCallsServer.ts`를
+  새로 만들었다 — `callHierarchy/incomingCalls`에 실제 JSON-RPC `null`을 응답하는 진짜 stdio LSP mock
+  서버(기존 `dynamicCallHierarchyServer.ts`/`hugeServerVersionServer.ts`와 같은 패턴). `contract.test.ts`
+  에 이 서버를 실제 CLI 바이너리로 구동하는 테스트를 추가해 `limitationDetails`에 코드가 있고
+  `limitations`/`coverage.reasons`에는 없음을 확인했다. **음성 대조군**도 같은 테스트 구조로
+  추가했다 — 같은 fixture 모양이지만 `[]`를 답하는 기존 `dynamicCallHierarchyServer.ts`를 재사용해
+  새 코드가 나타나지 않음을 확인했다. Mock을 `CallHierarchyProvider` 인터페이스 층위가 아니라
+  `lspProvider.ts`가 실제로 말을 거는 자식 프로세스 층위에 둬서, `incoming()`의 `?? []` 줄 자체가
+  실행되는 경로를 증명한다.
+- `npm run test` 전체 286개 중 284 통과·2 skip(기존에 `IMPACT_LENS_REQUIRE_GOPLS` 필요라 skip이던
+  것, 이 변경과 무관)으로 회귀 없음을 확인했다.
+
+**사용자 문서 갱신(이 코드가 실제로 읽히게 하기 위해 stage 3에서 함께 처리 — stage 6로 미루지 않음)**:
+새 신호를 만들어도 그걸 읽는 쪽(Codex/Claude Code plugin agent)의 지침이 그대로면 무시된다고 판단해
+세 파일을 직접 갱신했다: `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`(코드
+설명과 `ready` 상태에서도 사라지지 않는다는 점 — `index_state_unknown`과의 차이 — 을 명시),
+`plugins/impact-lens/skills/impact-lens-cli/SKILL.md`와
+`plugins/impact-lens/commands/analyze.md`(에이전트가 0-caller 결과를 볼 때 이 코드도 확인하도록
+지시 추가).
+
+**남겨 둔 것(stage 6로 미룸, 지금 하지 않음)**: `scripts/fixtures/response-policy/`의 eval fixture
+세트(`scripts/test-response-policy.mjs`가 채점)에 이 시나리오(`Depends()` 모양 + `ready` 상태에서
+`provider_null_incoming_calls`가 나타나는 경우, 에이전트가 여전히 "안 불림"이라고 결론 내리면
+fail)를 추가하지 않았다 — 채점 스크립트의 `expectedViolations` 어휘를 먼저 이해해야 하는 별도
+단위 작업이라 이 stage의 범위를 넘는다고 판단했다. **"확인했다"고 적지 않고 이 목록에 남긴다.**

@@ -327,6 +327,19 @@ export interface AnalysisObservations {
   readonly interruption?: TraversalInterruption;
   readonly indexing?: IndexingCoverage;
   readonly semantic?: SemanticObservation;
+  /**
+   * Whether the session's `callHierarchy/incomingCalls` query returned JSON-RPC `null` at least once,
+   * as opposed to `[]`.
+   *
+   * This is a fact about the wire response, not an interpretation of it: the LSP spec gives this method
+   * no single meaning for `null`, so this field never claims the provider meant "cannot answer" versus
+   * "answered zero" (docs/work/task-m2-python-investigation.md, docs/work/task-m2-python-preset.md
+   * stage 3). It exists so a `0`-caller result whose only evidence was `null` can be told apart from one
+   * whose provider affirmatively returned `[]` - the former is not evidence that no caller exists (a
+   * FastAPI-style `Depends()` reference is the motivating case), the latter is the strongest static
+   * evidence this CLI can produce.
+   */
+  readonly nullIncomingCallsObserved?: boolean;
 }
 
 export interface ProviderCommand {

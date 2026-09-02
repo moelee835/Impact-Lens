@@ -71,6 +71,11 @@ Summarize from the parsed JSON, not from raw output, in this order — conclusio
   callers".
 - For one root node and no edges, inspect `no_incoming_callers` and, when present, `index_state_unknown` in
   `limitationDetails`. Its absence under `indexingStatus: ready` is correct, not a gap.
+- Also inspect `provider_null_incoming_calls` — it can appear even under `indexingStatus: ready`, since it
+  reports on this one query (the provider answered `null`, not `[]`) rather than on index completeness.
+  Typical cause: the symbol is only invoked through dependency injection or another framework mechanism
+  (e.g. FastAPI's `Depends()`) that static Call Hierarchy cannot see. Never state or imply "nothing calls
+  this" when it is present.
 - A `provider_not_ready` `error.code` on `ok: false` means no analysis ran and there is no graph; never
   present it as an empty result. A `provider_project_metadata_missing` failure names files the user must
   supply — Impact Lens never generates or syncs them; do not offer to create them.

@@ -370,3 +370,61 @@ test('an oversized non-ASCII serverInfo.version stays within the schema byte lim
   );
   assert.ok(providerVersion.endsWith('…[truncated]'), 'expected a visible marker, not a silently cut value');
 });
+
+// docs/work/task-m2-python-preset.md stage 3: `lspProvider.ts`'s `incoming()` folds a raw JSON-RPC
+// `null` into the same `[]` a real "zero callers" answer would return. This drives the actual `?? []`
+// line through a real subprocess round trip, not a mock at the `CallHierarchyProvider` interface level
+// that would bypass it - the risk this stage's own plan flagged as easiest to get a vacuous pass on.
+test('a provider answering null (not []) for incoming calls gets an explicit, unpromoted limitation', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'nullIncomingCallsServer.js');
+  const targetUri = pathToFileURL(path.resolve(__dirname, '..', '..', 'src', 'testFile.ts')).toString();
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    env: { ...process.env, IMPACT_LENS_MOCK_TARGET_URI: targetUri },
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.ok, true);
+  assert.equal(response.data.nodes.length, 1, 'only the root - the null collapsed to no expanded callers');
+
+  const codes = (response.data.limitationDetails as Array<{ code: string }>).map(detail => detail.code);
+  assert.ok(codes.includes('provider_null_incoming_calls'), JSON.stringify(codes));
+  // Withheld from the v1 array by design (docs/work/task-m1-completeness-emit.md decision D6's
+  // mechanism, reused here) - an old consumer of `limitations`/`coverage.reasons` sees no new value.
+  assert.ok(!(response.data.limitations as string[]).includes('provider_null_incoming_calls'));
+  assert.ok(!(response.data.coverage.reasons as string[]).includes('provider_null_incoming_calls'));
+});
+
+// The negative control for the test above: `dynamicCallHierarchyServer.ts` is the same shape but answers
+// an explicit `[]`. Without this, the previous test could pass vacuously for any 0-caller result.
+test('a provider answering an explicit [] for incoming calls never gets the null-specific limitation', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'dynamicCallHierarchyServer.js');
+  const targetUri = pathToFileURL(path.resolve(__dirname, '..', '..', 'src', 'testFile.ts')).toString();
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    env: { ...process.env, IMPACT_LENS_MOCK_TARGET_URI: targetUri },
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.ok, true);
+  assert.equal(response.data.nodes.length, 1);
+
+  const codes = (response.data.limitationDetails as Array<{ code: string }>).map(detail => detail.code);
+  assert.ok(!codes.includes('provider_null_incoming_calls'), JSON.stringify(codes));
+});

@@ -125,6 +125,15 @@ An empty incoming-call result has one root node and no edges. Read its limitatio
 - `index_state_unknown` means the provider did not prove its index ready, so the empty result is not evidence
   that no callers exist. It is present only when `indexingStatus: unknown`; see "Indexing state and
   completeness" below for what the same empty result means under `working` and `ready`.
+- `provider_null_incoming_calls` means the provider answered this specific query with JSON-RPC `null`
+  rather than an explicit `[]`. LSP gives `callHierarchy/incomingCalls` no method-specific meaning for
+  `null`, so treat it as "the provider did not commit to zero," not as a stronger or weaker signal than
+  that. Unlike `index_state_unknown`, this is not about index completeness — it can appear together with
+  `indexingStatus: ready` (proving the index is built says nothing about what this one query returned) —
+  so do not expect it to disappear once the index is proven ready. The motivating case is a symbol invoked
+  only through a mechanism a static Call Hierarchy provider cannot see, such as FastAPI's `Depends()` or
+  other framework-mediated dependency injection: the function is genuinely called, but not through a call
+  expression. When this code is present, do not state or imply that nothing calls the symbol.
 
 ## Indexing state and completeness
 
