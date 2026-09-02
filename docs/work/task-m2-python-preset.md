@@ -1,6 +1,6 @@
 # M2 — Python provider preset 구현
 
-- 상태: Stage 1 실측 완료(`bundled` 결정) — commander 확인 대기, Stage 2 착수 보류
+- 상태: Stage 1 완료(`bundled` 결정, commander 승인) — Stage 2 착수
 - branch: `feat/m2-python-preset`
 - 선행: `docs/m2-python-investigation`(PR #63, merged `f872074`) — "Call Hierarchy를 실제로 구현한
   OSS Python Language Server가 있는가"에 실행으로 답한 조사 lane. 이 문서는 그 결론을 preset으로
@@ -188,8 +188,7 @@ cli-contract, CHANGELOG, skill 문서)를 갱신한다. 문장·번역 표현으
 
 ## 테스트 및 완료 기준
 
-- [x] Stage 1: install closure 증가분 실측 완료(`bundled` 결정, 근거는 위 작업 로그) — commander
-      보고 및 진행 승인 대기.
+- [x] Stage 1: install closure 증가분 실측 완료(`bundled` 결정, 근거는 위 작업 로그), commander 승인.
 - [ ] Stage 2: 서버 선택과 탈락 사유 기록, fixture 통과.
 - [ ] Stage 3: `null`/`[]` 방향 구현, `Depends()` 모양 fixture가 `?? []` 경로를 실제로 밟는 것을 확인.
 - [ ] Stage 4: preset + fixture, `doctor --smoke --fixture` 통과, 실제 `.py` E2E 통과.
@@ -221,15 +220,33 @@ cli-contract, CHANGELOG, skill 문서)를 갱신한다. 문장·번역 표현으
 | 측정 | baseline | +pyright | +basedpyright |
 | --- | --- | --- | --- |
 | wall-clock (clean cache) | 0.80s | 2.36s | 2.47s |
-| cache 디렉터리 바이트(다운로드 근사) | 22,397,253 | 28,145,296 | 32,535,149 |
+| npm cache 디렉터리 바이트 | 22,397,253 | 28,145,296 | 32,535,149 |
 | `node_modules` 바이트(unpacked) | 26,051,044 | 45,396,550 | 53,667,877 |
 
 **증가분(후보 하나만 추가했을 때)**:
 
-| 후보 | wall-clock 증가 | 다운로드 증가(근사) | unpacked 증가 |
+| 후보 | wall-clock 증가 | npm cache 증가 | unpacked 증가 |
 | --- | --- | --- | --- |
 | `pyright` | +1.56s | +5,748,043 bytes(≈5.5 MB) | +19,345,506 bytes(≈18.4 MB) |
 | `basedpyright` | +1.67s | +10,137,896 bytes(≈9.7 MB) | +27,616,833 bytes(≈26.3 MB) |
+
+**정정(commander 재검토, 2026-09-02) — "다운로드 증가"라는 이름이 틀렸다.** npm cache 디렉터리
+증가분을 전송 바이트로 읽으면 안 된다 — cacache의 index·메타데이터 오버헤드가 섞여 있다. commander가
+각 패키지의 **실제 packed tarball**을 직접 받아 쟀고, 이 lane도 `npm view <pkg> dist.tarball`이
+가리키는 URL을 `curl`로 받아 바이트 수를 독립 재확인했다:
+
+| 패키지 | packed tarball(실측, 바이트) |
+| --- | --- |
+| `typescript@5.9.3` | 4,377,468 |
+| `typescript-language-server@6.0.0` | 515,598 |
+| `pyright@1.1.413` | 4,155,725 |
+| `basedpyright@1.39.10` | 6,156,337 |
+
+pyright의 실제 전송 바이트는 **약 4.2 MB**로, 위 "npm cache 증가분"(5.5 MB)보다 작다 — cache
+디렉터리 쪽이 오히려 보수적으로(더 크게) 잰 값이었다. **tier 결정은 바뀌지 않는다**(실제 비용이 더
+작다는 쪽으로만 정정된다). 위 표의 열 이름에서 "근사"를 지우고 "npm cache 디렉터리 바이트"로만
+표기해 다음 사람이 전송 바이트로 잘못 읽지 않게 했다 — 전송 바이트는 이 표가 아니라 위 packed
+tarball 표를 본다.
 
 **교차 검증**: 이 실측의 unpacked 증가분(pyright +19,345,506 / basedpyright +27,616,833)이 조사
 lane·계획 세션이 registry에서 조회한 `dist.unpackedSize` ballpark(pyright 19,344,986 /
@@ -237,9 +254,10 @@ basedpyright 27,616,199)와 오차 범위 내로 거의 정확히 일치한다 �
 조회 vs 실제 설치 후 디스크 실측)이 같은 답을 내, 두 수치 모두에 대한 신뢰도가 올라간다.
 
 **한계**: (1) 이건 pyright *또는* basedpyright 하나만 추가했을 때다 — 두 후보를 같이 더한 값이 아니다
-(stage 2에서 어차피 하나만 고른다). (2) cache 디렉터리 바이트는 압축 tarball과 npm의 관련 메타데이터를
-합친 것이라 "순수 다운로드 바이트"보다 약간 크다 — 그래도 baseline·후보 측정을 같은 방법으로 재서
-증가분 비교는 공정하다. (3) `npm install`로 쟀고 실제 first-run 경로인 `npm exec` 자체로 재지 않았다
+(stage 2에서 어차피 하나만 고른다). (2) npm cache 디렉터리 바이트는 전송 바이트가 아니다 — 압축
+tarball과 npm의 관련 메타데이터를 합친 값이라 실제 전송 바이트(위 packed tarball 표)보다 크다. 그래도
+baseline·후보 측정을 같은 방법으로 재서 증가분끼리 비교하는 것은 공정하다. (3) `npm install`로 쟀고
+실제 first-run 경로인 `npm exec` 자체로 재지 않았다
 — 다만 두 경로 모두 같은 npm 패키지 fetch·추출 메커니즘을 쓰므로 지배적 비용(네트워크 다운로드)은
 같다. (4) wall-clock은 이 machine·네트워크 조건에 의존한다 — 절대값이 아니라 baseline 대비 상대
 증가로 읽는다. (5) `Pyrefly`는 애초에 npm에 배포되지 않아 bundled 후보가 아니므로 이 실측 대상이
@@ -260,8 +278,52 @@ basedpyright 27,616,199)와 오차 범위 내로 거의 정확히 일치한다 �
 - **이 결정이 stage 2를 제약한다**: `bundled`를 택했으므로 `Pyrefly`는 이 시점에 자동으로 후보에서
   빠진다. stage 2는 `pyright` vs `basedpyright` 2자 선택으로 좁혀진다.
 
+**이 결정이 누구에게 비용을 지우는가(commander 지적, 위 근거에 빠져 있던 것).** 위 근거는 전부
+"비용이 작다"고만 말하고 **누가 그 비용을 내는지**는 말하지 않았다 — `bundled`는 **Python을 한 번도
+쓰지 않는 TypeScript 전용 사용자도 pyright를 함께 받는다**(+4.2MB 전송, +18.4MB 디스크). 이게 이
+결정의 실제 거래이고, `verified-external`을 고를 정당한 이유이기도 하다. 그럼에도 `bundled`가
+맞다고 보는 이유: 이 저장소에는 **지연 설치(사용자 승인 없는 자동 설치)** 라는 제3의 선택지가 없다
+(`IL-LIM-004`: "자동 설치는 하지 않는다. executable이 없으면 platform별 공식 설치 문서와 선택
+가능한 custom provider를 안내한다" — `docs/development-management/stories/il-lim-004-first-class-language-presets.md:103`,
+이 lane이 직접 재확인했다). 그러니 실질 선택지는 "전원이 부담 + 무설정" 또는 "Python 사용자만 직접
+설치" 둘뿐이고, pyright가 이미 전원이 부담 중인 typescript보다 작다는 점이 전자를 지지한다. custom
+provider 경로는 그대로 살아 있어, 자기 pyright를 따로 관리하고 싶은 사용자는 여전히 그렇게 할 수
+있다.
+
 **검증**: 선택한 tier(`bundled`)로 실제 first-run 재현은 stage 4(preset이 실제로 존재해야 `npm exec`
 경로를 진짜로 태울 수 있다)에서 수행한다 — 이 시점에는 아직 preset이 없어 "선택 후 재현"을 이 stage
 안에서 닫을 수 없다. 이 순서 자체를 다음 보고에서 commander에게 명시한다.
-- **commander 확인 대기**: 이 tier 결정과 실측값을 보고하고, stage 2로 진행하기 전 확인을 받는다
-  (계획 세션이 명시적으로 요구한 게이트).
+- **commander 승인**: tier=`bundled` 승인 완료(2026-09-02). stage 2(pyright vs basedpyright)로
+  진행한다.
+
+**`bundled`가 바꾸는 downstream 두 항목(commander 지적)**:
+- **버전 하한이 거의 의미를 잃는다.** `bundled-typescript`에 `version` 필드가 없는 이유를 catalog가
+  이미 적어 뒀다 — "the server ships inside the tarball, so its version is read from package metadata
+  by the bundled artifact check rather than by starting a process"(`catalog.ts` 확인). Python도
+  `bundled`를 택했으므로 정확히 한 버전을 고정해 배포한다 — "어느 하한까지 동작하는가"라는 질문이
+  사용자에게 의미를 잃는다(사용자는 다른 버전을 설치할 수 없다). stage 4의 "버전 하한" 항목은
+  삭제하지 않고, `bundled`에서 왜 이 질문의 성격이 달라지는지를 그 자리에 적는다.
+- **라이선스 의무가 가벼워진다 — 확인이 필요 없다는 뜻은 아니다.** release tarball에 pyright
+  파일이 안 들어간다(31 entries, node_modules 0개 — 조사 lane이 이미 확인). npm이 각자의 registry
+  entry에서 자체 `LICENSE`와 함께 받아 가므로, 이건 **재배포(vendoring)가 아니라 의존성 선언**이다
+  — vendoring보다 의무가 가볍다. 그래도 stage 2에서 하위 라이선스(typeshed 등)가 이 저장소의 MIT
+  선언과 충돌하지 않는지는 그대로 확인하고 기록한다 — "가벼워졌다"와 "확인할 필요가 없다"는 다르다.
+
+**stage 4에서 부딪힐 구현 제약(commander가 미리 알림, 지금 코드는 안 건드림)**: `cli/src/runtime.ts:133-150`의
+`bundledModuleEntryPath()`를 이 lane이 직접 읽어 확인했다 — 허용 목록이 정확히 한 항목이고, 그게
+의도된 설계다("The allowlist is one entry long on purpose. Resolving an arbitrary specifier inside
+this package's dependency tree is a way to learn where the package is installed..."). bundled Python
+preset은 이 목록에 두 번째 항목을 **명시적으로** 추가해야 한다 — 패턴이나 동적 해석으로 일반화하지
+않는다. 그 좁음 자체가 이 경로의 방어이기 때문이다. stage 4에서 왜 두 개가 됐는지 주석으로 남긴다.
+
+**stage 4를 위해 남겨 두는 확인되지 않은 위험(지금 검증하지 않음 — commander가 지적, 측정은 안 함)**:
+pyright가 third-party import를 해석하려면 보통 Python 환경(venv/site-packages)을 찾는다. 없으면
+typeshed stub만으로 동작할 수 있는데, 그 경우 **동작은 하지만 결과가 불완전한** 상태가 될 수 있다 —
+gopls의 AdHoc 모드와 같은 모양이다. 조사 lane은 같은 디렉터리 2-파일 fixture만 봐서 이 경로를 보지
+못했다. 사실이면 `requiredProjectFiles`와 limitations가 이 한계를 반영해야 한다 — stage 4에서
+실제로 확인한다.
+
+**참고**: 위에서 인용한 `IL-LIM-004`의 "자동 설치를 하지 않는다"는 commander의 원래 메시지가
+`AGENTS.md`를 근거로 들었으나, 이 lane이 직접 확인한 결과 `AGENTS.md`에는 설치 관련 조항이 없다(grep
+결과 0건) — 실제 근거는 `il-lim-004-first-class-language-presets.md:103`이다. 주장 자체는 맞고
+출처만 다른 파일이라, 이 문서에는 올바른 출처로 적었다.
