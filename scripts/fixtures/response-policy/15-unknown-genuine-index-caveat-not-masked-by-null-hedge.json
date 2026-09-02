@@ -1,7 +1,7 @@
 {
-  "file": "14-null-incoming-calls-surfaced-via-di-not-null.json",
-  "name": "provider_null_incoming_calls surfaced via 'dependency injection'/'Depends()' wording, marker and hedge in separate sentences",
-  "description": "task-m2-python-preset.md stage 6 addendum 3, revised: the marker ('dependency injection'/'Depends()') and the 'this is not evidence that no caller exists' hedge are deliberately in DIFFERENT sentences, not one - this is the shape cli-contract.md's/SKILL.md's own 'Fixed summary shape' actually recommends (evidence boundary and limitation disclosure as separate sentences), so it is the representative case, not the same-sentence phrasing this fixture originally used. An earlier fix (widening the exclusion anchor to all four LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls phrases, still requiring the marker to be nearby) covered the same-sentence shape but not this one, because its [^.!?]* span cannot cross a sentence boundary to find the marker - reviewer measurement (task-m2-python-preset.md stage 6 addendum 3) found this exact separate-sentence summary still wrongly flagged stale_index_caveat under indexingStatus: ready. The real fix drops the marker requirement entirely: 'not evidence/proof ... no caller(s) exist(s)' is, by its own grammar, always a claim about caller existence, so it is excluded unconditionally, in whatever sentence it appears (see CALLER_EXISTENCE_UNCERTAINTY_PHRASE). Non-vacuity: reconstructing the marker-anchored fix (the version this fixture originally locked in) and running it against this exact summary confirms it would still wrongly flag stale_index_caveat. Must-pass fixture 14.",
+  "file": "15-unknown-genuine-index-caveat-not-masked-by-null-hedge.json",
+  "name": "genuine index-unknown caveat survives alongside a null-caveat hedge phrased without the word 'null'",
+  "description": "task-m2-python-preset.md stage 6 addendum 3: 'MASK' - a response that has BOTH index_state_unknown (indexingStatus: unknown) AND provider_null_incoming_calls in limitationDetails at once (the two are independent axes and can co-occur). The summary correctly discloses both: a genuine index-completeness caveat ('the index may not cover every file') and the null-caveat hedge surfaced via 'dependency injection' (no 'null' word anywhere). The marker-anchored fix (widening the exclusion anchor to all four provider_null_incoming_calls phrases, still requiring the marker nearby) broke this: once 'dependency injection' became a recognized marker, the exclusion span grew to swallow 'not evidence that no caller exists — check dependency injection' whole, and because the genuine index caveat ('may not cover every file') sat right next to it with no separator recognized by the old INDEX_UNCERTAINTY_PATTERN, the ENTIRE index-uncertainty signal in this summary was lost - producing missing_index_caveat AND missing_high_severity_disclosure (for index_state_unknown) together, since both route through mentionsIndexUncertainty(). Reconstructing that fix and running it against this exact response/summary confirms both would fire (non-vacuity). The real fix (1) excludes 'not evidence/proof ... no caller(s) exist(s)' unconditionally, without needing any marker word nearby, so the swallowed span shrinks back to just that clause, and (2) widens INDEX_UNCERTAINTY_PATTERN to recognize 'may not cover/include/reflect/capture' as a genuine index-uncertainty phrase in its own right, so it no longer depends on surviving next to a null-caveat marker by accident. Must-pass fixture 15.",
   "response": {
     "schemaVersion": 1,
     "operation": "impact.analyze",
@@ -58,11 +58,7 @@
           ]
         },
         "indexing": {
-          "status": "ready",
-          "evidence": {
-            "signal": "work-done-progress",
-            "detail": "indexing"
-          }
+          "status": "unknown"
         },
         "reasons": [
           "dynamic_calls_not_inferred",
@@ -73,7 +69,7 @@
         "requestStatus": "succeeded",
         "traversalStatus": "exhausted",
         "semanticScope": "provider-static",
-        "indexingStatus": "ready"
+        "indexingStatus": "unknown"
       },
       "complete": true,
       "truncated": false,
@@ -103,6 +99,13 @@
           "scope": "semantic",
           "message": "No incoming callers were returned for this symbol.",
           "action": "Confirm dynamic entry points manually before removing this symbol."
+        },
+        {
+          "code": "index_state_unknown",
+          "severity": "warning",
+          "scope": "indexing",
+          "message": "The provider did not report an index state, so an empty result is not evidence that no caller exists.",
+          "action": "Re-run after the provider finishes indexing, or verify with a workspace search."
         },
         {
           "code": "provider_null_incoming_calls",
@@ -142,7 +145,7 @@
     ],
     "timings": {}
   },
-  "summary": "Static call hierarchy from pyright; the provider's index is proven ready (work-done-progress signal). No incoming callers were returned for get_current_user at depth 5. Check for invocation through dependency injection or a framework decorator such as FastAPI's Depends() before concluding this symbol is uncalled. This is not evidence that no caller exists. That caveat is about this one query, not about the already-confirmed index.",
+  "summary": "Static call hierarchy from pyright; no incoming callers were returned for get_current_user. The index may not cover every file, so this is not evidence that no caller exists — check dependency injection.",
   "expect": "pass",
   "expectedViolations": []
 }

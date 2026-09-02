@@ -107,7 +107,7 @@ const BOUNDARY_MARKERS = [
 // The uncertainty vocabulary the CLI's own `index_state_unknown` message and this repository's docs use.
 // Shared by missing_index_caveat (must be present under `unknown`) and stale_index_caveat (must be absent
 // under `ready`) because they are the same question asked in opposite directions.
-const INDEX_UNCERTAINTY_PATTERN = /(unknown|did not report|not proof|not evidence|unproven|no evidence|not confirmed|has not (?:been )?(?:proven|confirmed))/i;
+const INDEX_UNCERTAINTY_PATTERN = /(unknown|did not report|not proof|not evidence|unproven|no evidence|not confirmed|has not (?:been )?(?:proven|confirmed)|may not (?:cover|include|reflect|capture))/i;
 const INDEX_WORD_PATTERN = /\bindex(?:ing)?\b/i;
 
 // Per-code natural-language stand-ins for a limitationDetails entry being "surfaced" in a summary. A
@@ -118,13 +118,11 @@ const INDEX_WORD_PATTERN = /\bindex(?:ing)?\b/i;
 // (`null`, "did not commit to zero", "dependency injection", `Depends()`) - coverage.ts's own `action` text
 // for this code says "such as dependency injection or a framework decorator" verbatim, so an agent that
 // follows the CLI's own suggested wording must be recognized here too, not just an agent that says "null".
-// Single source of truth, read by both LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls below (is
-// the limitation surfaced at all) and NULL_CAVEAT_MARKER_SOURCE (is this the null-caveat's own uncertainty
-// phrase, to exclude from stale_index_caveat's index check) - a commander review found these had drifted
-// apart once already: the exclusion anchor only recognized 2 of these 4 phrases, so a fully compliant
-// summary that surfaced the limitation via "dependency injection" or "Depends()" (instead of "null") was
-// wrongly flagged stale_index_caveat (found via direct measurement, task-m2-python-preset.md stage 6
-// addendum). Reading both checks from one array means a future fifth accepted phrase updates both at once.
+// Feeds only LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls below (is the limitation surfaced at
+// all). It used to also anchor stale_index_caveat's exclusion of this code's own uncertainty phrase
+// (widening it there once fixed a false positive but caused a worse one - see
+// CALLER_EXISTENCE_UNCERTAINTY_PHRASE's comment, which excludes that phrase without needing any marker at
+// all, task-m2-python-preset.md stage 6 addendum 3).
 const PROVIDER_NULL_INCOMING_CALLS_MARKERS = [/\bnull\b/i, /\bdid not commit to zero\b/i, /\bdependency injection\b/i, /Depends\(\)/i];
 
 const LIMITATION_SURFACE_PATTERNS = {
@@ -170,28 +168,28 @@ function matchesAny(patterns, text) {
 // task-m2-python-preset.md stage 6) - the two claims are about different things (index completeness vs.
 // one query's answer) and must not be conflated just because both words appear in the same summary.
 //
-// The scope stays whole-summary on purpose (an earlier attempt narrowed this to same-sentence matching,
-// which broke detection of the very cross-sentence phrasing SKILL.md's/cli-contract.md's own "Fixed
-// summary shape" recommends - evidence boundary and limitation disclosure as separate sentences; a
-// reviewer measured old-vs-new engine output on genuinely honest, cross-sentence index-uncertainty
-// summaries and found real detection regressed, see task-m2-python-preset.md stage 6 addendum). Only the
-// null-caveat's own anchored phrase is excluded, not the sentence it lives in and not the "index" scope.
-//
-// The anchor itself must cover all four PROVIDER_NULL_INCOMING_CALLS_MARKERS phrases, not just "null" and
-// "did not commit to zero" - a summary that surfaces the same limitation via "dependency injection" or
-// "Depends()" is equally compliant (coverage.ts's own action text suggests that exact wording) and must be
-// excluded the same way, or stale_index_caveat penalizes an agent for following the CLI's own suggested
-// phrasing (found via commander review, task-m2-python-preset.md stage 6 addendum).
-const NULL_CAVEAT_MARKER_SOURCE = `(?:${PROVIDER_NULL_INCOMING_CALLS_MARKERS.map(pattern => pattern.source).join('|')})`;
-const NULL_CAVEAT_UNCERTAINTY_PHRASE = new RegExp(
-  `${NULL_CAVEAT_MARKER_SOURCE}[^.!?]*\\b(?:not evidence|not proof)\\b[^.!?]*\\bno\\s+callers?\\b` +
-  `|\\b(?:not evidence|not proof)\\b[^.!?]*\\bno\\s+callers?\\b[^.!?]*${NULL_CAVEAT_MARKER_SOURCE}`,
-  'i',
-);
+// A claim that an answer "is not evidence/proof that no caller(s) exist(s)" is, by its own grammar, a
+// statement about caller existence - not a statement about index completeness - regardless of which
+// provider_null_incoming_calls marker word (if any) is nearby, and regardless of which sentence it is
+// written in relative to that marker. Excluding by marker proximity (an earlier attempt, see git history)
+// either missed the marker-in-a-different-sentence case (too narrow: SKILL.md's/cli-contract.md's own
+// "Fixed summary shape" puts the marker and this hedge in separate sentences) or, once the marker list
+// widened to match LIMITATION_SURFACE_PATTERNS, started swallowing an unrelated GENUINE index-uncertainty
+// caveat that happened to share this exact "not evidence ... no caller exists" wording with
+// `index_state_unknown`'s own canonical CLI message (see fixture 01's limitationDetails, which uses the
+// identical construction for a completely different limitation) - a masking false positive under
+// indexingStatus: unknown that broke both missing_index_caveat and missing_high_severity_disclosure at
+// once, since both route through this same function (surfacesLimitation('index_state_unknown', ...) below
+// calls it directly - found via commander/reviewer review, task-m2-python-preset.md stage 6 addendum 3).
+// Scoped to the "no caller(s) exist(s)" construction specifically - not bare "no caller(s)", which is also
+// how the CLI legitimately reports "no callers were returned/found", a different claim - so this exclusion
+// cannot be satisfied by anything except this one clause, and never needs a marker word to fire.
+const CALLER_EXISTENCE_UNCERTAINTY_PHRASE =
+  /\b(?:not evidence|not proof)\b[^.!?]*\bno\s+callers?\s+exists?\b|\bno\s+callers?\s+exists?\b[^.!?]*\b(?:not evidence|not proof)\b/i;
 
 function mentionsIndexUncertainty(text) {
-  const withoutNullCaveatPhrase = text.replace(NULL_CAVEAT_UNCERTAINTY_PHRASE, ' ');
-  return INDEX_WORD_PATTERN.test(withoutNullCaveatPhrase) && INDEX_UNCERTAINTY_PATTERN.test(withoutNullCaveatPhrase);
+  const withoutCallerExistencePhrase = text.replace(CALLER_EXISTENCE_UNCERTAINTY_PHRASE, ' ');
+  return INDEX_WORD_PATTERN.test(withoutCallerExistencePhrase) && INDEX_UNCERTAINTY_PATTERN.test(withoutCallerExistencePhrase);
 }
 
 function surfacesLimitation(code, summaryText) {

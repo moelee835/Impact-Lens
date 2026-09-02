@@ -1014,3 +1014,88 @@ framework decorator"에서 그대로 옴). 그런데 `stale_index_caveat`의 제
 **남은 작업**: commander에게 재보고 후 merge 판단 대기. 이 채점기 파일을 다시 건드릴 일이 생기면,
 `provider_null_incoming_calls`처럼 "인정 문구 목록"과 "그 목록에서 파생된 제외/포함 앵커"가 서로
 다른 리터럴로 중복 선언되어 있지 않은지 먼저 확인한다(이번이 같은 형태의 두 번째 결함이었다).
+
+### 2026-09-02 — Stage 6 addendum 3: commander의 지시 철회, reviewer의 독립 반증, 근본 재설계
+
+**목적과 사용자 가치**: addendum 2(commit `b3661fa`)가 이미 push되고 CI green까지 확인된 뒤,
+그 fix 자체가 정반대 방향의 새 오탐 2건을 만든다는 것이 밝혀졌다. `indexingStatus: unknown`인
+실제 응답에서 정당한 index 캐비엇을 쓴 요약이 `missing_index_caveat`·`missing_high_severity_disclosure`로
+잘못 걸리면, agent가 정직하게 한계를 설명할수록 채점기에게 벌점을 받는 상황이 된다 — 이것은 M2 lane이
+merge 전 반드시 닫아야 하는 신뢰성 결함이므로, 이미 CI green을 보고한 뒤라도 별도 커밋으로 즉시
+수정했다.
+
+**일어난 순서 그대로 기록**:
+1. commander가 "제외 앵커를 인정 문구 네 개로 확장하라"고 지시(마커 목록만 넓히는 방향).
+2. 그 지시대로 구현·검증(4가지 케이스 직접 측정)·commit(`b3661fa`)·push·CI green 확인·commander에게
+   보고까지 완료.
+3. **그 보고 직후, commander가 같은 지시를 철회**했다: "reviewer가 그 확장 버전을 직접 만들어
+   측정했고... 마커 목록을 어떻게 조정해도 이 축에서는 못 풉니다." — 지시가 커밋보다 늦게 도착한
+   것이 아니라, 커밋이 이미 push된 뒤에 reviewer가 그 커밋을 독립적으로 반증한 것이었다.
+4. commander가 이어서 실제 재현 표를 보내왔다: `b3661fa`가 B1(마커 같은 문장)은 고쳤지만 B2(마커가
+   **다른 문장**)는 그대로 오탐이고, MASK(indexingStatus: unknown + 정당한 index 캐비엇 + null-caveat
+   hedge를 "dependency injection" 문구로만 표현)는 **새로 오탐 2개**(`missing_index_caveat`,
+   `missing_high_severity_disclosure`)를 만든다고 지적.
+5. 이 저장소에서 두 주장을 직접 재현: 처음 만든 MASK 테스트 문장은 "unknown state"라는 중복 문구가
+   섞여 있어 오히려 `[]`가 나왔다(테스트 자체가 잘못 설계됨) — commander의 정확한 인용문으로
+   다시 만들자 실제로 재현됨.
+
+**어느 지시가 틀렸는가**: addendum 2에서 구현한 "제외 앵커를 마커 목록 전체로 넓힌다"는 방향
+자체가 틀렸다. 근본 원인은 마커 목록이 아니라 **제외 조건이 "마커 단어가 근처에 있는가"였다는
+것** — 좁히면(마커 2개만) 마커가 다른 문장에 있는 케이스를 놓치고, 넓히면(마커 4개) 그 근처에
+있던 진짜 index 불확실성 신호까지 함께 삭제됐다. 추가로 `index_state_unknown`의 CLI 정본 메시지
+("...so an empty result is not evidence that no caller exists", fixture 01 참고)가
+`provider_null_incoming_calls`의 정본 메시지와 **같은 "not evidence ... no caller exists" 구문을
+공유**한다는 것이 이번에 처음 확인됐다 — 두 신호가 애초에 텍스트로 깔끔히 분리되지 않는 근본 이유.
+
+**재설계(commander가 제시, 직접 검증 후 채택)**:
+1. `mentionsIndexUncertainty()`의 제외 조건을 마커 근접성에서 **구문 자체의 의미**로 바꿨다 —
+   `"not evidence/proof ... no caller(s) exist(s)"`는 문법 구조상 그 자체로 caller 존재에 대한
+   진술이지 index에 대한 진술이 아니므로, 마커 단어가 있든 없든, 어느 문장에 있든 **무조건** 제외한다
+   (`CALLER_EXISTENCE_UNCERTAINTY_PHRASE`, 마커 목록 의존성 제거). "no caller(s)"가 아니라
+   "no caller(s) exist(s)"로 좁혀, CLI가 정당하게 쓰는 "no callers were returned/found" 같은 다른
+   의미의 문구는 건드리지 않는다.
+2. `INDEX_UNCERTAINTY_PATTERN`에 `may not (?:cover|include|reflect|capture)`를 추가해, index
+   완결성에 대한 정당한 hedge가 "not evidence"류 공유 어휘에 얹혀 있지 않아도 그 자체로 인식되게 했다.
+
+**구현 전에 네 묶음 전부 직접 실행(commander 요구대로)**: (a) fixture 13 + reviewer의 4개
+cross-sentence 예문, (b) B1(마커 같은 문장)·B2(마커 다른 문장)·C(Depends(), 같은 문장), (c) MASK
+(indexingStatus: unknown, 정당한 index 캐비엇 + DI hedge, "null" 미언급), (d) fixture 11·12·14 —
+scratchpad에 엔진 사본을 만들어 실제 파일을 건드리기 전에 전부 통과를 확인한 뒤에만 실제 파일에
+반영했다. 전부 `[]`/기대값과 일치(스크립트 결과: 12/12 케이스 OK).
+
+**`b3661fa`는 되돌리지 않고 그 위에서 고쳤다**(commander 지시) — `PROVIDER_NULL_INCOMING_CALLS_MARKERS`
+단일 출처 배열, fixture 14, 재편집 시 확인 메모는 유지했다. `PROVIDER_NULL_INCOMING_CALLS_MARKERS`는
+이제 `LIMITATION_SURFACE_PATTERNS.provider_null_incoming_calls`(표면화 여부)에만 쓰이고,
+`stale_index_caveat`의 제외 조건과는 더 이상 무관하다 — 이 사실을 코드 주석에서도 정정했다(예전
+주석이 "두 곳에서 같은 배열을 읽는다"고 했던 부분).
+
+**fixture 14를 B2 형태로 교체**(commander 지시: "별도 문장 형태가 대표 케이스여야 한다") — 마커
+("dependency injection"/"Depends()")와 hedge("this is not evidence that no caller exists")를
+서로 다른 문장으로 분리한 요약으로 바꿨다. non-vacuity: `b3661fa`의 로직을 인라인으로 재구성해 이
+새 요약에 돌려보니 실제로 `stale_index_caveat`를 잘못 띄운다는 것을 확인했다.
+
+**신규 fixture 15 추가**(MASK 케이스, must-pass) — `indexingStatus: unknown`인 응답에
+`index_state_unknown`과 `provider_null_incoming_calls`가 동시에 존재하고, 요약이 둘 다 정직하게
+표면화한다(정당한 index 캐비엇 "may not cover every file" + null-caveat hedge를 "dependency
+injection"으로만 표현, "null" 미언급). non-vacuity: `b3661fa`의 로직을 재구성해 이 정확한
+response/summary에 돌려보니 `missing_index_caveat`와 `missing_high_severity_disclosure`(두 검사
+모두 `mentionsIndexUncertainty()`를 공유하므로 동시에) 둘 다 실제로 잘못 뜬다는 것을 확인했다 —
+commander가 요구한 "MASK는 두 위반이 모두 사라져야 통과" 조건을 충족한다.
+
+**commander의 "부수 효과" 설명 정정**: commander가 처음에 "구간 삭제가 여러 검사를 오염시킨다"고
+표현했으나, 이어진 메시지에서 스스로 정정했다 — `text.replace()`는 지역 변수에만 담기고 인자
+문자열은 불변이라 실제로 오염 경로는 없다. 진짜 이유는 `surfacesLimitation('index_state_unknown', ...)`가
+`mentionsIndexUncertainty()`를 그대로 재사용한다는 것뿐이었다(`missing_index_caveat`와
+`missing_high_severity_disclosure`의 index_state_unknown 부분이 사실상 같은 함수를 두 번 소비하는
+두 이름). 작업 로그에 이 정정도 그대로 남긴다 — commander 자신의 표현이 한 번 부정확했다가 스스로
+바로잡은 사례.
+
+**검증**: `node scripts/test-response-policy.mjs`(21 check, fixture 15개 전부 통과),
+`npm run cli:test`(289 pass/2 skip/0 fail, 무관 코드라 회귀 없음).
+
+**남은 작업**: commander에게 재보고 후 merge 판단 대기. 이번 addendum에서 얻은 일반 교훈: 텍스트
+삭제 후 재검사(delete-and-recheck) 방식의 제외 로직은, 삭제 대상 구문이 다른 검사와 어휘를 공유할
+가능성이 있는 한 근본적으로 위험하다 — "그 구문이 실제로 무엇에 대한 진술인지"(의미 기반 제외)로
+설계해야 한 방향을 고칠 때 반대 방향이 깨지는 일을 막을 수 있다. 이 파일을 다시 고칠 때는 새로
+추가하는 제외/인정 어휘가 다른 limitationDetails 코드의 정본 메시지와 문구를 공유하지 않는지 먼저
+확인한다.
