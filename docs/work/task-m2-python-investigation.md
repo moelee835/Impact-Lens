@@ -109,18 +109,78 @@ tier(설정 없이 즉시 동작)로 제공하는 게 기술적으로 가능하�
 하는 `verified-external`이 유일한 선택지가 아니다.
 
 **이건 이 lane이 판단하지 않는다 — 그리고 이건 "가능성"이 아니라 실제 trade-off다(commander 지적).**
-번들하면 Python도 TS/JS처럼 설정 없이 동작하지만, CLI tarball이 커진다. 이 저장소는 tarball 크기에
-이미 이해관계가 있다 — plugin runner의 release-fallback이 **매번 그 tarball을 내려받으므로** 커지면
-첫 실행이 그만큼 느려진다. **다음 lane이 이 결정을 내리려면 지금 없는 데이터가 하나 있다: 번들 시
-tarball 크기 증가분의 실측.** pyright/basedpyright는 typeshed 전체를 번들해 작지 않다 — 이 lane은
-그 크기를 재지 않았다. **미결 항목으로 명시한다: 다음 lane은 이 증가분을 추측하지 말고 실측 후
-bundled/verified-external을 결정해야 한다.**
+다만 이 문서가 원래 지시했던 실측 대상 자체가 틀렸다는 것이 PR #63 review 과정에서 드러났다
+(commander, 2026-09-02) — 아래는 그 정정을 반영한 내용이다.
+
+**틀렸던 진단.** "번들하면 CLI tarball이 커진다"와 "release-fallback이 매번 그 tarball을 내려받는다"
+둘 다 부정확했다.
+- `cli/package.json`의 `files`는 `dist/*.js`류·`README.md`·`schemas/**`뿐이다 — `npm pack`이 만드는
+  tarball에는 `node_modules`(의존성)가 들어가지 않는다. commander가 pinned release tarball을 직접
+  받아 확인했다(`impact-lens-cli-0.7.0.tgz` = 75,059 bytes, 31 entries, node_modules 항목 0) — 이
+  lane도 로컬 `npm pack --dry-run`으로 같은 구조를 재현했다(31 files, node_modules 항목 없음). pyright를
+  `dependencies`에 추가해도 **이 tarball 자체는 package.json 한 줄만큼만 커진다.**
+- release-fallback은 "매번"이 아니라 **최초 실행 시**에만 네트워크 접근이 필요하다 — `INSTALL.md:184`
+  ("마지막 fallback은 최초 실행 시 GitHub와 npm 네트워크 접근이 필요할 수 있습니다"). commander가 인용한
+  출처(`README.md:271`)는 이 checkout에 그 내용이 없어 이 lane이 직접 찾아 `INSTALL.md:184`로
+  바로잡았다 — 문장 자체(매번 → 최초 실행)는 정확하다. `npm exec`는 받은 패키지를 로컬 npx cache에
+  남기므로 이후 실행은 재다운로드하지 않는다 — 이 lane이 `npm exec --yes --package=<pkg>`를 두 번
+  연속 호출해(두 번째는 `--offline`) 직접 재현했다: 첫 실행 1.8s, 두 번째(오프라인) 0.35s, 오프라인에서도
+  그대로 성공.
+
+**진짜 재야 할 것은 tarball 크기가 아니라 첫 실행 install closure 증가분이다.** 실제 비용이 생기는
+지점은 `plugins/impact-lens/scripts/run-impact-lens:133,140`의 `npm exec --yes
+--package="$impact_lens_release_package" -- impact-lens "$@"`다 — `npm exec`가 이 tarball을 받은 뒤
+**의존성 closure까지 해석·다운로드한다.** 번들 시 커지는 것은 tarball이 아니라 이 첫 실행 install
+closure다.
+
+**참고용 ballpark(다음 lane의 실측을 대체하지 않는다 — commander가 npm registry에서 조회, 2026-09-02,
+이 lane이 `npm view <pkg> dist.unpackedSize`로 동일 값 재확인)**:
+
+| 패키지 | `dist.unpackedSize` |
+| --- | --- |
+| `typescript@5.9.3`(현재 pinned) | 23,625,066 |
+| `typescript-language-server@6.0.0` | 2,424,942 |
+| `pyright@1.1.413` | 19,344,986 |
+| `basedpyright@1.39.10` | 27,616,199 |
+
+**한계**: 이건 unpacked 크기이지 다운로드 바이트가 아니고, 해당 패키지 하나의 값이지 transitive
+closure 전체가 아니다. 그래도 규모 판단에는 쓸 수 있다 — **pyright는 이미 번들 중인 typescript보다
+작다.** "typeshed 전체를 번들해 작지 않다"던 이전 문장은 방향은 맞았지만 비교 기준이 없어 실제보다
+무겁게 읽혔다.
+
+**미결 항목으로 다시 명시한다: 다음 lane은 tarball 크기가 아니라 첫 실행 install closure 증가분을
+실측한 뒤 bundled/verified-external을 결정해야 한다.**
 
 **`pyright` vs `basedpyright`도 별도의 미결 결정이다.** 둘 다 (A)·(B)를 통과했다고 해서 기본값으로
 하나를 흘려보내면 안 된다 — 유지보수 주체(Microsoft vs 커뮤니티 fork), 릴리스 주기, 두 프로젝트가
 갈라진 이후의 기능 차이(예: basedpyright는 pyright가 Pylance 유료 기능으로 남겨둔 일부를 open source로
 푼 것으로 알려져 있으나 이 lane에서 그 차이 목록을 직접 확인하지 않았다) 중 무엇을 기준으로 고를지
 **다음 lane이 정해야 한다.**
+
+**Pyrefly는 이 축의 3번째 선택지가 아니다 — 구조적으로 `verified-external` 전용이다.** reviewer가
+review 초반 "pip+npm 배포"라고 적었으나, 이는 검증 없이 "Rust 도구는 보통 양쪽에 배포한다"고
+일반화한 것이었다(reviewer 본인이 이후 재확인: 그 세션은 pyrefly를 pip으로만 설치했고 npm 명령을
+실행한 적이 없었다). 실제로 확인된 것:
+
+- `npm view pyrefly versions` → `["0.0.1-security"]`(name squatting 방지용 placeholder, 420 bytes,
+  2 files) — commander가 조회했고, 이 lane도 같은 명령으로 독립 재확인했다.
+- 대안 이름도 소진했다 — `@facebook/pyrefly`, `@pyrefly/pyrefly`, `@pyrefly/cli`, `@pyrefly/lsp`,
+  `pyrefly-lsp`, `pyrefly-language-server` 여섯 개 전부 npm registry 404. reviewer와 commander가 각각
+  확인했고, 이 lane도 여섯 이름 모두 재확인했다(`npm search`에는 서드파티 `@yaegassy/coc-pyrefly`만
+  나온다 — Pyrefly 본체가 아니다).
+- PyPI에는 실물이 있다 — `pyrefly` 1.2.0, `requires_python >=3.8`, 플랫폼별 wheel 11종(macOS
+  arm64/x86_64, manylinux 여러 arch, musllinux, win32/amd64/arm64) + sdist — 이 lane이 PyPI JSON API로
+  직접 조회해 재확인했다. 컴파일된 Rust 바이너리라는 설명과 일치한다.
+
+**세 세션이 각자 확인했고 대안 이름 탐색도 소진됐으므로 "확인되지 않음"이 아니라 "npm에 배포되지
+않는다"로 적는다.** Impact Lens는 npm CLI이고 first-run 경로가 `npm exec --package=<tgz-url>`이다 —
+PyPI wheel은 그 경로로 도달할 수 없다. **따라서 Pyrefly는 `bundled` tier 후보가 될 수 없고
+`verified-external` 전용이다 — 이건 미결이 아니라 확정된 제약이다.**
+
+**이게 미결 1의 성격을 바꾼다: 세 후보가 같은 축에서 경쟁하지 않는다.** `pyright`/`basedpyright`는
+`bundled`·`verified-external` 둘 다 가능하지만 `Pyrefly`는 `verified-external`만 가능하다 —
+**미결 2(bundled vs verified-external)가 미결 1(어느 provider를 고를지)을 제약한다, 서로 독립인
+결정이 아니다.** 번들을 택하면 그 시점에 Pyrefly는 자동으로 후보에서 빠진다.
 
 **부수 관찰(조치 불필요)**: 이 조사 환경에서 `pyright`와 `basedpyright`를 같은 `node_modules`에
 동시 설치하면, `basedpyright`의 `package.json`이 `pyright`/`pyright-langserver`라는 bin 이름도
@@ -148,11 +208,23 @@ bundled/verified-external을 결정해야 한다.**
 ```
 
 gopls는 `begin.title`이 "Setting up workspace"라는 의미 있는 문자열이라 그걸로 매칭했다(catalog.ts의
-`titlePattern`). **pyright/basedpyright에는 매칭할 title이 없다.** 지금의
-`ProviderReadinessProfile.titlePattern` 설계를 그대로 쓸 수 없다 — 빈 문자열에 매칭하도록 두거나(모든
-work-done-progress 사이클을 readiness로 취급 — 이 provider가 다른 목적의 progress도 보내는지 추가
-확인 필요), `report.message`("N file(s) to analyze") 내용으로 매칭 방식을 확장해야 한다. **이건 다음
-lane의 설계 과제이지 이 lane이 답할 질문이 아니다.**
+`titlePattern`). **pyright/basedpyright에는 매칭할 title이 없다 — 그런데 이건 이미 지금 설계가
+예상하는 경우다(commander 정정, review 시점).** `ReadinessSignal`의 `titlePattern`은 optional이다
+(`cli/src/providers/preset.ts:91`: `readonly titlePattern?: string;`, 주석 그대로 "Absent means every
+token qualifies"), 그리고 구현이 그 문서화된 동작을 그대로 따른다 — `cli/src/providers/readiness.ts:151`
+(`if (signal.titlePattern !== undefined && !(known ?? '').includes(signal.titlePattern))`)은
+`titlePattern`이 `undefined`이면 title 필터링 자체를 건너뛰고, `:35-37`도 `undefined` 분기를 별도로
+갖는다 — 이 lane이 두 위치를 직접 읽어 확인했다. **즉 "빈 문자열에 매칭하도록 두거나 매칭 방식을
+확장해야 한다"는 이전 문장은 틀렸다: `titlePattern`을 생략하면 된다. 타입 변경도 매칭 방식 확장도
+필요 없다.**
+
+**그렇다고 이게 아무 확인 없이 끝나는 건 아니다 — 순서가 검증 먼저, 설계 확장은 조건부다.** 실제
+남는 미결은 이 lane이 이미 괄호로 적어 뒀던 그 질문 하나다: **이 provider가 다른 목적의
+work-done-progress도 보내는가?** 이 lane의 2-파일 fixture에서는 사이클이 하나만 관측됐다(위 raw
+로그) — 다른 목적의 progress가 존재하는지는 확인하지 못했다.
+- **보내지 않는다면**: `titlePattern`을 생략하는 것으로 끝난다. 코드 변경이 필요 없다.
+- **보낸다면**: 그때 비로소 `report.message`("N file(s) to analyze") 같은 내용 기반 매칭 확장이
+  필요해진다 — 그 경우에만 조건부로 실행되는 다음 lane의 설계 과제다.
 
 ### `requiredProjectFiles` — 이 스파이크 범위에서는 gopls 같은 필수 파일이 안 보였다
 
@@ -247,7 +319,10 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
   관측을 3-OS로 확대해 주장하지 않는다.
 - **버전 하한.** 위 참고.
 - **복잡한 멀티패키지 프로젝트에서의 `requiredProjectFiles` 필요성.** 위 참고.
-- **readiness 신호의 정확한 매칭 규칙.** 빈 title을 어떻게 다룰지는 설계가 필요하다.
+- **pyright/basedpyright가 readiness 목적이 아닌 다른 work-done-progress도 보내는지.** 이 lane의
+  2-파일 fixture에서는 사이클이 하나만 관측됐다 — `titlePattern` 생략만으로 충분한지, 아니면
+  `report.message` 매칭 확장이 필요한지가 이 확인 결과에 달려 있다(위 readiness 절 참고. `titlePattern`
+  자체는 이미 optional이라 설계 변경이 필요 없다는 것은 review 시점에 확인됐다).
 - **pylsp/jedi-language-server의 향후 로드맵.** 두 프로젝트 모두 Call Hierarchy를 계획하고 있는지는
   조사하지 않았다 — 이번 판정은 "지금 시점(2026-09-02) 구현 여부"에 대한 것이다.
 
@@ -258,23 +333,34 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
 
 **다음 lane(preset 구현)이 결정해야 할 것(전부 미결, 기본값으로 흘려보내지 않는다)**:
 1. `pyright` vs `basedpyright` vs `Pyrefly`(review 시점 추가 확인, 1.2.0) — **2자 선택이 아니라 3자
-   선택이다.** 유지보수 주체·릴리스 주기·기능 차이에 더해, Pyrefly는 배포 형태 자체가 다르다(컴파일된
-   Rust 바이너리 — 나머지 둘은 npm에 typeshed를 함께 번들한 JS/Node 패키지). `ty`는 Call Hierarchy
-   미지원이 프로젝트 자체 확인(GitHub issue #1976)으로 이미 탈락, `Zuban`은 기능 목록상 탈락 가능성이
-   높으나 왕복 테스트를 하지 않아 탈락을 확정하지 않는다 — 이 둘은 선택지에서 제외하되 그 근거의
-   확실성 차이를 그대로 남긴다.
-2. `bundled`(자체 npm dependency로 번들) vs `verified-external`(gopls처럼 PATH 탐색) — **번들 시
-   CLI tarball 크기 증가분을 실측한 뒤** 결정한다(release-fallback이 매번 그 tarball을 내려받으므로
-   크기가 곧 첫 실행 지연이다). 지금 그 실측값이 없다. **Pyrefly가 미결 1의 선택지에 들어온 이상, 이
-   실측은 pyright/basedpyright 몫 하나로 끝나지 않는다** — Pyrefly는 컴파일된 Rust 바이너리라 배포
-   형태 자체가 달라, tarball 크기 증가분을 별도로 실측해야 하는 대상이 하나 더 있다.
+   선택이다. 다만 세 후보가 같은 축에서 경쟁하지 않는다: `pyright`/`basedpyright`는 `bundled`·
+   `verified-external` 둘 다 가능하지만, `Pyrefly`는 npm에 배포되지 않아(아래 참고)
+   `verified-external`로만 도달 가능하다.** 미결 2(bundled vs verified-external)를 먼저 정하지 않으면
+   이 선택 자체가 완결되지 않는다 — 번들을 택하면 Pyrefly는 그 시점에 자동 탈락한다. `pyright` vs
+   `basedpyright`는 유지보수 주체·릴리스 주기·기능 차이 기준으로 별도로 선택한다. `ty`는 Call
+   Hierarchy 미지원이 프로젝트 자체 확인(GitHub issue #1976)으로 이미 탈락, `Zuban`은 기능 목록상 탈락
+   가능성이 높으나 왕복 테스트를 하지 않아 탈락을 확정하지 않는다 — 이 둘은 선택지에서 제외하되 그
+   근거의 확실성 차이를 그대로 남긴다.
+2. `bundled`(자체 npm dependency로 번들) vs `verified-external`(gopls처럼 PATH 탐색) — **번들 시 첫
+   실행 install closure 증가분을 실측한 뒤** 결정한다. tarball 자체는 `cli/package.json`의 `files`가
+   `node_modules`를 포함하지 않아 거의 커지지 않는다 — 실제 비용은 release-fallback 첫 실행의 `npm
+   exec`가 그 시점에 의존성 closure를 다운로드하는 데서 생긴다(재실행부터는 npx cache로 재다운로드하지
+   않는다). 지금 그 install closure 실측값이 없다 — `dist.unpackedSize` ballpark(위 절)는 참고용일 뿐
+   대체하지 않는다. **미결 1을 완결하려면 이 결정이 먼저 필요하다** — 번들을 택하면 Pyrefly는
+   선택지에서 빠진다.
 3. `lspProvider.ts:364,371`의 `?? []`가 provider의 `null`과 `[]`를 구분하지 않는다는 사실을 preset
    설계 전에 반영한다 — FastAPI `Depends()`류가 이 경로를 실제로 밟는다. **"구분하면 된다"가 아니라
    무엇을 할지가 미결이다**: LSP가 `null`에 단일 의미를 부여하지 않으므로, `languageMatch: 'unknown'`
    (`cli/src/types.ts:201`)과 `advertised`/`observed` capability 분리(`cli/src/types.ts:204-212`) 같은
    기존 선례를 참고해 provider별 선언·한계 표시·관측 provider 한정 중 하나를 명시적으로 고른다(상세는
-   위 절 참고).
-4. readiness 신호 매칭 방식(빈 title 문제 — 위 관측값 그대로 사용).
+   위 절 참고). **review 시점에 실측 근거가 하나 생겼다**: 같은 `Depends()` 모양 입력에 pyright는
+   `null`을, Pyrefly는 `[]`를 반환했다 — provider마다 이미 다른 값을 낸다는 것이 관측 사실이다(상세와
+   이 데이터가 세 방향 판단에 어떻게 걸리는지는 위 null/`[]` 절 참고).
+4. readiness 신호 매칭 — **설계 과제가 아니라 검증 과제로 좁혀졌다.** `titlePattern`은 이미 optional로
+   설계돼 있고 생략하면 모든 진행 신호를 매칭한다(`preset.ts:91`, `readiness.ts:35-37,151` — 위 절
+   참고). 남은 것은 하나뿐이다: **pyright/basedpyright가 readiness 목적이 아닌 다른
+   work-done-progress도 보내는가?** 안 보낸다면 `titlePattern` 생략으로 끝(코드 변경 없음), 보낸다면
+   그때 `report.message` 내용 기반 매칭 확장이 조건부로 필요하다.
 5. 실제 버전 하한(테스트를 통해).
 6. `requiredProjectFiles`가 필요한지(멀티패키지 프로젝트로 재검증).
 
@@ -330,3 +416,33 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
   절의 각주가 아니라 "provider마다 이미 다른 값을 낸다"는 실측 근거로 승격하고, 이 데이터가 미결 3의
   세 방향 판단에 어떻게 걸리는지 한 줄 추가(방향을 확정하지는 않았다). 부수적으로 `resolve.ts` 인용
   범위(`130-132` → `130-134`)를 작업 로그와 본문 사이에서 통일했다.
+- **정정(2026-09-02, 같은 날 뒤이은 review 라운드에서 뒤집힘)**: 바로 위 문단의 "미결 2에 Pyrefly의
+  다른 배포 형태 때문에 tarball 크기 실측 대상이 하나 더 있다"는 그 시점엔 Pyrefly가 npm에도
+  배포된다는(잘못된) 전제 위에 있었다. 아래 세 번째 review 라운드에서 Pyrefly가 npm에 배포되지
+  않는다는 것이 확인되면서 이 전제 자체가 없어졌다 — Pyrefly는 애초에 bundled 후보가 아니므로 tarball
+  실측 대상도 아니다. 원문은 지우지 않고 여기 정정만 남긴다.
+- **commander·reviewer의 PR #63 검토 세 번째 라운드 반영(3건, 전부 문서만, 코드 무변경)**:
+  1. **번들 실측 대상 자체가 틀렸었다(commander 오류 자인 및 정정).** `cli/package.json`의 `files`가
+     `node_modules`를 포함하지 않아 tarball 자체는 의존성 추가로 거의 커지지 않는다는 것을
+     commander가 pinned release tarball을 직접 열어 확인했고(75,059 bytes, 31 entries, node_modules
+     0개), 이 lane도 `npm pack --dry-run`으로 같은 구조를 재현했다(31 files, node_modules 없음).
+     "release-fallback이 매번 tarball을 내려받는다"도 부정확해서 `INSTALL.md:184`("최초 실행 시...
+     네트워크 접근이 필요할 수 있습니다")로 근거를 바로잡았다(commander가 인용한 `README.md:271`은
+     이 checkout에 없어 이 lane이 직접 찾았다) — `npm exec --offline` 재현으로 캐시 재사용도 직접
+     확인했다. 실제 비용은 tarball 크기가 아니라 **첫 실행 install closure 증가분**으로 재정의했고,
+     commander가 조회한 4개 패키지 `dist.unpackedSize` ballpark(참고용, 재현 확인함)를 근거·한계와
+     함께 기록했다.
+  2. **Pyrefly는 npm에 배포되지 않는다 — bundled 후보가 될 수 없다.** reviewer가 처음 "pip+npm
+     배포"라고 적은 것은 검증 없는 일반화였고(본인이 review 중 재확인: npm 명령을 실행한 적이
+     없었다), commander가 `npm view pyrefly versions`(→ `["0.0.1-security"]`)와 대안 이름 6종 전부
+     404를 확인했다. 이 lane도 같은 명령들과 PyPI JSON API(1.2.0, 플랫폼별 wheel 11종 + sdist)로
+     세 번째로 독립 재확인해 "확인되지 않음"이 아니라 "배포되지 않는다"로 문서에 확정했다. 이에 따라
+     미결 1(3자 선택)과 미결 2(bundled vs verified-external)가 독립이 아니라 미결 2가 미결 1을
+     제약한다는 의존 관계를 추가했다.
+  3. **readiness 절이 설계 과제와 검증 과제를 뒤바꿔 적고 있었다(commander 정정).**
+     `ReadinessSignal.titlePattern`이 이미 optional이고(`preset.ts:91`), `undefined`면 title 필터링을
+     생략한다는 것이 구현에 그대로 있다(`readiness.ts:35-37,151`) — 이 lane이 두 위치를 직접 읽어
+     확인했다. "빈 title에 매칭하도록 설계를 확장해야 한다"는 이전 문장은 틀렸다: `titlePattern`을
+     생략하면 된다. 진짜 남는 것은 이 lane이 이미 괄호로 적어 뒀던 검증 질문 하나
+     (pyright/basedpyright가 다른 목적의 progress도 보내는가) 뿐이라는 것을 명시하고, 설계 확장은
+     그 검증이 실패했을 때만 필요한 조건부 경로로 순서를 뒤집었다.
