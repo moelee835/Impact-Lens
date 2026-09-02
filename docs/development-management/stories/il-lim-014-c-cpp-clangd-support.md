@@ -164,3 +164,14 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
 - header가 여러 target에 포함될 때 사용자에게 target 선택을 언제 요청할지 결정해야 한다.
 - compile database staleness를 mtime만으로 판단할지 build-system adapter가 필요한지 검토해야 한다.
 - MSVC/clang-cl과 Apple clangd를 같은 verified matrix로 볼 수 있는지 실제 fixture가 필요하다.
+- **readiness 신호가 파일 open 이후에만 오는 provider의 일반 문제.** M2 Python preset lane
+  (`docs/work/task-m2-python-preset.md`, "아키텍처 발견 독립 기록" 항목)이 실측으로 확인:
+  pyright의 work-done-progress는 workspace 초기화가 아니라 `textDocument/didOpen`이 트리거하는데,
+  `cli/src/lspProvider.ts`의 `LspCallHierarchyProvider.awaitReadiness()`는 `doInitialize()` 안에서
+  어떤 파일도 열리기 전에 호출된다 — 그래서 이런 provider의 readiness 신호는 지금 구조에서 구조적으로
+  도달 불가능하다. clangd도 background index를 쓰고(위 "조사 결과") 그 신호가 파일 open 전에
+  workspace 단위로 오는지 아직 확인되지 않았다 — Python과 같은 함정을 다시 밟을 수 있다. 3단계
+  착수 전에 clangd의 신호가 gopls형(workspace 단위, open 불필요)인지 pyright형(`didOpen` 트리거)인지
+  raw probe로 먼저 확인해야 한다. `awaitReadiness()`를 `open()` 뒤로 옮기는 재설계는 TS·gopls·custom이
+  공유하는 경로라 이런 provider 하나만의 fix가 아니라 별도 lane 규모다(gopls readiness의 3-OS
+  재검증이 필요).

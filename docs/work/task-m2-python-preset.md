@@ -1,8 +1,9 @@
 # M2 — Python provider preset 구현
 
-- 상태: Stage 1~4 구현 완료(preset shipped, `.py` 실제 동작 확인). **readiness cross-cutting 재설계
-  여부가 commander 결정 대기 중** — 그 결정 전까지 readiness 없이(indexingStatus: unknown) 유지.
-  Stage 5(CI)·6(문서) 착수 전
+- 상태: Stage 1~5 구현 완료(preset shipped, `.py` 실제 동작 확인, CI 커버리지 확인). **readiness
+  cross-cutting 재설계는 commander 결정으로 이 lane에서 하지 않음** — readiness 없이
+  (indexingStatus: unknown) 유지, 후속 lane 목록(`il-lim-014`)에 일반화해 등록 완료. Stage 6(문서)
+  착수 전
 - branch: `feat/m2-python-preset`
 - 선행: `docs/m2-python-investigation`(PR #63, merged `f872074`) — "Call Hierarchy를 실제로 구현한
   OSS Python Language Server가 있는가"에 실행으로 답한 조사 lane. 이 문서는 그 결론을 preset으로
@@ -200,7 +201,8 @@ cli-contract, CHANGELOG, skill 문서)를 갱신한다. 문장·번역 표현으
       수정(회귀 테스트 포함), allowlist 확장, 버전 고정, catalog 주석 교정 모두 완료. readiness는
       실측 결과 지금 구조에서 도달 불가능함을 확인해 뺐다 — cross-cutting 재설계 여부 commander
       결정 대기.
-- [ ] Stage 5: 3-OS CI job, 서버 부재 시 실패 확인.
+- [x] Stage 5: 3-OS 실측 커버리지 확인(새 job 없이 기존 `unit`+`cli-tests-cross-os`가 담당),
+      서버 부재 시 실패(스킵 아님) 로컬 재현으로 확인.
 - [ ] Stage 6: 식별자 기반 grep으로 문서 갱신 완료 확인.
 - [ ] 전체: `npm run cli:test` 통과, README/INSTALL/CHANGELOG/cli-contract가 실제 catalog와 일치.
 
@@ -651,3 +653,126 @@ fixture_target`)를 그대로 재사용 — 새로 만들지 않고 이미 검�
 **아직 남은 항목(stage 4 내에서 계속)**: stage 5(CI), 실제 사용 문서 갱신은 stage 6와 겹치는 부분
 정리. readiness의 cross-cutting 재설계 여부는 commander 결정 대기 — 그 결정 전까지는 현재 상태
 (readiness 없음, `indexingStatus: unknown`)로 유지한다.
+
+### 2026-09-02 — commander 결정: readiness 없이 진행, 아키텍처 발견 독립 기록
+
+**commander 결정(2026-09-02)**: readiness 재설계는 이 lane에서 하지 않는다. 현재 상태
+(readiness 없음, `indexingStatus: unknown`)로 stage 5에 진행한다. 근거 3가지 — (1) `unknown`은
+`bundled-typescript`가 오늘 이미 보고하는 정직한 기본값이고 퇴보가 아니다. (2) readiness를 넣으면
+10330ms 대 444ms로 순수 손해이고 그 대가로 얻는 정보가 0이다. (3) 고치려면 `awaitReadiness()`를
+`open()` 뒤로 옮겨야 하는데 이건 TS·gopls·custom이 전부 공유하는 경로라 gopls readiness의 3-OS
+재검증이 필요한 **lane 규모** 작업이다. 이 lane이 진단을 직접 재확인했다(아래 "제약" 참고) — stage 4
+로그의 코드 직독 결과와 일치한다.
+
+**아래는 commander가 요구한 두 가지 기록 — stage 4 로그 안에 섞여 있던 발견을 독립 항목으로 분리하고,
+다음 사람이 "간단한 순서 변경"으로 오인해 손대는 것을 막기 위한 관측·원인·제약·재검증 비용이다.**
+
+**관측**:
+- 실제 `.py` 분석 세션의 transcript(`IMPACT_LENS_LSP_TRANSCRIPT=1`)가 `"progress":[]`,
+  `"workDoneProgressTokens":[]` — pyright가 진행 알림을 단 하나도 보내지 않았다.
+- 별도 raw probe: `textDocument/didOpen`을 한 번도 보내지 않고 6초를 기다리면 pyright는 진행 알림을
+  정말 0건 보낸다.
+- `report.message`가 관측될 때는 내용이 "N file to analyze"였다 — workspace 초기화 메시지가 아니라
+  분석 대상 파일 수를 세는 메시지.
+
+**원인**: pyright의 work-done-progress 사이클은 workspace 초기화가 아니라
+`textDocument/didOpen`이 트리거한다.
+
+**제약(코드 직독, 정확한 줄 번호 — 이 항목에서 다시 확인)**:
+- `cli/src/lspProvider.ts`의 `doInitialize()`(486~586행)가 **585행**에서 `awaitReadiness()`를
+  호출한다 — `initialized = true`를 설정하는 584행 직후, 어떤 파일도 열리기 전이다.
+  (`awaitReadiness()` 자신의 정의는 614행.)
+- 같은 파일의 `prepare()`(358~367행)가 **361행**에서 최초로 `open()`을 호출한다
+  (`open()`의 정의는 651행) — `prepare()`의 359행 `await this.initialize()`가 끝난 뒤에만 도달하는
+  경로다.
+- 즉 `awaitReadiness()`가 응답을 기다리는 시점에 pyright에게는 아직 열린 파일이 없다 — 신호를 보낼
+  조건 자체가 아직 성립하지 않은 상태에서 대기가 이미 끝나 있다.
+
+**재검증 비용(고치려면 무엇을 다시 검증해야 하는가)**:
+- `awaitReadiness()`를 `open()`(최소 root 파일)보다 뒤로 옮기는 순서 변경은 `LspCallHierarchyProvider`를
+  쓰는 **모든** provider(TS, gopls, custom)가 공유하는 코드 경로를 건드린다.
+- gopls의 readiness가 오늘 동작하는 이유가 정확히 "Setting up workspace" 신호가 workspace 단위이고
+  파일을 열지 않아도 오기 때문이다(`catalog.ts`의 gopls readiness 주석, 145~148행 부근). 호출 순서를
+  바꾸면 이 전제가 재검증되지 않은 채로 남는다 — `go-provider` CI job(3-OS, `IMPACT_LENS_REQUIRE_GOPLS=1`)을
+  다시 통과시켜 gopls가 여전히 정상 동작함을 확인해야 한다.
+- 즉 이건 이 preset 하나의 버그 수정이 아니라 별도 lane 규모의 작업이다.
+
+**후속 lane 목록에 등록**: 이 문제는 Python 하나의 각주가 아니라 **"파일이 열려야만 신호를 보내는
+provider 전체"**의 문제다 — 다음 후보는 `clangd`(C/C++, background index를 씀)다.
+`docs/development-management/stories/il-lim-014-c-cpp-clangd-support.md`의 "미해결 질문"에 이
+lane을 가리키는 항목을 추가했다(아래 별도 기록).
+
+**부가 실측 — commander의 남은 위험 질문에 답한다.** "pyright가 준비 전 요청을 큐에 넣고 기다리는지,
+즉시 빈 답을 주는지 확인했습니까?"에 실측으로 답한다(측정 주체: 이 lane, 2026-09-02, session
+scratchpad `pyright-readiness-race/`, 저장소 밖 — 실제 fixture가 아니라 일회성 raw JSON-RPC probe).
+
+- **방법**: 3,000개 파일로 구성된 synthetic Python workspace를 만들었다. 각 filler 파일은 stdlib
+  모듈 10개를 import하고 `target.fixture_target`을 호출하는 메서드 8개를 가진 클래스를 정의한다
+  (실제 계산 부하를 만들기 위함). `target.py`(질의 대상)를 열자마자(추가 대기 없이) `prepare
+  CallHierarchy` + `incomingCalls`를 곧바로 쐈다("EARLY") — 그리고 같은 질의를 15초 뒤에 다시
+  쐈다("LATE", 인덱싱이 확실히 끝난 뒤).
+- **결과**: EARLY는 `didOpen` 직후 158ms에 발사돼 1877ms에 응답이 왔고(왕복 계산에 실측 1.7초가
+  걸림 — 공짜 답이 아니다), **24001개 caller**를 정확히 반환했다 — 마지막으로 정렬되는
+  `zzz_caller.py`의 `fixture_caller`까지 포함해서. LATE(15초 뒤)는 정확히 같은 24001개, 같은
+  `fixture_caller` 포함. **두 응답이 바이트 단위로 동일했다.**
+- 이 실행 동안 `$/progress`·`window/workDoneProgress/create`는 **0건**이었다 — 실제 계산이 1.7초
+  걸렸는데도 진행 신호가 전혀 없었다는 뜻이다. 이건 이 항목의 "관측"과 별개의 새 사실이라, 신호
+  자체가 이 lane이 다룬 workload 형태에서는 안정적인 관측 채널이 아니라는 부가 증거로만 남긴다 —
+  원인은 조사하지 않았다(범위 밖).
+- **판단**: pyright의 request handler는 (적어도 이 규모·형태에서는) 배경 인덱스가 완성되기를
+  기다리지 않고, 질의에 필요한 분석을 그 자리에서 강제로 수행해 답하는 것으로 보인다 — "완성 전
+  캐시를 읽어 불완전한 답을 준다"는 패턴이 아니라 "질의당 필요한 만큼 동기적으로 계산한다"는 패턴에
+  가깝다.
+- **`docs.limitations`에 새 항목을 추가하지 않는다** — 실측이 정확히 commander가 우려한 시나리오
+  (인덱싱 완료 전 질의 도착)를 재현했고, 그 안에서 불완전한 응답을 관측하지 못했다.
+- **이 실측의 한계(확인 안 한 것을 그대로 적는다)**: (1) synthetic 파일은 전부 stdlib import뿐이고
+  실제 third-party 패키지(venv/site-packages)를 갖는 워크스페이스가 아니다 — third-party 해석
+  경로는 stage 4에서 이미 별도로 다뤘고(venv 미설정 시 `reportMissingImports`) 이 실측과는 다른
+  질문이다. (2) 최대 3,000 파일까지만 봤다 — 이보다 훨씬 큰 실제 monorepo(수만 파일)에서 같은
+  결론인지는 검증하지 않았다. (3) darwin/arm64 1개 머신에서만 쟀다. 이 세 가지는 "불완전 응답
+  위험이 없다"는 결론을 뒤집을 수 있는 조건이라, 다음 사람이 대규모 실제 프로젝트에서 다르게
+  관측하면 이 판단을 다시 열어야 한다.
+
+### 2026-09-02 — Stage 5: CI
+
+**목적**: "3-OS에서 동작한다"는 주장을 실제 실행으로 뒷받침한다. `go-provider`와 같은 규칙(**skip은
+실패로 취급**)을 지키되, bundled tier는 "설치가 아니라 의존성 해석이 검증 대상"이라는 stage 1의
+사전 결론대로 형태가 달라진다.
+
+**직접 확인한 사실 — 새 job이 필요 없는 이유**:
+- `.github/workflows/unit-tests.yml`의 `unit`(ubuntu-latest)과 `cli-tests-cross-os`
+  (windows-latest, macos-latest) 두 job이 이미 3개 OS 전부에서 `pnpm install --frozen-lockfile` →
+  `npm run cli:test`를 돈다.
+- `pyright`는 `gopls`와 달리 별도 설치 단계가 필요한 external tool이 아니라 `cli/package.json`의
+  `dependencies`에 정확히 고정된 패키지다 — 그래서 이 두 job의 기존 `pnpm install` 단계가 세 OS
+  모두에서 이미 pyright를 동일하게 설치한다. gopls가 `go-provider`라는 별도 job과
+  `IMPACT_LENS_REQUIRE_GOPLS=1` 게이트가 필요했던 이유(외부 설치 단계가 Extension/CLI 결과를
+  가리거나 지연시킬 위험)가 애초에 성립하지 않는다.
+- `contract.test.ts`의 bundled-pyright 테스트 4개(preflight, `--smoke`, `--fixture`, 실제 `.py`
+  auto-discovery e2e)는 **어떤 skip 게이트도 없다** — 코드를 직접 읽어 확인했다(위 테스트 목록,
+  `IMPACT_LENS_REQUIRE_` 패턴으로 grep해도 0건). 즉 이미 두 기존 job에서 무조건 실행된다.
+
+**검증 — "서버 부재 시 job이 실제로 실패하는지" 로컬로 재현**(측정 주체: 이 lane, 2026-09-02):
+`cli/node_modules/pyright`(pnpm이 만든 심볼릭 링크)를 일시적으로 옮겨 `require.resolve`가 실패하는
+상태를 만들고 `npm run cli:test`를 돌렸다. 결과: bundled-pyright 관련 4개 테스트 전부 **명시적으로
+실패**했다 — `doctor` preflight는 `status: 'blocked'`, `--smoke`/`--fixture`는 각각 기대와 다른
+값으로 assertion 실패, e2e는 `analyze`가 `ok: false`와
+`error.code: 'bundled_provider_artifact_missing'`("Reinstall the Impact Lens CLI or Plugin.")을
+반환해 exit code 5로 끝났다 — **스킵이 아니라 시끄러운 실패**였다. 심볼릭 링크를 원복한 뒤
+`require.resolve`가 다시 정상 해석됨을 확인하고, `npm run cli:test` 전체(291개, 289 pass/2 skip
+— 기존 gopls-required 스킵만 남음)를 재실행해 회귀가 없음을 확인했다.
+
+**결정**: `bundled-pyright`를 위한 새 CI job을 추가하지 않는다. 위 검증이 증명하는 것은 "3개 OS
+전부에서 이미 실제로 실패할 수 있는 경로가 존재한다"이지, "지금은 통과한다"가 아니다 — 새 job을
+만들어도 똑같은 명령(`npm run cli:test`)을 똑같은 matrix(ubuntu/macos/windows)에서 다시 도는 것
+말고는 추가되는 신호가 없다. `unit-tests.yml`의 `go-provider` job 바로 뒤에 이 결정과 근거를 그대로
+남겨, 다음 사람이 "python-provider job이 왜 없지"라고 의아해하지 않도록 했다.
+
+**산출물**: 새 workflow job 없음(의도적) — `.github/workflows/unit-tests.yml`에 결정 근거 주석
+추가. 코드 변경 없음(pyright는 이미 stage 4에서 `cli/package.json`에 반영됨).
+
+**남은 한계**: 이건 로컬 재현이지 실제 GitHub Actions runner에서 세 OS 모두를 돌려 확인한 것이
+아니다 — `unit`/`cli-tests-cross-os` 자체는 이미 이 저장소의 기존 CI로 계속 돌고 있으므로(push/PR마다)
+이 lane의 커밋이 push된 뒤 실제 CI 실행 결과로 재확인할 수 있다. 로컬 재현은 "그 CI가 실패할 능력이
+있는가"를 증명하고, 실제 CI 실행은 "지금 그 CI가 통과하는가"를 증명한다 — 후자는 이 커밋이 push된
+뒤의 CI 로그로 확인한다.

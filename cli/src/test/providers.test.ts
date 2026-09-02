@@ -57,6 +57,10 @@ function temporaryDirectory(t: { after(fn: () => void): void }, prefix: string):
 // unclaimed status is what most of this fixture's call sites depend on. It used to be `python` until
 // M2 added a real `bundled-pyright` entry to `PROVIDER_CATALOG`, which made every auto-discovery test
 // combining `[...PROVIDER_CATALOG, fixturePythonPreset()]` see two Python presets instead of one.
+// This is a recurring pattern, not a one-off: whichever language stands in here stops being "unclaimed"
+// the moment a real preset for it ships, and every call site that pairs this fixture with
+// `PROVIDER_CATALOG` breaks the same way `python`'s did. When `clangd` ships (`c`'s current stand-in),
+// this fixture has to move again to a language the catalog still does not cover.
 function fixtureUnclaimedLanguagePreset(overrides: Partial<ProviderPreset> = {}): ProviderPreset {
   return {
     id: 'fixture-c',
