@@ -53,13 +53,17 @@ function temporaryDirectory(t: { after(fn: () => void): void }, prefix: string):
  * exactly one language. This fixture exists so the discovery, ambiguity and version paths are
  * exercised by real code rather than only by presets that cannot reach them.
  */
-function fixturePythonPreset(overrides: Partial<ProviderPreset> = {}): ProviderPreset {
+// `c` -> the real catalog has no preset for it (clangd is a future lane, not yet shipped) - that
+// unclaimed status is what most of this fixture's call sites depend on. It used to be `python` until
+// M2 added a real `bundled-pyright` entry to `PROVIDER_CATALOG`, which made every auto-discovery test
+// combining `[...PROVIDER_CATALOG, fixturePythonPreset()]` see two Python presets instead of one.
+function fixtureUnclaimedLanguagePreset(overrides: Partial<ProviderPreset> = {}): ProviderPreset {
   return {
-    id: 'fixture-python',
-    displayName: 'Fixture Python Server',
+    id: 'fixture-c',
+    displayName: 'Fixture C Server',
     tier: 'verified-external',
-    languageIds: ['python'],
-    extensions: ['.py'],
+    languageIds: ['c'],
+    extensions: ['.c'],
     command: { candidates: ['impact-lens-fixture-server'], args: ['--stdio'], languageIdFrom: 'detected' },
     docs: { install: 'https://example.invalid/install-fixture-server' },
     lastVerified: { date: '2026-01-01', versions: ['1.0.0'] },
@@ -171,9 +175,9 @@ test('auto-discovery reports the bundled tier for the shipped TypeScript preset'
 test('auto-discovery reports the auto tier for a discovered external preset', t => {
   const binaries = syntheticPosixDirectory(t, 'discovery-bin-');
   writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
-  const resolved = resolveProvider('src/a.py', undefined, {
+  const resolved = resolveProvider('src/a.c', undefined, {
     env: NO_ENV,
-    catalog: [...PROVIDER_CATALOG, fixturePythonPreset()],
+    catalog: [...PROVIDER_CATALOG, fixtureUnclaimedLanguagePreset()],
     lookup: { env: { PATH: binaries }, platform: 'linux' },
   });
   assert.equal(resolved.selectedBy, 'auto');
@@ -188,10 +192,10 @@ test('auto-discovery reports the auto tier for a discovered external preset', t 
 
 test('an unsupported language never falls back to another language provider', () => {
   assert.throws(
-    () => resolveProvider('src/a.py', undefined, { env: NO_ENV }),
+    () => resolveProvider('src/a.c', undefined, { env: NO_ENV }),
     (error: unknown) => error instanceof CliError
       && error.code === 'provider_required_for_language'
-      && (error.details as { detectedLanguageId: string }).detectedLanguageId === 'python',
+      && (error.details as { detectedLanguageId: string }).detectedLanguageId === 'c',
   );
 });
 
@@ -209,9 +213,9 @@ test('an explicitly named preset is refused for a language it does not claim', (
 test('a matching preset with no installed executable is not replaced by another language', t => {
   const binaries = syntheticPosixDirectory(t, 'discovery-empty-');
   assert.throws(
-    () => resolveProvider('src/a.py', undefined, {
+    () => resolveProvider('src/a.c', undefined, {
       env: NO_ENV,
-      catalog: [...PROVIDER_CATALOG, fixturePythonPreset()],
+      catalog: [...PROVIDER_CATALOG, fixtureUnclaimedLanguagePreset()],
       lookup: { env: { PATH: binaries }, platform: 'linux' },
     }),
     (error: unknown) => {
@@ -233,12 +237,12 @@ test('two installed verified providers for one language are reported, not guesse
   writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
   writeExecutable(binaries, 'impact-lens-other-server', '#!/bin/sh\nexit 0\n');
   assert.throws(
-    () => resolveProvider('src/a.py', undefined, {
+    () => resolveProvider('src/a.c', undefined, {
       env: NO_ENV,
       catalog: [
-        fixturePythonPreset(),
-        fixturePythonPreset({
-          id: 'fixture-python-other',
+        fixtureUnclaimedLanguagePreset(),
+        fixtureUnclaimedLanguagePreset({
+          id: 'fixture-c-other',
           command: { candidates: ['impact-lens-other-server'], args: [], languageIdFrom: 'detected' },
         }),
       ],
@@ -304,10 +308,12 @@ test('the shipped catalog only claims languages that have been verified', () => 
   }
   // 'gopls' entered here as a real deepEqual member, not a placeholder: M2 stage 1
   // (docs/work/task-m2-gopls-preset.md) ran Call Hierarchy against it on a pinned version range, which
-  // is exactly the evidence the loop above requires of every verified-external preset.
-  assert.deepEqual(PROVIDER_CATALOG.map(preset => preset.id), ['bundled-typescript', 'gopls']);
+  // is exactly the evidence the loop above requires of every verified-external preset. 'bundled-pyright'
+  // needs no such evidence here (it is `bundled`, not `verified-external`) but is real for the same
+  // reason: task-m2-python-preset.md ran a real Call Hierarchy round trip against pyright.
+  assert.deepEqual(PROVIDER_CATALOG.map(preset => preset.id), ['bundled-typescript', 'gopls', 'bundled-pyright']);
   assert.deepEqual(bundledLanguageIds(PROVIDER_CATALOG), [
-    'typescript', 'typescriptreact', 'javascript', 'javascriptreact',
+    'typescript', 'typescriptreact', 'javascript', 'javascriptreact', 'python',
   ]);
 });
 
@@ -650,7 +656,7 @@ test('project value overrides merge over the preset without changing the selecti
 });
 
 test('merged settings reject a combined key budget and report numeric source contributions only', () => {
-  const preset = fixturePythonPreset({ settings: keyedTree('preset', 400) });
+  const preset = fixtureUnclaimedLanguagePreset({ settings: keyedTree('preset', 400) });
   const project: ProjectProviderChoice = {
     source: PROJECT_PROVIDER_CONFIG_PATH,
     presetId: preset.id,
@@ -681,7 +687,7 @@ test('merged initialization options reject a combined byte budget without exposi
   const value = (source: string, fill: string): JsonObject => ({
     [source]: `${sentinel}-${source}-${fill.repeat(24000)}`,
   });
-  const preset = fixturePythonPreset({ initializationOptions: value('preset', 'p') });
+  const preset = fixtureUnclaimedLanguagePreset({ initializationOptions: value('preset', 'p') });
   const project: ProjectProviderChoice = {
     source: PROJECT_PROVIDER_CONFIG_PATH,
     presetId: preset.id,

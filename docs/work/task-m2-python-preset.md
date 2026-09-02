@@ -1,7 +1,8 @@
 # M2 — Python provider preset 구현
 
-- 상태: Stage 1·2·3 완료(`bundled` + `pyright` + `null`/`[]` 방향 (나) 구현) — commander 보고 대기,
-  Stage 4 착수 전
+- 상태: Stage 1~4 구현 완료(preset shipped, `.py` 실제 동작 확인). **readiness cross-cutting 재설계
+  여부가 commander 결정 대기 중** — 그 결정 전까지 readiness 없이(indexingStatus: unknown) 유지.
+  Stage 5(CI)·6(문서) 착수 전
 - branch: `feat/m2-python-preset`
 - 선행: `docs/m2-python-investigation`(PR #63, merged `f872074`) — "Call Hierarchy를 실제로 구현한
   OSS Python Language Server가 있는가"에 실행으로 답한 조사 lane. 이 문서는 그 결론을 preset으로
@@ -195,7 +196,10 @@ cli-contract, CHANGELOG, skill 문서)를 갱신한다. 문장·번역 표현으
 - [x] Stage 3: 방향 (나) 구현(`provider_null_incoming_calls`), `nullIncomingCallsServer.ts` fixture로
       `?? []` 경로를 실제로 밟는 e2e 테스트 + 음성 대조군 통과, 사용자 문서 3곳 갱신. eval fixture
       추가는 stage 6로 flagging.
-- [ ] Stage 4: preset + fixture, `doctor --smoke --fixture` 통과, 실제 `.py` E2E 통과.
+- [x] Stage 4: preset + fixture, `doctor --smoke --fixture` 통과, 실제 `.py` E2E 통과. doctor 버그
+      수정(회귀 테스트 포함), allowlist 확장, 버전 고정, catalog 주석 교정 모두 완료. readiness는
+      실측 결과 지금 구조에서 도달 불가능함을 확인해 뺐다 — cross-cutting 재설계 여부 commander
+      결정 대기.
 - [ ] Stage 5: 3-OS CI job, 서버 부재 시 실패 확인.
 - [ ] Stage 6: 식별자 기반 grep으로 문서 갱신 완료 확인.
 - [ ] 전체: `npm run cli:test` 통과, README/INSTALL/CHANGELOG/cli-contract가 실제 catalog와 일치.
@@ -530,3 +534,120 @@ fail)를 추가하지 않았다 — 채점 스크립트의 `expectedViolations` 
 **한계**: 이 실측은 `typescript-language-server@6.0.0`(이 저장소가 실제로 번들한 버전) 하나에
 대한 것이다. 다른 버전이나 다른 TS 파일 모양(메서드, private 함수 등)까지 전부 확인하지는 않았다 —
 "caller 없는 심볼 하나면 된다"는 commander의 요청 범위 그대로다.
+
+### 2026-09-02 — Stage 4: preset 작성
+
+**pyright 의존성 추가**: `cli/package.json`의 `dependencies`에 `"pyright": "1.1.413"`를 caret 없이
+정확히 고정했다(`typescript`와 같은 방식). 이 저장소가 실제로 pnpm workspace(`pnpm-workspace.yaml`:
+`packages: [., cli]`, root `package.json`의 `packageManager: pnpm@10.34.5`)라는 것을 이 lane에서
+처음 확인했다 — `cli/`에서 맨 `npm install`을 돌리면 workspace 밖 postinstall hook(`husky`)이 깨진다.
+`npm install -g pnpm@10.34.5`(root가 고정한 버전과 동일)로 pnpm을 설치하고 `pnpm install --filter
+cli`로 반영했다 — `cli/package.json`과 `pnpm-lock.yaml` 둘 다 갱신됐다. 설치된 실물로 `require.resolve
+('pyright/langserver.index.js', {paths: ['cli']})`가 정확히 해석되는 것도 직접 확인했다.
+
+**1) `runtime.ts:133-150` 허용 목록 확장**: `bundledModuleEntryPath()`에 `pyright/langserver.index.js`를
+가리키는 두 번째 `if` 분기를 명시적으로 추가했다(패턴·동적 조회로 일반화하지 않음). `inspectBundled
+PyrightArtifact()`를 새로 작성 — `BundledTypeScriptArtifact`와 같은 형태이지만 `typescriptVersion`
+필드가 없다(pyright는 그 자체가 checker이자 language server라 별도로 보고할 컴파일러 패키지가 없다).
+
+**doctor 버그 수정(commander가 미리 찾아 둔 것, 착수 전 직접 재확인 후 수정)**:
+`cli/src/doctor/checks.ts`의 `executableCheck`가 `tier === 'bundled'`이면 preset과 무관하게
+`inspectBundledTypeScriptArtifact()`를 무조건 호출하고 있었다 — 직접 코드를 읽어 확인했다. 고쳤다:
+`inspectBundledArtifact(preset.id)`라는 dispatcher를 새로 만들어 `preset.id`로 명시적으로 분기하고,
+**인식하지 못하는 bundled preset id는 조용히 TypeScript로 fallback하지 않고 `internal_error`를
+던진다** — 미래에 세 번째 bundled preset이 추가되고 이 dispatcher 갱신을 잊으면, 잘못된 정보를
+`pass`로 보고하는 대신 시끄럽게 실패하도록 만들었다. 실측으로 재현·확인:
+- `node dist/index.js doctor bundled-pyright` → `bundled-provider-artifact` 체크가
+  `package: "pyright", version: "1.1.413", entry: "langserver.index.js"`를 정확히 보고(수정 전이라면
+  `typescript-language-server`/`6.0.0`을 잘못 보고했을 것).
+- 회귀 방지 테스트를 `contract.test.ts`에 추가(아래 "테스트" 참고).
+
+**2) 버전 고정**: 위 pyright 의존성 추가에서 이미 반영(caret 없이 `1.1.413`).
+
+**5) preset id**: `bundled-pyright` — `^[a-z0-9]+(?:-[a-z0-9]+)*$` 관례를 따르고 `bundled-typescript`와
+대칭.
+
+**6) `catalog.ts`의 Python 주석 교정**: 파일 최상단 주석에서 (A) 라이선스·배포와 (B) capability를
+뭉쳐 놓았던 원래 문장을 지우고, 조사 lane이 그 둘을 분리해 답했다는 것과 stage 2의 pyright 선택
+근거를 새 주석으로 남겼다.
+
+**3) readiness — 검증 먼저, 그리고 검증이 설계를 뒤집었다.** 계획대로 "pyright가 인덱싱 외 목적으로도
+work-done-progress를 보내는가"부터 확인했다: 8초로 늘린 관측 창에서도 사이클은 하나뿐이었다(이전
+투자 lane 결과와 일치) — 여기까지는 "titlePattern 생략으로 충분하다"는 기존 결론을 재확인하는
+정상적인 경로였다.
+
+**그런데 실제 preset을 붙여 실측하자 전혀 다른 문제가 나왔다** — commander에게 바로 보고할 만큼 결과가
+예상과 달랐다. `readiness.signals: [{kind: 'work-done-progress', means: 'ready'}]`(titlePattern 생략)를
+넣고 실제 `.py` 파일을 provider 없이 분석시켰더니, **매번 정확히 ~10330ms**가 걸렸다(`budgetMs: 10000`
++ 오버헤드) — 그리고 결과의 `completion.indexingStatus`는 항상 `working`, `requestStatus`는 항상
+`partial`이었다. 그래프 자체(`fixture_caller`가 `fixture_target`을 부른다는 관계)는 **정확했다** — 다만
+매번 예산을 전부 태우고 `onBudgetExceeded: proceed-partial`로 넘어간 뒤였다.
+
+**원인을 `IMPACT_LENS_LSP_TRANSCRIPT=1`(기존에 이미 있던 opt-in 디버그 메커니즘)로 직접 추적했다**:
+실제 세션의 transcript가 `"progress":[]`, `"workDoneProgressTokens":[]` — **pyright가 진행 알림을
+단 하나도 보내지 않았다.** 별도 raw probe로 재현: `didOpen`을 한 번도 안 보내고 6초를 기다리면
+pyright는 진행 알림을 정말 하나도 안 보낸다. 즉 **pyright의 진행 신호는 workspace 초기화가 아니라
+`didOpen`이 트리거한다**(관측했던 `report.message`가 "N file to analyze"였던 것과도 합치한다). 그런데
+`cli/src/lspProvider.ts`의 `awaitReadiness()`는 `doInitialize()` 안에서, **어떤 파일도 열리기 전에**
+호출된다(`open()`은 이후 `prepare()`에서 처음 호출됨) — 그래서 pyright가 신호를 보낼 시점이 되기도
+전에 대기가 이미 시작돼 있고, 신호는 구조적으로 결코 시간 안에 도착할 수 없다. gopls의 readiness
+패턴("Setting up workspace" — workspace 단위, 파일을 열지 않아도 발생)이 pyright에는 그대로
+이식되지 않는다는 것이 이 실측의 결론이다.
+
+**즉시 취한 조치(안전한 쪽으로, 구조 변경은 하지 않음)**: `readiness`를 preset에서 **뺐다.**
+"신호가 없어서 생략"이 아니라 "신호는 실재하지만 지금 아키텍처에서 절대 도착할 수 없어서, 선언해
+두면 모든 Python 분석에 순수 지연(10초)만 추가하고 아무 이득도 없기 때문에 뺐다"는 것을 catalog.ts
+주석에 그대로 적었다. 반영 후 재측정: 같은 요청이 `444ms`로 끝나고, `completion.requestStatus:
+succeeded`, `indexingStatus: unknown`(`bundled-typescript`와 동일한 "주장하지 않음" 기본값 — 지금
+가능한 것보다 못한 상태로 퇴보한 게 아니라, `bundled-typescript`가 이미 쓰던 정직한 기본값이다).
+그래프 결과는 그대로 정확했다.
+
+**commander에게 지금 알려야 할 open question**: `readiness`를 이 preset에 다시 넣으려면
+`awaitReadiness()`를 `open()`(적어도 root 파일)보다 뒤로 옮기는 순서 변경이 필요한데, 이건 이
+preset만의 문제가 아니라 **모든 provider(TS, gopls, custom)가 공유하는 코드 경로**를 건드리는
+cross-cutting 변경이다. 이 lane에서 임의로 진행하지 않고 결정을 미룬다.
+
+**4) `requiredProjectFiles`와 조용한 저하 — 두 가지를 직접 실측했다.**
+- **cross-package import 해석**: `pyproject.toml`/`setup.py`/`__init__.py`가 전혀 없는 순수
+  다중 디렉터리 구조(`pkg_a/target.py`, `pkg_b/caller.py`, `from pkg_a.target import
+  fixture_target`)에서도 cross-directory import가 정상 해석됐다(`fixture_caller`를 incoming call로
+  정확히 찾음) — pyright의 implicit namespace package 해석이 workspace root를 암묵적 검색 경로로
+  삼기 때문. gopls의 AdHoc 같은 fallback이 애초에 없다.
+- **third-party import(venv) 위험 — 실재하지만 침묵하지 않는다**: `attrs`(실제 venv에 설치된
+  third-party 패키지, 시스템 `python3`에는 없음)를 import하는 fixture로 4가지 시나리오를 비교했다.
+  (a) 아무 설정 없음 → `reportMissingImports`(severity 1) 명시적 진단 발생. (b) `pyrightconfig.json`에
+  `venvPath`/`venv`를 명시 → 진단 0건, 완전 해결. (c) 관례적인 `.venv/` 디렉터리만 두고(명시 config
+  없음) → 여전히 `reportMissingImports` — **bare `.venv/`는 자동 인식되지 않는다.** (d)
+  `workspace/configuration`에서 `pythonPath`만 응답(프로젝트 파일 전혀 없음) → 진단 0건, 완전 해결.
+  결론: gopls의 AdHoc과 달리 이 gap은 **소리 없이 저하되지 않는다** — 항상 눈에 보이는 diagnostic으로
+  나타나고, Impact Lens는 이미 `collectDiagnostics`로 노드별 diagnostic을 응답에 포함한다. 또한
+  `requiredProjectFiles`로 게이트해도 (c)가 보여주듯 문제가 안 풀린다 — 실제로 필요한 건 venv
+  auto-detection(예: `.venv`/`venv` 폴더를 찾아 `pythonPath`를 자동으로 넘기는 것) 같은 별도 기능이지,
+  "project 파일이 있는지" 확인이 아니다. **`requiredProjectFiles`는 넣지 않았다** — gopls류
+  silent-completeness 위험이 없고, project 파일 존재만으로는 이 gap이 풀리지도 않기 때문이다. 대신
+  `docs.limitations`에 이 gap을 명시했다. venv auto-detection은 이 lane이 구현하지 않은 실제
+  옵션으로 기록만 해 둔다(추측성 구현 금지).
+
+**7) 실제 `.py` 파일로 auto-discovery end-to-end**: provider 필드를 아예 생략한 실제 `.py` 파일
+분석이 `bundled-pyright`에 정확히 도달하고(`selectedBy: "bundled"`), 올바른 그래프
+(`fixture_caller` → `fixture_target`)를 반환하는 것을 수동으로, 그리고
+`contract.test.ts`(아래)에도 재현 가능한 형태로 확인했다. `providers.test.ts:734`의 교차 검사는
+선언 일치만 보장한다는 지적 그대로, 이건 별개의 실제 동작 증거다.
+
+**catalog.ts fixture**: 조사 lane의 실측 fixture(`target.py`/`caller.py`, `from target import
+fixture_target`)를 그대로 재사용 — 새로 만들지 않고 이미 검증된 내용을 썼다.
+
+**테스트**:
+- `contract.test.ts`에 4개 추가: bundled-pyright preflight(수정된 doctor 버그의 회귀 방지 —
+  `package: "pyright"`이고 `typescriptVersion`이 없음을 직접 단언), `--smoke`, `--fixture`(실제
+  `fixture_caller` 발견 확인), 그리고 provider 필드 없는 실제 `.py` 파일 auto-discovery e2e(임시
+  workspace에 실제 파일 작성 후 실행).
+- `providers.test.ts`의 기존 테스트 5개가 Python을 "커버리지 없는 언어"의 대역으로 쓰고 있어서
+  깨졌다 — `fixturePythonPreset()`을 `fixtureUnclaimedLanguagePreset()`으로 이름과 대상 언어를
+  `c`(clangd가 아직 없어 실제로 커버되지 않는 언어)로 바꿔 재사용했다. 하드코딩된 catalog id
+  목록과 `bundledLanguageIds()` 기대값도 갱신했다.
+- `npm run test` 전체 291개 중 289 pass, 2 skip(기존 gopls-required, 무관), 회귀 없음.
+
+**아직 남은 항목(stage 4 내에서 계속)**: stage 5(CI), 실제 사용 문서 갱신은 stage 6와 겹치는 부분
+정리. readiness의 cross-cutting 재설계 여부는 commander 결정 대기 — 그 결정 전까지는 현재 상태
+(readiness 없음, `indexingStatus: unknown`)로 유지한다.

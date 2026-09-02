@@ -32,6 +32,14 @@ export interface BundledTypeScriptArtifact {
   readonly entryPath: string;
 }
 
+export interface BundledPyrightArtifact {
+  readonly packageName: '@impact-lens/cli';
+  readonly serverPackage: 'pyright';
+  readonly serverVersion: string;
+  readonly entry: 'langserver.index.js';
+  readonly entryPath: string;
+}
+
 type ModuleResolver = (specifier: string) => string;
 
 export function assertSupportedNode(version = process.versions.node): void {
@@ -120,19 +128,79 @@ export function inspectBundledTypeScriptArtifact(resolveModule: ModuleResolver =
 }
 
 /**
- * Resolves the one module specifier a preset manifest is allowed to reference.
+ * Same shape as `inspectBundledTypeScriptArtifact`, for the bundled pyright preset (M2 Python).
+ *
+ * No second "compiler version" field: unlike `typescript-language-server` (a wrapper around the
+ * separately-versioned `typescript` package), pyright's own package is both the type checker and the
+ * language server - there is no second package to report.
+ */
+export function inspectBundledPyrightArtifact(resolveModule: ModuleResolver = require.resolve): BundledPyrightArtifact {
+  let entryPath: string;
+  let serverPackagePath: string;
+  try {
+    entryPath = resolveModule('pyright/langserver.index.js');
+    serverPackagePath = resolveModule('pyright/package.json');
+  } catch {
+    throw new CliError(
+      'bundled_provider_artifact_missing',
+      'The bundled pyright Language Server artifact is missing. Reinstall the Impact Lens CLI or Plugin.',
+      5,
+      false,
+      {
+        stage: 'discovery',
+        component: 'bundled-pyright',
+        recovery: 'reinstall_impact_lens_cli_or_plugin',
+      },
+    );
+  }
+
+  try {
+    fs.accessSync(entryPath, fs.constants.R_OK);
+  } catch {
+    throw new CliError(
+      'bundled_provider_artifact_unreadable',
+      'The bundled pyright Language Server entry is not readable. Reinstall the Impact Lens CLI or fix its permissions.',
+      5,
+      false,
+      {
+        stage: 'discovery',
+        component: 'bundled-pyright',
+        entry: 'langserver.index.js',
+        recovery: 'reinstall_or_fix_provider_permissions',
+      },
+    );
+  }
+
+  return {
+    packageName: '@impact-lens/cli',
+    serverPackage: 'pyright',
+    serverVersion: packageVersion(serverPackagePath, 'pyright'),
+    entry: 'langserver.index.js',
+    entryPath,
+  };
+}
+
+/**
+ * Resolves one of the module specifiers a preset manifest is allowed to reference.
  *
  * The catalog's `bundledModuleEntry` reference lands here. It goes through the artifact inspection
  * above rather than calling `require.resolve` directly so that a missing or unreadable server still
  * produces the same reinstall guidance it produced before presets existed.
  *
- * The allowlist is one entry long on purpose. Resolving an arbitrary specifier inside this package's
- * dependency tree is a way to learn where the package is installed, and the manifest that can ask for
- * it is only trusted because it ships in the same tarball.
+ * The allowlist is deliberately an explicit, enumerated set of `if` branches, not a pattern or a
+ * dynamic lookup keyed by the manifest's own module string. Resolving an arbitrary specifier inside
+ * this package's dependency tree is a way to learn where the package is installed, and the manifest
+ * that can ask for it is only trusted because it ships in the same tarball - generalizing this to
+ * "resolve whatever module string the catalog names" would let a corrupted or malicious catalog entry
+ * probe this package's install layout. Adding `pyright` (M2 Python) as a second branch keeps that
+ * narrowness: two named modules, not a set the catalog can grow on its own.
  */
 export function bundledModuleEntryPath(module: string): string {
   if (module === BUNDLED_TYPESCRIPT_MODULE) {
     return inspectBundledTypeScriptArtifact().entryPath;
+  }
+  if (module === BUNDLED_PYRIGHT_MODULE) {
+    return inspectBundledPyrightArtifact().entryPath;
   }
   // Same sentence shape as every other provider_config_invalid, fixed by truth table row F23.
   throw new CliError(
@@ -143,13 +211,14 @@ export function bundledModuleEntryPath(module: string): string {
     {
       stage: 'discovery',
       origin: 'the shipped preset catalog',
-      allowedModules: [BUNDLED_TYPESCRIPT_MODULE],
+      allowedModules: [BUNDLED_TYPESCRIPT_MODULE, BUNDLED_PYRIGHT_MODULE],
       action: 'Fix the provider configuration, or remove it to fall back to automatic selection.',
     },
   );
 }
 
 const BUNDLED_TYPESCRIPT_MODULE = 'typescript-language-server/lib/cli.mjs';
+const BUNDLED_PYRIGHT_MODULE = 'pyright/langserver.index.js';
 
 /**
  * A Language Server that dies before answering usually says nothing on stderr. This opt-in raises its

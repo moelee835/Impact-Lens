@@ -7,11 +7,15 @@ import {
 } from '../providers/discovery';
 import { ExecutableLookupOptions } from '../providers/discovery';
 import { unreachableDottedKeys } from '../providers/manifest';
+import { BUNDLED_PYRIGHT_PRESET_ID, BUNDLED_TYPESCRIPT_PRESET_ID } from '../providers/catalog';
 import { JsonObject, ProviderPreset } from '../providers/preset';
 import { PROJECT_PROVIDER_CONFIG_PATH } from '../providers/projectConfig';
 import { languageId } from '../providers/resolve';
 import {
   REQUIRED_NODE_MAJOR,
+  BundledPyrightArtifact,
+  BundledTypeScriptArtifact,
+  inspectBundledPyrightArtifact,
   inspectBundledTypeScriptArtifact,
   runtimeMetadata,
 } from '../runtime';
@@ -80,13 +84,15 @@ export function executableCheck(
 ): DoctorCheck {
   if (preset.tier === 'bundled') {
     try {
-      const artifact = inspectBundledTypeScriptArtifact();
+      const artifact = inspectBundledArtifact(preset.id);
       return {
         id: 'bundled-provider-artifact',
         status: 'pass',
         package: artifact.serverPackage,
         version: artifact.serverVersion,
-        typescriptVersion: artifact.typescriptVersion,
+        // Only `BundledTypeScriptArtifact` has this field - pyright has no separate compiler package
+        // to report a version for (see the comment on `inspectBundledPyrightArtifact`).
+        ...(artifact.serverPackage === 'typescript-language-server' ? { typescriptVersion: artifact.typescriptVersion } : {}),
         entry: artifact.entry,
         access: 'readable',
       };
@@ -124,6 +130,32 @@ export function executableCheck(
     executable: path.basename(found),
     candidates,
   };
+}
+
+/**
+ * Which bundled artifact a `tier: 'bundled'` preset's own inspection describes.
+ *
+ * A `tier === 'bundled'` branch that called `inspectBundledTypeScriptArtifact()` unconditionally used
+ * to sit here directly - correct only because `bundled-typescript` was the only bundled preset. Once
+ * `bundled-pyright` shipped, that would have made `doctor bundled-pyright` report TypeScript's package,
+ * version and entry as a `pass` - the wrong answer reported as success, not a failure a user would
+ * notice, which is worse than the gopls-lane `.go` gap (a real bug this exact class of oversight can
+ * reproduce: task-fix-go-language-detection.md). An unrecognized bundled preset id throws instead of
+ * silently falling back to the TypeScript inspector, so a future bundled preset that forgets to extend
+ * this fails loudly here rather than passing a check for the wrong server.
+ */
+function inspectBundledArtifact(presetId: string): BundledTypeScriptArtifact | BundledPyrightArtifact {
+  if (presetId === BUNDLED_TYPESCRIPT_PRESET_ID) {
+    return inspectBundledTypeScriptArtifact();
+  }
+  if (presetId === BUNDLED_PYRIGHT_PRESET_ID) {
+    return inspectBundledPyrightArtifact();
+  }
+  throw new CliError(
+    'internal_error',
+    `No bundled artifact inspector is registered for preset "${presetId}".`,
+    10,
+  );
 }
 
 /**
