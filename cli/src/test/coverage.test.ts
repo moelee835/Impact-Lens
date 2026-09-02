@@ -168,6 +168,60 @@ test('a null observation does not leak into a result that found callers', () => 
   assert.ok(!codes(projection).includes('provider_null_incoming_calls'));
 });
 
+// docs/work/task-m2-clangd-preset.md stage 3: a missing/stale/ambiguous compile database is a separate
+// signal from `nullIncomingCallsObserved` above - it is grounded in database state, not in any provider
+// response value, because clangd's own fallback for a missing database returns a plain `[]`, not `null`.
+test('compile_database_missing is surfaced when the observation says missing', () => {
+  const projection = project({ incomingCallerCount: 0 }, { compileDatabase: { status: 'missing' } });
+  assert.ok(codes(projection).includes('compile_database_missing'));
+});
+
+test('compile_database_stale is surfaced with the exact relative path in the message', () => {
+  const projection = project(
+    { incomingCallerCount: 3 },
+    { compileDatabase: { status: 'present', relativePath: 'build/compile_commands.json', stale: true } },
+  );
+  const detail = projection.limitationDetails.find(d => d.code === 'compile_database_stale');
+  assert.ok(detail);
+  assert.match(detail.message, /build\/compile_commands\.json/);
+});
+
+test('compile_database_ambiguous is surfaced with the candidate count in the message', () => {
+  const projection = project(
+    { incomingCallerCount: 3 },
+    { compileDatabase: { status: 'ambiguous', relativePaths: ['a/compile_commands.json', 'b/compile_commands.json'] } },
+  );
+  const detail = projection.limitationDetails.find(d => d.code === 'compile_database_ambiguous');
+  assert.ok(detail);
+  assert.match(detail.message, /^2 compile_commands\.json candidates/);
+});
+
+test('a present, fresh compile database carries none of the three compile_database_* codes', () => {
+  const projection = project(
+    { incomingCallerCount: 3 },
+    { compileDatabase: { status: 'present', relativePath: 'compile_commands.json', stale: false } },
+  );
+  const found = codes(projection).filter(code => code.startsWith('compile_database_'));
+  assert.deepEqual(found, []);
+});
+
+// The vacuous-pass guard for this feature: a non-C/C++ request never sets `observations.compileDatabase`
+// at all, and that absence - not a fourth "clean" status value - is what keeps every other language's
+// response byte-identical to before this stage.
+test('no compileDatabase observation at all (every non-C/C++ request today) carries none of the three codes', () => {
+  const projection = project({ incomingCallerCount: 3 });
+  const found = codes(projection).filter(code => code.startsWith('compile_database_'));
+  assert.deepEqual(found, []);
+});
+
+// Deliberately NOT gated on caller count, unlike provider_null_incoming_calls: a missing database can
+// produce an incomplete-but-nonzero caller list just as easily as an empty one, so this must still fire
+// when callers were found.
+test('compile_database_missing still fires when the query found real callers, unlike provider_null_incoming_calls', () => {
+  const projection = project({ incomingCallerCount: 3 }, { compileDatabase: { status: 'missing' } });
+  assert.ok(codes(projection).includes('compile_database_missing'));
+});
+
 test('S4 - depth limit', () => {
   const projection = project({ limits: new Set<TraversalLimit>(['depth']) });
   assert.deepEqual(projection.completion, {
@@ -316,7 +370,14 @@ test('the structured list and the v1 array differ only by the withheld codes', (
   );
   assert.deepEqual(
     [...V1_WITHHELD_REASON_CODES],
-    ['no_incoming_callers', 'index_state_unknown', 'provider_null_incoming_calls'],
+    [
+      'no_incoming_callers',
+      'index_state_unknown',
+      'provider_null_incoming_calls',
+      'compile_database_missing',
+      'compile_database_stale',
+      'compile_database_ambiguous',
+    ],
   );
 });
 

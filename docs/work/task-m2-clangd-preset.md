@@ -511,3 +511,151 @@ stage 3은 `null`/`[]` 축이 아니라 **compile database 상태 자체**를 �
 
 **branch 정리**: 원격의 옛 이름 branch(`docs/m2-clangd-investigation`)는 commander 지시대로 그대로
 둔다 — 원격 branch 삭제는 사용자 명시 요청 없이 하지 않는다(AGENTS.md).
+
+## Stage 3 — compile database
+
+**목적**: 결과가 build 설정에 의존한다는 사실을 사용자가 알게 한다. compile database가 없으면
+조용히 나빠지는 것이 이 언어의 기본 실패다(stage 1/2가 실측으로 확인).
+
+### commander가 먼저 차단한 축: `completion.traversalStatus`는 건드리지 않는다
+
+`COMPLETION_TRAVERSAL_STATUSES`(`types.ts:58-67`, `exhausted`/`depth-limited`/`node-limited`/
+`timeout`/`cancelled`/`unknown`/`failed`/`not-started`)를 확인했다 — 전부 **이 CLI 자신의
+traversal**(예산 소진, 중단)에 대한 진술이지 "provider가 다른 파일을 못 봤다"는 축이 아니다. 기존
+값을 갖다 쓰면 잘못된 라벨이고, 새 값을 추가하면 `types.ts:30-32`의 경고("declaring a new value
+narrows the producer contract... v2-only change")에 그대로 걸린다 — `schemaVersion`도 이 lane
+범위 밖(요구사항 문서 "이 lane이 하지 않는 것"). **이 필드는 손대지 않았다** — 실제로 어떤 커밋도
+`types.ts`의 `COMPLETION_TRAVERSAL_STATUSES`/`SucceededCompletion`/`PartialCompletion`을 바꾸지
+않았다(아래 검증에서 실측 확인).
+
+### 결정: 표면화(`limitationDetails`). 하드 게이트 아님.
+
+**세 안**:
+1. **하드 게이트**: compile database가 없거나 낡았거나 모호하면 분석을 거부한다(`provider_project_metadata_missing`류, gopls의 `requiredProjectFiles`와 같은 형태).
+2. **표면화**: 분석은 그대로 진행하고 `limitationDetails`에 상태를 기록한다(`provider_null_incoming_calls`와 같은 형태).
+3. **둘 다**: 특정 조건(예: 모호성)만 게이트하고 나머지는 표면화한다.
+
+**표면화를 선택했다.** 근거:
+- gopls의 `go.mod` 게이트가 성립한 이유는 "Go module 프로젝트라면 사실상 항상 `go.mod`가 있다"는
+  전제였다(정상 프로젝트를 막지 않음). **이 전제가 compile database에는 성립하지 않는다** —
+  `compile_commands.json`은 빌드 시스템이 명시적으로 생성해야 하는 산출물이고, 많이 생성하지
+  않는다.
+- **이 lane 자신의 fixture가 반례다.** stage 1의 `without-db/` fixture(compile database 전혀 없음)로
+  실제 clangd를 돌려보니 `fixture_target`↔`fixture_caller`의 직접 호출 관계는 **정확하게** 나왔다
+  (fallback 명령으로도 이 단순한 코드는 충분히 분석됐다). 하드 게이트를 걸면 이렇게 **지금 실제로
+  정답을 내는 프로젝트까지 전부 `unsupported`가 된다.**
+- 스토리(`il-lim-014`)의 문구도 "구분한다"·"안내한다"이지 "차단한다"가 아니다("compile database
+  유무·경로·staleness와 capability가 doctor 결과에서 구분된다", "metadata가 없을 때 configure/build를
+  실행하지 않고 안전한 생성 안내만 제공한다").
+- **다만 `[]` 케이스가 이 도구가 낼 수 있는 최악의 답이라는 것**(실제 호출자가 있는데 없다고
+  보임, stage 2 관측 (c))을 근거의 무게로 뒀다 — 그래서 표면화를 "정보성 참고"가 아니라
+  `no_incoming_callers`/`provider_null_incoming_calls`와 같은 `severity: 'warning'`으로 만들었다.
+
+**"둘 다"를 고르지 않은 이유**: 모호성(ambiguous)만 게이트하는 방안도 검토했다 — 모호한
+compile database는 clangd가 어느 쪽을 선택했는지조차 알 수 없으니 게이트할 근거가 더 강해
+보인다. 하지만 stage 2의 헤더 모호성 관측과 같은 이유로 기각했다 — **모호한 상태에서도 clangd가
+선택한 쪽 TU에 대해서는 여전히 정확한 답을 낼 수 있다**(단지 "이게 어느 쪽인지 모른다"는 한계가
+붙을 뿐). 이것도 표면화로 충분하고, 게이트-표면화 두 가지 처리 경로를 유지하는 복잡도를 정당화할
+근거가 부족했다.
+
+### 구현
+
+- `cli/src/providers/compileDatabase.ts`(신규): `inspectCompileDatabase(workspace)` — read-only,
+  `compile_commands.json` 후보(workspace root + `build`/`out`/`cmake-build-debug`/
+  `cmake-build-release`)를 찾아 `missing`/`present(+stale)`/`ambiguous` 셋 중 하나를 반환한다.
+  **CMake configure, project build, 자동 설치는 전혀 하지 않는다** — `fs.stat`/`fs.readFile`만
+  쓴다(테스트로 확인: read-only scan 후 workspace에 새 파일이 생기지 않음).
+  - staleness는 workspace root의 `CMakeLists.txt` mtime과만 비교한다 — 스토리의 "미해결 질문"이
+    이미 "mtime만으로 판단할지 build-system adapter가 필요한지 검토해야 한다"고 적어 둔 대로,
+    정밀하게 풀지 않고 **정직하게 제한된 휴리스틱**으로 남겼다. `CMakeLists.txt`가 없으면(non-CMake
+    빌드) staleness를 판단할 근거가 없으므로 `stale: false`(모른다를 안다고 하지 않음 — 이
+    저장소의 반복되는 원칙).
+- `cli/src/types.ts`: `AnalysisObservations.compileDatabase?: CompileDatabaseObservation` 필드
+  추가, `CompileDatabaseObservation` 타입 정의. `types.ts`는 이 저장소의 무의존 기반 계층이라
+  (import 없음) 타입은 여기 두고 `compileDatabase.ts`가 거꾸로 import한다.
+- `cli/src/coverage.ts`: `V1_WITHHELD_REASON_CODES`에 `compile_database_missing`/`_stale`/
+  `_ambiguous` 3개 추가(배포된 `limitations`/`coverage.reasons` 두 필드는 안 바뀜).
+  `compileDatabaseDetails()`가 `observations.compileDatabase` 상태에 따라 코드를 만든다 —
+  `provider_null_incoming_calls`와 같은 자리(`scope: 'provider'`)지만, **호출자 수(`incomingCallerCount`)에
+  무관하게** 표면화한다(`provider_null_incoming_calls`는 0건일 때만) — missing/stale 상태에서는
+  fallback 모드가 cross-file 인덱스 자체가 없어서(stage 1/2 관측), 호출자를 몇 명 찾았든 그 목록이
+  불완전할 수 있기 때문이다.
+- `cli/src/impact.ts`의 `analyzeImpact()`: `provider.capabilities.detectedLanguageId`가
+  `C_FAMILY_LANGUAGE_IDS`(`resolve.ts` 신규 export, `'c'`/`'cpp'`/`AMBIGUOUS_LANGUAGE_ID`)에 속할
+  때만 `inspectCompileDatabase(workspace)`를 실행해 관측에 병합한다 — 다른 모든 언어는
+  `observations.compileDatabase`가 아예 `undefined`로 남는다(필드가 생기는 게 아니라 요청 자체가
+  안 함).
+- `cli/src/doctor/checks.ts`: `compileDatabaseCheck(preset, workspace)` 신규 — preset의
+  `languageIds`가 C 계열을 하나라도 포함하면 활성화(clangd preset ID를 하드코딩하지 않음 — stage 4가
+  실제 preset을 추가하는 순간 자동으로 활성화된다). `status`는 missing/stale/ambiguous 전부
+  `'warn'`, present+fresh만 `'pass'` — **`'fail'`은 절대 없다**(표면화 결정을 코드로 강제).
+
+### doctor 3-state 검증 — 실제로 다른 출력을 내는지 확인
+
+C 계열 languageIds를 선언한 stand-in preset(`externalPreset`류, clangd preset은 stage 4 전이라
+아직 없음)으로 `runDoctor()`를 직접 호출해 4가지 상태를 각각 실제로 만들어 비교했다:
+
+| 상태 | `status` | `state` | 비고 |
+| --- | --- | --- | --- |
+| 없음 | `warn` | `missing` | |
+| 있음(신선) | `pass` | `present` | `path` 필드에 상대경로만 |
+| 있음(낡음) | `warn` | `stale` | `CMakeLists.txt`가 더 최신 |
+| 여러 후보 | `warn` | `ambiguous` | `candidatePaths` 배열 |
+
+넷 다 서로 다른 `(status, state)` 조합을 실제로 낸다는 것을 테스트로 직접 확인했다(`doctor.test.ts`).
+비-C 계열 preset(`bundled-typescript` 등)은 `compile-database` check 자체가 checks 목록에 **없다**
+— "이 언어는 관계없다"는 pass보다 정확한 신호다.
+
+### redaction — 실제 결함을 찾고 고쳤다
+
+commander가 "vacuous pass가 나기 가장 쉬운 자리"라고 지목한 대로였다. 기존 `redactProviderText()`
+(`jsonRpc.ts`)를 실제 절대 경로 + `-D` 플래그가 든 compile command 문자열로 직접 돌려봤다:
+
+```
+원본:   /usr/bin/clang -I /Users/woony6/secret-project/include -DAPI_TOKEN=abcdef123456 -DSECRET_KEY=hunter2 -c main.c
+redactProviderText() 결과: /usr/bin/clang -I ~/secret-project/include -DAPI_TOKEN=abcdef123456 -DSECRET_KEY=hunter2 -c main.c
+```
+
+**홈 경로는 정확히 `~`로 치환됐지만, `-DAPI_TOKEN=...`·`-DSECRET_KEY=...`는 전혀 안 걸렸다.**
+원인: `redactProviderText`의 비밀 어휘 정규식(`\b(token|password|secret|api[-_]?key)\s*[:=]\s*[^\s]+`)은
+`\b`(단어 경계)를 요구하는데, `-D` 플래그는 `API_TOKEN`처럼 밑줄로 이어진 **한 단어**라 "token"/
+"secret" 앞에 단어 경계가 생기지 않는다(밑줄도 `\w`이므로).
+
+**고쳤다** — `checks.ts`에 `redactPreprocessorDefines()`를 새로 추가해 `-D<NAME>=<value>` 형태의
+값을 **이름과 무관하게 전부** `[REDACTED]`로 바꾼다(안전한 정의 `-DNDEBUG=1`과 민감한 정의를 이름만
+보고 구분할 신뢰할 방법이 없으므로). `sampleCompileCommand()`가 이 함수를 먼저 돌리고
+`redactProviderText()`를 그 다음에 돌린다(기존 홈 경로·일반 비밀 패턴 처리는 그대로 재사용).
+
+**검증(양방향, commander 지시대로)**: 실제 `os.homedir()` 값 + `-DAPI_TOKEN=abcdef123456` +
+`-DSECRET_KEY=hunter2` + `-DNDEBUG=1`가 든 진짜 compile command로 `doctor`를 실제로 돌려
+- **정방향**: 실제 check 출력(`sampleCommand`)에 홈 경로 원문·`abcdef123456`·`hunter2`가 전혀
+  없고, `~/secret-project/include`·`-DAPI_TOKEN=[REDACTED]`·`-DSECRET_KEY=[REDACTED]`·
+  `-DNDEBUG=[REDACTED]`가 있음을 확인했다.
+- **역방향**(vacuous pass 배제): 같은 원본 문자열을 redaction 없이 그대로 정규식으로 검사해
+  홈 경로·`abcdef123456`·`hunter2`가 실제로 원문에 있었다는 것도 확인했다 — 애초에 민감하지 않은
+  내용이라 redaction 여부와 무관하게 통과했을 가능성을 배제한다.
+
+### 검증
+
+- `node --test cli/dist/test/compileDatabase.test.js`: 8/8(discovery 모듈 단독).
+- `node --test cli/dist/test/coverage.test.js`: 33/33(신규 7개 포함, `limitationDetailsFor` 와이어링).
+- `node --test cli/dist/test/doctor.test.js`: 21/21(신규 6개 포함, 3-state + redaction 양방향).
+- `npm run cli:test`(전체): 315 pass/2 skip/0 fail(317 total). 회귀 없음 — `AnalysisObservations`
+  필드 인벤토리 테스트(`stateReachability.sources.test.ts`)가 새 필드를 감지해 분류를 요구했고,
+  `stateReachability.integration.test.ts`의 provider-runtime 대조 테스트는 `compileDatabase`가
+  `LspCallHierarchyProvider.analysisObservations()`가 아니라 `impact.ts`에서 만들어진다는 사실과
+  안 맞아 실패했다 — `OBSERVATION_FIELD_PRODUCER`(신규, `'lsp-provider'`/`'analyze-caller'` 구분)로
+  분류 체계를 확장해 고쳤고, 두 맵이 서로 어긋나지 않는지 확인하는 테스트도 추가했다.
+- **실제 clangd로 real end-to-end**: `without-db/` fixture(`.c` 직접 분석)에서
+  `limitationDetails`에 `compile_database_missing`이 실제로 나타남을 확인했다(메시지·action 전부
+  실제 응답에서 확인). `with-db/` fixture는 `compile_database_*` 코드가 전혀 없는 깨끗한 응답임을
+  같은 방식으로 확인했다.
+- **`completion.traversalStatus`/`coverage.traversal`이 실제로 안 바뀌었는지 실측 확인**: 위
+  real E2E 응답의 `completion`/`coverage.traversal`을 직접 출력해 `traversalStatus: "exhausted"`,
+  `coverage.traversal.status: "complete"`임을 확인했다 — commander가 차단한 축을 실제로 안
+  건드렸다는 증거다.
+
+## 남은 작업
+
+- **Stage 3 완료. commander에게 보고 후 승인 대기 — stage 4(preset 작성) 이전에 한 번 더 검토받는다**
+  (commander가 명시).

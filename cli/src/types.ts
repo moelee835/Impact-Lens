@@ -340,7 +340,30 @@ export interface AnalysisObservations {
    * evidence this CLI can produce.
    */
   readonly nullIncomingCallsObserved?: boolean;
+  /**
+   * `compile_commands.json` state for a C/C++ request, read-only-discovered by
+   * `providers/compileDatabase.ts` before the provider session runs. Absent for any non-C-family
+   * request; a C-family request always carries one of the three states.
+   *
+   * M2 clangd lane stage 1/2 (docs/work/task-m2-clangd-preset.md) found by direct observation that a
+   * missing compile database degrades silently: clangd logs the problem only to its own stderr, never
+   * as an LSP-protocol-visible diagnostic, and a header query in that state returned `[]` (not `null`)
+   * for a symbol whose real caller was never even indexed. `nullIncomingCallsObserved` above cannot
+   * catch this - it fires only on a literal `null` - so this is a separate signal grounded in database
+   * state itself, not in any provider response value.
+   */
+  readonly compileDatabase?: CompileDatabaseObservation;
 }
+
+/**
+ * Read-only discovery result for `compile_commands.json`. See `providers/compileDatabase.ts` for how
+ * this is produced; defined here (not there) because `types.ts` is this codebase's dependency-free
+ * base layer that other modules import from, never the reverse.
+ */
+export type CompileDatabaseObservation =
+  | { readonly status: 'missing' }
+  | { readonly status: 'present'; readonly relativePath: string; readonly stale: boolean }
+  | { readonly status: 'ambiguous'; readonly relativePaths: readonly string[] };
 
 export interface ProviderCommand {
   readonly command: string;

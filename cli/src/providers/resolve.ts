@@ -632,6 +632,15 @@ export function resolveSessionValues(
  */
 export const AMBIGUOUS_LANGUAGE_ID = 'c-cpp-header';
 
+/**
+ * `detectedLanguageId` values a compile-database-driven provider (clangd, today the only one) can
+ * apply to. Used to gate `impact.ts`'s read-only `compile_commands.json` discovery (M2 clangd lane
+ * stage 3, `docs/work/task-m2-clangd-preset.md`) so every other language's response stays untouched -
+ * the discovery only runs, and `AnalysisObservations.compileDatabase` only gets set, for a request
+ * that resolved to one of these three.
+ */
+export const C_FAMILY_LANGUAGE_IDS: ReadonlySet<string> = new Set(['c', 'cpp', AMBIGUOUS_LANGUAGE_ID]);
+
 export function languageId(file: string): string {
   switch (path.extname(file).toLowerCase()) {
     case '.ts': return 'typescript';

@@ -352,3 +352,114 @@ test('the file option reaches the language check through the CLI surface', () =>
   assert.equal(data.status, 'blocked');
   assert.equal(check(data.checks, 'language-support').code, 'provider_language_mismatch');
 });
+
+// ---------------------------------------------------------------------------
+// compile-database check (M2 clangd lane stage 3, docs/work/task-m2-clangd-preset.md) - surfaces
+// compile_commands.json state, never gates. `fixture-external` overridden to a C-family languageIds so
+// the check activates without needing the real clangd preset (stage 4).
+// ---------------------------------------------------------------------------
+
+function cFamilyPreset(overrides: Partial<ProviderPreset> = {}): ProviderPreset {
+  return externalPreset({ languageIds: ['c', 'cpp'], extensions: ['.c', '.cpp'], ...overrides });
+}
+
+test('a non-C-family preset never carries a compile-database check at all', async t => {
+  const data = await runDoctor('fixture-external', {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-nocdb-ts-'),
+    env: {},
+    catalog: [...PROVIDER_CATALOG, externalPreset()],
+  });
+  const checks = data.checks as readonly DoctorCheck[];
+  assert.ok(!checks.some(entry => entry.id === 'compile-database'), JSON.stringify(checks.map(c => c.id)));
+});
+
+test('a C-family preset with no compile_commands.json anywhere reports missing, as a warning not a failure', async t => {
+  const data = await runDoctor('fixture-external', {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-cdb-missing-'),
+    env: {},
+    catalog: [...PROVIDER_CATALOG, cFamilyPreset()],
+  });
+  const result = check(data.checks as readonly DoctorCheck[], 'compile-database');
+  // Surfaces, never gates: this check's own status is `warn`, never `fail` - the same way
+  // `settingsKeysCheck`/`projectConfigCheck`'s state-only findings never escalate to `fail` on their
+  // own. (The overall run's aggregate status here is `blocked` for an unrelated reason - the fixture
+  // preset's executable does not exist - so it is not asserted on in this test.)
+  assert.equal(result.status, 'warn');
+  assert.equal(result.state, 'missing');
+});
+
+test('a fresh compile_commands.json at the workspace root reports present/pass', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-cdb-present-');
+  fs.writeFileSync(
+    path.join(workspace, 'compile_commands.json'),
+    JSON.stringify([{ directory: workspace, arguments: ['/usr/bin/clang', '-c', 'main.c'], file: path.join(workspace, 'main.c') }]),
+  );
+  const data = await runDoctor('fixture-external', { workspace, env: {}, catalog: [...PROVIDER_CATALOG, cFamilyPreset()] });
+  const result = check(data.checks as readonly DoctorCheck[], 'compile-database');
+  assert.equal(result.status, 'pass');
+  assert.equal(result.state, 'present');
+  assert.equal(result.path, 'compile_commands.json');
+});
+
+test('a compile_commands.json older than CMakeLists.txt reports stale/warn, not pass', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-cdb-stale-');
+  fs.writeFileSync(
+    path.join(workspace, 'compile_commands.json'),
+    JSON.stringify([{ directory: workspace, arguments: ['/usr/bin/clang', '-c', 'main.c'], file: path.join(workspace, 'main.c') }]),
+  );
+  fs.utimesSync(path.join(workspace, 'compile_commands.json'), new Date('2026-01-01'), new Date('2026-01-01'));
+  fs.writeFileSync(path.join(workspace, 'CMakeLists.txt'), 'cmake_minimum_required(VERSION 3.20)\n');
+  fs.utimesSync(path.join(workspace, 'CMakeLists.txt'), new Date('2026-06-01'), new Date('2026-06-01'));
+  const data = await runDoctor('fixture-external', { workspace, env: {}, catalog: [...PROVIDER_CATALOG, cFamilyPreset()] });
+  const result = check(data.checks as readonly DoctorCheck[], 'compile-database');
+  assert.equal(result.status, 'warn');
+  assert.equal(result.state, 'stale');
+});
+
+test('two candidate compile_commands.json files report ambiguous/warn with both relative paths', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-cdb-ambiguous-');
+  fs.writeFileSync(path.join(workspace, 'compile_commands.json'), '[]');
+  fs.mkdirSync(path.join(workspace, 'build'));
+  fs.writeFileSync(path.join(workspace, 'build', 'compile_commands.json'), '[]');
+  const data = await runDoctor('fixture-external', { workspace, env: {}, catalog: [...PROVIDER_CATALOG, cFamilyPreset()] });
+  const result = check(data.checks as readonly DoctorCheck[], 'compile-database');
+  assert.equal(result.status, 'warn');
+  assert.equal(result.state, 'ambiguous');
+  assert.deepEqual(result.candidatePaths, ['build/compile_commands.json', 'compile_commands.json']);
+});
+
+// The redaction verification commander asked for explicitly: real absolute home-directory content and
+// real -D preprocessor defines, checked in BOTH directions - that the check's actual output has them
+// redacted, and that the exact same raw line, left unredacted, still contains them (proving the
+// assertion above is not vacuously true because the content was never sensitive to begin with).
+test('sampleCommand redacts the real home directory and every -D define value, verified both directions', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-cdb-redact-');
+  const home = os.homedir();
+  const secretIncludePath = path.join(home, 'secret-project', 'include');
+  const rawLine = `/usr/bin/clang -I ${secretIncludePath} -DAPI_TOKEN=abcdef123456 -DSECRET_KEY=hunter2 -DNDEBUG=1 -c main.c`;
+  fs.writeFileSync(
+    path.join(workspace, 'compile_commands.json'),
+    JSON.stringify([{ directory: workspace, arguments: rawLine.split(' '), file: path.join(workspace, 'main.c') }]),
+  );
+  const data = await runDoctor('fixture-external', { workspace, env: {}, catalog: [...PROVIDER_CATALOG, cFamilyPreset()] });
+  const result = check(data.checks as readonly DoctorCheck[], 'compile-database');
+  const redacted = result.sampleCommand as string;
+
+  // Positive direction: none of the sensitive substrings survive in the actual check output.
+  assert.doesNotMatch(redacted, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(redacted, /abcdef123456/);
+  assert.doesNotMatch(redacted, /hunter2/);
+  assert.match(redacted, /~[/\\]secret-project[/\\]include/);
+  assert.match(redacted, /-DAPI_TOKEN=\[REDACTED\]/);
+  assert.match(redacted, /-DSECRET_KEY=\[REDACTED\]/);
+  assert.match(redacted, /-DNDEBUG=\[REDACTED\]/);
+
+  // Negative direction (the vacuous-pass guard commander asked for): the exact same raw line, joined
+  // the same way the real code joins `arguments`, DOES contain every one of those substrings when no
+  // redaction has run - proving they were real, present, sensitive-looking content, not an assertion
+  // that would have passed regardless of what the check actually did.
+  const unredacted = rawLine;
+  assert.match(unredacted, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(unredacted, /abcdef123456/);
+  assert.match(unredacted, /hunter2/);
+});

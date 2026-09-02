@@ -11,6 +11,7 @@ import { CliError, ProviderCommand } from '../types';
 import {
   DoctorCheck,
   cliPackageCheck,
+  compileDatabaseCheck,
   executableCheck,
   failureFields,
   languageSupportCheck,
@@ -91,6 +92,10 @@ export async function runDoctor(
   checks.push(languageSupportCheck(preset, options.file));
   checks.push(settingsKeysCheck(resolution.settings));
   checks.push(projectConfigCheck(project.state, project.error));
+  const compileDatabaseResult = await compileDatabaseCheck(preset, workspace);
+  if (compileDatabaseResult !== undefined) {
+    checks.push(compileDatabaseResult);
+  }
 
   if (mode !== 'preflight') {
     checks.push(await capabilitySmokeCheck(resolution.command, workspace, preset, options, log));
