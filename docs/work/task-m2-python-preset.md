@@ -1,6 +1,6 @@
 # M2 — Python provider preset 구현
 
-- 상태: Stage 1 완료(`bundled` 결정, commander 승인) — Stage 2 착수
+- 상태: Stage 1·2 완료(`bundled` + `pyright`) — Stage 3(`null`/`[]` 방향) 착수 전 보고 대기
 - branch: `feat/m2-python-preset`
 - 선행: `docs/m2-python-investigation`(PR #63, merged `f872074`) — "Call Hierarchy를 실제로 구현한
   OSS Python Language Server가 있는가"에 실행으로 답한 조사 lane. 이 문서는 그 결론을 preset으로
@@ -189,7 +189,8 @@ cli-contract, CHANGELOG, skill 문서)를 갱신한다. 문장·번역 표현으
 ## 테스트 및 완료 기준
 
 - [x] Stage 1: install closure 증가분 실측 완료(`bundled` 결정, 근거는 위 작업 로그), commander 승인.
-- [ ] Stage 2: 서버 선택과 탈락 사유 기록, fixture 통과.
+- [x] Stage 2: `pyright` 선택, 탈락 사유(basedpyright의 자체 문서상 npm 2급 채널 표시) 기록,
+      fixture 재현 통과.
 - [ ] Stage 3: `null`/`[]` 방향 구현, `Depends()` 모양 fixture가 `?? []` 경로를 실제로 밟는 것을 확인.
 - [ ] Stage 4: preset + fixture, `doctor --smoke --fixture` 통과, 실제 `.py` E2E 통과.
 - [ ] Stage 5: 3-OS CI job, 서버 부재 시 실패 확인.
@@ -327,3 +328,66 @@ gopls의 AdHoc 모드와 같은 모양이다. 조사 lane은 같은 디렉터리
 `AGENTS.md`를 근거로 들었으나, 이 lane이 직접 확인한 결과 `AGENTS.md`에는 설치 관련 조항이 없다(grep
 결과 0건) — 실제 근거는 `il-lim-004-first-class-language-presets.md:103`이다. 주장 자체는 맞고
 출처만 다른 파일이라, 이 문서에는 올바른 출처로 적었다.
+
+### 2026-09-02 — Stage 2: 서버 선택(bundled 확정으로 pyright vs basedpyright 2자)
+
+**측정 주체: 이 lane, 2026-09-02.** Stage 1에서 실제로 설치된 `with-pyright`/`with-basedpyright`
+scratch node_modules를 그대로 재사용해 세 기준을 직접 확인했다(재설치하지 않음).
+
+**1) 유지보수 주체·릴리스 주기** — `npm view <pkg> maintainers/repository/time`으로 직접 조회:
+- `pyright`: registry 소유자가 `microsoft1es`/`microsoft-oss-releases` 공식 계정 + 원저자
+  `erictraut` 포함 5인, `repository: github.com/Microsoft/pyright`. 총 497개 버전 발행, `latest`
+  기준 최근 릴리스 간격은 대체로 월 단위이나 2025-10-22→2026-01-08처럼 2.5개월 간격도 있었다.
+- `basedpyright`: registry 소유자가 `detachhead` 1인(fork 관리자). 총 1613개 버전 중 대부분이
+  `canary` dist-tag의 git-hash suffix 버전(거의 매일, upstream을 계속 rebase)이고, `latest`
+  dist-tag는 별도로 안정 버전만 가리킨다(`basedpyright@1.39.10` 자체가 `latest`임을 `npm view
+  basedpyright dist-tags`로 확인) — canary 개수만 보고 "불안정하다"로 오판하지 않도록 이 구분을
+  분명히 남긴다.
+- **basedpyright 자신의 README가 npm을 2순위 채널이라고 명시한다**: `node_modules/basedpyright/
+  README.md`(설치된 실제 파일에서 직접 인용) — "it's recommended to install basedpyright via
+  pypi rather than npm... the basedpyright npm package is intended for users who are unable to use
+  the pypi package for some reason." **pyright의 같은 위치 README에는 이런 문구가 없다** — 대칭
+  확인을 위해 pyright README도 직접 읽었다. 우리가 번들하는 건 정확히 npm 채널이므로, 이건
+  basedpyright 쪽에 실질적으로 불리한 신호다 — upstream(pyright)이 자기 npm 패키지를 1급으로 다루고,
+  fork는 자기 npm 패키지를 스스로 2급으로 표시한다.
+- 두 패키지의 `package.json` 모두 `optionalDependencies: {fsevents}` 하나뿐이고 `os`/`cpu` 제약이나
+  네이티브 바이너리가 없다 — README의 "pypi 권장" 문구는 npm 패키지 자체의 기술적 결함이 아니라
+  basedpyright 메인테이너의 채널 우선순위 선언이다(PyPI 배포는 `nodejs-wheel`로 Node를 함께
+  묶는 별도 방식이라 npm 패키지와 무관).
+
+**2) 라이선스(번들 대상이므로 하위 라이선스까지 직접 확인)** — 두 scratch install의 실제 파일을
+직접 비교했다: 최상위 `LICENSE.txt`는 둘 다 "MIT License / Pyright ... Copyright (c) Microsoft
+Corporation"으로 시작한다(basedpyright도 원저작권 표시를 그대로 유지). `dist/typeshed-fallback/
+LICENSE`는 `diff`로 바이트 단위 **동일**함을 확인했다(Apache-2.0 본문 + 일부 MIT 조각, 조사
+lane에서 이미 읽은 내용과 같다). 그 외 라이선스 파일은 두 패키지 모두 이 두 개뿐이다(`find
+-iname "*licen*"`). Impact Lens는 이 저장소 자체가 MIT(`LICENSE`, `cli/LICENSE` 확인)이고, npm
+`dependencies`로 선언하는 것은 재배포(vendoring)가 아니라 의존성 선언이므로 각 패키지가 자기
+LICENSE를 자기 디렉터리에 유지한 채 설치된다 — MIT와 Apache-2.0 모두 permissive이고 우리 MIT
+선언과 충돌하지 않는다. **두 후보 모두 라이선스 측면에서 동등하게 깨끗하다** — 이 기준은
+차별점이 아니다.
+
+**3) Call Hierarchy에 영향 있는 기능 차이** — basedpyright의 `package.json` description(
+"a fork of pyright with various type checking improvements, pylance features and more")과
+번들된 `README.md` 전체를 직접 읽었다. **"call hierarchy"/"hierarchy" 문자열이 한 번도 나오지
+않는다** — basedpyright가 광고하는 개선 사항 중 Call Hierarchy를 특정해 언급하는 것이 없다. 조사
+lane이 이미 같은 fixture에서 두 provider의 결과가 byte-identical이라고 관측한 것과 합치한다.
+**차이가 없다는 것을 이 lane이 직접 (README 전문 검색으로) 재확인했다** — "전체 목록은 필요
+없다"는 요구사항대로 Call Hierarchy 관련 여부만 좁혀서 봤다.
+
+**결정: `pyright`.** 근거:
+- 유지보수 주체가 canonical upstream(Microsoft, 원저자 포함)이고, 우리가 실제로 번들하는 채널(npm)을
+  1급으로 취급한다 — basedpyright는 같은 채널을 스스로 2급이라고 명시한다. `bundled`는 이 채널의
+  안정성에 직접 의존하므로 이 차이가 실질적이다.
+- Call Hierarchy 자체는 두 후보가 기능적으로 동일하다(조사 lane 실측 + 이 lane의 README 재확인) —
+  basedpyright를 선택할 만한 capability상의 이유가 없다.
+- 라이선스는 동률이라 결정 요인이 아니다.
+- 부차적으로 stage 1 실측치(pyright unpacked +18.4MB / basedpyright +26.3MB, packed 4.16MB /
+  6.16MB)도 pyright 쪽이 가볍다 — 이미 있는 근거를 다시 쓰는 것이지 이번에 새로 만든 근거는 아니다.
+
+**탈락 사유 기록**: `basedpyright`는 (A)·(B) 모두 통과하지만, `bundled` 채널에서 upstream보다
+못한 유지보수 우선순위(자기 공식 문서가 명시)와 더 큰 설치 크기를 상쇄할 만한 Call Hierarchy상의
+이점이 없어 탈락시킨다. `Pyrefly`는 stage 1(`bundled`)에서 이미 구조적으로 탈락했다(npm 미배포).
+
+**검증**: 이 scratch에 이미 설치된 pyright로 `lsp-probe.mjs`를 다시 실행해 Call Hierarchy 왕복을
+재확인했다(`fixture_caller found as incoming call? true`, 이 lane이 2026-09-02에 직접 재현) — 조사
+lane의 결과를 그대로 믿지 않고 이 lane에서 다시 왕복시켰다.
