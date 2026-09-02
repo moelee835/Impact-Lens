@@ -84,6 +84,28 @@ lane이 바뀌면 조용히 사라질 위험이 있다는 점도 이 결정 정�
 돌린다 — ubuntu는 이미 `unit` job이 돈다. `npm test`(Extension)는 범위 밖으로 명시적으로 남겨
 후속 과제로 기록한다(바로 위 문단).
 
+### `cli-tests-cross-os` 초록이 증명하는 것과 증명하지 않는 것
+
+`cli/src/test/runner.test.ts:8`에 **이 PR과 무관하게 이미 있던** skip이 있다:
+
+```js
+const posixOnly = process.platform === 'win32' ? test.skip : test;
+```
+
+이 한 줄이 **10개 test**(전부 plugin runner — Codex/Claude Code plugin이 CLI를 spawn하는 bash 스크립트
+경로를 검증하는 test들, `runner.test.ts:66`부터 나열)를 Windows에서 전부 skip시킨다. **이 PR은 이
+skip을 만들지 않았고 건드리지도 않았다** — "이 PR이 새로 만든 win32 skip은 없다"는 앞선 진술은 정확하다.
+
+다만 그 결과로 **`cli:test / windows-latest: SUCCESS`가 "CLI test 전체 suite가 Windows에서 실행되고
+통과했다"를 뜻하지 않는다.** 271개 중 10개는 Windows에서 아예 실행되지 않은 채로 초록에 포함된다. 이건
+이 저장소가 계속 구분해 온 "도달 가능 vs 관측됨"과 같은 종류의 구분이다 — 지금 명시하지 않으면 나중에
+이 초록을 "Windows에서 CLI 전체가 검증됐다"로 잘못 읽는 사람이 생긴다(PR #58의 gopls preset이 정확히
+이 실패 모드였다).
+
+**이 10개 skip이 정당한지(Windows에 진짜 대응 방법이 없는지, 아니면 GitHub Windows runner의 Git
+Bash로 돌릴 수 있는데 안 돌리고 있는 것인지)는 이 PR의 판단 범위 밖이다.** 고치지 않았다 — 이 PR은
+이미 한 번 범위가 커졌다(CI job 추가). reviewer 판정을 기다리고, 그 결과에 따라 후속 과제로 넘긴다.
+
 ## 판정 — 제품 결함이 아니라 test 결함이다
 
 원인 A·B·C(아래 "원인 C" 참고) 전부 `cli/src/providers/discovery.ts`, `cli/src/runtime.ts`의 실제
@@ -145,6 +167,29 @@ A·B·C 전부 뿌리가 같다: **platform을 인자로 시뮬레이션하면�
 - [ ] merge 후 PR #60(`test/m2-gopls-ci-verification`)을 rebase → `go-provider` windows-latest job도
   전체 `cli:test`로 green인지 재확인(같은 fix가 다른 job에서도 성립하는지 교차 확인 — 결과가 다르면
   그 자체가 결함).
+
+## 이 lane이 남긴 후속 과제 (한자리 정리, commander 요청)
+
+M2 gopls lane 전체(PR #58~#61)에서 미룬 것들이 쌓였다. **1~4는 이 lane과 무관한 별도 후속 과제이고,
+5만 M2 stage 3(PR #60)의 이번 lane 안에서 닫힌다** — 그 구분을 흐리지 않는다.
+
+**후속 과제(이 lane 밖, 지금 손대지 않음)**:
+1. Extension `npm test`의 Windows/macOS 커버리지 부재 — `cli:test`와 같은 이유로 한 번도 실행된 적
+   없고, 같은 종류의 미검증 POSIX 가정이 있을 가능성이 높다(위 "후속 과제로만 기록" 참고).
+2. `runner.test.ts`의 `posixOnly` skip 10건의 정당성 — 이 PR이 만들지 않았고 건드리지도 않았다. 진짜
+   Windows에서 대응 불가능한지, 아니면 GitHub Windows runner의 Git Bash로 돌릴 수 있는데 안 돌리고
+   있는 것인지 reviewer 판정 대기(위 "`cli-tests-cross-os` 초록이 증명하는 것과 증명하지 않는 것" 참고).
+3. `unit` job과 `cli-tests-cross-os` job의 구조 정리 — 지금 `cli:test`가 ubuntu에서는 두 job
+   모두에서 중복 실행된다(`unit`이 이미 돌리고, `cli-tests-cross-os`는 windows/macos만 추가했지만
+   구조적으로는 "`unit` 전체를 3-OS matrix로 정리"가 더 깔끔할 수 있다 — 다만 그러면 후속 과제 1이
+   같이 딸려온다).
+4. `serverInfo.version`이 응답의 54.6%를 차지하며 무제한으로 통과하는 계약 구멍(commander가
+   PR #60 작업 문서에 근본 원인을 이미 기록해 둠 — `lspProvider.ts:460` 유입 지점 하나).
+
+**이 lane 안(M2 stage 3, PR #60에서 닫힘)**:
+5. README.md/`m1-user-test-spec.md`의 "catalog에 preset이 하나뿐"/"`verified-external` preset이
+   하나도 없다" 서술 정정 — PR #60의 "알면서 남겨둔 창" 섹션에 이미 기록돼 있고, 그 PR의 CI가 3-OS
+   green이 되는 대로 같은 PR에서 `lastVerified` OS 확대와 함께 처리한다.
 
 ## 작업 로그
 
