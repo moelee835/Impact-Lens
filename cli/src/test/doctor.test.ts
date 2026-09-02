@@ -10,6 +10,7 @@ import { PROVIDER_CATALOG } from '../providers/catalog';
 import { ProviderPreset } from '../providers/preset';
 import { PROJECT_PROVIDER_CONFIG_PATH } from '../providers/projectConfig';
 import { CliError } from '../types';
+import { syntheticPosixDirectory } from './testFsHelpers';
 
 const EXECUTABLE = path.resolve(__dirname, '..', 'index.js');
 
@@ -104,7 +105,7 @@ test('an unknown preset is refused with the list of presets that do exist', asyn
 // ---------------------------------------------------------------------------
 
 test('a missing executable is reported as its own failure with what to install', async t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-doctor-nobin-');
+  const binaries = syntheticPosixDirectory(t, 'doctor-nobin-');
   const data = await runDoctor('fixture-external', {
     workspace: temporaryDirectory(t, 'impact-lens-doctor-nobin-ws-'),
     catalog: [externalPreset()],
@@ -260,7 +261,7 @@ test('every check runs even when earlier ones fail', async t => {
   const workspace = temporaryDirectory(t, 'impact-lens-doctor-multi-');
   fs.mkdirSync(path.join(workspace, '.impact-lens'));
   fs.writeFileSync(path.join(workspace, PROJECT_PROVIDER_CONFIG_PATH), '{ not json');
-  const binaries = temporaryDirectory(t, 'impact-lens-doctor-multi-bin-');
+  const binaries = syntheticPosixDirectory(t, 'doctor-multi-bin-');
 
   const data = await runDoctor('fixture-external', {
     workspace,

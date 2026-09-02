@@ -154,16 +154,26 @@ A·B·C 전부 뿌리가 같다: **platform을 인자로 시뮬레이션하면�
 - [x] 원인 A 5개 test(+ 실패하진 않았지만 같은 패턴이던 1개, 아래 참고)가 `platform: 'linux'`를
   강제하면서도 host OS와 무관한 합성 경로(`syntheticPosixDirectory`)만 쓴다.
 - [x] 원인 B 3개 assertion이 forward slash를 하드코딩하지 않고 `path.join`/`path.sep`로 비교한다.
-- [x] 아무 test도 `win32`에서 skip되지 않는다 — `grep -n "win32"` 재확인: 남은 매치는 새 헬퍼의 주석과
-  `platform: 'win32'`를 명시적으로 테스트하는 기존 test(이미 옳게 설계돼 있던 것) 하나뿐이다.
+- [x] **이 PR이 새로 만든 win32 skip은 없다.** 단, 이 문장은 처음에 "이 파일이 새 skip을 안 만들었다"는
+  좁은 확인이었고 저장소 전체 관점에서는 부정확한 인상을 줬다 — **정정**: `cli/src/test/*.ts` 전수
+  `grep -n "win32"` 결과는 4곳이다(`providers.test.ts:383`의 정당한 `platform: 'win32'` 명시 test,
+  `testFsHelpers.ts`의 주석 2곳, 그리고 **`runner.test.ts:8`의 `posixOnly` — 10개 plugin runner test를
+  Windows에서 skip시키는 사전 존재 코드**). 이 마지막 항목을 처음 완료 기준에서 빠뜨렸다 — reviewer가
+  재검토에서 지적했다. 아래 "`cli-tests-cross-os` 초록이 증명하는 것과 증명하지 않는 것" 섹션이 그
+  범위를 다룬다. 이 PR은 그 skip을 만들지도 고치지도 않았지만, "win32 skip 없음"이라는 진술 자체는
+  이 파일 하나가 아니라 저장소 전체를 정확히 가리켜야 했다.
 - [x] 로컬(macOS) `npm run cli:test` 271/271, `npm run test:all` 전체 통과(회귀 없음).
 - [x] **이 PR 자신의 CI**에 `cli-tests-cross-os`(windows-latest, macos-latest) job을 추가해
   `npm run cli:test`가 실제로 두 OS에서 green이 되는 것을 이 PR 안에서 직접 확인했다 —
   1차 실행: `/tmp/...` 합성 경로 자체는 유효(6개 중 5개 통과), 원인 C(별도 결함) 1건 추가 발견.
   2차 실행(원인 C 수정 후): windows-latest·macos-latest·ubuntu-latest 전부 green, `mergeStateStatus:
   CLEAN`.
-- [x] 원인 A·B·C 공통 규칙을 guard test가 아니라 `syntheticPosixDirectory()`/`writeExecutable()` 옆
-  코드 주석으로 남겼다(commander 판단: `cli-tests-cross-os` 자체가 이미 이보다 강한 guard).
+- [x] 원인 A·B·C 공통 규칙을 guard test가 아니라 `syntheticPosixDirectory()` 옆 코드 주석으로
+  남겼다(commander 판단: `cli-tests-cross-os` 자체가 이미 이보다 강한 guard).
+- [x] `doctor.test.ts`의 잔여 원인 A 인스턴스 2건(`:108`, `:264`)을 `syntheticPosixDirectory()`로
+  교체했다. 헬퍼를 `cli/src/test/testFsHelpers.ts`로 옮겨 `providers.test.ts`·`doctor.test.ts` 양쪽이
+  공유하게 해, 헬퍼가 private이라 재사용이 막혀 있던 구조적 원인 자체를 없앴다.
+- [ ] 위 doctor.test.ts 수정과 shared helper 이동을 실제 Windows CI로 재확인한다(다음 push).
 - [ ] merge 후 PR #60(`test/m2-gopls-ci-verification`)을 rebase → `go-provider` windows-latest job도
   전체 `cli:test`로 green인지 재확인(같은 fix가 다른 job에서도 성립하는지 교차 확인 — 결과가 다르면
   그 자체가 결함).
@@ -176,9 +186,16 @@ M2 gopls lane 전체(PR #58~#61)에서 미룬 것들이 쌓였다. **1~4는 이 
 **후속 과제(이 lane 밖, 지금 손대지 않음)**:
 1. Extension `npm test`의 Windows/macOS 커버리지 부재 — `cli:test`와 같은 이유로 한 번도 실행된 적
    없고, 같은 종류의 미검증 POSIX 가정이 있을 가능성이 높다(위 "후속 과제로만 기록" 참고).
-2. `runner.test.ts`의 `posixOnly` skip 10건의 정당성 — 이 PR이 만들지 않았고 건드리지도 않았다. 진짜
-   Windows에서 대응 불가능한지, 아니면 GitHub Windows runner의 Git Bash로 돌릴 수 있는데 안 돌리고
-   있는 것인지 reviewer 판정 대기(위 "`cli-tests-cross-os` 초록이 증명하는 것과 증명하지 않는 것" 참고).
+2. `runner.test.ts`의 `posixOnly` skip 10건의 정당성 — 이 PR이 만들지 않았고 건드리지도 않았다. **판정
+   근거가 이미 이 저장소 안에 있다**: `scripts/test-plugin-artifact-e2e.mjs:15`가
+   `process.platform === 'win32' ? findExecutable('bash.exe', 'bash') : '/bin/sh'`로 **같은
+   `run-impact-lens`를 실제 Windows CI에서 돌려 green**이다(3-OS matrix, 이 저장소 CI에서 실행 확인
+   가능). 반면 `runner.test.ts:56`의 `run()`은 `spawnSync('/bin/sh', ...)`를 리터럴로 하드코딩한다 —
+   "Windows에 POSIX shell이 없다"는 전제가 같은 저장소 안에서 이미 거짓으로 증명돼 있고, skip의 진짜
+   원인은 shell 부재가 아니라 `run()`의 invocation 방식일 가능성이 높다. **이번 PR에서 고치지
+   않는다** — 10개 test의 실행 방식을 바꾸면 새 Windows 실패가 나올 수 있고 이 PR은 이미 두 번
+   커졌다. 다음 사람은 `test-plugin-artifact-e2e.mjs:15`의 `findExecutable('bash.exe', 'bash')`
+   패턴을 `run()`에 적용하는 것부터 시도하면 조사를 반복하지 않는다.
 3. `unit` job과 `cli-tests-cross-os` job의 구조 정리 — 지금 `cli:test`가 ubuntu에서는 두 job
    모두에서 중복 실행된다(`unit`이 이미 돌리고, `cli-tests-cross-os`는 windows/macos만 추가했지만
    구조적으로는 "`unit` 전체를 3-OS matrix로 정리"가 더 깔끔할 수 있다 — 다만 그러면 후속 과제 1이
@@ -217,9 +234,11 @@ M2 gopls lane 전체(PR #58~#61)에서 미룬 것들이 쌓였다. **1~4는 이 
 - **원인 B 수정**: `providers.test.ts`(TypeScript reference preset 경로)와 `runtime.test.ts`(bundled
   artifact `entryPath`, `bundledModuleEntryPath` 반환값) 3곳의 forward-slash 하드코딩을
   `path.join('lib', 'cli.mjs')` 또는 `.split('/').join(path.sep)` 기반 비교로 교체.
-- 로컬 검증: `npm run cli:build`, `npm run cli:test`(271/271), `npm run test:all`(전체) 통과. `grep`으로
-  `win32` skip 패턴이 새로 생기지 않았음을 확인 — 남은 매치는 주석 하나와 원래부터 있던
-  `platform: 'win32'` 명시 test 하나뿐이다.
+- 로컬 검증: `npm run cli:build`, `npm run cli:test`(271/271), `npm run test:all`(전체) 통과. 이 시점에
+  `grep`을 이 세 파일(`providers.test.ts`/`runtime.test.ts`/새 헬퍼)에만 돌려 "새 skip 없음"을
+  확인했다 — **`cli/src/test/` 전체로 넓혀 돌리지 않아 `runner.test.ts:8`의 사전 존재 `posixOnly`
+  skip을 놓쳤다.** 이건 이 PR이 만든 게 아니지만, 아래 2026-09-02 후반 항목에서 정정한 대로 "win32
+  skip 없음"이라는 진술은 처음부터 저장소 전체를 가리켰어야 했다.
 - commander가 "검증 못 하는 fix는 약한 fix"라고 지적하며 앞서 후속 과제로 미룬 "Windows CI 추가"
   결정을 철회 — `unit-tests.yml`에 `cli-tests-cross-os`(windows-latest, macos-latest,
   `fail-fast: false`, `npm run cli:test`만) job을 이 PR 자신에 추가했다. `npm test`(Extension)는
@@ -254,3 +273,29 @@ forward slash를 직접 만들어 해결했다 — `binaries` 자체가 이미 f
 
 로컬(macOS) 재검증: `npm run cli:test` 271/271. 이 수정을 실제 Windows CI로 재확인하는 것이 다음
 단계다.
+
+### 2026-09-02 — reviewer 재검토: 필수 수정 2건, 그리고 보고 완결성 문제 자체를 정정
+
+reviewer가 이 PR을 재검토해 commander를 통해 두 가지 필수 항목을 지적했다.
+
+**1) 검증 문장이 부정확했다.** 위 항목에서 "새 skip 없음"을 `providers.test.ts`/`runtime.test.ts`/
+새 헬퍼 세 파일에만 grep해 확인하고, `cli/src/test/` 전체로 넓히지 않아 `runner.test.ts:8`의 사전
+존재 `posixOnly`(10개 test skip)를 놓쳤다. 위 완료 기준과 작업 로그의 해당 문장을 원문을 지우지 않고
+정정 표시로 고쳤다 — `runner.test.ts:8`을 포함한 전수 `grep -n "win32"` 결과(4곳)를 명시했다.
+
+**2) `doctor.test.ts`에 원인 A와 정확히 같은 패턴 2건이 남아 있었다**(`:108`, `:264` —
+`temporaryDirectory()` + `lookup: { platform: 'linux' }`). 지금은 `binaries`가 빈 디렉터리라 "실행파일
+못 찾음"이라는 기대 결과가 PATH 분해의 정오와 무관하게 같아 우연히 통과하고 있었다 — 이미 인정한
+6번째 사례(`a directory on PATH is not mistaken...`)와 같은 이유다. **구조적 원인은
+`syntheticPosixDirectory()`가 `providers.test.ts`의 private 함수라 `doctor.test.ts`가 재사용할 수
+없었다는 것**이었다. `cli/src/test/testFsHelpers.ts`를 새로 만들어 이 헬퍼(와 규칙 주석)를 옮기고
+`providers.test.ts`·`doctor.test.ts` 양쪽이 import해 쓰게 했다. `doctor.test.ts`의 두 자리를
+`syntheticPosixDirectory(t, 'doctor-nobin-')`/`syntheticPosixDirectory(t, 'doctor-multi-bin-')`로
+교체. 로컬 재검증: `npm run cli:build`, `npm run cli:test` 271/271.
+
+**보고 완결성 문제 자체를 기록한다.** commander가 지적한 대로, 직전 라운드의 "요청하신 내용 반영"
+보고가 필수 2건 중 1건만 담았다 — 검증 문장 정정만 보고하고 `doctor.test.ts` 잔여 인스턴스는
+구현 중이었는데도 보고에 없었다. 요청이 여러 항목일 때 항목별로 반영 여부를 명시하지 않고 뭉뚱그려
+"반영했다"고 보고하면, 반영 안 된 항목이 있어도 상대가 diff를 직접 떠보기 전까지 드러나지 않는다 —
+이 lane이 코드와 문서에 요구해 온 "실행해서 확인하고, 읽은 것과 검증한 것을 섞지 않는다"는 원칙이
+보고 자체에도 적용돼야 한다는 게 이번에 다시 확인된 교훈이다.
