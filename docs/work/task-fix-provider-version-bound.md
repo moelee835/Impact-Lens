@@ -240,3 +240,13 @@ schema `maxLength: 256`을 위반한다 — **`truncate()`의 정확성과 완�
 
 로컬 재검증: `npm run cli:build`, 신규 guard test 개별 실행 확인(음성 방향 포함),
 `PATH`+`IMPACT_LENS_REQUIRE_GOPLS=1`로 `npm run test:all` 전체(280 CLI test 포함) 통과.
+
+### 2026-09-02 — 네 번째 라운드: 주석이 자신이 만든 test를 반영하지 못함
+
+commander가 지적: 방금 (ii)를 실제로 지키는 test(`schema.test.ts`의 `SERVER_VERSION_MAX_BYTES`↔
+schema `maxLength` 비교)를 추가해 놓고, 같은 커밋의 주석 두 문장이 여전히 "이 조건을 지키는 test가
+없다"고 말하고 있었다 — **범위를 넘어서 test까지 만들었으면 그 사실 서술도 같이 갱신했어야 했는데
+안 했다.** 두 문장만 그 새 test를 가리키도록 고쳤다 — (i)/(ii) 구조, 독립성 서술, 500 반례,
+`schema.test.ts`의 두 response-검증 test가 무엇을 못 보는지는 그대로 뒀다(정확했음).
+
+로컬 재검증: `npm run cli:build`, 영향받는 6개 test 개별 재확인.

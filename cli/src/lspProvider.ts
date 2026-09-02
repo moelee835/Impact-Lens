@@ -78,15 +78,15 @@ const DYNAMIC_REGISTRATION_BUDGET_MS = 250;
  *        than `maxLength` allows. This holds regardless of whether (i) is perfect: raising
  *        `SERVER_VERSION_MAX_BYTES` past `maxLength` (e.g. to 500, marker unchanged) makes even a
  *        flawless byte-exact `truncate()` emit ~498 ASCII codepoints, violating a `maxLength` of 256 -
- *        confirmed directly. **No test currently fails if this constant is raised past the schema's
- *        `maxLength` without raising `maxLength` to match** - this is a real, open gap, not something
- *        already covered elsewhere.
+ *        confirmed directly. Guarded by `cli/src/test/schema.test.ts`'s dedicated test, which reads
+ *        `maxLength` straight out of the live schema and fails if `SERVER_VERSION_MAX_BYTES` exceeds it.
  *
- * `cli/src/test/schema.test.ts` validates a real bounded `serverInfo.version` (ASCII and multi-byte)
- * against the live schema and confirms `maxLength` still rejects an out-of-bounds value - but it checks
- * codepoints like the schema does, so it CANNOT see a byte-ceiling overshoot from (i): reverting the
- * U+FFFD fix leaves both of its cases passing even though a real 258-byte response goes out. Guarding (i)
- * is `providers.test.ts`'s job alone; guarding (ii) has no dedicated test today.
+ * `cli/src/test/schema.test.ts` also validates a real bounded `serverInfo.version` (ASCII and multi-byte)
+ * against the live schema and confirms `maxLength` still rejects an out-of-bounds value - but those two
+ * checks alone check codepoints like the schema does, so they CANNOT see a byte-ceiling overshoot from
+ * (i): reverting the U+FFFD fix leaves both passing even though a real 258-byte response goes out.
+ * Guarding (i) is `providers.test.ts`'s `truncate()` test alone; guarding (ii) is the dedicated
+ * `schema.test.ts` comparison just mentioned, not these two response-shaped checks.
  *
  * `serverInfo.version` is a server-controlled, unbounded string handed straight to two response
  * locations (`data.provider.version` and top-level `capabilities.version`, both projections of the same
