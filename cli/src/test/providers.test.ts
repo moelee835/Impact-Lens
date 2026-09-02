@@ -691,6 +691,27 @@ test('language detection still maps the extensions it mapped before', () => {
   assert.equal(languageId('a.jsx'), 'javascriptreact');
   assert.equal(languageId('a.cjs'), 'javascript');
   assert.equal(languageId('a.py'), 'python');
+  assert.equal(languageId('a.go'), 'go');
   assert.equal(languageId('a.kt'), 'kotlin');
   assert.equal(languageId('a.unknown'), 'plaintext');
+});
+
+// `catalog.ts`'s `extensions` field and `languageId()`'s switch above are two independent sources of
+// truth for the same fact - declaring an extension on a preset does nothing to `languageId()` by
+// itself. That gap shipped silently: the `gopls` preset declared `extensions: ['.go']` for a full
+// milestone stage before `languageId()` gained a `.go` case, during which a real `.go` request detected
+// as `plaintext` and never reached `gopls` at all (task-fix-go-language-detection.md). This closes the
+// gap for every current and future preset, not just gopls.
+test("every preset's declared extensions are actually reachable through languageId()", () => {
+  for (const preset of PROVIDER_CATALOG) {
+    for (const extension of preset.extensions) {
+      const detected = languageId(`probe${extension}`);
+      assert.ok(
+        preset.languageIds.includes(detected),
+        `${preset.id} declares extension ${extension}, but languageId() maps it to '${detected}', not ` +
+        `one of ${JSON.stringify(preset.languageIds)} - a real request for a ${extension} file would ` +
+        `never reach ${preset.id} through auto-discovery.`,
+      );
+    }
+  }
 });

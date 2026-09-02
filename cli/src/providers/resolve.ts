@@ -593,6 +593,7 @@ export function languageId(file: string): string {
     case '.mjs': return 'javascript';
     case '.cjs': return 'javascript';
     case '.py': return 'python';
+    case '.go': return 'go';
     case '.c': return 'c';
     case '.cc': return 'cpp';
     case '.cpp': return 'cpp';
