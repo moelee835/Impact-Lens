@@ -72,6 +72,26 @@ function writeExecutable(directory: string, name: string, body: string): string 
   return file;
 }
 
+/**
+ * A real, writable directory at a literal path containing no colon, for tests that force
+ * `platform: 'linux'` (or `'darwin'`) lookup semantics regardless of the host OS actually running them.
+ *
+ * `temporaryDirectory()` builds its path from `os.tmpdir()`, which on a Windows host is
+ * `C:\Users\...\AppData\Local\Temp\...`. `findExecutable()` under a forced non-`win32` platform splits
+ * `PATH` on `:` - the very character a Windows drive letter embeds right after itself - so a test that
+ * simulates POSIX lookup semantics with a real Windows-native path silently corrupts its own PATH value
+ * (`"C:\Users\...".split(':')` becomes `["C", "\Users\..."]`, neither of which exists) no matter what
+ * `platform` it claims to be testing. `platform: 'linux'` and a directory string with an embedded
+ * drive-letter colon are mutually exclusive; a test gets one or the other, never both. A literal `/tmp/...`
+ * path has no such colon on any host, which is what makes the simulation actually hold everywhere.
+ */
+function syntheticPosixDirectory(t: { after(fn: () => void): void }, prefix: string): string {
+  const directory = `/tmp/impact-lens-test-${prefix}${process.pid}-${Math.random().toString(36).slice(2)}`;
+  fs.mkdirSync(directory, { recursive: true });
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  return directory;
+}
+
 function keyedTree(prefix: string, keys: number): JsonObject {
   const tree: Record<string, number> = {};
   for (let index = 0; index < keys; index += 1) {
@@ -167,7 +187,7 @@ test('auto-discovery reports the bundled tier for the shipped TypeScript preset'
 });
 
 test('auto-discovery reports the auto tier for a discovered external preset', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-discovery-bin-');
+  const binaries = syntheticPosixDirectory(t, 'discovery-bin-');
   writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
   const resolved = resolveProvider('src/a.py', undefined, {
     env: NO_ENV,
@@ -205,7 +225,7 @@ test('an explicitly named preset is refused for a language it does not claim', (
 });
 
 test('a matching preset with no installed executable is not replaced by another language', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-discovery-empty-');
+  const binaries = syntheticPosixDirectory(t, 'discovery-empty-');
   assert.throws(
     () => resolveProvider('src/a.py', undefined, {
       env: NO_ENV,
@@ -227,7 +247,7 @@ test('a matching preset with no installed executable is not replaced by another 
 });
 
 test('two installed verified providers for one language are reported, not guessed between', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-discovery-ambiguous-');
+  const binaries = syntheticPosixDirectory(t, 'discovery-ambiguous-');
   writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
   writeExecutable(binaries, 'impact-lens-other-server', '#!/bin/sh\nexit 0\n');
   assert.throws(
@@ -270,7 +290,9 @@ test('the TypeScript reference preset produces the command the bundled path prod
   assert.equal(resolved.command.command, process.execPath);
   const args = resolved.command.args ?? [];
   assert.equal(args.length, 2);
-  assert.ok((args[0] as string).endsWith('lib/cli.mjs'));
+  // Not a literal 'lib/cli.mjs' suffix: the real path is built with path.join(), which uses '\' on
+  // Windows, so a forward-slash literal never matches there.
+  assert.ok((args[0] as string).endsWith(path.join('lib', 'cli.mjs')));
   assert.equal(args[1], '--stdio');
   assert.equal(resolved.command.languageId, 'typescript');
   // The opt-in log level is a conditional the manifest cannot express, so the resolver appends it.
@@ -326,7 +348,7 @@ test('an unknown preset name is a bad request, and an unknown one in a project f
 // ---------------------------------------------------------------------------
 
 test('PATH lookup treats shell metacharacters as ordinary filename characters', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-metachar-');
+  const binaries = syntheticPosixDirectory(t, 'metachar-');
   const hostile = 'srv; touch pwned && echo $(whoami)';
   writeExecutable(binaries, hostile, '#!/bin/sh\nexit 0\n');
   const found = findExecutable(hostile, { env: { PATH: binaries }, platform: 'linux' });
@@ -336,8 +358,8 @@ test('PATH lookup treats shell metacharacters as ordinary filename characters', 
 });
 
 test('PATH lookup returns the first directory that has the file and undefined when none does', t => {
-  const first = temporaryDirectory(t, 'impact-lens-path-first-');
-  const second = temporaryDirectory(t, 'impact-lens-path-second-');
+  const first = syntheticPosixDirectory(t, 'path-first-');
+  const second = syntheticPosixDirectory(t, 'path-second-');
   writeExecutable(second, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
   assert.equal(
     findExecutable('impact-lens-fixture-server', { env: { PATH: `${first}:${second}` }, platform: 'linux' }),
@@ -350,14 +372,14 @@ test('PATH lookup returns the first directory that has the file and undefined wh
 });
 
 test('a name containing a separator is verified as a path and never searched for', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-path-explicit-');
+  const binaries = syntheticPosixDirectory(t, 'path-explicit-');
   const executable = writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
   assert.equal(findExecutable(executable, { env: { PATH: '' }, platform: 'linux' }), executable);
   assert.equal(findExecutable('./impact-lens-fixture-server', { env: { PATH: binaries }, platform: 'linux' }), undefined);
 });
 
 test('a directory on PATH is not mistaken for an executable', t => {
-  const binaries = temporaryDirectory(t, 'impact-lens-path-directory-');
+  const binaries = syntheticPosixDirectory(t, 'path-directory-');
   fs.mkdirSync(path.join(binaries, 'impact-lens-fixture-server'));
   assert.equal(
     findExecutable('impact-lens-fixture-server', { env: { PATH: binaries }, platform: 'linux' }),
