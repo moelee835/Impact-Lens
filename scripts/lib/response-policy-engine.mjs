@@ -14,6 +14,17 @@
 // place that reads files or exits). A pure function over plain values is what lets the doc-invariant
 // self-test in that runner feed this module mutated in-memory document text and assert the check itself
 // can fail, which is the negative-direction proof the response-policy work document requires.
+//
+// SCOPE (read this before deciding a false positive/negative here is worth another round of precision
+// work): evaluateSummary()'s only caller is scripts/test-response-policy.mjs, run as `npm run
+// test:response-policy` in .github/workflows/unit-tests.yml. Nothing under cli/ or plugins/ imports this
+// module (response-policy-doc-invariants.mjs imports only FORBIDDEN_PHRASES from it, not evaluateSummary).
+// It is not shipped in the CLI or the plugin, never runs in a user's runtime, and never grades a real
+// agent's live output - it is a dev-time regression harness over fixtures this repository wrote and the
+// worked examples extracted from cli-contract.md. That scope is what should set the required precision:
+// the real cost of a false positive here is blocking a future fixture/doc-example author (or worse,
+// tempting them to reword a correct doc example to satisfy the checker), not a live miscue reaching a
+// user. See INDEX_SCOPED_MAY_NOT_UNCERTAINTY's comment below for a concrete case history of this tradeoff.
 
 /** The six phrases the response-policy story names. Kept identical to SKILL.md and cli-contract.md; the
  * doc-invariant checker in response-policy-doc-invariants.mjs asserts both files still contain them. */
@@ -107,8 +118,53 @@ const BOUNDARY_MARKERS = [
 // The uncertainty vocabulary the CLI's own `index_state_unknown` message and this repository's docs use.
 // Shared by missing_index_caveat (must be present under `unknown`) and stale_index_caveat (must be absent
 // under `ready`) because they are the same question asked in opposite directions.
-const INDEX_UNCERTAINTY_PATTERN = /(unknown|did not report|not proof|not evidence|unproven|no evidence|not confirmed|has not (?:been )?(?:proven|confirmed)|may not (?:cover|include|reflect|capture))/i;
+const INDEX_UNCERTAINTY_PATTERN = /(unknown|did not report|not proof|not evidence|unproven|no evidence|not confirmed|has not (?:been )?(?:proven|confirmed))/i;
 const INDEX_WORD_PATTERN = /\bindex(?:ing)?\b/i;
+
+// "may not cover/include/reflect/capture" is only a genuine index-completeness caveat when the index is
+// its own grammatical subject ("the index may not cover every file"). Left in whole-summary
+// INDEX_UNCERTAINTY_PATTERN (as it briefly was), it fired on any summary that happened to mention "index"
+// ANYWHERE and separately, honestly disclosed an unrelated limitation using "may not" phrasing elsewhere -
+// "the index is ready. This static analysis may not capture dynamic dispatch..." is not an index caveat at
+// all, it is dynamic_calls_not_inferred in different words, but the two checks don't require the same
+// sentence, only the same summary. Scoped to `[^.!?]*` (no numeric character bound - the same
+// sentence-boundary idiom CALLER_EXISTENCE_UNCERTAINTY_PHRASE already uses in this file) so "index" and
+// "may not X" must share a sentence, which is enough to separate all four false positives above (each puts
+// the "index...ready" claim and the unrelated "may not" caveat in different sentences, see fixtures 16-19)
+// from the genuine case (found via commander/reviewer review, task-m2-python-preset.md stage 6 addendum 4).
+//
+// KNOWN LIMITATION, DELIBERATELY NOT FIXED - read this before tightening this predicate further. This is a
+// lexical-heuristic match, not parsing, so a genuine index caveat can still slip past it in two ways a
+// reviewer found while checking a fix proposal (not yet real bugs, so no fixture locks these in - a
+// passing fixture would enshrine the wrong behavior as correct):
+//   1. Pronoun reference, no literal "index" in the caveat's own sentence: "The index is large. It may not
+//      cover every file." - undetected, because INDEX_WORD_PATTERN requires the literal word "index"/
+//      "indexing" somewhere in the same [^.!?]* span as "may not X", and "It" doesn't match that word.
+//   2. (Considered, did not materialize here) a very long appositive/insertion clause between "index" and
+//      "may not X" was suspected to escape a character-count window - moot for this implementation
+//      specifically because it uses sentence scoping ([^.!?]*, no numeric bound) rather than a character
+//      window, so an arbitrarily long insertion clause is still caught as long as no sentence boundary
+//      falls between "index" and "may not X".
+// Four rounds of this addendum each closed one axis of this same lexical/semantic tradeoff and opened
+// another (narrow the null-caveat exclusion -> misses cross-sentence marker placement; widen it -> masks a
+// genuine index caveat sharing vocabulary; widen INDEX_UNCERTAINTY_PATTERN whole-summary -> catches
+// unrelated "may not" disclosures; scope it to the sentence -> still can't resolve a pronoun with no
+// antecedent lookup). That pattern is not a sequence of bugs to keep chasing - it is the structural fact
+// that a regex-based lexical match over free-text prose cannot, in general, attribute a claim to its true
+// subject. See task-m2-python-preset.md stage 6 addendum 4 for the round-by-round history and why the lane
+// stops chasing precision here rather than starting a fifth round.
+//
+// This predicate's actual blast radius, and why that scope is what sets how much precision it needs: the
+// only caller of evaluateSummary() (which uses this predicate) is scripts/test-response-policy.mjs, a
+// dev-time-only CI check (`npm run test:response-policy`, wired into .github/workflows/unit-tests.yml). It
+// is never imported by anything under cli/ or plugins/, is not part of the shipped CLI or plugin runtime,
+// and never sees a real user's or a real agent's live output - it only grades fixtures this repository
+// wrote and the worked examples extracted from cli-contract.md. A false positive here blocks a future
+// fixture/doc-example author and, worse, tempts them to reword a correct doc example to satisfy the
+// checker instead of the other way around (exactly what reviewer's 4 examples would have caused) - that is
+// the real cost this addendum's work closes. A missed case (the two gaps above) is a precision gap against
+// hypothetical prose this corpus does not currently contain, not a live miscue reaching a user.
+const INDEX_SCOPED_MAY_NOT_UNCERTAINTY = /\bindex(?:ing)?\b[^.!?]*\bmay not\s+(?:cover|include|reflect|capture)\b/i;
 
 // Per-code natural-language stand-ins for a limitationDetails entry being "surfaced" in a summary. A
 // fallback derived from the code itself (underscores to spaces) covers any future code this table has not
@@ -189,7 +245,10 @@ const CALLER_EXISTENCE_UNCERTAINTY_PHRASE =
 
 function mentionsIndexUncertainty(text) {
   const withoutCallerExistencePhrase = text.replace(CALLER_EXISTENCE_UNCERTAINTY_PHRASE, ' ');
-  return INDEX_WORD_PATTERN.test(withoutCallerExistencePhrase) && INDEX_UNCERTAINTY_PATTERN.test(withoutCallerExistencePhrase);
+  if (INDEX_WORD_PATTERN.test(withoutCallerExistencePhrase) && INDEX_UNCERTAINTY_PATTERN.test(withoutCallerExistencePhrase)) {
+    return true;
+  }
+  return INDEX_SCOPED_MAY_NOT_UNCERTAINTY.test(withoutCallerExistencePhrase);
 }
 
 function surfacesLimitation(code, summaryText) {

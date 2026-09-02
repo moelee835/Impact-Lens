@@ -1099,3 +1099,70 @@ commander가 요구한 "MASK는 두 위반이 모두 사라져야 통과" 조건
 설계해야 한 방향을 고칠 때 반대 방향이 깨지는 일을 막을 수 있다. 이 파일을 다시 고칠 때는 새로
 추가하는 제외/인정 어휘가 다른 limitationDetails 코드의 정본 메시지와 문구를 공유하지 않는지 먼저
 확인한다.
+
+### 2026-09-02 — Stage 6 addendum 4: 네 번째 라운드, 그리고 이 축을 여기서 멈춘 이유
+
+**목적과 사용자 가치**: addendum 3(`6bea44d`)의 `INDEX_UNCERTAINTY_PATTERN`에 추가한
+`may not (?:cover|include|reflect|capture)`가 whole-summary 스코프였던 탓에, index와 무관한
+한계를 성실히 풀어 쓴 정직한 요약을 `stale_index_caveat`로 오탐하는 새 결함을 만들었다. commander가
+지시 전에 직접 술어 수준에서 10개 케이스를 측정해 제안을 검증한 뒤 지시했고, 그 지시를 받기 전에
+이 세션도 4개 오탐을 독립 재현했다. 이 결함을 방치하면 나중에 정당한 fixture나 문서 예시를 쓰는
+사람이 채점기를 만족시키려 문서를 잘못 고치는 방향으로 유도될 수 있어, PR #64 merge 전 반드시
+닫아야 했다.
+
+**재현(직접 측정)**: 4개 문장 전부 `["stale_index_caveat","missing_high_severity_disclosure"]`로
+잘못 걸림을 확인 — "index is proven ready. This static analysis may not capture dynamic dispatch..."
+류로, 각각 `dynamic_calls_not_inferred`/`unsaved_buffers_unavailable`/depth 제한/decorator 얘기를
+자연어로 푼 것뿐이었다.
+
+**수정**: "may not X"를 index의 문법적 주어로 좁혔다 — `INDEX_SCOPED_MAY_NOT_UNCERTAINTY =
+/\bindex(?:ing)?\b[^.!?]*\bmay not\s+(?:cover|include|reflect|capture)\b/i`. commander가 제안한
+"`[^.!?]{0,60}?`"(문자 수 60은 임의 값이라고 스스로 밝힘) 대신, 이 파일에 이미 있는
+`CALLER_EXISTENCE_UNCERTAINTY_PHRASE`와 같은 **문장 경계 관용구**(`[^.!?]*`, 숫자 상수 없음)를 그대로
+재사용했다 — 임의 상수를 새로 도입하지 않고 기존 관용구를 따랐다.
+
+**reviewer가 사전에 반증한 두 개의 틈 중 하나는 이 구현에서 이미 해소됨을 실측으로 확인**:
+1. **삽입절로 거리 초과** ("The index, which was built... may not cover every file...", index~may not
+   124자): commander의 원래 60자 창 제안이었다면 놓쳤겠지만, 문자 수 대신 문장 경계로 스코프를 잡은
+   이 구현은 실제로 잡는다 — 직접 측정: 124자 삽입절을 넣은 문장을 그대로 돌려 `stale_index_caveat`가
+   여전히 뜨는 것을 확인했다(같은 문장 안이면 거리와 무관).
+2. **대명사 참조** ("The index is large. It may not cover every file.", 다른 문장, 대명사): 여전히
+   놓친다 — 직접 측정으로 `[]`(미검출) 확인. 문자열 어휘 매칭이라 "It"이 "index"를 가리킨다는 것을
+   알 방법이 없다. **이건 고치지 않고 알려진 한계로 기록만 한다**(commander 지시) — 통과하는
+   fixture로 만들면 틀린 동작(미검출)을 정답으로 못박게 되므로 fixture화하지 않는다.
+
+**구현 전 다섯 묶음 전부 직접 실행**: (a) fixture 13 + reviewer의 4개 cross-sentence 예문, (b)
+B1·B2·C, (c) MASK(fixture 15), (d) fixture 09~12·14·15, (e) 오탐 4문장(신규) — scratchpad 사본으로
+먼저 통과시킨 뒤 실제 파일에 반영했고, 실제 파일에는 `npm run test:response-policy`(빌드 포함, 09·10의
+`summarySource` 추출까지 정확히 재현)로 재확인했다. 전부 기대값과 일치.
+
+**신규 fixture 16~19 추가**(오탐 A~D, must-pass) — 각각 dynamic_calls_not_inferred/
+unsaved_buffers_unavailable/traversal depth/framework routing을 자연어로 푼 문장이 index 얘기로
+오독되지 않음을 고정한다. fixture 19는 reviewer 원문의 오타("thats")를 일부러 그대로 남겼다 — 어휘
+휴리스틱이 올바른 문법에 의존해선 안 된다는 것을 보이기 위해서다. non-vacuity: `6bea44d`의
+whole-summary 패턴을 재구성해 4개 전부 실제로 잘못 걸림을 확인했다.
+
+**commander가 지시한 대로 이 축을 여기서 멈춘다.** 네 라운드가 각각 다른 축의 결함을 드러냈다
+(마커 근접 좁힘→cross-sentence 마커 놓침 / 마커 넓힘→무관 index 캐비엇 가림(마스킹) / whole-summary
+"may not" 추가→무관 "may not" 문장 오탐 / 문장 스코프로 좁힘→대명사 참조 놓침). 이건 버그를 계속
+쫓아야 하는 문제가 아니라, **정규식 기반 어휘 매칭이 자유 텍스트 산문에서 진술의 진짜 주어를
+일반적으로 판별할 수 없다는 구조적 사실**이다. 이 사실과 남은 대명사-참조 틈을
+`INDEX_SCOPED_MAY_NOT_UNCERTAINTY`의 주석에 reviewer의 예문 그대로 남겼다 — 다음에 이 술어를 더
+정밀하게 만들고 싶어지는 사람이 먼저 읽을 자리다.
+
+**범위 문서화**(commander 지시, 이 세션이 독립 재확인): `evaluateSummary()`의 유일한 호출자는
+`scripts/test-response-policy.mjs`(`npm run test:response-policy`,
+`.github/workflows/unit-tests.yml`에 연결)뿐이다 — `response-policy-doc-invariants.mjs`는
+`FORBIDDEN_PHRASES`만 가져가고 `evaluateSummary`는 가져가지 않는다는 것,
+`grep -rln "evaluateSummary|response-policy-engine"`가 `cli/`·`plugins/` 어디에서도 안 걸린다는 것을
+직접 확인했다. 즉 이 채점기는 **CLI나 plugin에 배포되지 않고 사용자 런타임에서 돌지 않으며, 우리가
+작성한 fixture와 문서에서 추출한 예시만 채점하는 개발 시점 CI 전용 회귀 장치**다 — 오탐의 실제
+피해는 나중에 fixture/문서 작성자가 막히거나 문서를 채점기에 맞춰 잘못 고치는 것이지, 실사용자에게
+닿는 오판이 아니다. 이 범위 설명을 파일 최상단 주석에도 추가했다 — 다음 사람이 이걸 사용자 대면
+검사로 오해하지 않도록.
+
+**검증**: `npm run test:response-policy`(25 check, fixture 19개 전부 통과), `npm run cli:test`
+(289 pass/2 skip/0 fail, 무관 코드라 회귀 없음).
+
+**남은 작업**: commander에게 재보고 후 reviewer 확인·merge 판단 대기. commander가 명시한 대로, 남은
+대명사-참조 틈 때문에 다섯 번째 라운드는 돌지 않는다 — 위 주석과 이 로그가 그 자리를 대신한다.

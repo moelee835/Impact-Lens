@@ -1,0 +1,141 @@
+{
+  "file": "17-ready-unrelated-may-not-unsaved-buffers.json",
+  "name": "'may not reflect' about unsaved buffers, not about the index, must not read as a stale index caveat",
+  "description": "task-m2-python-preset.md stage 6 addendum 4: reviewer's FP-B. Same shape as fixture 16, different limitation (unsaved_buffers_unavailable in different words) and a different accepted verb ('reflect'). Non-vacuity: reconstructing 6bea44d's whole-summary pattern and running it against this exact summary confirms it would have wrongly flagged stale_index_caveat. Must-pass fixture 17.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.7.0"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "typescript-language-server",
+        "requestedLanguageId": "typescript",
+        "detectedLanguageId": "typescript",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": true
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        }
+      },
+      "coverage": {
+        "traversal": {
+          "status": "complete",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "ready",
+          "evidence": {
+            "signal": "work-done-progress",
+            "detail": "indexing"
+          }
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable"
+        ]
+      },
+      "completion": {
+        "requestStatus": "succeeded",
+        "traversalStatus": "exhausted",
+        "semanticScope": "provider-static",
+        "indexingStatus": "ready"
+      },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "a1b2c3d4e5f6a1b2c3d4e5f6",
+          "name": "calculateTotal"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "no_incoming_callers",
+          "severity": "warning",
+          "scope": "semantic",
+          "message": "No incoming callers were returned for this symbol.",
+          "action": "Confirm dynamic entry points manually before removing this symbol."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "typescript-language-server",
+      "requestedLanguageId": "typescript",
+      "detectedLanguageId": "typescript",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": true
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      }
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable"
+    ],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from typescript-language-server; the index is ready and fully built. No incoming callers were returned for calculateTotal at depth 5. Unsaved editor buffers may not reflect edits not yet saved to disk, so the analysis used the files on disk.",
+  "expect": "pass",
+  "expectedViolations": []
+}
