@@ -110,8 +110,15 @@ gopls preset에 사용자가 실제로 닿는 경로를 전부 실행해 확인�
 `gopls version -json`과 같은 형태의 거대한 JSON 문자열을 담아 보낸다(`lspProvider.ts:459-460`,
 `result.serverInfo?.version`을 그대로 사용). 이건 gopls 자신의 프로토콜 레벨 선택이고 Impact Lens가
 계산하는 값이 아니며, `versionProbe.test.ts`가 지키는 `doctor`의 버전 지원 판정(별도의 `gopls version`
-프로세스 실행)과는 무관하다. 응답 크기가 커진다는 점은 사용자 경험상 아쉬울 수 있으나 정확성 결함은
-아니므로 이번 hotfix 범위에 포함하지 않았다 — 후속 판단이 필요하면 별도로 제기한다.
+프로세스 실행)과는 무관하다.
+
+**실측(commander 요청)**: 위 fixture로 `analyze`를 1회 실행한 실제 응답에서 이 문자열은 **3,062
+byte(UTF-8)**이고, **응답 안에 `data.provider.version`과 top-level `capabilities.version` 두 곳에
+byte-identical하게 중복**돼 총 **6,124 byte**를 차지한다. 이 응답 전체는 11,219 byte이므로 **응답의
+54.6%가 이 하나의(중복된) 필드**다. 이 응답을 주로 소비하는 게 에이전트(토큰 과금)라는 점에서 무시할
+크기는 아니다. 정확성 결함은 아니므로 이번 hotfix에서 고치지 않지만, 이 수치는 이후 별도 판단(예:
+`serverInfo.version`을 자체 `version` probe 결과로 대체하거나 길이 상한을 두는 것, 그리고 애초에 왜
+같은 값이 응답에 두 번 들어가는지)의 근거로 기록해 둔다.
 
 ## 테스트 및 완료 기준
 
