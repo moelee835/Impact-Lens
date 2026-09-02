@@ -183,6 +183,22 @@ return calls ?? [];
 그 경로를 못 볼 뿐이다. **다음 lane(preset 구현)의 필수 항목으로 남긴다.** 이 lane에서는 코드를
 고치지 않았다.
 
+**주의(commander 검토 반영) — "그냥 `null`과 `[]`를 구분하면 된다"는 자명한 해법이 아니다.** LSP
+명세는 이 메서드들의 `null`에 단일한 의미를 부여하지 않는다. 어떤 server는 "이 요청에 답할 수 없음"에
+routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을 쓴다. 이번에 관측한 pyright의
+`null`이 둘 중 어느 쪽인지조차 이 lane은 확인하지 못했다(위 참고). 구분을 그대로 표면화하면 provider마다
+다른 뜻을 갖는 신호가 응답에 새로 생겨, 지금의 "둘 다 빈 결과로 합친다"보다 오히려 더 나쁜 모호함이 될
+수 있다. 이 저장소에는 이미 같은 종류의 provider 편차를 다룬 선례가 있다 — `ProviderCapabilities`의
+`languageMatch: boolean | 'unknown'`(`cli/src/types.ts:201`, 근거는
+`cli/src/providers/resolve.ts:130-134`의 "감지 불가능한 언어는 모순이 아니라 `'unknown'`"이라는 주석)과,
+같은 인터페이스의 `advertised`/`observed` capability 분리(`cli/src/types.ts:204-212`: `advertised`는
+`initialize`가 정적으로 선언한 것, `observed`는 실제 요청에서 관측된 것 — `cli/src/lspProvider.ts:281`
+근처 주석이 "동적 등록이 정적으로 광고된 capability를 철회하지 않는다"고 설명한다). 다음 lane은 최소
+세 방향 중에서 정해야 한다: (가) preset이 provider별로 `null`의 의미를 선언한다, (나) 구분하지 않되
+"구분할 수 없다는 사실 자체"를 한계로 명시한다, (다) pyright처럼 실제로 관측된 provider에 한해서만
+구분한다. **어느 쪽이 맞는지는 이 문서가 정하지 않는다** — 위 두 선례의 설계 방식을 참고해 다음 lane이
+결정한다.
+
 ### 버전 정책 — 하한을 추측하지 않는다
 
 이 조사는 `npm install pyright basedpyright`로 **당시 최신 버전**(1.1.413 / 1.39.10)만 설치해
@@ -211,8 +227,12 @@ return calls ?? [];
 2. `bundled`(자체 npm dependency로 번들) vs `verified-external`(gopls처럼 PATH 탐색) — **번들 시
    CLI tarball 크기 증가분을 실측한 뒤** 결정한다(release-fallback이 매번 그 tarball을 내려받으므로
    크기가 곧 첫 실행 지연이다). 지금 그 실측값이 없다.
-3. `lspProvider.ts:364,371`의 `?? []`가 provider의 `null`과 `[]`를 구분하지 않는다는 것을 preset 설계
-   전에 반영한다 — FastAPI `Depends()`류가 이 경로를 실제로 밟는다.
+3. `lspProvider.ts:364,371`의 `?? []`가 provider의 `null`과 `[]`를 구분하지 않는다는 사실을 preset
+   설계 전에 반영한다 — FastAPI `Depends()`류가 이 경로를 실제로 밟는다. **"구분하면 된다"가 아니라
+   무엇을 할지가 미결이다**: LSP가 `null`에 단일 의미를 부여하지 않으므로, `languageMatch: 'unknown'`
+   (`cli/src/types.ts:201`)과 `advertised`/`observed` capability 분리(`cli/src/types.ts:204-212`) 같은
+   기존 선례를 참고해 provider별 선언·한계 표시·관측 provider 한정 중 하나를 명시적으로 고른다(상세는
+   위 절 참고).
 4. readiness 신호 매칭 방식(빈 title 문제 — 위 관측값 그대로 사용).
 5. 실제 버전 하한(테스트를 통해).
 6. `requiredProjectFiles`가 필요한지(멀티패키지 프로젝트로 재검증).
@@ -243,3 +263,8 @@ return calls ?? [];
   `[]`를 구분하지 않는다는 것을 확인·기록(IL-LIM-009 직결, 코드는 고치지 않음). (2) "번들 가능성"을
   실제 trade-off로 재framing — tarball 크기 실측이라는 미결 데이터 포인트를 명시. (3) `pyright` vs
   `basedpyright` 선택을 별도의 명시적 미결 항목으로 분리(기본값으로 흘려보내지 않음).
+- commander의 두 번째 검토 라운드 반영: "`null`/`[]`를 구분해야 한다"가 자명한 해법처럼 다음 lane에
+  전달되지 않도록, LSP가 `null`에 단일 의미를 부여하지 않는다는 점과 저장소의 기존 선례
+  (`languageMatch: 'unknown'` — `cli/src/types.ts:201`, `cli/src/providers/resolve.ts:130-132`; 
+  `advertised`/`observed` capability 분리 — `cli/src/types.ts:204-212`)를 근거로 최소 세 방향의 설계
+  선택지를 추가하고, 어느 쪽도 이 문서에서 확정하지 않았다.
