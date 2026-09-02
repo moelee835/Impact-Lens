@@ -13,7 +13,6 @@ import { BUNDLED_PYRIGHT_PRESET_ID, BUNDLED_TYPESCRIPT_PRESET_ID } from '../prov
 import { JsonObject, ProviderPreset } from '../providers/preset';
 import { PROJECT_PROVIDER_CONFIG_PATH } from '../providers/projectConfig';
 import { C_FAMILY_LANGUAGE_IDS, languageId } from '../providers/resolve';
-import { redactProviderText } from '../jsonRpc';
 import {
   REQUIRED_NODE_MAJOR,
   BundledPyrightArtifact,
@@ -293,16 +292,19 @@ export function projectConfigCheck(state: 'absent' | 'valid', error?: unknown): 
  * one of those already-working workspaces into a doctor failure the story's own language ("구분한다",
  * "안내한다") does not ask for.
  *
- * The `sampleCommand` field is why this function exists in `checks.ts` and not only in
- * `providers/compileDatabase.ts`: `compile_commands.json` entries carry the user's real absolute build
- * paths and every `-D`/`-I` flag the project uses, which is exactly the kind of content doctor output
- * must never leak verbatim (this file's own header comment: "No check ever puts an absolute path in
- * its output... doctor output gets pasted into issues"). `sampleCompileCommand()` below runs two
- * redaction passes before this ever reaches the response: `redactPreprocessorDefines()` (new here -
- * `-D<NAME>=value` is one underscore-joined token, a shape `redactProviderText()`'s keyword patterns
- * were measured not to catch) and then `redactProviderText()` (this CLI's existing redaction function,
- * already used for provider stderr and log lines - the caller's home directory and the generic
- * Bearer/token/password/secret/api-key patterns).
+ * The `sample` field is why this function exists in `checks.ts` and not only in
+ * `providers/compileDatabase.ts` - it exists to prove the database is readable and real, and a
+ * commander review found that redacting compiler-flag CONTENT to do that is an unbounded surface, not
+ * a bounded one: a first pass caught `-DNAME=value` but missed a space-separated `-D NAME=value`
+ * (reachable through this very code, since `arguments.join(' ')` below turns `["-D",
+ * "API_TOKEN=secret"]` - a common shape for a real JSON Compilation Database - back into exactly that
+ * leaking text), a quoted value whose closing quote lands past the naive token boundary, and MSVC's
+ * `/D` spelling (relevant because CI runs windows-latest). Each fix would only close the hole just
+ * found, the same shape the response-policy-engine lane in this same session burned five rounds
+ * discovering: a lexical pattern match over free-form compiler-flag text does not have a boundary.
+ * `sample` closes the surface instead of chasing it - it reports only what the stated purpose actually
+ * needs (readable, real, roughly how big) and never touches a flag NAME or VALUE at all, so there is no
+ * text left for a secret to hide inside.
  */
 export async function compileDatabaseCheck(
   preset: ProviderPreset,
@@ -329,62 +331,71 @@ export async function compileDatabaseCheck(
       reason: 'multiple compile_commands.json candidates were found; the provider picks one internally with no signal about which',
     };
   }
-  const sampleCommand = await sampleCompileCommand(workspace, observation.relativePath);
+  const sample = await sampleCompileCommandMetadata(workspace, observation.relativePath);
   return {
     id: 'compile-database',
     status: observation.stale ? 'warn' : 'pass',
     state: observation.stale ? 'stale' : 'present',
     path: observation.relativePath,
-    ...(sampleCommand === undefined ? {} : { sampleCommand }),
+    ...(sample === undefined ? {} : { sample }),
   };
 }
 
-/**
- * Redacts a `-D<NAME>=<value>` preprocessor define's value, unconditionally.
- *
- * `redactProviderText()`'s generic secret-word patterns (`\b(token|password|secret|api[-_]?key)...`)
- * do not reliably catch this shape: a define is one underscore-joined token
- * (`-DAPI_TOKEN=...`, `-DSECRET_KEY=...`), and `\b` word-boundary matching does not fire between two
- * word characters, so it never fires right before "token" or "secret" inside one. Confirmed by direct
- * measurement, not assumed: `redactProviderText('-DAPI_TOKEN=abcdef123456')` left the value untouched.
- * Every define's value is redacted here regardless of its name, not keyword-matched, because there is
- * no reliable way to tell a safe define (`-DNDEBUG=1`) from a sensitive one (`-DAPI_TOKEN=...`) by name
- * alone, and the value - not the name - is what could carry a real secret.
- */
-function redactPreprocessorDefines(line: string): string {
-  return line.replace(/(-D[A-Za-z_][A-Za-z0-9_]*=)([^\s]+)/g, '$1[REDACTED]');
+interface CompileCommandSample {
+  /** The compiler executable's basename only (`clang`, not `/usr/bin/clang`) - never the full path. */
+  readonly compiler: string;
+  /** Workspace-relative; omitted entirely (not shown as absolute) if the entry's file resolves outside the workspace. */
+  readonly file?: string;
+  /** Count only - the flag names and values themselves are never read into this check's output. */
+  readonly argumentCount: number;
 }
 
 /**
- * One redacted, truncated sample entry's command line - proof the database is readable and real,
- * without ever printing the full file or an un-redacted absolute path. Never throws: a database that
- * exists but fails to parse is a fact worth swallowing quietly here, not a doctor crash - the `state`
- * field above already told the user the file exists, which is what this function's caller needs to
- * decide `pass`/`warn`.
- *
- * Two redaction passes, in order: `redactPreprocessorDefines()` first (define values, a shape
- * `redactProviderText()` alone cannot see, see its own comment), then `redactProviderText()` (the
- * caller's home directory and the generic Bearer/token/password/secret/api-key patterns it already
- * covers for provider stderr and log lines). Running the generic pass second means a define value that
- * happens to contain the caller's home path is still caught even after its own value was already
- * replaced by `[REDACTED]` in the (unlikely, but not impossible) case the first pass's regex did not
- * fully consume it.
+ * Proof that the first entry of a real `compile_commands.json` is readable and has the shape a
+ * compiler invocation actually has - compiler name, target file, how many arguments - without reading
+ * a single flag's name or value into the response. This is the fix for the leak `redactPreprocessorDefines()`
+ * (removed) could not close: there is no redaction to defeat when the field never carries the content
+ * that would need redacting. Never throws: a database that exists but fails to parse is a fact worth
+ * swallowing quietly here, not a doctor crash - the `state` field on the caller's response already told
+ * the user the file exists, which is what matters for `pass`/`warn`.
  */
-async function sampleCompileCommand(workspace: string, relativePath: string): Promise<string | undefined> {
+async function sampleCompileCommandMetadata(
+  workspace: string,
+  relativePath: string,
+): Promise<CompileCommandSample | undefined> {
   try {
     const raw = await fs.readFile(path.join(workspace, ...relativePath.split('/')), 'utf8');
     const entries = JSON.parse(raw) as unknown;
     if (!Array.isArray(entries) || entries.length === 0) {
       return undefined;
     }
-    const [first] = entries as Array<{ command?: unknown; arguments?: unknown }>;
-    const line = Array.isArray(first.arguments)
-      ? first.arguments.join(' ')
-      : typeof first.command === 'string' ? first.command : undefined;
-    return line === undefined ? undefined : redactProviderText(redactPreprocessorDefines(line));
+    const [first] = entries as Array<{ command?: unknown; arguments?: unknown; file?: unknown }>;
+    const tokens = Array.isArray(first.arguments)
+      ? first.arguments.filter((token): token is string => typeof token === 'string')
+      : typeof first.command === 'string' ? first.command.trim().split(/\s+/).filter(token => token.length > 0) : [];
+    if (tokens.length === 0) {
+      return undefined;
+    }
+    const [compilerToken, ...rest] = tokens;
+    const file = typeof first.file === 'string' ? workspaceRelativeOrUndefined(workspace, first.file) : undefined;
+    return {
+      compiler: path.basename(compilerToken!),
+      ...(file === undefined ? {} : { file }),
+      argumentCount: rest.length,
+    };
   } catch {
     return undefined;
   }
+}
+
+/** Relative path if `file` resolves inside `workspace`, `undefined` otherwise - never an absolute path. */
+function workspaceRelativeOrUndefined(workspace: string, file: string): string | undefined {
+  const absolute = path.isAbsolute(file) ? file : path.resolve(workspace, file);
+  const relative = path.relative(workspace, absolute);
+  if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return undefined;
+  }
+  return relative.split(path.sep).join('/');
 }
 
 /**

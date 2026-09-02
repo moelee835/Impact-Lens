@@ -606,41 +606,66 @@ C 계열 languageIds를 선언한 stand-in preset(`externalPreset`류, clangd pr
 비-C 계열 preset(`bundled-typescript` 등)은 `compile-database` check 자체가 checks 목록에 **없다**
 — "이 언어는 관계없다"는 pass보다 정확한 신호다.
 
-### redaction — 실제 결함을 찾고 고쳤다
+### redaction — 1차 수정(`redactPreprocessorDefines`), commander가 반증, 표면 자체를 없애는 쪽으로 재설계
 
-commander가 "vacuous pass가 나기 가장 쉬운 자리"라고 지목한 대로였다. 기존 `redactProviderText()`
-(`jsonRpc.ts`)를 실제 절대 경로 + `-D` 플래그가 든 compile command 문자열로 직접 돌려봤다:
+**1차 수정**: commander가 "vacuous pass가 나기 가장 쉬운 자리"라고 지목한 대로였다. 기존
+`redactProviderText()`(`jsonRpc.ts`)를 실제 절대 경로 + `-D` 플래그가 든 compile command 문자열로
+직접 돌려보니, 홈 경로는 `~`로 정확히 치환됐지만 `-DAPI_TOKEN=...`은 전혀 안 걸렸다(`\b` 단어
+경계가 밑줄로 이어진 토큰 내부에서 발동하지 않기 때문). `redactPreprocessorDefines()`를 추가해
+`-D<NAME>=<value>`의 값을 이름과 무관하게 `[REDACTED]`로 바꾸는 것으로 고쳤다.
 
-```
-원본:   /usr/bin/clang -I /Users/woony6/secret-project/include -DAPI_TOKEN=abcdef123456 -DSECRET_KEY=hunter2 -c main.c
-redactProviderText() 결과: /usr/bin/clang -I ~/secret-project/include -DAPI_TOKEN=abcdef123456 -DSECRET_KEY=hunter2 -c main.c
-```
+**commander가 이 1차 수정 자체에서 도달 가능한 유출 4가지를 직접 정규식으로 돌려 반증했다**:
 
-**홈 경로는 정확히 `~`로 치환됐지만, `-DAPI_TOKEN=...`·`-DSECRET_KEY=...`는 전혀 안 걸렸다.**
-원인: `redactProviderText`의 비밀 어휘 정규식(`\b(token|password|secret|api[-_]?key)\s*[:=]\s*[^\s]+`)은
-`\b`(단어 경계)를 요구하는데, `-D` 플래그는 `API_TOKEN`처럼 밑줄로 이어진 **한 단어**라 "token"/
-"secret" 앞에 단어 경계가 생기지 않는다(밑줄도 `\w`이므로).
+| 형태 | 예 | 1차 수정 결과 |
+| --- | --- | --- |
+| 표준(붙여쓰기) | `-DAPI_TOKEN=abc123` | `-DAPI_TOKEN=[REDACTED]` — 잡힘 |
+| 공백 분리 | `-D API_TOKEN=abc123` | 그대로 노출 |
+| 따옴표+공백 값 | `-DGREETING="tok abc123"` | `-DGREETING=[REDACTED] abc123"` — 뒷부분 노출 |
+| MSVC `/D` | `/DAPI_TOKEN=abc123` | 그대로 노출 |
 
-**고쳤다** — `checks.ts`에 `redactPreprocessorDefines()`를 새로 추가해 `-D<NAME>=<value>` 형태의
-값을 **이름과 무관하게 전부** `[REDACTED]`로 바꾼다(안전한 정의 `-DNDEBUG=1`과 민감한 정의를 이름만
-보고 구분할 신뢰할 방법이 없으므로). `sampleCompileCommand()`가 이 함수를 먼저 돌리고
-`redactProviderText()`를 그 다음에 돌린다(기존 홈 경로·일반 비밀 패턴 처리는 그대로 재사용).
+**"공백 분리" 형태는 이 코드 자신의 실제 경로로 도달 가능하다** — `sampleCompileCommand()`가
+`first.arguments.join(' ')`로 합치는데, JSON Compilation Database 규격의 `arguments` 배열은
+`["-D", "API_TOKEN=secret"]`처럼 `-D`와 값을 분리하는 것이 흔한 형태다. join하면 정확히 유출
+형태가 된다. `/D`는 windows-latest에서 도는 MSVC/clang-cl 경로라 무관하지 않다.
 
-**검증(양방향, commander 지시대로)**: 실제 `os.homedir()` 값 + `-DAPI_TOKEN=abcdef123456` +
-`-DSECRET_KEY=hunter2` + `-DNDEBUG=1`가 든 진짜 compile command로 `doctor`를 실제로 돌려
-- **정방향**: 실제 check 출력(`sampleCommand`)에 홈 경로 원문·`abcdef123456`·`hunter2`가 전혀
-  없고, `~/secret-project/include`·`-DAPI_TOKEN=[REDACTED]`·`-DSECRET_KEY=[REDACTED]`·
-  `-DNDEBUG=[REDACTED]`가 있음을 확인했다.
-- **역방향**(vacuous pass 배제): 같은 원본 문자열을 redaction 없이 그대로 정규식으로 검사해
-  홈 경로·`abcdef123456`·`hunter2`가 실제로 원문에 있었다는 것도 확인했다 — 애초에 민감하지 않은
-  내용이라 redaction 여부와 무관하게 통과했을 가능성을 배제한다.
+**재설계 — 표면 자체를 없앤다(commander 권장, 채택).** 두 방향을 검토했다:
+1. **더 많은 형태를 덮는다**: 분리 토큰, 닫는 따옴표까지 소비, `/D` 모두 처리. **기각** — 플래그
+   표면이 넓다(`-U`, `-include`, `@response-file`, `--param`, 절대 경로 든 `-I`...). 패턴을 하나
+   막으면 다른 축이 열리는 것을 **같은 세션의 response-policy-engine lane이 다섯 라운드**에 걸쳐
+   실증했다 — 같은 근본 원인(자유 형식 텍스트에 대한 어휘 매칭에는 경계가 없다)이 여기도 그대로
+   적용된다.
+2. **출력하는 것을 줄인다**: `sample` 필드의 목적은 애초에 주석이 적은 대로 "database가 읽히고
+   진짜라는 증명"이다 — 플래그 전체를 보여줄 필요가 없다. 컴파일러 이름(basename만)·대상 파일
+   (workspace-relative만)·인자 개수만 보여도 그 목적은 그대로 달성되고, **플래그의 이름이나 값을
+   응답에 전혀 읽어 들이지 않으므로 지울 것 자체가 없다.** **채택.**
+
+**무엇을 잃는지**: "왜 내 헤더를 못 찾나"류 진단에 실제 flag 값(예: `-I` 경로)이 유용할 수 있다.
+하지만 `compile_commands.json`은 사용자 자신의 디스크에 있는 파일이라 필요하면 직접 열어 보면
+된다 — doctor가 그 내용을 대신 인쇄해 줄 필요가 없고, 스토리의 권장 대응 절도 이미 "compile
+command의 전체 flags는 기본 출력하지 않는다"고 적어 뒀다(이 결정이 그 문구와 더 가깝다). 진단
+편의보다 실제 시크릿이 GitHub 이슈에 붙여넣기로 새는 위험이 훨씬 무겁다고 판단했다.
+
+**구현**: `redactPreprocessorDefines()`·`sampleCompileCommand()`를 삭제하고
+`sampleCompileCommandMetadata()`로 교체 — `{ compiler: string, file?: string, argumentCount: number }`만
+반환한다. `compiler`는 첫 토큰의 **basename만**(전체 경로 아님), `file`은 workspace 밖으로 나가면
+아예 생략(절대 경로를 보여주지 않는다는 이 파일의 기존 규칙과 동일), `argumentCount`는 개수뿐.
+`redactProviderText` import도 제거했다 — 더 이상 이 함수가 redaction할 텍스트를 다루지 않는다.
+
+**검증(양방향, commander 지시대로 — 어느 방향을 택하든 네 형태 전부 + 역방향)**: commander가 제시한
+네 형태(표준/공백 분리/따옴표+공백/`/D`) 전부를 fixture로 만들어 `compile-database` check의
+**전체 JSON 출력**(필드 하나가 아니라)에 시크릿 문자열이 없는지 확인했고, 같은 원본 fixture
+내용에는 실제로 그 문자열이 있었다는 것도 확인했다(vacuous pass 배제). **non-vacuity를 한 번 더
+확인** — 방금 폐기한 1차 수정(`redactPreprocessorDefines` + `redactProviderText`)을 인라인으로
+재구성해 이 4개 fixture에 그대로 돌려보니, "공백 분리"·"따옴표+공백"·`/D` **3개가 실제로
+샜다**(표준 형태만 잡혔었다) — commander의 표에서 예측한 것과 정확히 일치한다.
 
 ### 검증
 
 - `node --test cli/dist/test/compileDatabase.test.js`: 8/8(discovery 모듈 단독).
 - `node --test cli/dist/test/coverage.test.js`: 33/33(신규 7개 포함, `limitationDetailsFor` 와이어링).
-- `node --test cli/dist/test/doctor.test.js`: 21/21(신규 6개 포함, 3-state + redaction 양방향).
-- `npm run cli:test`(전체): 315 pass/2 skip/0 fail(317 total). 회귀 없음 — `AnalysisObservations`
+- `node --test cli/dist/test/doctor.test.js`: 25/25(신규 10개 포함 — 3-state 4개, sample 모양 1개,
+  누출 형태 4개 + non-vacuity 확인).
+- `npm run cli:test`(전체): 319 pass/2 skip/0 fail(321 total). 회귀 없음 — `AnalysisObservations`
   필드 인벤토리 테스트(`stateReachability.sources.test.ts`)가 새 필드를 감지해 분류를 요구했고,
   `stateReachability.integration.test.ts`의 provider-runtime 대조 테스트는 `compileDatabase`가
   `LspCallHierarchyProvider.analysisObservations()`가 아니라 `impact.ts`에서 만들어진다는 사실과
@@ -657,5 +682,7 @@ redactProviderText() 결과: /usr/bin/clang -I ~/secret-project/include -DAPI_TO
 
 ## 남은 작업
 
-- **Stage 3 완료. commander에게 보고 후 승인 대기 — stage 4(preset 작성) 이전에 한 번 더 검토받는다**
-  (commander가 명시).
+- **Stage 3 완료(redaction 재설계 포함). commander에게 재보고 후 승인 대기 — stage 4(preset 작성)
+  이전에 한 번 더 검토받는다**(commander가 명시). 나머지 stage 3 결정(표면화, `provider_null_incoming_calls`와의
+  차이, `status`에 `'fail'`을 아예 안 쓰는 것, `traversalStatus` 무변경, `stateReachability` 분류
+  확장)은 이미 승인받았다 — redaction만 재작업했다.

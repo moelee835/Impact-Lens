@@ -428,38 +428,57 @@ test('two candidate compile_commands.json files report ambiguous/warn with both 
   assert.deepEqual(result.candidatePaths, ['build/compile_commands.json', 'compile_commands.json']);
 });
 
-// The redaction verification commander asked for explicitly: real absolute home-directory content and
-// real -D preprocessor defines, checked in BOTH directions - that the check's actual output has them
-// redacted, and that the exact same raw line, left unredacted, still contains them (proving the
-// assertion above is not vacuously true because the content was never sensitive to begin with).
-test('sampleCommand redacts the real home directory and every -D define value, verified both directions', async t => {
-  const workspace = temporaryDirectory(t, 'impact-lens-doctor-cdb-redact-');
-  const home = os.homedir();
-  const secretIncludePath = path.join(home, 'secret-project', 'include');
-  const rawLine = `/usr/bin/clang -I ${secretIncludePath} -DAPI_TOKEN=abcdef123456 -DSECRET_KEY=hunter2 -DNDEBUG=1 -c main.c`;
+// A commander review found the first redaction attempt (redact matched flag patterns) had a
+// reachable, real leak: it caught concatenated `-DNAME=value` but missed a space-separated `-D
+// NAME=value` (reachable through this exact code path, since a JSON Compilation Database's
+// `arguments` array commonly splits `-D` from its value, and the array gets joined back into one
+// string), a quoted value whose closing quote falls past the flag's own token boundary, and MSVC's
+// `/D` spelling (relevant because CI runs windows-latest). The fix is not a wider pattern - the same
+// chase already burned five rounds in this session's response-policy-engine lane for the same
+// underlying reason (a lexical match over free-form text has no boundary) - it is to never read a
+// flag's name or value into the response at all. `sample` reports only compiler basename, a
+// workspace-relative file path, and an argument count: three fields with no room for a flag's content
+// to hide in, so there is nothing left to redact.
+test('a present compile database\'s sample carries only compiler/file/argumentCount, never a flag', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-cdb-sample-shape-');
   fs.writeFileSync(
     path.join(workspace, 'compile_commands.json'),
-    JSON.stringify([{ directory: workspace, arguments: rawLine.split(' '), file: path.join(workspace, 'main.c') }]),
+    JSON.stringify([{
+      directory: workspace,
+      arguments: ['/usr/bin/clang', '-Wall', '-Wextra', '-c', 'main.c', '-o', 'main.o'],
+      file: path.join(workspace, 'src', 'main.c'),
+    }]),
   );
   const data = await runDoctor('fixture-external', { workspace, env: {}, catalog: [...PROVIDER_CATALOG, cFamilyPreset()] });
   const result = check(data.checks as readonly DoctorCheck[], 'compile-database');
-  const redacted = result.sampleCommand as string;
-
-  // Positive direction: none of the sensitive substrings survive in the actual check output.
-  assert.doesNotMatch(redacted, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.doesNotMatch(redacted, /abcdef123456/);
-  assert.doesNotMatch(redacted, /hunter2/);
-  assert.match(redacted, /~[/\\]secret-project[/\\]include/);
-  assert.match(redacted, /-DAPI_TOKEN=\[REDACTED\]/);
-  assert.match(redacted, /-DSECRET_KEY=\[REDACTED\]/);
-  assert.match(redacted, /-DNDEBUG=\[REDACTED\]/);
-
-  // Negative direction (the vacuous-pass guard commander asked for): the exact same raw line, joined
-  // the same way the real code joins `arguments`, DOES contain every one of those substrings when no
-  // redaction has run - proving they were real, present, sensitive-looking content, not an assertion
-  // that would have passed regardless of what the check actually did.
-  const unredacted = rawLine;
-  assert.match(unredacted, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.match(unredacted, /abcdef123456/);
-  assert.match(unredacted, /hunter2/);
+  assert.deepEqual(result.sample, { compiler: 'clang', file: 'src/main.c', argumentCount: 6 });
 });
+
+// The four leak shapes commander measured against the retracted `redactPreprocessorDefines()` design,
+// each checked in BOTH directions: the check's actual JSON output (the whole object, not just one
+// field, in case a leak landed somewhere other than `sample`) never contains the secret, and the exact
+// raw content the fixture wrote DOES contain it - proving each secret was real and present, not an
+// assertion that would have passed regardless of what the check did.
+const LEAK_SHAPES: ReadonlyArray<{ readonly name: string; readonly arguments: readonly string[] }> = [
+  { name: 'concatenated -D (the one form the retracted regex did catch)', arguments: ['clang', '-DAPI_TOKEN=abc123secret', '-c', 'main.c'] },
+  { name: 'space-separated -D (reachable via arguments.join)', arguments: ['clang', '-D', 'API_TOKEN=abc123secret', '-c', 'main.c'] },
+  { name: 'quoted value with an embedded space', arguments: ['clang', '-DGREETING=tok abc123secret', '-c', 'main.c'] },
+  { name: 'MSVC /D spelling', arguments: ['clang-cl', '/DAPI_TOKEN=abc123secret', '-c', 'main.c'] },
+];
+
+for (const shape of LEAK_SHAPES) {
+  test(`compile-database sample never leaks a secret via: ${shape.name}`, async t => {
+    const workspace = temporaryDirectory(t, 'impact-lens-doctor-cdb-leak-');
+    const rawContent = JSON.stringify([{ directory: workspace, arguments: shape.arguments, file: path.join(workspace, 'main.c') }]);
+    fs.writeFileSync(path.join(workspace, 'compile_commands.json'), rawContent);
+    const data = await runDoctor('fixture-external', { workspace, env: {}, catalog: [...PROVIDER_CATALOG, cFamilyPreset()] });
+    const result = check(data.checks as readonly DoctorCheck[], 'compile-database');
+
+    // Positive direction: the secret does not survive anywhere in the check's own output.
+    assert.doesNotMatch(JSON.stringify(result), /abc123secret/);
+
+    // Negative direction (the vacuous-pass guard): the raw fixture content this test actually wrote
+    // really does contain the secret, so the assertion above is not vacuous.
+    assert.match(rawContent, /abc123secret/);
+  });
+}
