@@ -926,7 +926,112 @@ missing이라는 정확한 사실)·`initialize-capability-smoke`(`callHierarchy
 - `doctor clangd` / `--smoke` / `--fixture` 전부 real clangd로 실행, 실패 없음.
 - `.c`/`.cpp`/`.h` 전부 provider 필드 없이 real auto-discovery로 정답 확인.
 
+## Stage 5 — CI
+
+**목적**: stage 4의 preset fixture는 저하 경로(database 없음, 단일 파일)만 증명한다 — 이 preset이
+실제로 파는 기능(database 있음, cross-file 호출자 발견)은 아직 어디서도 증명되지 않았다. stage 5가
+그 공백을 CI로 메운다.
+
+### with-database cross-file 왕복 — real integration test (신규 파일)
+
+`cli/src/test/clangdIntegration.test.ts` 신규 작성. gopls의 `stateReachability.integration.test.ts`
+후반부(`goplsGatedTest`)와 같은 형태 — `clangdGatedTest()`(clangd가 PATH에 있으면 실행, 없고
+`IMPACT_LENS_REQUIRE_CLANGD=1`이면 실패, 아니면 skip). preset fixture와 달리 **테스트 코드는 실제
+temp 디렉터리 경로를 알고 있는 시점에 실행되므로**, 진짜 `compile_commands.json`(절대 경로 포함)을
+만들 수 있다 — stage 4가 발견한 "preset fixture는 이걸 못 한다"는 한계를 정확히 우회하는 자리다.
+
+**양성**: `target.h`(선언)·`target.c`(정의, target.h를 include)·`caller.c`(호출, target.h를
+include) 3파일 + 진짜 `compile_commands.json`. `target.c`에서 `fixture_target`의 incoming calls를
+쿼리 — stage 4의 fixture 버그가 못 찾았던 정확히 그 방향("정의만 열고 반대 방향으로 누가
+부르나"). `fixture_caller`가 다른 파일에서 실제로 발견됨을 확인하고, `compile_database_missing`이
+**없음**도 확인한다.
+
+**음성 대조군**: 같은 3파일, `compile_commands.json`만 뺀다. `fixture_caller`가 **안 보임**을
+확인하고(stage 4가 발견한 정확히 그 실패 형태 재현), `compile_database_missing`이 **있음**도
+확인한다. 두 테스트가 파일 구조를 공유하고 db 유무 하나만 다르므로, 각각이 정확히 무엇을
+증명하는지 분명하다.
+
+### 실제 timing race를 발견하고 고쳤다 — readiness 미선언의 실측 결과
+
+양성 테스트를 처음 만들어 **격리 실행**하니 항상 통과했다(57ms, 3회 반복 재현). 그런데 **전체
+스위트에 포함시켜 돌리자 간헐적으로 실패**했다(`observedCallers: []`) — 재실행하면 다시
+통과하기도 했다. **결정론적 버그가 아니라 진짜 timing race**였다: clangd의 background indexing은
+비동기이고, 이 preset은 `readiness`를 선언하지 않으므로(stage 1의 게이트 결론) `awaitReadiness()`가
+즉시 반환한다 — **아무것도 기다리지 않고 바로 쿼리한다.** 격리 실행에서는 매번 우연히 충분히
+빨랐지만, 전체 스위트의 시스템 부하 아래서는 indexing이 쿼리보다 늦게 끝나는 경우가 실제로
+있었다.
+
+**고쳤다** — 같은 provider 세션(새 clangd 프로세스를 매번 띄우지 않음)에 대해 caller가 나타나거나
+예산이 끝날 때까지 250ms 간격으로 재쿼리하는 `queryUntilCallerFound()`를 추가했다(실제 사용자가
+"다시 물어보면" 겪을 회복 경로와 같은 모양). 전체 스위트를 3회 연속 재실행해 324/324 통과를
+확인했다(양성 테스트 소요시간이 93~355ms로 재시도가 실제로 걸렸음을 보여준다 — 격리 실행의 57ms
+기준선보다 길다).
+
+**이건 이 preset의 실제 프로덕션 동작에 대한 새 사실이기도 하다** — `readiness` 미선언 상태에서는
+**실제 사용자 쿼리도 같은 race를 겪을 수 있다**(background indexing이 끝나기 전에 쿼리하면 완전한
+답 대신 이르게 끝난 결과를 받을 수 있음). 이 stage는 이걸 새 기능으로 고치지 않았다 — 어느 stage
+결정 문서에도 없는 새 product 변경을 이 자리에서 임의로 추가하지 않는다는 원칙에 따라, 발견한
+사실만 기록하고 프로덕션 코드는 안 건드렸다.
+
+### 3-OS CI job, clangd 버전 pinned
+
+`.github/workflows/unit-tests.yml`에 `clangd-provider` job 추가(`go-provider`와 같은 구조,
+`IMPACT_LENS_REQUIRE_CLANGD=1`). **OS마다 설치 경로가 다르다는 게 이 job의 어려운 부분**이라고
+commander가 짚은 대로였다 — gopls의 `go install`처럼 OS 무관 단일 명령이 없다.
+
+**버전 선택**: 실측(WebSearch)으로 LLVM 최신 릴리스가 **23.1.0**(2026-08-26 릴리스)임을 확인했다
+— 이 lane이 stage 1에서 이미 Homebrew로 검증한 바로 그 버전과 정확히 일치한다. `supported.minimum`
+(17.0.0)이 아니라 23을 pin한 이유: apt.llvm.org는 "최근 2개 major만" 저장소를 유지한다고 공식
+문서가 적고 있어서, 지금(2026-09) 시점에 17은 그 창을 한참 벗어났다 — 23을 pin해도
+`supported.minimum: '17.0.0'`(상한 없음) 범위 안에 있으므로 preset 계약은 위반하지 않는다.
+
+- **Linux**: `apt.llvm.org`의 공식 `llvm.sh 23` 스크립트 + `apt-get install clangd-23`, 그 다음
+  `clangd-23`을 `clangd`로 symlink(preset의 `command.candidates: ['clangd']`가 맨 이름을 찾으므로).
+- **macOS**: Xcode 번들 clangd(`/usr/bin/clangd`, Apple 자체 버전 체계라 LLVM major와 안 맞음, 이
+  머신에서 17.0.0)가 아니라 Homebrew `llvm`(stage 1이 이미 검증한 정확한 경로) — keg-only라
+  `$(brew --prefix llvm)/bin`을 `GITHUB_PATH`에 명시적으로 추가.
+- **Windows**: Chocolatey `llvm` 패키지, `--version=23.1.0`으로 pin.
+
+**정직하게 남기는 한계**: Linux·macOS 설치 경로는 공식 문서(apt.llvm.org)와 이 lane 자신이 이미
+실행한 경로(Homebrew)에 근거하지만, **Windows의 Chocolatey 패키지가 정확히 "23.1.0" 문자열로
+지금 공개돼 있는지는 이 세션에서 직접 확인하지 못했다** — `community.chocolatey.org`가 이 세션의
+WebFetch를 403으로 막았다. gopls의 "Log installed version" 관행을 그대로 따라 `clangd --version`을
+매 OS에서 실행해 실제 설치된 버전을 로그에 남기게 했다 — 버전이 다르게 잡히면 로그에서 바로
+보인다. **이 job의 3-OS 실제 실행 결과가 이 job을 쓴 이후 유일하게 남은 실측 검증**이다(이
+lane의 다른 모든 주장과 달리, 이것만은 push 후 real CI 로그로 확인해야 한다 — 아래 "남은 작업"에
+적는다).
+
+### skip은 실패로 취급 — 직접 확인
+
+`clangdGatedTest()`를 3가지 상태로 직접 실행해 확인했다:
+```
+clangd PATH에 있음                              → 테스트 정상 실행·통과
+PATH에 없음 + IMPACT_LENS_REQUIRE_CLANGD=1       → 테스트 실패(명확한 메시지), skip 아님
+PATH에 없음 + 환경변수 없음                        → skip(조용하지만 눈에 보이는 skip)
+```
+PATH를 clangd 없는 디렉터리로 좁혀 직접 재현했다(Python lane의 symlink 이동 방식과 같은 원리).
+
+### 후속 항목 기록 — preset fixture 메커니즘의 구조적 한계
+
+`ProviderFixtureFile.content`가 정적 문자열이라 절대 경로가 필요한 project metadata(compile
+database 등)를 preset fixture에 담을 방법이 없다는 것을 스토리의 "미해결 질문"에 기록했다 —
+clangd 하나의 각주가 아니라 **메커니즘 자체의 한계**(gopls의 `go.mod`는 경로가 없고 pyright는
+아무 metadata도 안 필요해서 이 lane 전까지 안 드러났다)라고 명시했다. 후속 lane 범위로
+`ProviderFixtureFile`에 워크스페이스 경로 치환 템플릿을 추가하는 안을 남겼다 — Python lane의
+readiness 발견과 같은 성격의 cross-cutting 기록.
+
+### 검증
+
+- `node --test cli/dist/test/clangdIntegration.test.js`(격리) 2/2, 3회 반복 재현.
+- `npm run cli:test`(전체) 3회 연속 재실행 — 324/324 매번(race 수정 확인).
+- `python3 -c "import yaml; ..."`로 workflow YAML 구문 검증.
+- `clangdGatedTest`의 3가지 상태(present/required-absent/optional-absent) 전부 PATH 조작으로 직접
+  재현.
+
 ## 남은 작업
 
-- **Stage 4 완료. commander에게 보고 후 승인 대기 — stage 5(CI) 이전에 한 번 더 검토받는다**
+- **Stage 5 완료. commander에게 보고 후 승인 대기 — PR 올리기 전에 한 번 더 검토받는다**
   (commander가 명시).
+- **push 후 실제 CI 로그로 확인해야 하는 것**: `clangd-provider` job의 3-OS 실행 결과, 특히
+  Windows의 Chocolatey `llvm --version=23.1.0` 설치가 실제로 성공하는지(이 세션에서 직접 확인 못
+  함). 실패하면 그 자리에서 버전 문자열을 조정하는 후속 커밋이 필요하다.

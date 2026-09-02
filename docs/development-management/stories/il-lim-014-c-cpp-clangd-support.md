@@ -178,3 +178,19 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
   `open()` 뒤로 옮기는 재설계는 TS·gopls·custom이 공유하는 경로라 provider 하나만의 fix가 아니라
   별도 lane 규모다(gopls readiness의 3-OS 재검증이 필요) — 이 사실을 이제 두 provider(pyright,
   clangd)가 뒷받침하므로, 그 별도 lane의 우선순위를 다음 계획 세션이 재평가할 근거가 됐다.
+- **preset `fixture` 메커니즘이 절대 경로가 필요한 project metadata 파일을 못 다룬다 — clangd
+  하나의 각주가 아니라 메커니즘 자체의 한계다.** `ProviderFixtureFile.content`(`preset.ts`)는 정적
+  문자열이고, `fixtureCheck()`(`doctor/index.ts:275,281`)는 그 내용을 `fs.mkdtempSync()`로 만든
+  런타임 임시 디렉터리에 쓰기만 한다 — preset 정의 시점에는 그 경로가 존재하지 않는다. gopls의
+  `go.mod`는 경로를 담지 않고, pyright는 project metadata 파일 자체가 필요 없어서 이 lane 전까지는
+  이 한계가 드러난 적이 없었다. M2 clangd lane stage 4(`docs/work/task-m2-clangd-preset.md`)가
+  실제로 부딪혔다 — `compile_commands.json`의 `directory` 필드는 절대 경로를 요구하는데 fixture에
+  그 값을 주입할 방법이 없어서, 이 preset의 shipped fixture는 **저하 경로(database 없음, 단일
+  파일)만 증명한다.** 정상 경로(database 있음, cross-file 호출자 발견 — 이 preset이 실제로 파는
+  기능)는 별도 CI 전용 integration test(`cli/src/test/clangdIntegration.test.ts`, stage 5)가 실제
+  temp 경로로 진짜 `compile_commands.json`을 만들어 증명한다 — **preset fixture 메커니즘 자체는
+  여전히 이 종류의 project metadata를 못 다룬다.** 앞으로 절대 경로 기반 project metadata가 필요한
+  provider가 또 나오면(예: 다른 build-system 기반 언어) 같은 벽에 부딪힌다. M2 Python preset
+  lane의 readiness 발견과 같은 성격의 cross-cutting 항목 — `ProviderFixtureFile`에 워크스페이스
+  경로를 참조할 수 있는 템플릿 메커니즘(예: `{{workspace}}` 치환)을 추가하는 것이 후속 lane의
+  범위다.

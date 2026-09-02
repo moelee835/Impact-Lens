@@ -108,6 +108,77 @@ jobs:
       - name: Run Agent CLI tests (gopls required, not optional)
         run: npm run cli:test
 
+  # M2 clangd lane, stage 5 (docs/work/task-m2-clangd-preset.md). Separate from `unit`/`cli-tests-cross-os`
+  # for the same reason `go-provider` is: an install failure here must never hide or delay the
+  # Extension/CLI unit results, and clangd's OS matrix is not worth paying for on every push. Unlike
+  # `go-provider`, this job cannot lean on one install command working identically everywhere - clangd is
+  # an LLVM binary with a different install path per OS (apt.llvm.org on Linux, Homebrew on macOS since
+  # the Xcode-bundled clangd does not track upstream LLVM's own version numbering at all, Chocolatey on
+  # Windows), which is exactly the risk the shipped preset's own version check (`supported.minimum`)
+  # exists to catch if any of the three drifts. Pinned to 23 - the current LLVM release
+  # (llvm/llvm-project's own releases page) as of this job's authoring, and the same major version this
+  # lane's own stage 1 cross-check already verified via Homebrew (23.1.0, alongside Apple clangd 17.0.0) -
+  # not the catalog's `supported.minimum` (17) itself, because apt.llvm.org only keeps package repos for
+  # roughly the last two LLVM majors and 17 is long past that window by now. `supported.minimum: '17.0.0'`
+  # with no maximum still covers 23 - this job proves a newer, currently-installable version stays inside
+  # that range, not that 17.0.0 itself is still reachable everywhere.
+  # IMPACT_LENS_REQUIRE_CLANGD=1 turns the clangd-gated rows in `clangdIntegration.test.ts` from an
+  # optional local skip into a hard failure here, the same mechanism `go-provider` uses for gopls - see
+  # that file's own comment for why a silent skip was rejected (verified directly: hiding clangd from
+  # PATH with the env var set fails the job loudly, not silently - the same check this lane's Python
+  # preset lane ran by moving a symlink aside).
+  clangd-provider:
+    name: clangd / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      IMPACT_LENS_REQUIRE_CLANGD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pnpm
+        run: npm install --global pnpm@10.34.5
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install clangd 23 (Linux, via apt.llvm.org)
+        if: runner.os == 'Linux'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 23
+          sudo apt-get install -y clangd-23
+          sudo ln -sf /usr/bin/clangd-23 /usr/local/bin/clangd
+      # Homebrew, not the Xcode-bundled /usr/bin/clangd already on this runner: Xcode's own clangd tracks
+      # Apple's release cadence and version numbers (17.0.0 on this lane's own darwin/arm64 dev machine),
+      # not upstream LLVM's, so it cannot be pinned to a chosen LLVM major version at all. The `llvm`
+      # formula is keg-only (does not link onto PATH by default, stage 1's own finding) - PATH is set
+      # explicitly in the next step rather than relying on a `brew link` that Homebrew warns against for
+      # keg-only formulas.
+      - name: Install clangd 23 (macOS, via Homebrew)
+        if: runner.os == 'macOS'
+        run: brew install llvm
+      - name: Add Homebrew llvm to PATH (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+      - name: Install clangd 23 (Windows, via Chocolatey)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install llvm --version=23.1.0 -y --no-progress
+      # Ground truth for the version this run actually exercised, independent of what catalog.ts's
+      # `lastVerified` claims - a mismatch between the two (or between the three OSes) is itself a
+      # defect worth seeing in the log, the same principle as `go-provider`'s equivalent step.
+      - name: Log installed clangd version
+        run: clangd --version
+      - name: Run Agent CLI tests (clangd required, not optional)
+        run: npm run cli:test
+
   # No `python-provider` job here on purpose (M2 Python preset, stage 5, task-m2-python-preset.md).
   # `bundled-pyright` needs no analogue of the `go install` step above: pyright ships as a pinned
   # `dependencies` entry in cli/package.json (not a separately installed external tool), so
