@@ -785,3 +785,148 @@ C:\Users\me\project\main.c   # 그대로 샘
 
 **검증**: `npm run cli:build` 통과, `node --test cli/dist/test/doctor.test.js` 28/28(신규 2개),
 `npm run cli:test`(전체) 322 pass/2 skip/0 fail(324 total).
+
+## Stage 4 — preset 작성
+
+**목적**: 지금까지 확정된 입력(stage 1의 readiness 제외, stage 2의 `AMBIGUOUS_LANGUAGE_ID`,
+stage 3의 표면화 결정)을 실제 shipped preset으로 만든다. commander가 지시한 입력 그대로 따랐다.
+
+### 구조: `tier: 'verified-external'`, `languageIds`에 `c`/`cpp`/`AMBIGUOUS_LANGUAGE_ID`
+
+gopls와 같은 `verified-external`(clangd는 LLVM 바이너리라 번들 불가). `AMBIGUOUS_LANGUAGE_ID`를
+빼면 stage 2가 확인한 그대로 `.h` 요청이 auto-discovery에서 항상 탈락한다(`presetsForLanguage`가
+`detectedLanguageId`가 `languageIds`에 있는지로만 매칭하므로).
+
+### 순환 import 회피 — `AMBIGUOUS_LANGUAGE_ID`/`C_FAMILY_LANGUAGE_IDS`를 `preset.ts`로 이동
+
+`catalog.ts`가 preset 정의에 `AMBIGUOUS_LANGUAGE_ID`를 직접 써야 하는데, 그 상수는 stage 2에서
+`resolve.ts`에 정의했었다. `resolve.ts`는 이미 `catalog.ts`에서 `PROVIDER_CATALOG`를 import하므로,
+`catalog.ts`가 `resolve.ts`에서 이 상수를 import하면 **순환 import**가 된다. `preset.ts`는 import가
+전혀 없는 최하위 계층이고 `resolve.ts`·`catalog.ts` 둘 다 이미 여기서 import하고 있어서, 두 상수를
+`preset.ts`로 옮기고 `resolve.ts`는 `import` 후 `export`로 재노출했다(기존 import 지점
+`impact.ts`·`doctor/checks.ts`·`providers.test.ts`가 전부 `from '../providers/resolve'`를 쓰므로
+안 건드리기 위해). `export { X } from './module'` 형태는 로컬 바인딩을 안 만든다는 것도 실제로
+확인했다 — 처음에 이 형태로 썼다가 `resolve.ts` 자신의 코드(`languageMatch` 계산 등)가
+`AMBIGUOUS_LANGUAGE_ID`를 못 찾는 것을 빌드로 확인하고 `import` + `export` 두 줄로 고쳤다.
+
+### version 파서 — 이미 접두어 무관, 실측으로 확인만 함
+
+`parseVersion()`(`discovery.ts`)를 직접 읽어보니 이미 첫 번째 점-숫자 패턴을 찾는 방식이라
+접두어에 의존하지 않는다 — gopls의 `-json` 문제(`parseVersion`이 첫 번째로 찾은 숫자를 그대로
+쓰는데, `-json`은 `GoVersion`을 먼저 뱉어 그게 첫 번째가 되는 문제)와 달리, clangd의 두 배너
+모두 실제로 돌려서 확인했다:
+```
+"Apple clangd version 17.0.0 (clang-1700.6.4.2)..." → parseVersion → "17.0.0" (괄호 안
+  "1700.6.4.2"보다 앞에 있어 정확히 잡힘)
+"Homebrew clangd version 23.1.0..." → parseVersion → "23.1.0"
+```
+**preset에 별도 parser 설정이 필요 없다** — `ProviderVersionProbe` 타입 자체에 그런 필드가 없다.
+`supported.minimum: '17.0.0'`(실제로 돌린 두 버전 중 낮은 쪽), `lastVerified.versions: ['17.0.0',
+'23.1.0']`(실측 두 버전만, 사이 버전은 추측 안 함) — gopls의 선례와 동일한 원칙.
+
+### `docs.limitations` — 네 가지를 실제로 clangd에 돌려서 확인
+
+commander 지시대로 "provider 원본 결과와 함께" 적기 위해, 이 stage에서 네 시나리오를 실제로
+probe했다(추측이 아니라 실측):
+
+| 시나리오 | 실측 결과 |
+| --- | --- |
+| 함수 포인터 호출(`fp()`) | `incomingCalls`가 대입 지점("fp")만 보이고, 실제로 포인터를 통해 호출한 함수는 안 보임 |
+| virtual dispatch(`b->target()`, `b: Base*`) | `Base::target`의 `incomingCalls`엔 정확히 잡히지만, **`Derived::target`의 `incomingCalls`는 빈 배열** — 정적 타입 기준으로만 잡힘 |
+| 단순 macro(`#define CALL_TARGET() macro_target()`) | **정확히 잡힘** — 애초 예상(스토리가 지목한 "제한사항")과 반대 결과. clangd가 전처리 후 AST로 동작하기 때문 |
+| 조건부 컴파일(`#ifdef ENABLE_FEATURE`, 미정의) | `incomingCalls`가 빈 배열 — 컴파일 안 된 분기는 AST에 아예 없음 |
+
+**macro 결과가 스토리의 가정과 반대라는 것을 그대로 적었다** — "매크로는 제한사항이다"라고
+뭉뚱그리지 않고, 단순 매크로는 실측으로 통과했고 더 복잡한 형태(token-pasting, X-macro)는
+테스트 안 했다고 정확한 범위로 적었다. `docs.limitations`의 각 항목에 이 실측 근거를 그대로
+반영했다.
+
+### fixture 버그 발견·수정 — `doctor clangd --fixture`가 실제로 잡았다
+
+처음에는 gopls/pyright처럼 `target.c`/`caller.c` 두 파일로 fixture를 만들었다(compile database는
+넣을 수 없음 — `ProviderFixtureFile.content`가 정적 문자열이라 `fixtureCheck()`가
+`fs.mkdtempSync()`로 만드는 런타임 temp 디렉터리 경로를 주입할 방법이 없다). **`doctor clangd
+--fixture`를 실제로 돌리자 실패했다**: `observedCallers: []`.
+
+**원인을 직접 추적**: stage 1의 `without-db` probe가 "compile database 없어도 정답이 나온다"고
+증명했던 건, **그 probe가 `caller.c`·`target.c` 둘 다 미리 `didOpen`으로 열어 둔 상태**였기
+때문이다. 실제 제품의 `fixtureCheck()`는 `target`이 지정한 파일 **하나만** 연다 —
+`caller.c`는 아예 안 열린다. clangd의 fallback 모드는 index가 없으므로, **연 적 없는 다른 파일의
+호출은 원천적으로 안 보인다.**
+
+**직접 재현·검증**: 같은 두 함수를 **한 파일**에 두고(`fixture.c`) 같은 조건(compile database
+없음)으로 열어보니 `incomingCalls`가 정확히 `fixture_caller`를 찾았다 — 같은 파일 안이면 fallback
+모드도 정상 동작한다는 것을 확인했다.
+
+**stage 3의 "without-db 성공" 재검토·정정(정정 표시, 원문 유지)**: stage 3에서 재확인 삼아 돌렸던
+"`without-db/caller.c`에서 쿼리" real E2E도 다시 조사했다 — **그건 실제로 성공했다**(nodes에
+`fixture_target`(target.h)·`fixture_caller`(caller.c) 둘 다, edge도 정확). 왜 이건 되고 fixture는
+안 됐는지 확인했다: 그 쿼리는 `caller.c`(호출 지점 자체)에서 시작했고, `caller.c`가
+`#include "target.h"`로 target의 선언을 끌어들이므로, clangd 입장에서는 **caller.c 하나를 여는
+것만으로 같은 translation unit 안에 호출 지점과 선언이 함께 들어온다** — 진짜 "다른 파일에 있는
+호출자를 index로 찾는" 것이 아니라 "연 파일 안에 있던 호출을 본" 것이었다. 반면 fixture는
+**target 정의 파일을 먼저 열고 그 반대 방향(누가 나를 부르나)을 물었는데, 호출자는 별도의
+안 열린 파일에 있었다** — 이 방향은 index가 필요하고, compile database가 없으면 index가 없다.
+
+**즉 stage 1/3에서 "without-db도 정답을 낸다"는 주장은 참이지만, 어떤 방향/모양의 쿼리에서
+그런지에 대한 조건이 빠져 있었다** — "쿼리가 이미 열린 파일(또는 그 파일이 `#include`하는
+헤더) 안에서 답을 찾을 수 있으면 fallback도 정답을 낸다. 정의 파일만 열고 반대 방향으로
+'누가 나를 부르나'를 물으면(정확히 doctor fixture와 이 stage 4 이전의 관례적인 fixture 설계
+방향), 그 호출자가 다른 파일에 있는 한 fallback으로는 못 찾는다." 이 구분을 몰랐던 채로 stage 1/3
+문서에 "정답을 낸다"라고 뭉뚱그려 적은 것은 부정확했다 — 여기서 정정한다. **stage 3의 결론
+자체(표면화, 하드 게이트 아님)는 안 바뀐다** — 오히려 이 발견이 그 결론을 더 강하게 뒷받침한다:
+같은 "compile database 없음" 상태에서도 쿼리 모양에 따라 결과가 갈리는 게 사용자에게 안 보이는
+문제라면, 하드 게이트보다 표면화가 더 맞는 방향이다(사용자가 매번 다른 이유로 막히는 것보다,
+위험을 알리고 정답이 나올 때는 정답을 주는 쪽).
+
+**고침**: fixture를 `target.c`+`caller.c` 2파일에서 `fixture.c` 1파일로 교체, catalog.ts 주석에
+이 발견을 정확히 남겼다. `doctor clangd --fixture` 재실행 — `fixture-call-hierarchy: pass`,
+`observedCallers: ["fixture_caller"]`. 전체 상태도 `blocked`(fixture 실패로 인한)에서
+`degraded`(compile-database missing 경고만 남음, 이 저장소 자체에 compile database가 없다는
+정확한 사실)로 바뀌었다.
+
+### 기존 테스트 3개 회귀 수정 — `fixtureUnclaimedLanguagePreset`이 'c'→'swift'로 다시 이동
+
+`fixtureUnclaimedLanguagePreset()`의 주석이 이미 예견했던 상황("clangd가 나오면 다시 옮겨야
+한다")이 실제로 발생했다. `.c`가 이제 real clangd preset이 있으므로:
+- `providers.test.ts`의 auto-discovery/ambiguity 테스트 4개(`.c` 파일 사용) — 'swift'로 이동
+  (`languageId()`가 `.swift`→'swift'로 매핑하지만 어떤 preset도 아직 안 씀, kotlin이 다음
+  후보라고 주석에 남겼다).
+- `contract.test.ts`의 "does not launch the bundled TypeScript provider for an unclaimed
+  language" — 같은 이유로 `.swift`로 이동.
+- "the shipped catalog only claims languages that have been verified" — 하드코딩된 preset id
+  목록에 `'clangd'` 추가.
+
+### real E2E 검증 — `.c`·`.cpp`·`.h` auto-discovery, provider 필드 전혀 없이
+
+commander 지시대로 preset name도 provider 필드도 없이 순수 auto-discovery로 셋 다 확인:
+
+```
+.h  (header-c-only fixture): provider=clangd, selectedBy=auto, detectedLanguageId=c-cpp-header
+    nodes=[fixture_target, fixture_caller]  ✅
+.c  (with-db fixture):       provider=clangd, selectedBy=auto, detectedLanguageId=c
+    nodes=[fixture_target, fixture_caller]  ✅
+.cpp (신규 cpp-only fixture): provider=clangd, selectedBy=auto, detectedLanguageId=cpp
+    nodes=[fixture_target, fixture_caller]  ✅
+```
+
+`doctor clangd`(preflight) / `--smoke` / `--fixture` 전부 실제로 돌렸다 — `provider-executable`·
+`provider-version`(17.0.0 정확히 파싱)·`language-support`·`compile-database`(이 저장소 자체가
+missing이라는 정확한 사실)·`initialize-capability-smoke`(`callHierarchy: true`)·
+`fixture-call-hierarchy`(위 수정 후 pass) 전부 확인.
+
+### 검증
+
+- `npm run cli:build` 통과, `npm run cli:test`(전체) 322 pass/2 skip/0 fail(324 total, 변화 없음
+  — preset 추가 자체는 새 unit test를 요구하지 않았고, 기존 3개 테스트의 stand-in 언어만 옮겼다).
+- 교차 검사 guard(`"every preset's declared extensions are actually reachable through
+  languageId()"`)가 `PROVIDER_CATALOG`를 자동 순회하므로 clangd의 `extensions`/`languageIds`
+  일관성도 이 테스트로 자동 검증됐다(선언 일치만 보장 — commander가 짚은 대로 이것만으로는 실제
+  round trip을 증명 못 하므로, 위 real E2E가 그 증명이다).
+- `doctor clangd` / `--smoke` / `--fixture` 전부 real clangd로 실행, 실패 없음.
+- `.c`/`.cpp`/`.h` 전부 provider 필드 없이 real auto-discovery로 정답 확인.
+
+## 남은 작업
+
+- **Stage 4 완료. commander에게 보고 후 승인 대기 — stage 5(CI) 이전에 한 번 더 검토받는다**
+  (commander가 명시).

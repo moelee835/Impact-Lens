@@ -1,4 +1,4 @@
-import { ProviderPreset } from './preset';
+import { AMBIGUOUS_LANGUAGE_ID, ProviderPreset } from './preset';
 
 /**
  * The shipped preset catalog.
@@ -24,6 +24,16 @@ import { ProviderPreset } from './preset';
  * the canonical Microsoft-maintained upstream and treats the npm channel this preset bundles as primary,
  * where `basedpyright`'s own README tells users to prefer PyPI - see task-m2-python-preset.md stage 2 for
  * the full comparison. `Pyrefly` was never a `bundled` candidate: it has no npm distribution at all.
+ *
+ * `clangd` (M2, docs/work/task-m2-clangd-preset.md) is C/C++'s entry, closing M2's three-language
+ * milestone (Python, Go, C/C++). `verified-external` like gopls, not `bundled`, because clangd is an
+ * LLVM binary this CLI cannot ship inside its own npm tarball. Two findings this preset's design turns
+ * on: clangd's readiness signal is `didOpen`-triggered like pyright's, not workspace-level like gopls's
+ * (so this preset declares no `readiness`, same reasoning as `bundled-pyright`'s), and a missing compile
+ * database degrades silently at the protocol level but clangd still answers correctly when the query
+ * needs nothing project-specific (so this preset surfaces that risk via `limitationDetails` rather than
+ * gating on it the way gopls gates on `go.mod`). `.h` reaches this preset through
+ * `AMBIGUOUS_LANGUAGE_ID`, not `'c'` or `'cpp'` - see that constant's own comment in `preset.ts`.
  */
 
 const TYPESCRIPT_FIXTURE_TSCONFIG = `${JSON.stringify(
@@ -311,7 +321,153 @@ const bundledPyright: ProviderPreset = {
   },
 };
 
-export const PROVIDER_CATALOG: readonly ProviderPreset[] = [bundledTypeScript, gopls, bundledPyright];
+// Single file, not two - see the fixture's own comment below for why: with no compile_commands.json,
+// clangd's fallback command can only resolve a call within the same already-open file, not across two.
+const CLANGD_FIXTURE_C = [
+  'void fixture_target(void) {',
+  '}',
+  '',
+  'void fixture_caller(void) {',
+  '    fixture_target();',
+  '}',
+  '',
+].join('\n');
+
+export const CLANGD_PRESET_ID = 'clangd';
+
+/**
+ * `clangd` (M2, `docs/work/task-m2-clangd-preset.md`) is C/C++'s entry - `verified-external` like
+ * gopls, never `bundled`, because clangd is an LLVM binary this CLI cannot ship inside its own npm
+ * tarball. Built directly from that document's four stages, each cited at the field it produced.
+ */
+const clangd: ProviderPreset = {
+  id: CLANGD_PRESET_ID,
+  displayName: 'clangd (C/C++)',
+  tier: 'verified-external',
+  // AMBIGUOUS_LANGUAGE_ID (not 'c' or 'cpp') is what lets a `.h` request reach this preset at all -
+  // stage 2 found `resolve.ts`'s auto-discovery matches purely on `detectedLanguageId` being present in
+  // a preset's `languageIds`, so leaving this out would mean `.h` always fails with
+  // `provider_required_for_language`, even for the common unambiguous case stage 2 proved clangd
+  // answers correctly.
+  languageIds: ['c', 'cpp', AMBIGUOUS_LANGUAGE_ID],
+  extensions: ['.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx'],
+  command: {
+    // PATH lookup only, same mechanism as gopls - no platform-specific search, no bundling (clangd is
+    // an LLVM binary). Users installing via Homebrew's `llvm` formula need to know it is keg-only and
+    // not linked onto PATH by default; that belongs in `docs.install`, not in a discovery workaround
+    // here - this CLI does not manage a user's PATH, the same principle IL-LIM-004 states for every
+    // preset.
+    candidates: ['clangd'],
+    // `--background-index`, not the bare default: every stage 1-3 probe against real clangd
+    // (Apple 17.0.0 and upstream LLVM 23.1.0) ran with this flag, and the readiness-signal and
+    // compile-database findings this preset is built from are specific to that configuration.
+    args: ['--background-index'],
+    languageIdFrom: 'detected',
+  },
+  version: {
+    // Plain `--version`, one line of prose ("Apple clangd version 17.0.0 (...)" /
+    // "Homebrew clangd version 23.1.0"). No JSON-flavored flag exists for clangd's version output
+    // (checked: `--help-hidden` has nothing resembling gopls's `-json` trap), and `parseVersion()`
+    // already extracts the first dotted number it finds regardless of what word precedes it - verified
+    // directly against both real banners in stage 1/4, no preset-level parser needed. The version
+    // banner's own prefix differs by distributor ("Apple clangd version" vs "Homebrew clangd version"),
+    // which is exactly why nothing here depends on that prefix.
+    args: ['--version'],
+    timeoutMs: 5000,
+    maxOutputBytes: 4096,
+    // The two versions actually run: Apple clangd 17.0.0 (Xcode Command Line Tools) and upstream LLVM
+    // clangd 23.1.0 (Homebrew `llvm`, stage 1's cross-check against Apple's `mac+xpc` build). Nothing
+    // between them was tested - `minimum` is the lower of the two, not a guess that every version in
+    // between also works. `lastVerified.versions` below lists both exact versions for the same reason
+    // gopls's comment gives: narrow or widen this only after testing a version, never by assuming.
+    supported: { minimum: '17.0.0' },
+  },
+  // No `initializationOptions`, no `settings`: every stage 1-3 probe answered correctly with an empty
+  // initialize frame.
+  //
+  // No `readiness` - stage 1's gate conclusion, not an oversight. clangd's `backgroundIndexProgress`
+  // signal is `textDocument/didOpen`-triggered, not workspace-level: waiting 15 seconds after
+  // `initialize` with no file opened (cache cleared first, to rule out a stale on-disk index) produced
+  // zero `$/progress` notifications, on both clangd builds; opening a file produced several almost
+  // immediately. `LspCallHierarchyProvider.awaitReadiness()` runs inside `doInitialize()`, before any
+  // `open()` call, so this signal is structurally unreachable at the point this preset would declare it
+  // - the same architectural constraint the Python lane found for pyright. Declaring `readiness` here
+  // would only add `budgetMs` as pure dead latency before `onBudgetExceeded` falls back to querying
+  // anyway. `coverage.indexing.status` stays `unknown` for C/C++, the same honest "no claim" default
+  // `bundled-typescript` and `bundled-pyright` already use, not a regression from a reachable better
+  // state.
+  //
+  // No `requiredProjectFiles`, unlike gopls's `go.mod` - stage 3's explicit decision, not a gap
+  // inherited from stage 1. A missing `compile_commands.json` does degrade silently at the protocol
+  // level (clangd's own "Failed to find compilation database" never crosses the wire, stage 1/2), which
+  // is the same shape of risk `go.mod` exists to gate - but clangd's fallback command can still answer
+  // correctly with no compile database present, unlike gopls's AdHoc mode, for queries that stay within
+  // one already-open translation unit (see the fixture comment directly below for the precise shape
+  // this preset's own fixture had to learn the hard way). Gating here would turn every one of those
+  // still-working queries into `unsupported`. Stage 3 surfaces the same risk instead, unconditionally
+  // on caller count, via `compile_database_missing`/`_stale`/`_ambiguous` in `limitationDetails`
+  // (`coverage.ts`) - see that stage's decision record for the alternatives considered and rejected.
+  fixture: {
+    files: [{ path: 'fixture.c', content: CLANGD_FIXTURE_C }],
+    // Single file, not two - a real bug this preset's own stage 4 `--fixture` run caught, not something
+    // reasoned out in advance. The original two-file version (target.c defines fixture_target, caller.c
+    // calls it) failed `doctor clangd --fixture` with observedCallers: [] the first time it actually
+    // ran. Stage 1's `without-db` probe had "proven" the fallback command answers a 2-function,
+    // 2-file case correctly - but that probe manually opened BOTH files over the LSP wire before
+    // querying, and `fixtureCheck()` (doctor/index.ts) only opens the ONE file `target` names before
+    // asking for its incoming calls. Re-testing directly settled which claim was right: a same-file
+    // call (both functions in one already-open file) still resolves correctly with no compile database
+    // (clangd's fallback parses the whole open file as one translation unit); a cross-file call where
+    // the callee's own file is opened first and the caller's file is never opened at all does not -
+    // there is no background index to discover it with. `compile_commands.json` entries carry the
+    // runtime temp-directory path anyway (`ProviderFixtureFile.content` is a static string,
+    // `fixtureCheck()` only creates that directory via `fs.mkdtempSync()` after this preset's content
+    // is already defined - no template-injection hook exists to supply it), so a fixture proving the
+    // no-compile-database path has to stay within what a single opened file can resolve on its own.
+    // Line 1, column 6 is the first character of "fixture_target" ("void " is 5 characters).
+    target: { file: 'fixture.c', line: 1, column: 6 },
+    expectedCaller: 'fixture_caller',
+  },
+  docs: {
+    install: 'https://clangd.llvm.org/installation',
+    // Each entry cites the real probe that grounds it (stage 4) rather than stating it as this
+    // project's own judgment - commander's explicit stage 4 instruction. Every scenario below was run
+    // against real clangd (Apple 17.0.0), not assumed from general C/C++ static-analysis knowledge.
+    limitations: [
+      // Probed directly: a function pointer initialized to fixture_target and invoked as `fp()`.
+      // incomingCalls on fixture_target returned only the assignment site (surfaced as a reference
+      // named "fp"), never the function that performed the indirect call through the pointer.
+      'Calls made only through a function pointer invocation are not part of the Call Hierarchy result; only the pointer\'s own assignment site may appear as a reference.',
+      // Probed directly: a virtual method Derived::target overriding Base::target, called through a
+      // Base* as `b->target()`. incomingCalls on Base::target correctly included the call site;
+      // incomingCalls on Derived::target was empty - the statically-typed call site never appears
+      // under the override that could be reached at runtime through dynamic dispatch.
+      'A call reached only through virtual dispatch on a base-class pointer or reference appears under the statically-declared base method\'s Call Hierarchy result, never under a derived override\'s.',
+      // Probed directly, and the result contradicts the naive assumption: a simple macro expanding
+      // directly to a function call (`#define CALL_TARGET() macro_target()`) WAS correctly resolved -
+      // incomingCalls found the real caller, because clangd operates on the post-preprocessor AST.
+      // More complex macro shapes (token-pasted names, conditionally-defined macros, X-macros) were not
+      // tested and may behave differently; this is deliberately not phrased as "macros are unsupported"
+      // because that would overclaim past what was actually measured.
+      'A simple macro that expands directly to a function call is resolved correctly (verified); more complex macro patterns generating calls (token-pasting, X-macros) have not been tested.',
+      // Probed directly: a call inside `#ifdef ENABLE_FEATURE` / `#endif`, queried without that macro
+      // defined. incomingCalls on the target was empty - the untaken branch is not part of the compiled
+      // AST at all, so a call inside it is invisible regardless of what the source text says.
+      'A call inside a preprocessor branch not taken under the compile flags actually used (an #ifdef whose macro is undefined, for example) is invisible to the Call Hierarchy result - the branch is not part of the compiled AST.',
+    ],
+  },
+  // Evidence for the verified-external tier. Both 17.0.0 (Apple clangd, Xcode Command Line Tools) and
+  // 23.1.0 (upstream LLVM clangd, Homebrew) were verified on darwin/arm64 only, by hand, across stages
+  // 1-4 of task-m2-clangd-preset.md - this preset has no CI job yet exercising windows-latest/
+  // ubuntu-latest or a real MSVC/clang-cl toolchain, unlike gopls's go-provider job. Stage 5 of the same
+  // document is where that gap closes.
+  lastVerified: {
+    date: '2026-09-02',
+    versions: ['17.0.0', '23.1.0'],
+  },
+};
+
+export const PROVIDER_CATALOG: readonly ProviderPreset[] = [bundledTypeScript, gopls, bundledPyright, clangd];
 
 export function findPreset(catalog: readonly ProviderPreset[], id: string): ProviderPreset | undefined {
   return catalog.find(preset => preset.id === id);

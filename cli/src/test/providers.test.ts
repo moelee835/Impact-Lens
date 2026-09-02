@@ -54,21 +54,21 @@ function temporaryDirectory(t: { after(fn: () => void): void }, prefix: string):
  * exactly one language. This fixture exists so the discovery, ambiguity and version paths are
  * exercised by real code rather than only by presets that cannot reach them.
  */
-// `c` -> the real catalog has no preset for it (clangd is a future lane, not yet shipped) - that
-// unclaimed status is what most of this fixture's call sites depend on. It used to be `python` until
-// M2 added a real `bundled-pyright` entry to `PROVIDER_CATALOG`, which made every auto-discovery test
-// combining `[...PROVIDER_CATALOG, fixturePythonPreset()]` see two Python presets instead of one.
-// This is a recurring pattern, not a one-off: whichever language stands in here stops being "unclaimed"
-// the moment a real preset for it ships, and every call site that pairs this fixture with
-// `PROVIDER_CATALOG` breaks the same way `python`'s did. When `clangd` ships (`c`'s current stand-in),
-// this fixture has to move again to a language the catalog still does not cover.
+// `swift` -> the real catalog has no preset for it - that unclaimed status is what most of this
+// fixture's call sites depend on. It used to be `python`, then `c`, moved each time a real preset
+// claimed the previous stand-in (M2 added `bundled-pyright`, then M2 added `clangd` -
+// `docs/work/task-m2-clangd-preset.md`). This is a recurring pattern, not a one-off: whichever language
+// stands in here stops being "unclaimed" the moment a real preset for it ships, and every call site
+// that pairs this fixture with `PROVIDER_CATALOG` breaks the same way `python`'s and `c`'s did. `kotlin`
+// is the next-best unclaimed candidate if `swift` ever needs to move too - `languageId()` maps `.kt`/
+// `.kts` to it but no catalog preset claims it yet.
 function fixtureUnclaimedLanguagePreset(overrides: Partial<ProviderPreset> = {}): ProviderPreset {
   return {
-    id: 'fixture-c',
-    displayName: 'Fixture C Server',
+    id: 'fixture-swift',
+    displayName: 'Fixture Swift Server',
     tier: 'verified-external',
-    languageIds: ['c'],
-    extensions: ['.c'],
+    languageIds: ['swift'],
+    extensions: ['.swift'],
     command: { candidates: ['impact-lens-fixture-server'], args: ['--stdio'], languageIdFrom: 'detected' },
     docs: { install: 'https://example.invalid/install-fixture-server' },
     lastVerified: { date: '2026-01-01', versions: ['1.0.0'] },
@@ -180,7 +180,7 @@ test('auto-discovery reports the bundled tier for the shipped TypeScript preset'
 test('auto-discovery reports the auto tier for a discovered external preset', t => {
   const binaries = syntheticPosixDirectory(t, 'discovery-bin-');
   writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
-  const resolved = resolveProvider('src/a.c', undefined, {
+  const resolved = resolveProvider('src/a.swift', undefined, {
     env: NO_ENV,
     catalog: [...PROVIDER_CATALOG, fixtureUnclaimedLanguagePreset()],
     lookup: { env: { PATH: binaries }, platform: 'linux' },
@@ -197,10 +197,10 @@ test('auto-discovery reports the auto tier for a discovered external preset', t 
 
 test('an unsupported language never falls back to another language provider', () => {
   assert.throws(
-    () => resolveProvider('src/a.c', undefined, { env: NO_ENV }),
+    () => resolveProvider('src/a.swift', undefined, { env: NO_ENV }),
     (error: unknown) => error instanceof CliError
       && error.code === 'provider_required_for_language'
-      && (error.details as { detectedLanguageId: string }).detectedLanguageId === 'c',
+      && (error.details as { detectedLanguageId: string }).detectedLanguageId === 'swift',
   );
 });
 
@@ -218,7 +218,7 @@ test('an explicitly named preset is refused for a language it does not claim', (
 test('a matching preset with no installed executable is not replaced by another language', t => {
   const binaries = syntheticPosixDirectory(t, 'discovery-empty-');
   assert.throws(
-    () => resolveProvider('src/a.c', undefined, {
+    () => resolveProvider('src/a.swift', undefined, {
       env: NO_ENV,
       catalog: [...PROVIDER_CATALOG, fixtureUnclaimedLanguagePreset()],
       lookup: { env: { PATH: binaries }, platform: 'linux' },
@@ -242,12 +242,12 @@ test('two installed verified providers for one language are reported, not guesse
   writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
   writeExecutable(binaries, 'impact-lens-other-server', '#!/bin/sh\nexit 0\n');
   assert.throws(
-    () => resolveProvider('src/a.c', undefined, {
+    () => resolveProvider('src/a.swift', undefined, {
       env: NO_ENV,
       catalog: [
         fixtureUnclaimedLanguagePreset(),
         fixtureUnclaimedLanguagePreset({
-          id: 'fixture-c-other',
+          id: 'fixture-swift-other',
           command: { candidates: ['impact-lens-other-server'], args: [], languageIdFrom: 'detected' },
         }),
       ],
@@ -308,12 +308,12 @@ test('AMBIGUOUS_LANGUAGE_ID never reaches the wire: raw command on .h with no ex
 });
 
 test('an explicit preset that does not claim AMBIGUOUS_LANGUAGE_ID is rejected for .h, unlike plaintext', () => {
-  // fixtureUnclaimedLanguagePreset declares languageIds: ['c'] only - not AMBIGUOUS_LANGUAGE_ID. A
+  // fixtureUnclaimedLanguagePreset declares languageIds: ['swift'] only - not AMBIGUOUS_LANGUAGE_ID. A
   // preset must opt in explicitly to serve ambiguous headers; unlike plaintext, `.h` is not a free pass.
   assert.throws(
     () => resolveProvider('src/target.h', undefined, {
       env: NO_ENV,
-      providerPreset: 'fixture-c',
+      providerPreset: 'fixture-swift',
       catalog: [fixtureUnclaimedLanguagePreset()],
     }),
     (error: unknown) => error instanceof CliError && error.code === 'provider_language_mismatch',
@@ -328,7 +328,7 @@ test("a preset that explicitly claims AMBIGUOUS_LANGUAGE_ID can serve .h, and th
   });
   const resolved = resolveProvider('src/target.h', undefined, {
     env: NO_ENV,
-    providerPreset: 'fixture-c',
+    providerPreset: 'fixture-swift',
     catalog: [preset],
     lookup: { env: { PATH: binaries }, platform: 'linux' },
   });
@@ -382,8 +382,10 @@ test('the shipped catalog only claims languages that have been verified', () => 
   // (docs/work/task-m2-gopls-preset.md) ran Call Hierarchy against it on a pinned version range, which
   // is exactly the evidence the loop above requires of every verified-external preset. 'bundled-pyright'
   // needs no such evidence here (it is `bundled`, not `verified-external`) but is real for the same
-  // reason: task-m2-python-preset.md ran a real Call Hierarchy round trip against pyright.
-  assert.deepEqual(PROVIDER_CATALOG.map(preset => preset.id), ['bundled-typescript', 'gopls', 'bundled-pyright']);
+  // reason: task-m2-python-preset.md ran a real Call Hierarchy round trip against pyright. 'clangd' is
+  // the same as 'gopls' - verified-external evidence from a real Call Hierarchy round trip, this time
+  // against two real clangd builds (task-m2-clangd-preset.md).
+  assert.deepEqual(PROVIDER_CATALOG.map(preset => preset.id), ['bundled-typescript', 'gopls', 'bundled-pyright', 'clangd']);
   assert.deepEqual(bundledLanguageIds(PROVIDER_CATALOG), [
     'typescript', 'typescriptreact', 'javascript', 'javascriptreact', 'python',
   ]);
