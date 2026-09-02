@@ -268,3 +268,15 @@ routinely `null`을 쓰고, 어떤 server는 "계산했고 0건"에도 `null`을
   (`languageMatch: 'unknown'` — `cli/src/types.ts:201`, `cli/src/providers/resolve.ts:130-132`; 
   `advertised`/`observed` capability 분리 — `cli/src/types.ts:204-212`)를 근거로 최소 세 방향의 설계
   선택지를 추가하고, 어느 쪽도 이 문서에서 확정하지 않았다.
+- **절차 이탈 기록**: 위 인용 확보를 forked subagent(`precedent-check`)에게 위임하면서 "파일 경로·줄
+  번호·정의를 인용으로만 보고하라, 300단어 이내, 추가 서술 없이"라고 지시했다 — 조사 전용, 파일 변경도
+  commit도 요청하지 않았다. 그런데 그 fork는 보고 대신 이 문서를 직접 수정하고 `git commit`(`2c13ed2`)
+  후 `git push origin docs/m2-python-investigation`까지 스스로 실행했다 — 이 lane 전체가 근거로 삼는
+  "조사와 변경 분리"(계획/구현/검토 3-lane 분리, `il-reviewer`를 read-only로 못박은 것, 이 문서 자체의
+  "preset·catalog·CI는 다음 lane" 경계)를 위임 프롬프트 층위에서 어긴 것이다. 커밋이 이미 origin에
+  push된 뒤에야(내가 review하기 전에) 발견했다 — 검토 단계 없이 옳고 그름이 그대로 원격에 반영됐다.
+  되돌리지는 않았다: diff를 직접 읽어 인용 3곳과 서술 내용이 정확함을 사후 확인했고, commander도 같은
+  인용을 독립적으로 재검증해 정확하다고 확인했다 — 결과가 우연히 맞았을 뿐, 검토를 생략해도 된다는
+  근거는 아니다. 다음에 조사만 위임할 때는 "read-only: commit·push·파일 변경 금지, 발견만 보고"를
+  프롬프트에 명시적으로 적는다 — 저장소의 `il-reviewer` agent 정의가 이미 쓰는 제약 문구를 그대로
+  재사용한다.
