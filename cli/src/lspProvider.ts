@@ -5,6 +5,7 @@ import { JsonRpcClient, redactProviderText } from './jsonRpc';
 import { JsonObject } from './lsp/configuration';
 import { CapabilityRegistration, createServerRequestHandlers } from './lsp/serverRequests';
 import { mergeSessionValues, ProviderSessionConfig, SettingsDelivery } from './lsp/session';
+import { truncate } from './providers/discovery';
 import { ProviderReadinessProfile } from './providers/preset';
 import { assertProjectMetadata, ReadinessTracker, UNKNOWN_INDEXING } from './providers/readiness';
 import { languageId, ProviderResolutionOptions, resolveProvider } from './providers/resolve';
@@ -53,6 +54,46 @@ const CALL_HIERARCHY_METHOD = 'textDocument/callHierarchy';
  * short: for them it is pure added latency before an error that was always going to be raised.
  */
 const DYNAMIC_REGISTRATION_BUDGET_MS = 250;
+
+/**
+ * Ceiling on `serverInfo.version` as reported in the response, in UTF-8 bytes - matches
+ * `response.schema.json`'s `$defs/provider.version` `maxLength` exactly, so the contract and the code
+ * that produces it cannot drift apart.
+ *
+ * `serverInfo.version` is a server-controlled, unbounded string handed straight to two response
+ * locations (`data.provider.version` and top-level `capabilities.version`, both projections of the same
+ * `_capabilities` object). No provider probed here is scoped to a sane length: `gopls`'s own
+ * `-json`-flavoured self-description was measured at 3,062 bytes and appeared in both locations at once
+ * (6,124 bytes, 54.6% of an 11,219-byte response) before this bound existed. Every real version string
+ * measured against this codebase - `gopls version`'s plain output, a generous synthetic semver-plus-
+ * build-metadata string - stayed under 100 bytes, so 256 is not a tight fit for anything legitimate; it
+ * exists to stop a server's incidental self-description from dominating a response an agent pays tokens
+ * to read. `typescript-language-server` reports no `serverInfo.version` at all today, so this bound
+ * changes nothing for it.
+ *
+ * Deliberately bounded at exactly one point (here, where `_capabilities.version` is first assigned) and
+ * not at either place that later reads it - a third consumer would otherwise need its own copy of this
+ * same logic to stay safe.
+ */
+const SERVER_VERSION_MAX_BYTES = 256;
+
+/**
+ * Appended when `serverInfo.version` is cut, so a consumer can tell "the version is exactly this" from
+ * "the version was longer and this is a prefix" - the existing `truncate()` in `discovery.ts` marks
+ * neither case, because the process-output budget it guards is a safety cap a human debugs from raw logs,
+ * never a value handed to an agent as though it were complete. This field is the opposite: agents read it
+ * as data, so silent truncation here would misinform them instead of merely under-informing them.
+ */
+const VERSION_TRUNCATION_MARKER = '…[truncated]';
+
+/** Bounds `serverInfo.version` to `SERVER_VERSION_MAX_BYTES`, marking the cut when it happens. */
+function boundServerVersion(version: string | undefined): string | undefined {
+  if (version === undefined || Buffer.byteLength(version, 'utf8') <= SERVER_VERSION_MAX_BYTES) {
+    return version;
+  }
+  const budget = SERVER_VERSION_MAX_BYTES - Buffer.byteLength(VERSION_TRUNCATION_MARKER, 'utf8');
+  return `${truncate(version, budget)}${VERSION_TRUNCATION_MARKER}`;
+}
 
 interface PublishDiagnostics {
   readonly uri?: string;
@@ -457,7 +498,7 @@ export class LspCallHierarchyProvider implements CallHierarchyProvider {
     this._capabilities = {
       ...this._capabilities,
       name: result.serverInfo?.name ?? 'language-server',
-      version: result.serverInfo?.version,
+      version: boundServerVersion(result.serverInfo?.version),
       callHierarchy: this.staticCallHierarchy,
       diagnostics: true,
       advertised: {

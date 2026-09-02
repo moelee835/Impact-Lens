@@ -305,3 +305,36 @@ test('an old-style request with only provider command/args/languageId - no prese
   assert.equal(response.data.provider.languageMatch, true);
   assert.ok(response.data.nodes.length >= 1);
 });
+
+// gopls's real `serverInfo.version` (a `-json`-flavoured self-description) measured 3,062 bytes and
+// appeared twice in one response (data.provider.version and top-level capabilities.version, both
+// projections of the same internal value) - 54.6% of an 11,219-byte response an agent pays tokens to
+// read. This proves the bound at the one place that value is produced, not a server-specific patch.
+test('an oversized serverInfo.version is bounded with a visible marker, in both response locations', () => {
+  const executable = path.resolve(__dirname, '..', 'index.js');
+  const server = path.resolve(__dirname, 'fixtures', 'hugeServerVersionServer.js');
+  const targetUri = pathToFileURL(path.resolve(__dirname, '..', '..', 'src', 'testFile.ts')).toString();
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    env: { ...process.env, IMPACT_LENS_MOCK_TARGET_URI: targetUri },
+    input: JSON.stringify({
+      workspace: path.resolve(__dirname, '..', '..'),
+      file: 'src/testFile.ts',
+      line: 4,
+      column: 17,
+      provider: { command: process.execPath, args: [server], languageId: 'typescript' },
+    }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.ok, true);
+
+  const providerVersion = response.data.provider.version as string;
+  const capabilitiesVersion = response.capabilities.version as string;
+  // Both response locations read the same bounded value - proves the fix lives at the one ingestion
+  // point (lspProvider.ts) rather than needing a separate patch per projection.
+  assert.equal(providerVersion, capabilitiesVersion);
+  assert.ok(Buffer.byteLength(providerVersion, 'utf8') <= 256, `expected <=256 bytes, got ${Buffer.byteLength(providerVersion, 'utf8')}`);
+  assert.ok(providerVersion.startsWith('v1.0.0-xxx'), 'expected the real prefix to survive truncation');
+  assert.ok(providerVersion.endsWith('…[truncated]'), 'expected a visible marker, not a silently cut value');
+});

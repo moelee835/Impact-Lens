@@ -13,7 +13,7 @@
       "properties": {
         "host": { "enum": ["lsp", "vscode"] },
         "name": { "type": "string" },
-        "version": { "type": "string" },
+        "version": { "type": "string", "maxLength": 256 },
         "requestedLanguageId": { "type": "string" },
         "detectedLanguageId": { "type": "string" },
         "selectedBy": { "enum": ["bundled", "auto", "preset", "project", "custom", "vscode"] },

@@ -140,7 +140,15 @@ export function probeVersion(executable: string, probe: ProviderVersionProbe): V
   return { kind: 'found', version, output };
 }
 
-function truncate(text: string, maxBytes: number): string {
+/**
+ * Cuts `text` to `maxBytes` UTF-8 bytes, silently - the caller decides whether truncation needs to be
+ * visible to whoever reads the result. `probeVersion` above uses it exactly this way, bounding a spawned
+ * process's stdout/stderr against `maxOutputBytes` with no marker: that budget exists to cap how much a
+ * misbehaving provider can make this process buffer, not to communicate anything to a consumer.
+ * `lspProvider.ts`'s `serverInfo.version` bound is a different case with different needs and adds its own
+ * visible marker on top of this - see the comment there.
+ */
+export function truncate(text: string, maxBytes: number): string {
   return Buffer.byteLength(text, 'utf8') <= maxBytes ? text : Buffer.from(text, 'utf8').subarray(0, maxBytes).toString('utf8');
 }
 
