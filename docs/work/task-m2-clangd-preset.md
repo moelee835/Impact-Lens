@@ -1,0 +1,247 @@
+# M2 — C/C++ clangd provider preset
+
+- 상태: Stage 1 진행 중 (조사 게이트, 구현 없음)
+- branch: `docs/m2-clangd-investigation`
+- 선행: PR #64(`feat/m2-python-preset`, M2 Python lane) merge 완료 후 착수.
+- 스토리: `docs/development-management/stories/il-lim-014-c-cpp-clangd-support.md`
+- 요구사항 전문(계획 세션 작성, 저장소 밖): `m2-clangd.md`(commander scratchpad)
+- 성격: **조사 + 구현을 한 lane에서 한다.** Python lane(조사 lane과 구현 lane을 분리)과 다르다.
+  다만 stage 1은 게이트다 — 관측 결과가 stage 2 이후의 설계를 바꾼다.
+
+## 목적과 사용자 가치
+
+**C/C++ 사용자는 지금 Impact Lens를 못 쓴다.** `.c`/`.cpp`에 `impact`를 돌리면 preset이 없어
+`unsupported`로 끝난다. TypeScript·Python은 설정 없이, Go는 gopls 설치로 쓴다.
+
+**이 lane이 끝나면 C/C++ 사용자가 "이 함수를 누가 부르는가"에 답을 받는다.** 그리고 그 답이 build
+설정(compile database)에 의존한다는 사실 — 없거나 낡았을 때 결과가 조용히 나빠질 수 있다는 것 — 을
+사용자가 알 수 있게 한다. C/C++은 같은 소스가 compile flag에 따라 다른 코드가 되는 언어라 이 부분이
+특히 중요하다.
+
+**상위 목표와의 관계**: 이 lane이 M2의 마지막 언어다. 끝나면 Python·Go·C/C++ 셋이 닫힌다.
+
+**이 lane이 물려받아 다시 조사하지 않는 사실**(계획 세션이 이미 코드로 확인):
+
+| 사실 | 근거 |
+| --- | --- |
+| `.c`→`c`, `.cc`/`.cpp`/`.cxx`/`.hh`/`.hpp`/`.hxx`→`cpp` 매핑 이미 존재 | `resolve.ts:597-603` |
+| `.h`는 매핑에 없다 — `plaintext`로 떨어진다 | 같은 switch에 case 자체가 없음 |
+| preset `extensions` ↔ `languageId()` 교차 검사 guard 존재 | `providers.test.ts:734` |
+| `bundledModuleEntryPath()` 허용 목록은 명시적 `if`, 일반화 금지 | `runtime.ts` 주석이 이유를 적음 |
+| readiness 신호는 `awaitReadiness()`가 `didOpen` 이전에 끝난다 | `lspProvider.ts:585` vs `:651` |
+| `titlePattern` 생략 = 모든 token 통과 | `preset.ts:91`, `readiness.ts:151` |
+| `provider_null_incoming_calls`가 `null`/`[]`를 구분해 표면화 | M2 Python lane stage 3 |
+
+스토리의 `현재 기준선` 절은 낡았다 — "CLI의 자동 languageId에는 C/C++ 확장자가 없다"와 "provider가
+없으면 TypeScript server를 실행한다" 둘 다 틀렸다(확장자는 있고, `IL-LIM-004`가 다른 언어로 fallback
+하지 않는다고 명시한다). Stage 6에서 고친다.
+
+## Stage 1 — 조사 게이트 (구현 전에 멈춘다)
+
+**목적**: gopls·pyright에서 각각 다른 곳이 문제였다. clangd가 어느 쪽인지 구현 전에 안다 — 특히
+readiness 신호의 형태(gopls형/pyright형)가 stage 4의 preset 설계를 가른다.
+
+**방법**: gopls·pyright stage 1과 같은 방식 — 문서를 읽고 판정하지 않고, 실제로 설치해 raw
+JSON-RPC probe(`lsp-probe-clangd.mjs`, scratchpad에만 있고 이 branch에는 commit하지 않음 — 조사
+도구이지 산출물이 아님, gopls/pyright lane과 같은 선례)로 stdio를 직접 주고받았다.
+
+**환경**: darwin/arm64, 이 machine. `/usr/bin/clangd` — Apple clangd version 17.0.0
+(clang-1700.6.4.2), `Features: mac+xpc`. **이 lane은 CI를 만들지 않으므로 stage 1의 모든 결과는
+darwin 관측이지 3-OS 검증이 아니다.** 추가로 Apple clangd는 Xcode Command Line Tools가 배포하는
+빌드로, feature flag에 `xpc`가 붙어 있어 upstream LLVM clangd(Linux/Windows 사용자, 또는 Homebrew
+`llvm` package)와 인덱싱 내부 구현이 다를 가능성이 있다 — **이 위험을 줄이기 위해 upstream LLVM
+clangd도 별도로 설치해 같은 probe로 교차 검증했다**(아래 "교차 검증" 절).
+
+**fixture**: 2-file C project, `target.h`/`target.c`(`fixture_target`, `fixture_unused` 정의)/
+`caller.c`(`fixture_target()`을 호출하는 `fixture_caller` 정의). 두 변형을 만들었다 — 손으로 쓴
+`compile_commands.json`이 있는 `with-db/`와 없는 `without-db/`.
+
+### (1) Call Hierarchy 실제 왕복 — PASS
+
+`with-db/`, `without-db/` 둘 다: `initialize` 응답의 `callHierarchyProvider: true`(선언)와 별개로,
+실제 `textDocument/prepareCallHierarchy`(target.c의 `fixture_target` 정의 위치) →
+`callHierarchy/incomingCalls` 왕복이 `caller.c`의 `fixture_caller`를 정확히 반환했다.
+
+```
+prepareCallHierarchy result: [{"name":"fixture_target", ...}]
+incomingCalls result: [{"from":{"name":"fixture_caller", ...}, "fromRanges":[...]}]
+RESULT: fixture_caller found as incoming call? true
+```
+
+선언과 실제 왕복을 별도로 확인했다(이 저장소가 이미 아는 구분 — `doctor.test.ts`).
+
+### (2) readiness 신호의 형태 — **pyright형. gopls형이 아니다.** (게이트 결론)
+
+**관측**: `with-db/`에서 `initialize` → `initialized` 이후, **어떤 파일도 열지 않고 15초를
+기다렸다**(첫 5초 시도에서도 동일했고, 재현성을 의심할 여지를 없애려 캐시를 지우고 15초로
+재실행했다) — 이 15초 동안 `$/progress`(`backgroundIndexProgress`) 알림이 **0건** 도착했다. 그
+직후 `caller.c`·`target.c`에 `textDocument/didOpen`을 보내자 **거의 즉시** `$/progress` 4건
+(`report 0/3` → `1/3` → `2/3` → `end`)이 도착했다.
+
+```
+[+0.022s] === waiting 15s BEFORE opening any file ===
+[+15.024s] === pre-open window: $/progress seen = 0 (delta 0) ===
+[+15.025s] === opening caller.c and target.c now (didOpen) ===
+[+20.027s] === post-open window: $/progress seen after didOpen = 4 (total so far 4) ===
+```
+
+캐시를 지운 상태(`rm -rf with-db/.cache`)에서 재현했다 — 첫 실행이 이전 실행의 디스크 인덱스를
+재사용해 "이미 끝나 있었다"는 착시일 가능성을 배제했다.
+
+**결론**: clangd의 `backgroundIndexProgress`는 **workspace 단위로 파일 open 전에 도착하는 gopls형이
+아니라, `textDocument/didOpen`이 트리거하는 pyright형이다.** Python lane이 실측으로 확인한 것과 같은
+구조적 제약이 그대로 적용된다 — `cli/src/lspProvider.ts`의 `LspCallHierarchyProvider.awaitReadiness()`
+는 `doInitialize()` 안에서 어떤 파일도 열리기 전에 호출되므로(`:585`), 이 지점에서 clangd의
+readiness 신호는 **아직 존재하지 않는다.** `readiness`를 preset에 넣으면 그 신호를 영원히 기다리다
+`budgetMs`를 통째로 태우는 순수 지연만 생긴다 — Python은 이 대가가 10초였다.
+
+**요구사항 문서의 게이트 조건이 여기서 발동한다: "pyright형이면 여기서 멈추고 보고하라."** 이
+문서는 그 보고이고, 이 세션은 `readiness`를 preset에 추가하지 않는다. `awaitReadiness()`를
+`open()` 뒤로 옮기는 cross-cutting 재설계는 TS·gopls·custom이 공유하는 경로라 이 lane 하나가 할
+일이 아니다(gopls readiness의 3-OS 재검증이 필요한 별도 lane 규모) — 요구사항 문서와 스토리의
+"미해결 질문" 절이 이미 이렇게 적어 뒀다.
+
+### 교차 검증 — upstream LLVM clangd (Homebrew `llvm` package)
+
+Apple clangd의 `mac+xpc` feature가 인덱싱 스케줄링에 영향을 줄 가능성을 배제하기 위해, 같은 machine에
+`brew install llvm`으로 upstream LLVM clangd(23.1.0, Homebrew bottle)를 설치해 **같은 probe, 같은
+fixture 내용**(경로만 새 디렉터리로 복제, `compile_commands.json`도 새 경로로 재작성)으로
+재실행했다.
+
+```
+$ /opt/homebrew/opt/llvm/bin/clangd --version
+Homebrew clangd version 23.1.0
+Features: mac+xpc
+Platform: arm64-apple-darwin25.5.0
+```
+
+**결과 — 5개 항목 전부 Apple clangd 17.0.0과 질적으로 동일**:
+
+| 항목 | Apple clangd 17.0.0 | upstream LLVM clangd 23.1.0 |
+| --- | --- | --- |
+| (1) Call Hierarchy 왕복 | PASS | PASS |
+| (2) readiness 신호 (`with-db`, 15초 pre-open 대기) | pre-open 0건 / post-open 4건 | pre-open 0건 / post-open 8건(건수만 다름, "0 before, N after didOpen"이라는 정성적 사실은 동일) |
+| (3) `null` vs `[]`(`fixture_unused`) | `[]` | `[]` |
+| (4) `--version` 형태 | "Apple clangd version..." 평문 | "Homebrew clangd version..." 평문(첫 두 단어만 다름, JSON 아님) |
+| (5) `without-db` 저하 형태 | stderr만: "Failed to find compilation database" + "with command clangd fallback"; `publishDiagnostics`는 `[]`; Call Hierarchy는 정상 동작 | 동일 — stderr 메시지, fallback 문구, 빈 `publishDiagnostics`, 정상 동작까지 바이트 수준까지는 아니지만 형태가 전부 같다 |
+
+**`--version` 배너의 첫 단어가 배포자에 따라 달라진다는 것이 실측으로 확정됐다** — Apple은
+`"Apple clangd version"`, Homebrew는 `"Homebrew clangd version"`으로 시작한다(둘 다 이어서 `X.Y.Z`).
+upstream LLVM 자체 릴리스 바이너리(GitHub Releases)는 아직 실측하지 않았다 — 이 문서는 그 세 번째
+배포 경로를 관측했다고 주장하지 않는다. **버전 파서를 만들 때(stage 4) 배포자 접두어에 의존하지
+말고 뒤에 오는 `X.Y.Z` 숫자 패턴으로 매칭해야 한다** — gopls의 `-json` 함정과 달리 이건 파싱
+전략만 조심하면 되는 문제다.
+
+**결론**: 두 배포 경로(Apple/Xcode CLT, Homebrew `llvm`)에서 readiness·null-vs-\[\]·compile-database
+저하 형태가 일치했다. `mac+xpc` feature flag는 두 빌드 모두에 붙어 있었다 — Apple 고유 동작이
+아니라 이 darwin 플랫폼 빌드 일반의 feature로 보인다(추가 조사 없음, 이 lane 범위 밖). **darwin
+단일 머신 관측이라는 한계는 남는다**(Linux/Windows 미검증) — 이건 이 lane이 CI를 만들지 않는 한
+좁힐 수 없고, stage 5에서 3-OS CI가 생기면 그때 각 OS의 실제 clangd 배포로 재확인된다.
+
+### (3) `null` vs `[]` — 이 fixture에서는 `[]`
+
+`fixture_unused`(정의는 있으나 아무도 안 부르는 함수)에 `prepareCallHierarchy` →
+`incomingCalls`를 실행하면 `with-db/`·`without-db/` 둘 다 **빈 배열 `[]`**을 반환했다(`null`이
+아님).
+
+```
+incomingCalls(fixture_unused) raw result (typeof=object, isArray=true, isNull=false): []
+RESULT: null-vs-[] for zero-caller symbol => EMPTY ARRAY []
+```
+
+**주의 — 이건 이 단순 fixture 하나의 관측이지 일반 결론이 아니다.** `M2 Python preset lane`이
+`provider_null_incoming_calls`를 만든 이유는 pyright가 **어떤** 상황에서 `null`을 반환했기
+때문이다(전체 조건은 미확정). 이 stage는 clangd가 **적어도 이 단순한 case에서는** `[]`로 확정 응답을
+준다는 것만 확인했다 — clangd가 다른 조건(예: 미완성 인덱스 상태에서 쿼리, macro-generated call,
+template instantiation 미해결)에서도 항상 `[]`만 주는지는 이 stage의 범위 밖이다. 만약 stage 4
+E2E나 실사용에서 `null`이 관측되면, Python lane이 만든 `provider_null_incoming_calls` 신호가 그대로
+걸린다 — 이게 그 신호를 provider-agnostic하게 설계한 이유다(M2 Python lane stage 3).
+
+### (4) version 명령의 출력 형태 — 안전. `-json`류 함정 없음
+
+```
+$ clangd --version
+Apple clangd version 17.0.0 (clang-1700.6.4.2)
+Features: mac+xpc
+Platform: arm64-apple-darwin25.5.0
+```
+
+평문 다중 행, JSON이 아니다. `clangd --help-hidden`에도 gopls의 `-json`(GoVersion을 먼저 뱉어
+오파싱을 유발한 전례, `catalog.ts` 주석)에 대응하는 `--version-json`류 flag가 없다 — `--input-style`/
+`--pretty`는 LSP stdin 스트림 자체의 인코딩 옵션이지 `--version`과 조합되는 flag가 아니다.
+
+**주의**: 위 배너는 **Apple clangd**의 형태다. upstream LLVM clangd의 배너는 보통
+`clangd version 17.0.0 (https://github.com/llvm/llvm-project ...)` 형태로 시작 단어가 다르다(Apple
+빌드는 "Apple clangd version", upstream은 "clangd version") — **버전 파서가 두 형태 모두를
+받아들여야 한다.** 아래 교차 검증 절에서 실측값으로 확정한다.
+
+### (5) compile database 없을 때의 저하 형태 — **조용히 저하된다. gopls AdHoc형이다. pyright 진단형이 아니다.**
+
+`without-db/`(어떤 `compile_commands.json`도 없는 디렉터리)로 같은 probe를 실행했다.
+
+**stderr(clangd 자신의 내부 로그, LSP client가 받는 프로토콜 메시지가 아님)**:
+```
+Failed to find compilation database for .../without-db/caller.c
+Failed to find compilation database for .../without-db/target.c
+ASTWorker building file .../without-db/caller.c version 1 with command clangd fallback
+ASTWorker building file .../without-db/target.c version 1 with command clangd fallback
+```
+
+**LSP 프로토콜 상으로 client가 실제로 받는 것(`textDocument/publishDiagnostics`)**:
+```json
+{"diagnostics":[],"uri":"file:///.../without-db/caller.c","version":1}
+{"diagnostics":[],"uri":"file:///.../without-db/target.c","version":1}
+```
+
+**`$/progress`(`backgroundIndexProgress`)는 이 fixture에서 아예 발생하지 않았다**(0건, before/after
+둘 다) — compile database가 없으니 background index를 세울 대상이 없었던 것으로 보인다(추가 조사
+없음, stage 4 범위).
+
+그런데도 Call Hierarchy는 **정상 동작했다** — `fixture_caller`가 여전히 발견되고, `fixture_unused`는
+여전히 `[]`. 즉 clangd는 "clangd fallback"이라는 **내장 generic 컴파일 명령**으로 조용히 대체했고,
+**LSP 프로토콜로는 그 사실을 진단(diagnostic)으로도, 다른 신호로도 client에 알리지 않았다** —
+`Failed to find compilation database`는 stderr 로그일 뿐이다.
+
+**결론**: `.c`/`.cpp` 파일 자체가 표준 라이브러리 정도만 include하는 이 단순 fixture에서는 fallback
+명령으로도 정답이 나왔지만, **project-specific include path나 macro define이 필요한 실제 프로젝트라면
+같은 침묵 속에서 파싱이 부분적으로 실패하거나(누락된 헤더) 잘못된 매크로 확장으로 다른 코드가
+분석될 수 있다** — gopls가 `go.mod` 없이 AdHoc으로 조용히 저하됐던 것과 같은 형태다(pyright처럼
+미해결 import를 명시적 진단으로 드러내지 않는다). **`requiredProjectFiles`(또는 그에 준하는 명시적
+compile-database-존재 게이트/limitation)가 gopls와 같은 이유로 필요하다** — 요구사항 문서 stage 1
+항목 5가 예상한 그대로다. 정확한 형태(하드 게이트 vs. limitation 표시)는 stage 3에서 결정한다.
+
+## 작업 로그
+
+### 2026-09-02 — Stage 1 착수·완료
+
+- branch `docs/m2-clangd-investigation`을 `origin/main`(PR #64 merge 후 최신)에서 분기.
+- `docs/development-management/stories/il-lim-014-c-cpp-clangd-support.md` 전체와 계획 세션의
+  요구사항 문서(`m2-clangd.md`)를 읽었다.
+- clangd 존재 확인: `/usr/bin/clangd`, Apple clangd 17.0.0(Xcode Command Line Tools 번들).
+- `lsp-probe-clangd.mjs`(scratchpad, 미commit)로 raw stdio JSON-RPC 왕복 — gopls/pyright stage 1과
+  같은 방법론.
+- 2-file C fixture(`with-db/`, `without-db/`) 손으로 작성, `with-db/`에만 손으로 쓴
+  `compile_commands.json` 배치.
+- 5개 항목 순서대로 실측, 위 절에 기록. **항목 2(readiness)가 게이트를 발동시켰다** — pyright형으로
+  확정, `readiness`를 preset에 넣지 않기로 결정.
+- 재현성 확인을 위해 `.cache` 삭제 후 15초 대기로 재실행 — 결과 동일(0건 pre-open, 4건 post-open).
+- Apple clangd의 `mac+xpc` feature가 결과를 오염시킬 위험을 줄이기 위해 `brew install llvm`으로
+  upstream LLVM clangd(23.1.0)를 백그라운드로 설치, 완료 후 같은 fixture 내용을 새 디렉터리에 복제해
+  같은 probe로 재실행 — 5개 항목 전부 질적으로 동일한 결과 확인(교차 검증 절 참고). readiness가
+  pyright형이라는 게이트 결론이 배포 경로(Apple/Homebrew) 차이로 생긴 우연이 아님을 확인했다.
+- `docs/work/task-m2-clangd-preset.md`(이 문서) 작성 완료. stage 1은 구현이 없으므로 코드 diff
+  없음 — 이 작업 문서 자체가 이 단계의 유일한 산출물이다.
+- `git status`로 작업 트리 확인, 이 문서만 staged. `node --check`나 lint 대상 코드 변경이 없어
+  해당 검증은 이 단계에 적용되지 않는다(AGENTS.md 4절 — 검증할 수 없는 항목이 아니라 "이 단계는
+  코드가 없다"는 것을 명시).
+
+## 남은 작업
+
+- **Stage 1 완료. commander에게 보고 후 승인 대기 — stage 2(`.h` 결정) 이후는 이 세션이 임의로
+  시작하지 않는다.** 요구사항 문서가 명시한 게이트("pyright형이면 여기서 멈추고 보고하라")이고,
+  결론이 실제로 pyright형으로 나왔으므로 게이트가 발동했다.
+- 보고에 포함할 stage 1 결론 요약: (1) Call Hierarchy 왕복 PASS, (2) **readiness는 pyright형 — 이
+  lane은 `readiness`를 preset에 넣지 않는다**, (3) 이 fixture에서는 `null` 아닌 `[]`(일반화 아님),
+  (4) version 배너는 배포자별로 접두어가 다른 평문 — JSON 함정 없음, 파서는 `X.Y.Z` 숫자 패턴
+  매칭으로, (5) compile database 없으면 **조용히 fallback으로 저하 — gopls AdHoc형**,
+  `requiredProjectFiles` 상당의 게이트가 stage 3에서 필요할 것으로 보인다.
