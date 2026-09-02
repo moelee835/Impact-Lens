@@ -447,3 +447,67 @@ commander가 "compile database는 보통 소스 파일만 담고 헤더는 안 �
   (4) version 배너는 배포자별로 접두어가 다른 평문 — JSON 함정 없음, 파서는 `X.Y.Z` 숫자 패턴
   매칭으로, (5) compile database 없으면 **조용히 fallback으로 저하 — gopls AdHoc형**,
   `requiredProjectFiles` 상당의 게이트가 stage 3에서 필요할 것으로 보인다.
+
+## Stage 2 addendum — commander 승인 + wire 누출 수정, stage 3 우선순위 정정
+
+**commander 승인(2026-09-02)**: `AMBIGUOUS_LANGUAGE_ID` 결정 자체는 승인. 두 가지를 지적했다.
+
+### 고칠 것: 발명한 식별자가 실제로 LSP wire에 나갔다
+
+`AMBIGUOUS_LANGUAGE_ID`(`'c-cpp-header'`)는 이 CLI가 만든 내부 전용 문자열이고 어떤 LSP 레지스트리에도
+없다. 그런데 raw custom provider가 `languageId`를 명시하지 않고 `.h`를 열면, 이 문자열이 그대로
+`requestedLanguageId`가 되고(`resolve.ts:129`), `lspProvider.ts:218`의 `languageIdOverride`를 거쳐
+`textDocument/didOpen`에 실려 **실제로 wire에 나갔다**.
+
+**직접 재현**: 가짜 LSP server(`fake-lsp-echo-server.mjs`, scratchpad, 미commit — didOpen에서 받은
+`languageId`를 파일에 그대로 적는다)를 만들어 raw custom provider로 지정하고 `.h`를 열었다. 수정
+전 결과:
+```
+{"languageId":"c-cpp-header"}
+```
+**진짜로 나갔다.** stage 2의 real E2E 테스트가 이걸 못 잡은 이유도 확인했다 — 그 테스트는 raw
+custom provider에 `"languageId": "cpp"`를 **명시적으로** 넣었었다(clangd 자체가 이 필드를 무시한다는
+것도 같은 stage에서 이미 확인했었다). 그래서 "명시 안 함" 경로 자체가 한 번도 실행되지 않았다.
+
+**수정**(`resolve.ts`): `requestedLanguageId`가 `AMBIGUOUS_LANGUAGE_ID`가 되는 경우(오직 raw
+경로에서, 사용자가 languageId를 명시 안 했을 때만 실제로 발생 가능 — preset 경로는
+`assertPresetSpeaksLanguage()`와 `presetsForLanguage()`가 이미 `AMBIGUOUS_LANGUAGE_ID`를 실제로
+선언한 preset만 통과시키므로 이 값이 `presetLanguageId()`의 빈-배열 폴백까지 갈 수 없다 — 이건
+코드로 직접 확인했다, 아래) `'plaintext'`로 치환한다 — 이 변경 이전과 정확히 같은 wire 값이다.
+사용자가 명시한 값은 그대로 유지된다.
+
+**"preset 경로는 원래 안전하다"는 주장을 직접 반증 시도해 확인**: `languageIds: []`인 malformed
+preset을 명시로 골라 `.h`를 열어봤다 — `presetLanguageId()`의 빈-배열 폴백에 도달하기 전에
+`assertPresetSpeaksLanguage()`가 `provider_language_mismatch`로 먼저 막는다는 것을 실측으로
+확인했다(그래서 이 시나리오를 커버한다고 주장하는 guard test는 작성하지 않았다 — 도달 불가능한
+경로를 테스트하는 것은 vacuous pass이므로). 즉 이 wire guard가 실제로 발동하는 경로는 **raw
+custom + languageId 미명시** 하나뿐이다 — 그래도 `resolveProvider()`의 단일 지점에서 막아,
+"안전하다"가 "다른 함수가 우연히 막아준다"가 아니라 하나의 불변식으로 명시되게 했다.
+
+**guard test 3개 추가**(`providers.test.ts`): (1) 명시 languageId는 그대로 wire에 나간다(기존
+테스트에 assertion 추가), (2) raw + 미명시 → wire에 `'plaintext'`, `AMBIGUOUS_LANGUAGE_ID` 아님,
+(3) preset 경로(정상 선언)는 원래도 안전했다는 것 유지 확인.
+
+**직접 재실행으로 수정 확인**: 같은 가짜 server로 재현 — 수정 후 `{"languageId":"plaintext"}`.
+명시 languageId 케이스도 재확인 — `{"languageId":"cpp"}`(그대로 유지). stage 2의 real clangd E2E도
+재실행 — 회귀 없음(`fixture_target`→`fixture_caller` 정상, `languageMatch: "unknown"` 정상).
+
+**검증**: `npm run cli:build` 통과, `npm run cli:test` 294 pass/2 skip/0 fail(296 total, stage 2
+대비 +1 — 신규 wire-guard 테스트 추가, 도달 불가능하다고 확인된 flawed 테스트는 작성 후 바로
+제거).
+
+### stage 3에 넘기는 우선순위 정정 — commander 지적
+
+이전 기록은 "헤더가 여러 target에 걸침"을 stage 3 입력으로 적었는데, commander가 **더 무거운 사실을
+먼저 짚었다**: stage 2 관측 (c)에서 compile database가 없을 때 `incomingCalls`가 `[]`를 반환한다는
+것을 이미 봤는데, **이건 `null`이 아니라 `[]`다.** M2 Python lane이 만든
+`provider_null_incoming_calls`는 "provider가 `[]`가 아니라 `null`을 줬다"에 걸리는 신호라서, **이
+경우는 그 신호가 전혀 안 걸린다** — 증명된 0(진짜 호출자가 없음)과 구별되지 않는 빈 결과가
+나간다. **이게 IL-LIM-009가 막으려는 형태 그대로이고, 기존 기계(`null`/`[]` 구분)로는 못 잡는다.**
+stage 3은 `null`/`[]` 축이 아니라 **compile database 상태 자체**를 근거로 한계를 표면화해야
+한다 — 헤더 target 모호성보다 이쪽이 우선이다(헤더 케이스는 정확도가 부분적으로 떨어지는 것이고,
+이건 빈 결과가 완전한 답처럼 보이는 것이다). stage 3에서 세 안(하드 게이트/표면화/둘 다)을 정할 때
+이 사실을 근거로 쓴다.
+
+**branch 정리**: 원격의 옛 이름 branch(`docs/m2-clangd-investigation`)는 commander 지시대로 그대로
+둔다 — 원격 branch 삭제는 사용자 명시 요청 없이 하지 않는다(AGENTS.md).

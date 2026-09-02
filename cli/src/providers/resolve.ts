@@ -126,7 +126,28 @@ export function resolveProvider(
     : presetCommand(choice.preset, detectedLanguageId, choice.languageIdOverride, options, env);
   const preset = choice.kind === 'preset' ? choice.preset : undefined;
 
-  const requestedLanguageId = actual.languageId ?? detectedLanguageId;
+  const requestedLanguageIdBeforeWireGuard = actual.languageId ?? detectedLanguageId;
+  // AMBIGUOUS_LANGUAGE_ID is an internal-only marker this CLI invented (see `languageId()` below) - no
+  // LSP server understands it. `requestedLanguageId` is not just a report field: it becomes
+  // `LspCallHierarchyProvider`'s `languageIdOverride` and is sent verbatim as `textDocument/didOpen`'s
+  // `languageId` (`cli/src/lspProvider.ts`). A custom provider could pick a parser by that field or
+  // reject an unrecognized value outright, so this string must never reach the wire. Substitute the
+  // standard 'plaintext' - the same honest "unknown" value this code sent before AMBIGUOUS_LANGUAGE_ID
+  // existed - whenever it would otherwise leak.
+  //
+  // In practice this only fires on the raw custom command path with no explicit `languageId` - the
+  // preset path cannot reach it: `assertPresetSpeaksLanguage()` already requires a named preset's
+  // `languageIds` to literally include AMBIGUOUS_LANGUAGE_ID before it is chosen at all, and
+  // auto-discovery's `presetsForLanguage()` filter does the same, so `presetLanguageId()` never sees an
+  // empty `languageIds` array for this value - it always resolves to a real declared language first.
+  // The guard still lives here, not only in the raw path, so "never leaks" is one invariant checked in
+  // one place rather than distributed across every current and future caller of `resolveProvider()`
+  // (found via commander review, M2 clangd lane stage 2 addendum - confirmed by directly capturing a
+  // real `didOpen` frame sent to a fake LSP server before this fix, which carried
+  // `"languageId":"c-cpp-header"`).
+  const requestedLanguageId = requestedLanguageIdBeforeWireGuard === AMBIGUOUS_LANGUAGE_ID
+    ? 'plaintext'
+    : requestedLanguageIdBeforeWireGuard;
   // An unrecognized extension carries no claim about the language, so a configured provider is not
   // contradicted by it. That is 'unknown', not a mismatch. A recognized-but-ambiguous extension
   // (AMBIGUOUS_LANGUAGE_ID, currently only `.h`) gets the same 'unknown' treatment for the same reason:

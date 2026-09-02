@@ -283,6 +283,27 @@ test('.h is recognized as C-family but reports languageMatch unknown, not plaint
   // value, even though both currently report languageMatch: 'unknown'.
   assert.equal(resolved.detectedLanguageId, AMBIGUOUS_LANGUAGE_ID);
   assert.notEqual(resolved.detectedLanguageId, 'plaintext');
+  // A user's own explicit languageId on a raw custom command is a real claim, not a guess this CLI
+  // made, so it must pass through unchanged onto the wire - only the no-explicit-value case below
+  // needs the AMBIGUOUS_LANGUAGE_ID wire guard.
+  assert.equal(resolved.requestedLanguageId, 'cpp');
+  assert.equal(resolved.languageMatch, 'unknown');
+});
+
+// A commander review found AMBIGUOUS_LANGUAGE_ID itself - the internal marker invented above, not a
+// real LSP languageId - was reaching `textDocument/didOpen` on the wire whenever a raw custom command
+// opened a `.h` file without declaring its own languageId. Confirmed by directly capturing a real
+// `didOpen` frame sent to a fake LSP server before this guard existed: it carried
+// `"languageId":"c-cpp-header"`. The preset path was never affected (`presetLanguageId()` already
+// resolves to a real declared language), which is exactly why the raw path's real-clangd end-to-end
+// test in stage 2 never caught this - clangd itself ignores `textDocument.languageId`, and that test's
+// raw command also happened to declare an explicit `languageId`, so the no-explicit-value path was
+// never exercised at all.
+test('AMBIGUOUS_LANGUAGE_ID never reaches the wire: raw command on .h with no explicit languageId gets plaintext instead', () => {
+  const resolved = resolveProvider('src/target.h', { command: '/x' }, { env: NO_ENV });
+  assert.equal(resolved.detectedLanguageId, AMBIGUOUS_LANGUAGE_ID);
+  assert.equal(resolved.requestedLanguageId, 'plaintext');
+  assert.notEqual(resolved.requestedLanguageId, AMBIGUOUS_LANGUAGE_ID);
   assert.equal(resolved.languageMatch, 'unknown');
 });
 
