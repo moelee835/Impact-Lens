@@ -888,3 +888,28 @@ M2보다 훨씬 이전부터, 이 lane과 관계없는 이유로 낡아 있었�
 **다음**: 이 커밋을 push하고 PR을 올린 뒤, commander가 요청한 대로 windows/macos job **로그**에서
 bundled-pyright 관련 4개 테스트가 실제로 실행됐는지(스킵이 아니라 실행 증거)를 확인한다 — "게이트가
 없다"는 코드 읽기이고 "실행됐다"는 관측이라는 구분을 그대로 따른다.
+
+### 2026-09-02 — PR #64 생성, 실제 CI 로그로 3-OS 실행 관측 완료
+
+PR #64(`feat/m2-python-preset` → `main`)를 생성했다 — `feat/m2-python-preset`에 push만 해서는
+`unit-tests.yml`이 돌지 않는다(`on.push.branches: [main]`뿐이라 feature branch push는 트리거가
+아니다, `on.pull_request`만 임의 branch에서 돈다) — 그래서 stage 5·6이 요구한 실제 CI 로그 확인은
+PR 생성이 선행 조건이었다.
+
+**"Unit tests" workflow(run 33601407958) 결과**: 6개 job 전부 `success`
+(`Node 22 / ubuntu-latest`, `gopls / {ubuntu,macos,windows}-latest`,
+`cli:test / {windows,macos}-latest`). `gh run view --log`로 각 job의 **원문 로그**를 직접 받아
+`ok 36`~`ok 39`(bundled-pyright preflight regression / `--smoke` / `--fixture` / 실제 `.py`
+auto-discovery e2e) 네 줄이 ubuntu-latest·windows-latest·macos-latest **세 job 모두**에 실제로
+찍혀 있는 것을 확인했다 — "skip 게이트가 없다"는 이전까지의 코드 읽기 주장이 아니라, 지금은 실제
+실행 로그로 관측된 사실이다. 세 OS의 `# tests`/`# pass`/`# fail`도 `0 fail`로 일치했다
+(ubuntu 291/289/0, windows 291/279/0 — windows/macos `cli-tests-cross-os` job은
+`IMPACT_LENS_REQUIRE_GOPLS`를 안 켜므로 gopls 관련 테스트가 더 많이 skip되는 것이 정상이고
+bundled-pyright 4개와는 무관, macos 291/289/0).
+
+**"Plugin artifact E2E" workflow(run 33601407974)**: 이 PR이 자동으로 함께 트리거했다 — `success`.
+이번 stage 6 변경이 CLI 런타임·패키징 코드를 건드리지 않았으므로 이 결과는 회귀 없음의 추가 증거로만
+남긴다(별도로 깊이 조사하지 않음).
+
+Stage 5·6이 요구한 검증이 이제 로컬 재현(pyright symlink 제거 재현)과 실제 CI 관측(원문 로그의 `ok`
+라인) 둘 다로 닫혔다.
