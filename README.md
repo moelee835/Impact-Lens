@@ -198,11 +198,12 @@ CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는
 5. 위 네 단계 모두 실패하면 다른 언어의 provider로 대체하지 않고 `provider_required_for_language`로
    실패합니다.
 
-**오늘 shipped catalog에는 preset이 `bundled-typescript` 하나뿐입니다.** Auto가 설정 없이 동작하는 언어는
-TypeScript/JavaScript(`.ts`, `.tsx`, `.js`, `.jsx` 등)뿐이며, 다른 언어는 "곧 지원 예정"이 아니라 **오늘
-검증된 preset이 없어서 항상 provider를 직접 설정해야 하는 상태**입니다. gopls가 다음 preset 후보이고, 실제
-fixture 검증을 통과해 catalog에 들어오기 전까지는 어떤 언어도 `verified-external`로 표시되지 않습니다.
-지원되지 않는 언어에서는 아래처럼 표준 LSP Call Hierarchy provider를 요청에 직접 지정합니다.
+**오늘 shipped catalog에는 preset이 두 개입니다: `bundled-typescript`와 `gopls`.** Auto가 설정 없이
+동작하는 언어는 TypeScript/JavaScript(`.ts`, `.tsx`, `.js`, `.jsx` 등)와, `gopls`가 PATH에 설치돼
+있는 경우의 Go(`.go`)입니다. 그 외 언어는 "곧 지원 예정"이 아니라 **오늘 검증된 preset이 없어서 항상
+provider를 직접 설정해야 하는 상태**입니다. Python/C·C++가 다음 preset 후보이고, 실제 fixture 검증을
+통과해 catalog에 들어오기 전까지는 그 언어들이 `verified-external`로 표시되지 않습니다. 지원되지 않는
+언어에서는 아래처럼 표준 LSP Call Hierarchy provider를 요청에 직접 지정합니다.
 
 ```json
 {
@@ -302,11 +303,12 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 - `coverage.semantic.status`: 오늘 유일하게 가능한 값은 `static-only`입니다. reflection, runtime
   dependency injection, decorator routing, event bus, 문자열 기반 import처럼 provider가 정적으로 추론하지
   못하는 관계는 `complete: true`여도 그래프에 없을 수 있습니다.
-- `coverage.indexing.status`: `unknown` / `working` / `ready` 셋 중 하나입니다. shipped catalog(오늘은
-  `bundled-typescript`뿐)는 색인 상태를 선언하지 않으므로 **오늘 실제로 볼 수 있는 값은 `unknown`뿐**이고,
+- `coverage.indexing.status`: `unknown` / `working` / `ready` 셋 중 하나입니다. `bundled-typescript`는
+  색인 상태를 선언하지 않으므로 TypeScript/JavaScript 분석에서는 여전히 `unknown`만 나옵니다 —
   `unknown`은 "provider가 색인이 끝났다고 증명하지 않았다"는 뜻이라 caller 0개인 결과가 "callee 없음"의
-  증거가 되지 못합니다. `working`/`ready`는 `readiness`를 선언한 provider가 catalog에 들어와야만 나타나는
-  값으로, 오늘은 사용자가 요청 JSON이나 `.impact-lens/provider.json`으로 만들 수 없습니다.
+  증거가 되지 못합니다. `gopls`는 `readiness`를 선언하므로, Go 프로젝트를 gopls로 분석하면
+  `working`/`ready`가 실제로 나타납니다 — 사용자가 요청 JSON이나 `.impact-lens/provider.json`을 직접
+  건드릴 필요 없이, gopls가 설치돼 있고 색인이 끝났는지 여부만으로 결정됩니다.
 
 `complete: true`인 빈 결과(caller 0개)를 보고 **"안전하게 지워도 된다", "영향 없음", "완전히 분석됨", "모든
 호출자를 확인함"**으로 결론짓지 마세요. 정적 Call Hierarchy 근거는 그 결론이 요구하는 runtime/색인

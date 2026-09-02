@@ -6,6 +6,8 @@ import test, { type TestContext } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { analyzeImpact } from '../impact';
 import { LspCallHierarchyProvider } from '../lspProvider';
+import { findPreset, GOPLS_PRESET_ID, PROVIDER_CATALOG } from '../providers/catalog';
+import { findExecutable } from '../providers/discovery';
 import { ProviderPreset, ProviderReadinessProfile } from '../providers/preset';
 import { fieldsClassified } from './stateReachabilityClassification';
 
@@ -108,10 +110,16 @@ const SHIPPED_CATALOG_REACHABLE: readonly CompletionTuple[] = [
  * API involved. What the scenario below still exercises only through a mock is the ROUTE to these states
  * in THIS test - a fake LSP server with a `titlePattern: 'Indexing'` readiness signal, chosen because it
  * is deterministic in a way no live `gopls` run in a shared CI could guarantee - not the states
- * themselves, which are real-user-reachable now. Separately: this CI does not install `gopls` (that is
- * M2 stage 3 scope, not yet done), so no automated run in this repository has independently observed
- * `gopls` actually producing `ready`/`working` end-to-end; the claim above rests on the manual
- * investigation recorded in task-m2-gopls-preset.md, not on a test this suite runs.
+ * themselves, which are real-user-reachable now.
+ *
+ * 2026-09-02 update (M2 stage 3, docs/work/task-m2-gopls-ci-verification.md): when this correction was
+ * first written, no automated run in this repository had independently observed `gopls` actually
+ * producing `ready`/`working` end-to-end - the claim rested on the manual investigation recorded in
+ * task-m2-gopls-preset.md alone. That gap is what the "real gopls, through the actual shipped catalog"
+ * section near the end of this file, and the `go-provider` CI job in unit-tests.yml, now close: a
+ * dedicated 3-OS CI job installs a pinned `gopls` and requires (not merely permits) those tests to run,
+ * so a real, unmocked observation now backs this claim on every CI run - not only on the one machine the
+ * manual investigation used.
  */
 const CATALOG_DECLARED_READINESS_REACHABLE: readonly CompletionTuple[] = [
   { requestStatus: 'succeeded', traversalStatus: 'exhausted', semanticScope: 'provider-static', indexingStatus: 'ready' },
@@ -346,3 +354,128 @@ test('the shipped and catalog-declared-readiness-additional reachable sets do no
   const overlap = CATALOG_DECLARED_READINESS_REACHABLE.map(tupleKey).filter(key => shippedKeys.has(key));
   assert.deepEqual(overlap, []);
 });
+
+// ---------------------------------------------------------------------------
+// Real gopls, through the actual shipped catalog - M2 stage 3 (docs/work/task-m2-gopls-ci-verification.md).
+//
+// Everything above this point reaches `ready`/`working` only through a mock server injected via the
+// test-only `resolution.catalog` option. The tests below use NO such option for the `ready` scenario:
+// `LspCallHierarchyProvider` is constructed exactly the way a real request would build one, so
+// `resolveProvider` falls back to its default catalog - the real, unmodified `PROVIDER_CATALOG` - and a
+// `.go` file resolves to the real `gopls` preset through ordinary auto-discovery. This is the
+// "real-user-reachable" claim from the correction above, proven rather than asserted.
+//
+// Gated on gopls actually being on PATH: a contributor's machine without Go installed must not fail
+// `npm run cli:test`, but a CI job that exists specifically to prove this must not silently skip it
+// either (see the top-of-file comment on IMPACT_LENS_REQUIRE_GOPLS and goplsGatedTest below) - that
+// exact silent-skip shape is what let `stateReachability.sources.test.ts`'s shorthand blind spot and
+// `buildInvocation.sources.test.ts`'s regex gaps go unnoticed in this repository before.
+// ---------------------------------------------------------------------------
+
+const GOPLS_ON_PATH = findExecutable('gopls') !== undefined;
+const REQUIRE_GOPLS = process.env.IMPACT_LENS_REQUIRE_GOPLS === '1';
+
+/**
+ * Runs `fn` normally when gopls is on PATH; skips it (a real, visible skip, not a silent one) when
+ * gopls is absent and nothing required it; fails it loudly when gopls is absent but
+ * `IMPACT_LENS_REQUIRE_GOPLS=1` said it must be present - the `go-provider` CI job sets exactly that.
+ */
+function goplsGatedTest(
+  name: string,
+  options: { readonly timeout: number },
+  fn: (t: TestContext) => Promise<void>,
+): void {
+  if (GOPLS_ON_PATH) {
+    test(name, options, fn);
+    return;
+  }
+  if (REQUIRE_GOPLS) {
+    test(name, () => {
+      assert.fail(
+        'IMPACT_LENS_REQUIRE_GOPLS=1 but no gopls executable was found on PATH. This job exists ' +
+        'specifically to prove the shipped gopls preset reaches ready/working end-to-end - skipping ' +
+        'instead of failing here would make the job green without having proven anything.',
+      );
+    });
+    return;
+  }
+  test.skip(name, fn);
+}
+
+function shippedGoplsPreset(): ProviderPreset {
+  const preset = findPreset(PROVIDER_CATALOG, GOPLS_PRESET_ID);
+  assert.ok(preset?.fixture, 'expected the shipped gopls preset to declare a fixture');
+  assert.ok(preset?.readiness, 'expected the shipped gopls preset to declare a readiness profile');
+  return preset!;
+}
+
+/** Writes the shipped preset's own fixture files to a scratch workspace - not a copy of them. */
+async function realGoplsWorkspace(t: TestContext): Promise<string> {
+  const preset = shippedGoplsPreset();
+  // realpath'd for the same reason `mockScratch` above is: on macOS, os.tmpdir() resolves under `/var`,
+  // a symlink to `/private/var`. The provider is handed this exact string as its workspace root and
+  // sends it to gopls verbatim as the LSP workspaceFolder URI; `analyzeImpact` separately realpath's
+  // whatever workspace it is given before resolving files against it. Skipping this step here made the
+  // provider register `/var/...` as gopls's module root while queries resolved files under
+  // `/private/var/...` - a real path gopls never associated with that module, so cross-file symbols
+  // (`caller.go`) silently dropped out of the call hierarchy while the query still reported `ready`.
+  // Confirmed by direct comparison: identical fixture, only this call added, went from finding only the
+  // root node to finding the declared caller too. Not a gopls or readiness-signal defect - a test bug.
+  const workspace = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'impact-lens-reachability-gopls-')));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  for (const file of preset.fixture!.files) {
+    await fs.writeFile(path.join(workspace, file.path), file.content);
+  }
+  return workspace;
+}
+
+goplsGatedTest(
+  'the real shipped gopls preset, reached through ordinary auto-discovery with no test-only override, reaches ready',
+  { timeout: 30000 },
+  async t => {
+    const preset = shippedGoplsPreset();
+    const workspace = await realGoplsWorkspace(t);
+    const target = preset.fixture!.target;
+    // No `options` argument at all - this is the same call shape `bundledTypeScriptRows` above uses for
+    // the shipped TypeScript scenario, and it is what makes this the real-catalog path rather than a
+    // test-only one.
+    const provider = new LspCallHierarchyProvider(workspace, target.file, undefined, 20000);
+    t.after(() => provider.dispose());
+    const result = await analyzeImpact(
+      { workspace, file: target.file, line: target.line, column: target.column, depth: 5, maxNodes: 50 },
+      provider,
+    );
+    assert.equal(provider.capabilities.selectedBy, 'auto', 'expected auto-discovery, not a test override, to have selected gopls');
+    const callerNames = (result.nodes as ReadonlyArray<{ readonly name?: string }>)
+      .map(node => node.name)
+      .filter((name): name is string => name !== undefined);
+    assert.ok(
+      callerNames.includes(preset.fixture!.expectedCaller),
+      `expected the fixture's declared caller ${preset.fixture!.expectedCaller} among ${JSON.stringify(callerNames)}`,
+    );
+    assert.equal((result.completion as CompletionTuple).indexingStatus, 'ready');
+  },
+);
+
+goplsGatedTest(
+  'a real gopls session given an artificially tiny readiness budget reaches working, never ready',
+  { timeout: 30000 },
+  async t => {
+    const preset = shippedGoplsPreset();
+    const workspace = await realGoplsWorkspace(t);
+    const target = preset.fixture!.target;
+    // The only thing test-only here is the budget: the command, the version probe and the readiness
+    // signal pattern are the shipped preset's own, unmodified, and the server queried is the same real
+    // `gopls` binary as the row above - only the budget is shortened past anything real indexing could
+    // finish inside, which is what makes "working" deterministic without depending on machine speed.
+    const provider = new LspCallHierarchyProvider(workspace, target.file, undefined, 20000, {
+      resolution: { catalog: [{ ...preset, readiness: { ...preset.readiness!, budgetMs: 1, onBudgetExceeded: 'proceed-partial' } }] },
+    });
+    t.after(() => provider.dispose());
+    const result = await analyzeImpact(
+      { workspace, file: target.file, line: target.line, column: target.column, depth: 5, maxNodes: 50 },
+      provider,
+    );
+    assert.equal((result.completion as CompletionTuple).indexingStatus, 'working');
+  },
+);

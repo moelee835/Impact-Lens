@@ -192,9 +192,13 @@ const gopls: ProviderPreset = {
       'Code produced by go:generate is only visible if it has already been generated on disk.',
     ],
   },
-  // Evidence for the verified-external tier. Verified on darwin/arm64 only in this investigation
-  // (task-m2-gopls-preset.md stage 1) — linux/windows installation and behavior are not yet confirmed
-  // and should not be claimed until CI verifies them.
+  // Evidence for the verified-external tier. Both 0.19.1 and 0.23.0 were verified on darwin/arm64 only
+  // by hand (task-m2-gopls-preset.md stage 1). M2 stage 3 (task-m2-gopls-ci-verification.md) closed the
+  // OS gap for 0.19.1 specifically: a dedicated CI job (`go-provider` in .github/workflows/unit-tests.yml)
+  // installs that pinned version and runs a real, unmocked auto-discovery + Call Hierarchy + readiness
+  // round trip on ubuntu-latest, macos-latest and windows-latest on every push. 0.23.0 itself has not
+  // been exercised outside darwin/arm64 - this preset's "verified" claim is real on all three OSes only
+  // for the version CI actually installs.
   lastVerified: {
     date: '2026-09-01',
     versions: ['0.19.1', '0.23.0'],

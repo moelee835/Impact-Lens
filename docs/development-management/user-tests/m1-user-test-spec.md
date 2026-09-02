@@ -63,6 +63,16 @@ M0와 마찬가지로 정적 Call Hierarchy의 절대 정확도, 대규모 works
 이 표의 각 행은 "언젠가 preset이 readiness/verified-external로 등록되면" 무엇을 이 문서에 추가해야 하는지
 이미 말해 준다 — 그 preset을 붙이는 사람이 이 gap을 다시 발견할 필요가 없게 하는 것이 이 표의 목적이다.
 
+> **2026-09-02 정정(M2 stage 1-3, `docs/work/task-m2-gopls-preset.md`/`task-m2-gopls-ci-verification.md`)**:
+> 이 표의 예고가 실현됐다 — `gopls`가 `readiness`를 선언한 첫 `verified-external` preset으로 catalog에
+> 들어왔고, CI가 3개 OS에서 실제로 검증했다. 위 세 행의 원문은 M1 시점의 정확한 기록으로 남기되, 지금은
+> **Go에 한해** 다음과 같이 갱신됐다는 것을 밝힌다: (58행) Go 프로젝트를 `gopls`로 분석하면 `working`
+> 안내가 실제로 도달한다. (59행) `gopls`의 `readiness.requiredProjectFiles: ['go.mod']`가 선언돼 있어
+> `go.mod` 없는 Go 프로젝트에서 `provider_project_metadata_missing`이 실제로 발생한다. (60행)
+> `verified-external` tier preset이 이제 catalog에 하나 있다(`gopls`) — 비-TypeScript/JavaScript
+> 언어에서 Auto 성공은 **Go만** 검증 가능해졌고, 다른 언어(Python, C/C++)는 원문 그대로 검증 불가능한
+> 상태다.
+
 ## 3. 참여자
 
 - 인원: pilot 2명 + 본 라운드 4~6명. M0 참여자와 겹쳐도 된다.

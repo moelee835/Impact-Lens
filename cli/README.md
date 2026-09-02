@@ -108,11 +108,12 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
 - `coverage.traversal` distinguishes complete, depth-limited, and node-limited traversal.
 - `coverage.semantic` is `static-only` until provenance-bearing augmentation is implemented.
 - `coverage.indexing` (mirrored in `completion.indexingStatus`) is one of `unknown`, `working`, or `ready`.
-  No preset in the shipped catalog declares a readiness profile, so **`unknown` is the only value reachable
-  today** — an empty result under `unknown` is not evidence that no caller exists. `working`/`ready` only
-  appear once a preset that declares a `readiness` profile enters the catalog; no request field or
-  `.impact-lens/provider.json` field lets a user produce them today, since `readiness` is not part of the
-  schema for either.
+  `bundled-typescript` still declares no readiness profile, so TypeScript/JavaScript analysis only ever
+  reports `unknown` — an empty result under `unknown` is not evidence that no caller exists. `gopls` (the
+  shipped Go preset) does declare a readiness profile, so `working`/`ready` are reachable for Go: no
+  request field or `.impact-lens/provider.json` field lets a user attach `readiness` directly (it is still
+  not part of either schema), but having `gopls` installed and analyzing a Go project through ordinary
+  auto-discovery is enough — no extra configuration needed.
 - Top-level `runtime` records the CLI and Node versions plus the allowlisted runner source without
   exposing an absolute executable, package URL, or full argument list.
 - Top-level `capabilities` and `limitations` remain schema v1 compatibility projections.
@@ -181,8 +182,9 @@ provider, whichever tier picked it.
 
 ### Shipped catalog
 
-The catalog (`cli/src/providers/catalog.ts`) has exactly one entry today, `bundled-typescript`, covering
-`.ts`/`.mts`/`.cts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`. Every other language still ends at
+The catalog (`cli/src/providers/catalog.ts`) has two entries today: `bundled-typescript`, covering
+`.ts`/`.mts`/`.cts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`, and `gopls` (`verified-external`), covering `.go`
+when `gopls` is installed and discoverable on `PATH`. Every other language still ends at
 `provider_required_for_language` unless a custom `provider` or a project preset is configured — this is
 today's shipped state, not a preview of languages that will arrive soon.
 
