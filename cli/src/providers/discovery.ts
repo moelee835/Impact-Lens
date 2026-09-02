@@ -140,8 +140,34 @@ export function probeVersion(executable: string, probe: ProviderVersionProbe): V
   return { kind: 'found', version, output };
 }
 
-function truncate(text: string, maxBytes: number): string {
-  return Buffer.byteLength(text, 'utf8') <= maxBytes ? text : Buffer.from(text, 'utf8').subarray(0, maxBytes).toString('utf8');
+/**
+ * Cuts `text` to at most `maxBytes` UTF-8 bytes, silently - the caller decides whether truncation needs
+ * to be visible to whoever reads the result. `probeVersion` above uses it exactly this way, bounding a
+ * spawned process's stdout/stderr against `maxOutputBytes` with no marker: that budget exists to cap how
+ * much a misbehaving provider can make this process buffer, not to communicate anything to a consumer.
+ * `lspProvider.ts`'s `serverInfo.version` bound is a different case with different needs and adds its own
+ * visible marker on top of this - see the comment there.
+ *
+ * "At most" is enforced, not assumed: a cut landing in the middle of a multi-byte character leaves an
+ * incomplete trailing UTF-8 sequence, which `Buffer.toString('utf8')` replaces with U+FFFD - re-encoded
+ * that replacement can be *wider* than the incomplete bytes it stands in for (confirmed directly: sweeping
+ * every byte offset against runs of 3-byte and 4-byte characters, the naive cut came out 1-2 bytes over
+ * `maxBytes`). Stripping a trailing U+FFFD after the cut removes exactly that artifact and keeps the
+ * result within budget in every case checked. Any caller relying on "the result is never longer than
+ * maxBytes" - `lspProvider.ts` budgets a fixed-width marker onto the remainder, for one - would otherwise
+ * overrun by that same 1-2 bytes right at the boundary it computed from this function's contract.
+ *
+ * This also strips a U+FFFD that was already present at the very end of the *input* text, not only one
+ * this cut manufactured - harmless (the result is only ever shorter than it strictly needed to be, never
+ * longer than `maxBytes`), and not worth telling apart from the manufactured case for what this function
+ * is used for (version strings, process output), so it is not.
+ */
+export function truncate(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) {
+    return text;
+  }
+  const cut = Buffer.from(text, 'utf8').subarray(0, maxBytes).toString('utf8');
+  return cut.replace(/�+$/, '');
 }
 
 /**
