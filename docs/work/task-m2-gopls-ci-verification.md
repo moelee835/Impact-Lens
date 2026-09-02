@@ -1,6 +1,7 @@
 # M2 — gopls preset CI 검증 (stage 3)
 
-- 상태: In progress — CI job과 real-gopls test 로컬 통과, push 전 마지막 확인 단계
+- 상태: In progress — PR [#60](https://github.com/moelee835/Impact-Lens/pull/60) open, 3-OS CI 결과
+  대기 중
 - branch: `test/m2-gopls-ci-verification`
 - 선행 PR: [#58](https://github.com/moelee835/Impact-Lens/pull/58)(merge `13378e1`) — `gopls` preset을
   shipped catalog에 추가(M2 stage 1·2), [#59](https://github.com/moelee835/Impact-Lens/pull/59)
@@ -167,9 +168,16 @@ executable discovery와 version policy"를 명시하고, 위험 대응에 "언�
   같은 경로를 realpath해서 파일을 연다 — 두 경로가 문자열로 달라, gopls가 등록한 module root와 실제로
   열리는 파일의 경로가 어긋나 `caller.go`가 그 module에 속한 것으로 인식되지 못했다(root 자신은 같은
   파일이라 항상 발견됨). `fs.realpath()`를 workspace 생성에 추가하자 즉시, 매번 재현 가능하게
-  해결됐다 — 직접 두 번 대조해 확인(realpath 없이 3회 연속 실패, 추가 후 매번 성공). 기존
-  `mockScratch()` 헬퍼가 이미 같은 이유로 `fs.realpath()`를 쓰고 있었다는 걸 뒤늦게 확인했다 — 그
-  패턴을 재사용했어야 했는데 새 헬퍼를 쓰면서 놓쳤다.
+  해결됐다 — 직접 두 번 대조해 확인(realpath 없이 3회 연속 실패, 추가 후 매번 성공).
+
+  **기존 헬퍼와의 관계(commander 요청으로 명시)**: 이 파일의 `mockScratch()` 헬퍼(mock readiness 서버
+  시나리오가 쓰는)는 이미 `await fs.realpath(await fs.mkdtemp(...))`로 정확히 같은 이유로 realpath를
+  거친다 — mock 서버도 LSP workspaceFolder root를 그대로 전달받는 구조라 같은 mismatch 위험이 있었고,
+  그 시나리오를 처음 쓴 사람이 이미 이 문제를 막아 뒀다. **이건 새로운 문제가 아니라 이 저장소가 이미
+  확립해 둔 패턴에서 새 헬퍼(`realGoplsWorkspace()`)가 이탈한 것이다** — `mockScratch()`를 그대로
+  본떠 만들었어야 했는데, mock 서버 대신 real gopls를 쓴다는 차이에만 신경 쓰다 이 부분을 놓쳤다. 다음에
+  workspace를 만드는 새 헬퍼를 추가할 때는 `mockScratch()`/`realGoplsWorkspace()` 둘 다 참고해 realpath
+  단계를 기본값으로 넣어야 한다는 게 이 사건이 남기는 교훈이다.
 - 수정 후 로컬 확인: `npm run cli:test`(gopls 없음) 271 pass / 2 skip. `IMPACT_LENS_REQUIRE_GOPLS=1` +
   gopls 없음 → 의도한 대로 fail(재현). `PATH`에 gopls 추가 후 `npm run cli:test` 273/273 pass(신규 2건
   포함). `PATH`+`IMPACT_LENS_REQUIRE_GOPLS=1`로 `npm run test:all` 전체 통과(cli:test 273, response-policy
@@ -179,5 +187,18 @@ executable discovery와 version policy"를 명시하고, 위험 대응에 "언�
   3,062 byte가 응답 안에 `data.provider.version`/top-level `capabilities.version` 두 곳에
   byte-identical하게 중복돼 총 6,124 byte, 11,219 byte 응답의 54.6%. 이 lane의 수정 범위 밖 — 판단
   근거로만 남긴다.
+
+  **commander의 구조 분석(다음 lane을 위한 기록, 이 PR에서 손대지 않음)**: 유입 지점은 정확히 한
+  곳(`cli/src/lspProvider.ts:460`, `result.serverInfo?.version`을 그대로 `this._capabilities.version`에
+  대입) — provider가 통제하는, 길이 제한이 전혀 없는 문자열이다. 응답에 두 번 나타나는 건 M1이 만든
+  v1 호환 projection이 같은 `_capabilities` 객체를 `data.provider`와 top-level `capabilities` 양쪽에
+  싣기 때문이다. **즉 이건 gopls의 특이한 동작이 아니라 계약의 구멍이다**: 이 저장소는 다른 provider
+  출력 경로(`ProviderVersionProbe.maxOutputBytes`, stderr budget 등)에는 이미 크기 예산을 걸어 두고서,
+  `serverInfo.version` 이 경로에만 예산이 없다 — gopls는 그 구멍을 처음으로 드러낸 provider일 뿐,
+  어떤 custom provider도 여기에 임의 크기 문자열을 넣을 수 있다. 이 응답을 주로 읽는 게 에이전트(매
+  분석마다 토큰 과금)라는 점에서, 응답의 절반 이상이 중복된 하나의 무제한 필드라는 건 판단이 필요한
+  문제다. **고칠 가능성이 높은 자리는 유입 지점 하나(`lspProvider.ts:460`)** — 두 projection이 같은
+  `_capabilities`를 읽으므로 거기서 bound하면 양쪽이 함께 잡힌다. 이번 PR 범위가 아니므로 코드는
+  건드리지 않았다 — 3단계 merge 후 별도 lane으로 다룬다.
 - 다음 단계: push → 3개 OS CI 실제 실행·확인 → green이면 "알면서 남겨둔 창" 섹션의 문서 정정과
   `lastVerified` OS 확대를 같은 PR에 추가.
