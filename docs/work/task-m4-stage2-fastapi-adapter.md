@@ -66,3 +66,35 @@ stage 2 결정 항목이 아니라 열어 둔 채로) 기반 fixture.
 
 이 문서는 순서 변경 보고 이후, commander 확인을 받고 나서 구현 단계별 작업 로그를 이어서
 기록한다.
+
+## Backlog — flaky 테스트 기록 (조사만, 수정 안 함)
+
+**테스트**: `cli/src/test/contract.test.ts`의 `'preserves initialize exit diagnostics after
+stderr closes and redacts secrets'`(`exitingServer.js` fixture를 실제로 spawn해 stderr가 닫힌
+뒤에도 진단이 보존되고 secret이 redact되는지 검증).
+
+**어디서**: PR #72(`docs/m4-stage1-evidence-contract`)의 `workflow_dispatch`/`pull_request` CI,
+run `33731679960`의 `gopls / macos-latest` job(1차 시도)에서 실패 — `not ok 57`,
+`AssertionError`. 이 PR은 `.md` 파일 3개만 바꿔 코드 변경이 0건이었으므로 원인이 될 수 없음을
+`git diff --stat`으로 먼저 확인했다.
+
+**무엇이 타이밍에 민감한가**: 이 테스트는 실제 자식 프로세스(`spawnSync`로 fixture 서버)를 띄우고
+그 프로세스가 **stderr를 닫는 시점**과 **진단이 캡처되는 시점**의 상대적 순서에 의존한다 — 실제
+OS 프로세스 스케줄링/스트림 flush 타이밍이 관여하는 종류의 테스트라 CI runner 부하에 따라
+간헐적으로 순서가 달라질 수 있다.
+
+**재실행으로 통과 확인**: `gh run rerun 33731679960 --failed`로 그 job만 재실행 → 통과(`gopls /
+macos-latest`, 2m23s). 재실행 전 코드 diff가 0이었다는 것과 재실행 후 통과했다는 것 둘 다
+직접 확인했다(추측 아님).
+
+**최근 발생 빈도(직접 조사)**: 오늘 이 세션이 트리거한 최근 workflow 실행 14개
+(`gh run list --workflow=unit-tests.yml --limit 15`, 이 backlog 기록 시점 기준)의
+`run_attempt`를 `gh api`로 전부 확인 — **`33731679960` 하나만 `attempt=2`이고 나머지 13개는
+전부 `attempt=1`**(첫 시도에 성공, 재실행 없음). 즉 **최근 14회 실행 중 1회, 그 1회도
+`gopls / macos-latest`에서만** 발생했다 — 상시 flaky는 아니지만 실재하는 간헐적 실패다.
+(주의: `gh api .../jobs`는 기본적으로 최신 attempt의 job만 보여줘서, 재실행되지 않은 실행에
+같은 테스트가 실패했다가 같은 attempt 안에서 다시 통과했을 가능성까지는 이 조사로 배제하지
+못한다 — `run_attempt` 카운트로 확인 가능한 것은 "재실행이 필요했던 횟수"까지다.)
+
+**원인 조사·수정은 하지 않는다** — 범위 밖(commander 지시). 다음에 이 테스트가 실패하면 이 기록을
+참고해 "알려진 flaky"로 넘기기 전에 실제 회귀인지부터 확인한다.
