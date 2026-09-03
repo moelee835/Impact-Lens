@@ -1028,10 +1028,38 @@ readiness 발견과 같은 성격의 cross-cutting 기록.
 - `clangdGatedTest`의 3가지 상태(present/required-absent/optional-absent) 전부 PATH 조작으로 직접
   재현.
 
+## Stage 5 addendum — commander가 macOS job의 버전 고정 누락을 지적, 고침
+
+`b69fdc7`의 push가 SSH 세션 중단으로 로컬에만 남아 있던 것을 commander가 발견해 직접 push했다(같은
+커밋, 새 커밋 아님 — `git fetch`로 원격이 로컬과 동일함을 확인). 그 리뷰에서 commander가 별도로 지적한
+결함:
+
+Linux는 `llvm.sh 23` + `clangd-23`, Windows는 `choco install llvm --version=23.1.0`으로 메이저 버전이
+고정되는데, macOS 단계만 `brew install llvm` — **버전 지정이 전혀 없는 명령**이었다. Homebrew의 `llvm`
+formula는 항상 "현재 최신 메이저"를 가리키므로, 이 job의 이름(`clangd / macos-latest`)과 주변 주석은
+"23으로 고정"이라고 주장하면서 실제로는 Homebrew가 24로 넘어가는 순간 그 사실을 알리는 실패 없이 조용히
+24를 테스트하게 된다 — 검증된 버전 주장이 사용자가 행동하는 근거라는 원칙(commander가 stage 3 redaction
+라운드에서도 반복한 것)을 macOS 단계만 어기고 있었다.
+
+고치기 전에 "`llvm@23`이 실제로 존재하는가"부터 확인했다(주장을 확인 없이 코드에 넣지 않는다는 이 lane의
+원칙) — `formulae.brew.sh`의 `llvm` formula API 응답을 직접 fetch: 현재 stable이 23.1.0이고, `llvm@23`은
+그 현재 릴리스 자신의 버전 alias로 존재하며, homebrew-core는 새 메이저가 나올 때마다 이전 메이저를
+`llvm@22`, `llvm@21`, ..., `llvm@14`까지 별도의 versioned formula로 유지해 왔다는 것을 확인했다. 즉
+`llvm@23`을 쓰면 오늘은 `llvm`과 동일한 결과를, Homebrew가 24로 넘어간 뒤에도 이 저장소가 과거 메이저에
+의존해 온 것과 같은 패턴으로 계속 23을 가리키는 것을 기대할 수 있다 — 이것이 실제 고정이다.
+
+수정: `.github/workflows/unit-tests.yml`의 macOS 단계를 `brew install llvm` → `brew install llvm@23`,
+PATH 단계도 `brew --prefix llvm` → `brew --prefix llvm@23`으로 변경. 주변 주석에 "bare `llvm`은 고정이
+아니다"라는 근거와 `llvm@23`을 확인한 방법을 남겨, 다음에 이 job을 읽는 사람이 같은 검증을 반복하지 않아도
+되게 했다. `python3 -c "import yaml; ..."`로 YAML 구문만 재검증(clangd 자체를 실행하는 변경이 아니므로
+`npm run cli:test` 재실행은 불필요 — CI job 정의만 바뀜).
+
 ## 남은 작업
 
-- **Stage 5 완료. commander에게 보고 후 승인 대기 — PR 올리기 전에 한 번 더 검토받는다**
+- **Stage 5(및 이 addendum) 완료. commander에게 보고 후 승인 대기 — PR 올리기 전에 한 번 더 검토받는다**
   (commander가 명시).
 - **push 후 실제 CI 로그로 확인해야 하는 것**: `clangd-provider` job의 3-OS 실행 결과, 특히
-  Windows의 Chocolatey `llvm --version=23.1.0` 설치가 실제로 성공하는지(이 세션에서 직접 확인 못
-  함). 실패하면 그 자리에서 버전 문자열을 조정하는 후속 커밋이 필요하다.
+  Windows의 Chocolatey `llvm --version=23.1.0` 설치가 실제로 성공하는지, macOS의 `llvm@23`이 실제 CI
+  러너에서도 설치되는지(이 세션에서는 API 응답으로만 확인, 실제 `brew install` 실행은 못 함) — 둘 다
+  이 세션에서 직접 확인 못 함. 실패하면 그 자리에서 버전 문자열을 조정하는 후속 커밋이 필요하다.
+- Stage 6(사용자 문서 sweep)이 이어진다.

@@ -156,17 +156,23 @@ jobs:
           sudo ln -sf /usr/bin/clangd-23 /usr/local/bin/clangd
       # Homebrew, not the Xcode-bundled /usr/bin/clangd already on this runner: Xcode's own clangd tracks
       # Apple's release cadence and version numbers (17.0.0 on this lane's own darwin/arm64 dev machine),
-      # not upstream LLVM's, so it cannot be pinned to a chosen LLVM major version at all. The `llvm`
-      # formula is keg-only (does not link onto PATH by default, stage 1's own finding) - PATH is set
-      # explicitly in the next step rather than relying on a `brew link` that Homebrew warns against for
-      # keg-only formulas.
-      - name: Install clangd 23 (macOS, via Homebrew)
+      # not upstream LLVM's, so it cannot be pinned to a chosen LLVM major version at all. Installing bare
+      # `llvm` is NOT a pin - it tracks whatever homebrew-core's current default major is, so the day
+      # Homebrew bumps past 23 this job would silently start testing a different major than the one this
+      # step name and CI comment claim, with no failure to flag it. `llvm@23` is the real pin: verified
+      # directly against formulae.brew.sh that it exists today as the current release's own version alias
+      # (23.1.0) and that homebrew-core keeps prior majors (llvm@22, @21, ... @14) as separate versioned
+      # formulae once a new default lands - the same pattern this repo relies on staying true for 23 once
+      # 24 ships. The `llvm`/`llvm@23` formula is keg-only (does not link onto PATH by default, stage 1's
+      # own finding) - PATH is set explicitly in the next step rather than relying on a `brew link` that
+      # Homebrew warns against for keg-only formulas.
+      - name: Install clangd 23 (macOS, via Homebrew, pinned)
         if: runner.os == 'macOS'
-        run: brew install llvm
+        run: brew install llvm@23
       - name: Add Homebrew llvm to PATH (macOS)
         if: runner.os == 'macOS'
         shell: bash
-        run: echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+        run: echo "$(brew --prefix llvm@23)/bin" >> "$GITHUB_PATH"
       - name: Install clangd 23 (Windows, via Chocolatey)
         if: runner.os == 'Windows'
         shell: pwsh
