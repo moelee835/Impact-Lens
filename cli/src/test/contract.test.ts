@@ -28,7 +28,7 @@ test('reports bundled TypeScript runtime preflight as compact JSON', () => {
   assert.equal(result.stderr, '');
   const response = JSON.parse(result.stdout);
   assert.equal(response.operation, 'provider.doctor');
-  assert.equal(response.runtime.cli.version, '0.7.0');
+  assert.equal(response.runtime.cli.version, '0.8.0');
   assert.equal(response.data.status, 'ready');
   assert.equal(response.data.mode, 'preflight');
   assert.equal(response.data.checks[2].version, '6.0.0');

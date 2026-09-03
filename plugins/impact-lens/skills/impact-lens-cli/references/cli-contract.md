@@ -26,13 +26,13 @@ status for human debugging; that mode does not produce a parseable envelope.
 Success is one compact JSON document on stdout:
 
 ```json
-{"schemaVersion":1,"operation":"impact.analyze","ok":true,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.7.0"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"release-fallback"}},"data":{},"capabilities":{},"limitations":[],"timings":{}}
+{"schemaVersion":1,"operation":"impact.analyze","ok":true,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.8.0"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"release-fallback"}},"data":{},"capabilities":{},"limitations":[],"timings":{}}
 ```
 
 Failure is one compact JSON document on stderr with a non-zero exit status:
 
 ```json
-{"schemaVersion":1,"operation":"impact.analyze","ok":false,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.7.0"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"global"}},"error":{"code":"provider_initialize_failed","message":"...","retryable":true}}
+{"schemaVersion":1,"operation":"impact.analyze","ok":false,"runtime":{"cli":{"name":"@impact-lens/cli","version":"0.8.0"},"node":{"version":"22.0.0","major":22,"executable":"node"},"runner":{"source":"global"}},"error":{"code":"provider_initialize_failed","message":"...","retryable":true}}
 ```
 
 Do not parse human-oriented tables or depend on whitespace. Node and edge arrays are deterministically
@@ -287,7 +287,7 @@ into a false empty result.
     "schemaVersion": 1,
     "operation": "impact.analyze",
     "ok": false,
-    "runtime": {"cli": {"name": "@impact-lens/cli", "version": "0.7.0"}, "node": {"version": "22.0.0", "major": 22, "executable": "node"}, "runner": {"source": "checkout"}},
+    "runtime": {"cli": {"name": "@impact-lens/cli", "version": "0.8.0"}, "node": {"version": "22.0.0", "major": 22, "executable": "node"}, "runner": {"source": "checkout"}},
     "error": {
       "code": "provider_not_ready",
       "message": "The provider did not report readiness within 30000ms.",

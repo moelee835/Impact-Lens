@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.0
+
+- **Known limitation**: Python (`bundled-pyright`), Go (`gopls`), and C/C++ (`clangd`) are new in this
+  release, but none of the three has been validated by an actual user doing real work yet — that
+  validation is a separate, deliberately deferred step. All three ship as `experimental`; treat their
+  results with the same scrutiny you would a preset with no track record, not as "verified."
 - A Go developer with `gopls` installed and discoverable on `PATH` now gets function-impact analysis
   with no provider configuration at all — `gopls` is a second `verified-external` catalog preset,
   verified end to end (Call Hierarchy, version policy, readiness) on darwin/arm64 by hand and, for its
@@ -39,6 +45,19 @@
   being guessed as one or the other: they get the internal language id `c-cpp-header`, and
   `provider.languageMatch` reports `'unknown'` for them rather than `true`/`false`. `clangd` still claims
   and analyzes `.h` files once selected.
+- Corrected an inaccurate `clangd` limitation claim before it ever reached a release: a call reached only
+  through virtual dispatch on a base-class pointer always shows up under the base method's Call Hierarchy
+  result (true on every clangd version measured), but whether it *also* shows up under a derived
+  override's result depends on the clangd version — absent on Apple clangd 17.0.0, present on upstream
+  LLVM clangd 22.1.7/23.1.0/23.1.1 (versions 18–21 are untested and not guessed at either way).
+- Corrected an inaccurate `clangd` limitation claim about macros before it ever reached a release: a
+  simple macro that expands directly to a function call is resolved correctly, not treated as a blind
+  spot — only more complex macro patterns (token-pasting, X-macros) remain untested.
+- A provider's self-reported version string can no longer dominate a response: `gopls`'s real
+  `serverInfo.version` measured 3,062 bytes and made up over half of an 11,219-byte response an agent
+  pays to read on every analysis. It (and any provider's, not only `gopls`'s) is now bounded to 256 bytes
+  with a visible truncation marker when cut, the same way this CLI already bounds a spawned process's raw
+  output.
 
 ## 0.7.0
 
