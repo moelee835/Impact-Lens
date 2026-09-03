@@ -320,6 +320,35 @@ INSTALL.md와 정확히 같은 방식으로 고쳤다:
 - `npm run test:response-policy` 27/27 재실행 — 회귀 없음.
 - `git diff --stat README.md`: 1 file, 8 insertions, 4 deletions.
 
+### 2026-09-03 — 3단계 전반부: PR merge, `main`에서 artifact 재생성, 정지
+
+- PR #69를 reviewer 검토·CI 12개 check(SUCCESS, 세 차례 재확인) 확인 후 사용자 승인을 받아 commander가
+  merge했다. **merge commit: `54635c2`.** local `main`을 `54635c2`로 fast-forward했다(`git fetch
+  origin --prune` + `git merge origin/main --ff-only`).
+- **`main`에서 재검증**(branch 빌드에 의존하지 않음): `npm run test:all` — Extension·CLI 유닛 331개
+  중 328 pass·0 fail·3 skip(로컬 gopls PATH 환경 문제, PR CI로 회귀 아님을 이미 확인), response-policy
+  27/27, plugin-artifact E2E 통과.
+- `grep -rln "0\.7\.0"`(node_modules/.git/.claude/dist/out 제외) 전체 재실행: 잔존 위치는 CHANGELOG
+  과거 절, M1/M2 역사적 work 문서(이 문서 자신 포함, `0.7.0`을 이전 버전으로 서술하는 것은 의도됨),
+  무관한 lockfile `engines` 필드뿐 — **그 밖에는 0건.**
+- **`main`에서 artifact 재생성**(session 전용 `npm_config_cache`, 사용자 홈 `~/.npm` 권한 변경 없음):
+  - `impact-lens-0.8.0.vsix`: `vsce package`로 생성, 31 files, 1,316,011 bytes. SHA-256
+    `49a69b0701a607769135de6d94a0c9f005ca091987e0e2993a64f0fc9d57f025`. `unzip -l` + leak 패턴
+    grep(`.claude`/`.github`/`scripts/`/`extension/src/`/`extension/cli/`/`extension/plugins/`/
+    `extension/docs/`)로 leak 없음 확인(매치 0건). **branch 빌드 checksum
+    (`0c8098a9...`)과 다르다** — M1이 기록한 `vsce package`의 알려진 비결정성(zip 메타데이터)
+    때문으로 판단, CLI tarball은 아래처럼 branch와 정확히 일치하므로 트리 불일치가 아니다.
+  - `impact-lens-cli-0.8.0.tgz`: `npm pack`(cli/)으로 생성, 32 entries, 100.2 kB(unpacked 368.9 kB).
+    SHA-256 `baff6e9f3fc6ce10ec9cfacabdf756c496fc17007ddca435c44198dc8fe4798f` — **branch 빌드 값과
+    정확히 일치**(tar 패키징 재현 가능). `run-impact-lens:11`의 pin URL을 직접 열어 파일명이
+    `impact-lens-cli-0.8.0.tgz`와 정확히 일치함을 대조했다. `tar -tzf`로 leak 없음 재확인
+    (`dist/**`(27), `schemas/**`(2), `package.json`, `README.md`, `LICENSE`만).
+  - **이 두 값이 release에 올릴 최종 값이다. 재생성하지 않고 이 파일을 그대로 보고한다** — 파일은
+    `/private/tmp/claude-503/-Users-woony6-dev-Impact-Lens/40ff2d12-584e-47d4-bc1e-ed35c646cf67/
+    scratchpad/pack-0.8.0-main/`에 보존돼 있다.
+- tag·Release·asset 업로드는 이 세션이 수행하지 않는다 — commander가 자신의 세션에서 받은 직접
+  사용자 승인으로 발행을 맡는다(relay된 승인으로는 발행하지 않는다는 v0.7.0 규칙을 지키기 위해).
+
 ## Backlog (이 릴리스 lane에서 고치지 않음 — commander 지시)
 
 - `cli/src/providers/catalog.ts`의 `bundled-pyright` `lastVerified` 주석이 "this preset has no CI
