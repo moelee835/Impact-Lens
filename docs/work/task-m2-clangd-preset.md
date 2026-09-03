@@ -1,6 +1,7 @@
 # M2 — C/C++ clangd provider preset
 
-- 상태: Stage 6(사용자 문서 sweep) 완료, commander 보고 후 최종 검토 대기(PR은 그 이후)
+- 상태: PR #65 오픈됨, commander 승인 후 진행. 첫 CI 실행에서 macOS·Windows clangd 버전 pin이 둘 다
+  실패해(stage 5 addendum 2) 수정 후 재실행 대기 중
 - branch: `feat/m2-clangd-preset`(stage 1까지는 `docs/m2-clangd-investigation` — 조사만 있던 단계의
   이름. stage 2부터 실제 코드 변경이 생겨 AGENTS.md 명명 규칙에 맞춰 이 시점에 개명했다. commit
   history는 그대로 이어진다.)
@@ -1145,14 +1146,52 @@ fixture 2개 추가(`scripts/fixtures/response-policy/20-*.json`, `21-*.json`), 
   verification.md`의 과거 시점 작업 기록 하나뿐(그 lane 당시엔 실제로 두 preset이었다는 역사적 사실 —
   고치지 않음, AGENTS.md의 작업 로그 보존 원칙).
 
+## Stage 5 addendum 2 — PR #65의 첫 CI 실행이 macOS·Windows pin을 둘 다 실제로 깼다, 고침
+
+**"push 후 실제 CI 로그로 확인해야 한다"고 남겨 둔 바로 그 항목에서 실제 실패가 났다** — 이 세션이
+"검증됨"이라고 적은 두 주장(`llvm@23`, `llvm --version=23.1.0`) 둘 다 real CI에서 그대로 깨졌다.
+사전 조사와 실제 러너의 차이를 구체적으로 남긴다.
+
+**macOS**: PR #65의 첫 run(`33700721044`)에서 `brew install llvm@23`이
+`No available formula with the name "llvm@23". Did you mean llvm, llvm@21, ... llvm@14?`로 즉시
+실패했다(17초 — 실제 다운로드가 시작되기도 전). stage 5 addendum에서 `formulae.brew.sh`의 live API로
+`llvm@23`이 존재한다고 확인한 것 자체는 틀리지 않았다 — 문제는 **GitHub Actions macOS 러너 이미지에
+미리 구워진 Homebrew formula cache가 이미지 build 시점 스냅샷이라 homebrew-core HEAD를 실시간으로
+따라가지 않는다는 것**이었다. 러너의 에러 메시지가 `llvm@22`조차 후보로 못 내놓은 것으로 보아 그
+스냅샷은 22 릴리스보다도 오래된 것으로 보인다. **이 세션이 로컬(darwin/arm64, 실제 Homebrew 설치가
+있는 이 개발 머신)에서 `brew info llvm@23`으로 재확인** — 로컬은 이미 `llvm@23`이 정상 resolve됐고
+(`Installed (on request)`, 1.9GB, stage 1이 검증한 그 설치) — 이는 "포뮬러가 최신이면 alias가 정상
+작동한다"는 이론을 뒷받침한다(러너와 동일 환경은 아니지만 방향은 같다). 고침: `brew install llvm@23`
+앞에 `brew update`를 추가해 러너의 로컬 formula index를 갱신시킨다.
+
+**Windows**: 같은 run에서 `choco install llvm --version=23.1.0`도 실패했다 —
+`Version was specified as '23.1.0'. It is possible that version does not exist for 'llvm'`. **직접
+`community.chocolatey.org`의 OData API(`FindPackagesById()?id='llvm'`)를 `curl`로 조회**(이 세션의
+이전 WebFetch 시도는 이 호스트에서 403을 받았지만, 평범한 `curl`은 막히지 않았다 — WebFetch의
+User-Agent/Cloudflare 상호작용 문제로 보이고, API 자체가 막혀 있던 게 아니었다)해 Chocolatey의
+`llvm` 패키지가 **23.x를 아예 배포하지 않고 있다**는 것을 확인했다 — `IsLatestVersion`/
+`IsAbsoluteLatestVersion`이 둘 다 true인 최신 버전이 `22.1.7`(2026-06-06 배포)이다. 즉 macOS와
+달리 이건 "러너가 낡아서"가 아니라 **Chocolatey의 패키지 자체가 upstream LLVM보다 한 major 뒤처져
+있다는 실제 사실**이다. 고침: Windows만 `22.1.7`로 pin(Linux·macOS는 23 유지) — 세 OS를 억지로 같은
+숫자로 맞추는 것보다, 각 OS가 실제로 제공하는 최신 버전을 정확히 pin하는 쪽을 택했다. job 상단의
+근거 주석과 "Log installed clangd version" 단계 주석도 "OS 간 버전이 다른 것은 결함이 아니라 의도"로
+갱신했다.
+
+**패턴**: 이번 stage 5의 두 addendum 모두 "라이브 API로 확인했다"는 검증이 **"그 라이브 상태를 이
+특정 실행 환경이 실제로 반영하고 있는가"**라는 별개의 질문을 대신하지 못한다는 것을 보여준다 —
+[[adversarial-review-technique]]에 추가할 만한 사례다(상위 소스가 진실이어도, 그 진실을 소비하는
+실행 환경 자체가 낡거나 그 upstream을 따라가지 못할 수 있다). `npm run cli:build`/`cli:test`는
+다시 돌리지 않았다(YAML만 변경, 코드 무변경) — `python3 -c "import yaml; ..."`로 구문만 재검증.
+
 ## 남은 작업
 
-- **Stage 1-6 전부 완료. commander에게 보고 후 최종 검토 대기 — PR 올리기 전에 한 번 더 검토받는다**
-  (commander가 명시). 이 lane에서 코드로 남은 일은 없다 — 남은 것은 검토와 CI 실측뿐이다.
+- **Stage 1-6 전부 완료, PR #65 오픈, commander 승인으로 진행. 이 addendum(macOS/Windows pin 수정)까지
+  push 후 실제 CI 재실행 결과를 확인해야 한다** — 이번이 이 job의 정말 첫 성공 여부 확인이다(첫
+  시도는 macOS·Windows 둘 다 실패했으므로).
 - **push 후 실제 CI 로그로 확인해야 하는 것**: `clangd-provider` job의 3-OS 실행 결과, 특히
-  Windows의 Chocolatey `llvm --version=23.1.0` 설치와 macOS의 `llvm@23` 설치가 실제 CI 러너에서
-  성공하는지(이 세션에서는 API 응답으로만 확인, 실제 `brew install`/`choco install` 실행은 못 함) —
-  이 세션에서 직접 확인 못 함. 실패하면 그 자리에서 버전 문자열을 조정하는 후속 커밋이 필요하다.
+  Windows의 Chocolatey `llvm --version=22.1.7` 설치와 macOS의 `brew update` + `llvm@23` 설치가 실제 CI
+  러너에서 성공하는지 — 이 세션에서는 API 응답과 로컬 macOS 확인만 했고 실제 CI 러너에서의 실행은
+  못 했다. 다시 실패하면 그 자리에서 버전 문자열을 조정하는 후속 커밋이 필요하다.
 - **후속 lane 후보로 남긴 것**(이번 lane 범위 밖, il-lim-014 `미해결 질문`에 기록): `awaitReadiness()`를
   `open()` 뒤로 옮기는 재설계(pyright·clangd 둘 다 뒷받침하는 근거), `ProviderFixtureFile`의 워크스페이스
   경로 템플릿 메커니즘.
