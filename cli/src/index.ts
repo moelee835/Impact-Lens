@@ -167,7 +167,7 @@ function parseCommand(argv: readonly string[]): ParsedCommand {
     if (options.has(key)) {
       throw new CliError('invalid_request', `Option --${key} was provided more than once.`, 2);
     }
-    if (['stdin', 'apply', 'smoke', 'fixture'].includes(key)) {
+    if (['stdin', 'apply', 'smoke', 'fixture', 'augmentation'].includes(key)) {
       options.set(key, true);
       continue;
     }
@@ -191,7 +191,7 @@ function parseCommand(argv: readonly string[]): ParsedCommand {
 
 function allowedOptions(operation: string): ReadonlySet<string> {
   if (operation === 'impact.analyze') {
-    return new Set(['workspace', 'file', 'line', 'column', 'depth', 'max-nodes', 'include-source', 'timeout-ms', 'provider-config', 'stdin']);
+    return new Set(['workspace', 'file', 'line', 'column', 'depth', 'max-nodes', 'include-source', 'timeout-ms', 'provider-config', 'augmentation', 'stdin']);
   }
   if (operation === 'note.list') {
     return new Set(['workspace', 'scope', 'stdin']);
@@ -240,6 +240,7 @@ async function analyzeRequest(options: Map<string, string | true>, input: unknow
     includeSource: optionString(options, 'include-source'),
     timeoutMs: optionNumber(options, 'timeout-ms', false),
     provider: await providerOption(options),
+    augmentationEnabled: options.get('augmentation') === true,
   });
 }
 
@@ -307,7 +308,10 @@ async function noteRequest(
 
 function validateAnalyzeObject(input: unknown): AnalyzeRequest {
   const value = asObject(input);
-  rejectUnknown(value, ['workspace', 'file', 'line', 'column', 'depth', 'maxNodes', 'includeSource', 'timeoutMs', 'expectedSymbol', 'provider', 'providerPreset', 'initializationOptions', 'settings']);
+  rejectUnknown(value, ['workspace', 'file', 'line', 'column', 'depth', 'maxNodes', 'includeSource', 'timeoutMs', 'expectedSymbol', 'provider', 'providerPreset', 'initializationOptions', 'settings', 'augmentationEnabled']);
+  if (value.augmentationEnabled !== undefined && typeof value.augmentationEnabled !== 'boolean') {
+    throw new CliError('invalid_request', 'augmentationEnabled must be a boolean.', 2);
+  }
   const includeSource = value.includeSource === undefined ? undefined : requiredString(value.includeSource, 'includeSource');
   if (includeSource !== undefined && !SOURCE_MODES.includes(includeSource as SourceMode)) {
     throw new CliError('invalid_request', 'includeSource must be none, declaration, or body.', 2);
@@ -337,6 +341,7 @@ function validateAnalyzeObject(input: unknown): AnalyzeRequest {
     providerPreset: requestPresetId(value.providerPreset, 'providerPreset'),
     initializationOptions: requestConfigTree(value.initializationOptions, 'initializationOptions'),
     settings: requestConfigTree(value.settings, 'settings'),
+    augmentationEnabled: value.augmentationEnabled === true,
   };
 }
 
