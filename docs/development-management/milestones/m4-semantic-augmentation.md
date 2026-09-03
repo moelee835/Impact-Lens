@@ -68,10 +68,15 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
 - [ ] ~~Spring constructor/field/method injection의 대표 fixture가 bean candidate와 ambiguity를
   재현한다.~~ **2026-09-03 정정**: Java/Kotlin 언어 지원이 없어 이 마일스톤에서 이 gate를 이
   형태로 통과시킬 수 없다 — Spring은 M3 이후로 연기됐다(위 참고). **이 마일스톤의 실제 종료
-  gate로 대신 쓴다**: FastAPI `Depends()`/route dependency의 대표 fixture가 candidate(단일/복수
-  후보)와 ambiguity를 재현한다. Spring 버전 fixture는 Java/Kotlin 언어 지원이 생긴 뒤 별도
-  milestone/story의 gate로 이어받는다 — `IL-LIM-002`의 stage 5(Spring feasibility spike)가 이미
-  "정확도·성능이 승인된 경우에만 독립 구현 Issue로 승격"이라고 조건부로 적어 둔 것과 일치한다.
+  gate로 대신 쓴다**: FastAPI **import alias, sub-dependency(중첩 dependency)와 cross-file
+  dependency/router include**의 대표 fixture가 candidate(단일/복수 후보)와 ambiguity를
+  재현한다(2026-09-03 보강 — 원래 gate가 Spring injection 모양 셋을 이름 댄 것과 같은 무게로,
+  세 모양을 명시했다. `IL-LIM-002` 자신의 수용 기준 "alias, 중첩 dependency와 cross-file
+  사례가 테스트된다"와 권장 대응(`import alias 추적`/`sub-dependency 재귀`/`다른 module의
+  dependency와 router include`)에서 그대로 가져왔다 — 새로 만든 기준이 아니다). Spring 버전
+  fixture는 Java/Kotlin 언어 지원이 생긴 뒤 별도 milestone/story의 gate로 이어받는다 —
+  `IL-LIM-002`의 stage 5(Spring feasibility spike)가 이미 "정확도·성능이 승인된 경우에만 독립
+  구현 Issue로 승격"이라고 조건부로 적어 둔 것과 일치한다.
 - [ ] 모호한 DI/dynamic target은 하나의 확정 caller로 임의 승격되지 않는다.
 - [ ] path convention만으로 가짜 call edge나 test passed 상태를 만들지 않는다.
 - [ ] augmentation을 끄면 기존 LSP-only graph로 안전하게 rollback된다.
