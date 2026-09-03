@@ -1,7 +1,7 @@
 # M2 — C/C++ clangd provider preset
 
-- 상태: PR #65 오픈됨, commander 승인 후 진행. 첫 CI 실행에서 macOS·Windows clangd 버전 pin이 둘 다
-  실패해(stage 5 addendum 2) 수정 후 재실행 대기 중
+- 상태: PR #65 오픈, CI 3-OS 전부 green, `lastVerified` 정정(stage 5 addendum 3) 완료 — reviewer
+  검토 대기
 - branch: `feat/m2-clangd-preset`(stage 1까지는 `docs/m2-clangd-investigation` — 조사만 있던 단계의
   이름. stage 2부터 실제 코드 변경이 생겨 AGENTS.md 명명 규칙에 맞춰 이 시점에 개명했다. commit
   history는 그대로 이어진다.)
@@ -1183,15 +1183,45 @@ User-Agent/Cloudflare 상호작용 문제로 보이고, API 자체가 막혀 있
 실행 환경 자체가 낡거나 그 upstream을 따라가지 못할 수 있다). `npm run cli:build`/`cli:test`는
 다시 돌리지 않았다(YAML만 변경, 코드 무변경) — `python3 -c "import yaml; ..."`로 구문만 재검증.
 
+## push 후 실제 CI 재실행 — 3-OS 전부 green, 실측 버전 확인
+
+수정 push(`2f19264`) 후 PR #65의 CI가 재실행됐다. `clangd-provider` job 3개 전부 성공했고, 각 OS의
+"Log installed clangd version" 단계와 `clangdIntegration.test.ts`의 두 subtest(positive/negative
+control) 로그를 직접 확인했다 — 스킵이 아니라 실제 실행:
+
+| OS | 로그에 찍힌 실제 버전 | `ok 18`(positive) | `ok 19`(negative control) | 전체 tally |
+| --- | --- | --- | --- | --- |
+| ubuntu-latest | Ubuntu clangd 23.1.1 | 통과 | 통과 | 324 pass / 2 skip |
+| macos-latest | Homebrew clangd 23.1.0 | 통과 | 통과 | 324 pass / 2 skip |
+| windows-latest | clangd 22.1.7 | 통과 | 통과 | 314 pass / 12 skip(전부 clangd 무관 — gopls readiness 2개 + Windows의 기존 runner-source skip 10개, 이 PR 이전부터 있던 것) |
+
+## Stage 5 addendum 3 — commander가 `catalog.ts`의 `lastVerified` 주석이 stage 5 이전 상태를 서술한다고 지적, 고침
+
+commander가 재실행 green을 확인한 뒤 별도로 지적: clangd preset의 `lastVerified` 주석이 여전히
+"stage 5가 아직 OS gap을 안 닫았다"는 stage 4 시점 서술로 남아 있었고, `versions` 배열도 CI가 실제
+설치한 `22.1.7`(Windows)·`23.1.1`(Ubuntu)을 빠뜨리고 있었다. `verified-external` tier의 근거
+필드라 catalog.ts 최상단 자신이 "산출물로 다룬다"고 선언한 부분 — 실제보다 적게 주장하는 반대
+방향의 오류였다.
+
+고침(`cli/src/providers/catalog.ts`, clangd preset의 `lastVerified` 바로 위 주석과 `versions`):
+- "stage 5가 그 gap을 닫는 지점이다"(미래형) → "stage 5가 실제로 닫았다, `clangd-provider` job이
+  compile database 있음/없음 양방향을 3-OS에서 매 push마다 돈다"(완료형)로 교체.
+- `versions`: `['17.0.0', '23.1.0']` → `['17.0.0', '22.1.7', '23.1.0', '23.1.1']`.
+- **gopls의 선례를 그대로 따라** "이 preset의 'verified' 주장은 CI가 실제로 설치하는 버전에 한해서만
+  3-OS에서 실재한다"는 문장을 clangd에도 넣되, gopls와 달리 **OS마다 검증된 버전이 다르다는 것**을
+  명시했다 — Linux·macOS는 23.x, **Windows는 22.1.7만**(Chocolatey가 23.x를 배포하지 않아서). "3-OS에서
+  검증됨"이라고만 쓰면 Windows에서도 23.x가 검증됐다는 잘못된 인상을 준다는 지적이 정확했다.
+- `supported: { minimum: '17.0.0' }`은 그대로 — 실제로 돌린 하한이라는 사실도, 중간 버전을 추측해
+  넓히지 않는다는 규칙도 안 바뀌었다.
+- PR #65 본문의 "아직 검증 안 된 것" 절도 같은 내용(Windows는 22.1.7로만 검증, 23.x는 미검증 조합)으로
+  갱신.
+
+검증: `npm run cli:build` 클린, `npm run cli:test` 324/324(회귀 없음, 주석·데이터만 변경이라 예상대로).
+
 ## 남은 작업
 
-- **Stage 1-6 전부 완료, PR #65 오픈, commander 승인으로 진행. 이 addendum(macOS/Windows pin 수정)까지
-  push 후 실제 CI 재실행 결과를 확인해야 한다** — 이번이 이 job의 정말 첫 성공 여부 확인이다(첫
-  시도는 macOS·Windows 둘 다 실패했으므로).
-- **push 후 실제 CI 로그로 확인해야 하는 것**: `clangd-provider` job의 3-OS 실행 결과, 특히
-  Windows의 Chocolatey `llvm --version=22.1.7` 설치와 macOS의 `brew update` + `llvm@23` 설치가 실제 CI
-  러너에서 성공하는지 — 이 세션에서는 API 응답과 로컬 macOS 확인만 했고 실제 CI 러너에서의 실행은
-  못 했다. 다시 실패하면 그 자리에서 버전 문자열을 조정하는 후속 커밋이 필요하다.
+- **Stage 1-6 전부 완료, PR #65 오픈, CI green, `lastVerified` 정정까지 push 완료.** commander가
+  reviewer에게 넘기겠다고 함 — 다음은 reviewer의 독립 검토.
 - **후속 lane 후보로 남긴 것**(이번 lane 범위 밖, il-lim-014 `미해결 질문`에 기록): `awaitReadiness()`를
   `open()` 뒤로 옮기는 재설계(pyright·clangd 둘 다 뒷받침하는 근거), `ProviderFixtureFile`의 워크스페이스
   경로 템플릿 메커니즘.

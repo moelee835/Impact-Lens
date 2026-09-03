@@ -456,14 +456,23 @@ const clangd: ProviderPreset = {
       'A call inside a preprocessor branch not taken under the compile flags actually used (an #ifdef whose macro is undefined, for example) is invisible to the Call Hierarchy result - the branch is not part of the compiled AST.',
     ],
   },
-  // Evidence for the verified-external tier. Both 17.0.0 (Apple clangd, Xcode Command Line Tools) and
-  // 23.1.0 (upstream LLVM clangd, Homebrew) were verified on darwin/arm64 only, by hand, across stages
-  // 1-4 of task-m2-clangd-preset.md - this preset has no CI job yet exercising windows-latest/
-  // ubuntu-latest or a real MSVC/clang-cl toolchain, unlike gopls's go-provider job. Stage 5 of the same
-  // document is where that gap closes.
+  // Evidence for the verified-external tier. 17.0.0 (Apple clangd, Xcode Command Line Tools) and 23.1.0
+  // (upstream LLVM clangd, Homebrew) were verified on darwin/arm64 only, by hand, across stages 1-4 of
+  // task-m2-clangd-preset.md. Stage 5 closed the OS gap the same way go-provider does for gopls: the
+  // `clangd-provider` job (.github/workflows/unit-tests.yml) installs a real clangd and runs a real,
+  // unmocked auto-discovery + Call Hierarchy round trip - both with and without a real compile_commands.json,
+  // proving the compile-database-present and compile-database-missing paths separately - on ubuntu-latest,
+  // macos-latest and windows-latest on every push.
+  //
+  // Unlike gopls, the CI-verified version is NOT the same on all three OSes, so "verified on 3 OSes" would
+  // overclaim: Ubuntu (apt.llvm.org) and macOS (Homebrew) both install 23.x (23.1.1 and 23.1.0
+  // respectively) - this preset's "verified" claim is real on 23.x only for Linux and macOS. Windows
+  // (Chocolatey) has no 23.x package at all as of this writing (confirmed directly against the Chocolatey
+  // OData API, not assumed); its newest available is 22.1.7, which is what CI actually installs and
+  // exercises there. So the 23.x claim is NOT verified on Windows - only 22.1.7 is, there.
   lastVerified: {
-    date: '2026-09-02',
-    versions: ['17.0.0', '23.1.0'],
+    date: '2026-09-03',
+    versions: ['17.0.0', '22.1.7', '23.1.0', '23.1.1'],
   },
 };
 
