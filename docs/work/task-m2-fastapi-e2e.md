@@ -1,6 +1,6 @@
 # M2 — IL-LIM-006 Python/FastAPI E2E
 
-- 상태: Stage 1 완료(fixture + 실측 관측), commander 보고 후 stage 2 승인 대기
+- 상태: Stage 1 완료 + commander 지시로 추가 측정(fastapi 설치 여부의 영향) 완료, stage 2 설계 승인 대기
 - branch: `feat/m2-fastapi-e2e`
 - 선행: PR #65(`feat/m2-clangd-preset`, M2 clangd lane) merge 완료(squash `97a3ee0`) 후 착수.
 - 스토리: `docs/development-management/stories/il-lim-006-python-fastapi-e2e.md`
@@ -126,6 +126,52 @@ CI에서 설치하는 것과 같은 명시적 테스트 준비다.
 
 **검증**: `npm run cli:build` 클린(코드 변경 없음, fixture 파일 하나만 추가). 이 단계는 코드 변경이
 없으므로 `cli:test` 재실행은 불필요(fixture는 아직 어떤 테스트에서도 참조되지 않음 — stage 2가 연결).
+
+### 2026-09-03 — commander 지시: fastapi 설치 여부가 결과를 바꾸는가
+
+**질문**: stage 1 측정은 fastapi가 설치된 venv에서 했다. 설치 자체가 관측에 필요한 조건인가, 아니면
+fixture 파일만으로 같은 결과가 나오는가? 후자라면 CI에 Python venv 생성이 전혀 필요 없고, clangd
+lane에서 겪은 것과 같은 3-OS venv 경로 문제(Windows `Scripts\python.exe` vs POSIX `bin/python`)를
+통째로 피할 수 있다.
+
+**측정 1 — fastapi 없는 시스템 python으로 동일 3케이스 재실행**: `/usr/bin/python3`(fastapi
+미설치 확인 — `import fastapi` → `ModuleNotFoundError`)를 raw JSON-RPC 프로브의 `pythonPath`로 지정해
+동일한 `prepareCallHierarchy`→`callHierarchy/incomingCalls` 왕복을 반복했다. **결과가 fastapi 설치
+상태와 완전히 동일했다**: `normal_helper`는 여전히 배열(`regular_caller` 포함), `get_items`·`get_db`는
+여전히 raw `null`.
+
+**측정 1의 함정을 자체 발견하고 재검증**: 최초 재실행은 "diagnostics: []"(즉 import가 깨끗이
+resolve된 것처럼 보임)까지 fastapi 설치 때와 똑같이 나왔는데, 이건 실제로 import가 resolve됐다는
+뜻이 아니라 **probe가 진단 notification을 기다리지 않고 바로 질의해 timing 때문에 빈 배열을 본
+것일 수 있다**는 걸 스스로 의심하고 재확인했다. 별도 프로브(`diag_probe.mjs`)로 `didOpen` 후 5초
+기다리며 `textDocument/publishDiagnostics`를 직접 수신 — **fastapi 미설치 시 실제로
+`reportMissingImports`("Import \"fastapi\" could not be resolved")가 발행됨을 확인**했고, fastapi
+설치 시엔 같은 5초 대기 후에도 빈 diagnostics였다. 즉 "import가 정말 깨졌다"는 것과 "그런데도
+incomingCalls 결과는 안 바뀐다"는것 둘 다 확인된 사실이지, timing 우연이 아니다.
+
+**측정 2 — settings를 아예 안 준 완전 기본 상태**(실제 사용자가 오늘 아무 설정도 안 했을 때와 정확히
+같은 조건 — `bundled-pyright`는 pythonPath를 자동 감지하지 않으므로 `pythonPath` 설정이 없으면
+pyright 자신의 기본 interpreter 탐색에 맡겨진다)로 전체 CLI 경로(`analyze --stdin`, `settings` 필드
+자체를 요청에서 제거)를 다시 돌렸다. **결과 동일**: `normal_helper`는 edge 발견,
+`get_items`·`get_db`는 `provider_null_incoming_calls` 포함 3개 코드 그대로.
+
+**결론 — fastapi 설치는 이 세 관측 어디에도 영향을 주지 않는다.** pyright의 Call Hierarchy는 구문
+수준(호출 표현식을 찾는 것)에서 동작하므로 `Depends(get_db)`가 `get_db`를 "호출"이 아니라 "참조"로
+남기는 것도, `@app.get(...)`으로 데코레이트된 함수가 이 파일 안에서 호출되지 않는 것도 `fastapi`
+패키지 자체가 resolve됐는지와 무관하다. **CI는 Python venv 생성도, pip install도, `settings.
+python.pythonPath` 주입도 필요 없다** — fixture 파일만 checked-in 상태로 있으면 되고, 이는 clangd
+lane이 겪은 3-OS venv/경로 함정(Windows `Scripts\python.exe` vs POSIX `bin/python`)을 애초에
+발생시키지 않는다.
+
+**stage 2 설계에 반영**: 별도 CI job이나 Python/pip 설치 단계 없이, 기존 `unit`/`cli-tests-cross-os`
+job이 이미 모든 push에서 3-OS 전부 실행하는 `contract.test.ts`류 무조건 실행 테스트로 충분하다 —
+gopls·clangd처럼 외부 실행 파일 설치가 필요한 언어와 이 lane은 근본적으로 다른 모양이다(비교: Python
+lane이 이미 "pyright는 pinned dependency라 별도 CI job 불필요"라고 결론 낸 것과 같은 이유가 여기도
+적용된다). fastapi가 실제로 import되는지 여부와 무관한 결과이므로, "fastapi를 못 찾게 만들어 job이
+실패하는지" 검증(commander의 stage 2 요구사항)도 **적용 대상이 없다** — 애초에 fastapi 설치가
+결과에 영향을 주지 않으므로 "fastapi가 없어서 skip/실패"할 지점 자체가 설계에 없다. 대신 non-vacuity는
+**fixture 파일 자체가 없거나 손상됐을 때** 테스트가 실패하는지로 확인해야 한다(다른 형태의 skip-as-
+failure).
 
 ## 남은 작업
 
