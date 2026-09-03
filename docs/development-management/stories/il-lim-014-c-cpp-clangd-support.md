@@ -33,11 +33,36 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
 
 ## 수용 기준
 
-- [ ] provider JSON 없이 `.c`·`.cpp` fixture에서 검증 clangd가 자동 선택된다.
-- [ ] compile database 유무·경로·staleness와 capability가 doctor 결과에서 구분된다.
-- [ ] direct, cross-file, method와 overload incoming call이 pinned clangd fixture에서 반복 통과한다.
-- [ ] function pointer, virtual dispatch, macro와 조건부 컴파일 한계가 provider 원본 결과와 함께 기록된다.
-- [ ] metadata가 없을 때 configure/build를 실행하지 않고 안전한 생성 안내만 제공한다.
+> **2026-09-03 갱신(M2 마일스톤 종료 처리, `docs/work/task-m2-closure.md`)**: 아래 5개 항목을 근거와
+> 함께 판정했다. 3번은 **부분만 충족**이라 미체크로 남긴다. 4번의 macro 항목은 **A-3 정정**을 반영해
+> 판정했다 — stage 4 실측이 작성 시점 가정("macro는 한계")을 반증했다(simple macro는 정확히 잡힘).
+
+- [x] provider JSON 없이 `.c`·`.cpp` fixture에서 검증 clangd가 자동 선택된다. —
+      `cli/src/test/clangdIntegration.test.ts`의 두 테스트 전부 `provider` 필드 없이 순수
+      auto-discovery로 실행되고 `selectedBy: 'auto'`를 직접 단언한다.
+- [x] compile database 유무·경로·staleness와 capability가 doctor 결과에서 구분된다. —
+      `cli/src/doctor/checks.ts`의 `compileDatabaseCheck()`가 missing/ambiguous/stale/present 4상태를
+      `state`/`path`/`candidatePaths`/`sample` 필드로 구분해 보고한다.
+- [ ] direct, cross-file, method와 overload incoming call이 pinned clangd fixture에서 반복
+      통과한다. — **부분만 충족.** direct·cross-file은 `cli/src/test/clangdIntegration.test.ts`가
+      compile database 있음/없음 양방향으로 반복 증명한다. **method·overload는 repeating fixture가
+      없다** — `docs.limitations`의 virtual dispatch 서술(*"a virtual method Derived::target
+      overriding Base::target..."*)은 stage 4의 **한 번의 수동 probe** 결과이지 반복 실행되는 테스트가
+      아니다(직접 grep 확인: `class`/`virtual`/`::`를 포함하는 `.cpp` 테스트 fixture가 저장소 어디에도
+      없다). `docs.limitations`에 기록하는 것과 이 항목이 요구하는 "반복 통과"는 다른 요구다. 후속
+      코드 lane에서 C++ class/method/overload fixture를 추가해야 닫힌다.
+- [x] function pointer, virtual dispatch, macro와 조건부 컴파일 한계가 provider 원본 결과와 함께
+      기록된다. — `cli/src/providers/catalog.ts`의 clangd `docs.limitations` 4항목 전부가 실제
+      probe로 뒷받침된다: function pointer, virtual dispatch, 조건부 컴파일(`#ifdef`)은 원래 문구
+      그대로 유효하다. **macro는 정정된 문구로 판정한다** — "simple macro that expands directly to a
+      function call is resolved correctly (verified); more complex macro patterns... have not been
+      tested." 즉 macro는 무조건적 "한계"가 아니라 **단순한 경우는 한계가 아님이 실측으로 확인됐고
+      복잡한 패턴만 미검증**이다. 이 정정 없이 "macro 한계가 기록된다"를 문자 그대로 판정하면 실측과
+      반대되는 기록을 요구하는 셈이 된다(`docs/work/task-m2-closure.md`의 A-3 참고).
+- [x] metadata가 없을 때 configure/build를 실행하지 않고 안전한 생성 안내만 제공한다. —
+      `cli/src/coverage.ts`의 `compile_database_missing.action`은 안내 문구뿐이고("Generate a compile
+      database... and re-run"), 세 M2 lane 전체에서 CMake configure나 build를 실행하는 코드 경로가
+      추가된 적이 없다(작업 로그 확인).
 
 ## 검증
 
