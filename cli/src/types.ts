@@ -300,6 +300,17 @@ export interface AnalyzeRequest {
   readonly initializationOptions?: JsonObject;
   /** Merged into the workspace settings tree answered to `workspace/configuration` (D3). */
   readonly settings?: JsonObject;
+  /**
+   * Kill switch for M4 framework adapters (`docs/work/task-m4-stage2-fastapi-adapter.md`). Defaults
+   * to `false`/absent - IL-LIM-001 and IL-LIM-002's own rollout sections both call for adapters to
+   * ship disabled by default ("추론 adapter는 기본 비활성화한다" / "최초에는 설정 opt-in으로
+   * 제공한다"), and this milestone's own top risk is false positives damaging trust, so a caller must
+   * opt in explicitly rather than discover augmentation by surprise. When `false` or absent, the
+   * response is guaranteed identical to a build with no adapters at all (`data.augmentedEdges` is an
+   * empty array, `data.coverage.semantic`/`data.completion.semanticScope` stay at their static
+   * default).
+   */
+  readonly augmentationEnabled?: boolean;
 }
 
 /**
@@ -353,6 +364,14 @@ export interface AnalysisObservations {
    * state itself, not in any provider response value.
    */
   readonly compileDatabase?: CompileDatabaseObservation;
+  /**
+   * M4 stage 2: adapter ids whose own exploration budget was exceeded while looking for augmented
+   * edges. Never derived from `TraversalFacts`/`facts.limits` (M4 stage 1's "budget/limits leak"
+   * decision, docs/work/task-m4-stage1-evidence-contract.md) - an adapter's budget is entirely its
+   * own, so exhausting it degrades only the augmented findings and is reported through this
+   * separate channel, never through `completion`/`complete`/`truncated`/`traversalLimits`.
+   */
+  readonly augmentationBudgetExceeded?: readonly string[];
 }
 
 /**
@@ -364,6 +383,55 @@ export type CompileDatabaseObservation =
   | { readonly status: 'missing' }
   | { readonly status: 'present'; readonly relativePath: string; readonly stale: boolean }
   | { readonly status: 'ambiguous'; readonly relativePaths: readonly string[] };
+
+// ---------------------------------------------------------------------------
+// data.augmentedEdges (schemaVersion 1, additive - M4 stage 1 decision, see
+// docs/work/task-m4-stage1-evidence-contract.md)
+//
+// `data.edges`/`data.nodes` are never touched by this feature - every augmented edge lives only
+// here. An endpoint either names an id already present in THIS execution's `data.nodes` (`existing`)
+// or is fully self-contained (`synthetic`); a producer may use `existing` only after confirming the
+// id is actually in this run's `nodes` (traversal's depth/node budget can make an otherwise-expected
+// node absent - stage 1's dangling-id decision), never as a structural assumption (e.g. "the root is
+// always there"). This is what keeps `nodes` byte-identical whether or not augmentation ran.
+// ---------------------------------------------------------------------------
+
+export const AUGMENTED_EDGE_SOURCES = ['static-inference', 'runtime-observation'] as const;
+/** How an augmented edge was produced. `language-server` is deliberately absent - that provenance
+ * stays in `data.edges`, which this feature never writes to. */
+export type AugmentedEdgeSource = (typeof AUGMENTED_EDGE_SOURCES)[number];
+
+export const AUGMENTED_EDGE_RESOLUTIONS = ['single', 'multiple'] as const;
+/**
+ * How many concrete targets the adapter could statically name for this relationship - never a claim
+ * about whether the call is confirmed. `single`: exactly one candidate (e.g. `Depends(get_db)` naming
+ * one real symbol). `multiple`: more than one real candidate, all reported side by side, never
+ * collapsed into one (M4 stage 1 Q2 decision: `confirmed` is not a value here on purpose, since this
+ * array is by definition what the provider did not confirm). The third scenario stage 1 considered -
+ * a detected mechanism with no nameable candidate at all (profile-gated, programmatic registration,
+ * proxy/AOP) - produces no edge and no `resolution` value; it is reported only as a limitation.
+ */
+export type AugmentedEdgeResolution = (typeof AUGMENTED_EDGE_RESOLUTIONS)[number];
+
+export type AugmentedEndpoint =
+  | { readonly kind: 'existing'; readonly id: string }
+  | {
+      readonly kind: 'synthetic';
+      readonly name: string;
+      readonly kindLabel: string;
+      readonly file: string;
+      readonly range: SourceRange;
+    };
+
+export interface AugmentedEdge {
+  readonly source: AugmentedEndpoint;
+  readonly target: AugmentedEndpoint;
+  readonly adapterId: string;
+  readonly evidenceSource: AugmentedEdgeSource;
+  readonly resolution: AugmentedEdgeResolution;
+  readonly reasonCode: string;
+  readonly evidenceRanges: readonly SourceRange[];
+}
 
 export interface ProviderCommand {
   readonly command: string;

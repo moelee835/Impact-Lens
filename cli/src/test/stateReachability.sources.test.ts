@@ -73,18 +73,25 @@ const UNREACHABLE_TRAVERSAL_STATES = [
   },
 ] as const;
 
+// 2026-09-03 (M4 stage 2, docs/work/task-m4-stage2-fastapi-adapter.md): `static-plus-inference` moved
+// out of this list - the `fastapi-static-v1` adapter now assigns `observations.semantic.scope:
+// 'static-plus-inference'` in production (`impact.ts`'s `analyzeImpact()`), proven reachable in
+// `stateReachability.integration.test.ts`'s `AUGMENTATION_REACHABLE`. Only `static-plus-observation`
+// (a runtime trace) still has no producer.
 const UNREACHABLE_SEMANTIC_SCOPES = [
-  {
-    semanticScope: 'static-plus-inference',
-    reason: 'no code path infers edges (dependency injection, decorators, etc.) and reports them as observations.semantic; the only semantic evidence a real run produces is the static call hierarchy itself.',
-    story: 'IL-LIM-001, accepted for M4 (augmented evidence from static inference)',
-  },
   {
     semanticScope: 'static-plus-observation',
     reason: 'no code path records a runtime trace and reports it as observations.semantic; runtime observation evidence does not exist in the product yet.',
     story: 'IL-LIM-002, accepted for M4 (augmented evidence from runtime observation)',
   },
 ] as const;
+
+/** True when `key: 'value'` (either quote style) appears as an object-literal assignment anywhere in
+ * `sources` - narrower than `hasColonKeyProducer`, for a field whose key is now genuinely produced with
+ * one value (e.g. `semantic.scope: 'static-plus-inference'`) but not another. */
+function hasKeyValueProducer(key: string, value: string, sources: string): boolean {
+  return new RegExp(`\\b${key}\\s*:\\s*['"]${value}['"]`).test(sources);
+}
 
 test('the source scan actually reads the real CLI sources (not a vacuous pass)', () => {
   const sources = readSources(nonTestSources());
@@ -107,16 +114,16 @@ test('nothing outside tests and types.ts assigns AnalysisObservations.interrupti
   assert.equal(UNREACHABLE_TRAVERSAL_STATES.length, 3);
 });
 
-test('nothing outside tests and types.ts assigns AnalysisObservations.semantic', () => {
+test('nothing outside tests and types.ts produces observations.semantic.scope === "static-plus-observation"', () => {
   const sources = readSources(nonTestSources());
   assert.equal(
-    hasColonKeyProducer('semantic', sources),
+    hasKeyValueProducer('scope', 'static-plus-observation', sources),
     false,
-    'a production producer of `semantic` appeared. That means static-plus-inference or ' +
-    'static-plus-observation is now reachable - move it out of UNREACHABLE_SEMANTIC_SCOPES here into a ' +
-    'reachable list in stateReachability.integration.test.ts in the same change, per IL-LIM-001/002.',
+    'a production producer of `semantic.scope: "static-plus-observation"` appeared. That means runtime-' +
+    'observation evidence is now reachable - move it out of UNREACHABLE_SEMANTIC_SCOPES here into a ' +
+    'reachable list in stateReachability.integration.test.ts in the same change, per IL-LIM-002.',
   );
-  assert.equal(UNREACHABLE_SEMANTIC_SCOPES.length, 2);
+  assert.equal(UNREACHABLE_SEMANTIC_SCOPES.length, 1);
 });
 
 // ---------------------------------------------------------------------------

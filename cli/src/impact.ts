@@ -6,6 +6,7 @@ import { classifyRelation } from './testFile';
 import { projectCompletion } from './coverage';
 import { inspectCompileDatabase } from './providers/compileDatabase';
 import { C_FAMILY_LANGUAGE_IDS } from './providers/resolve';
+import { runAugmentation } from './adapters';
 import {
   AnalysisObservations,
   AnalyzeRequest,
@@ -88,6 +89,21 @@ export async function analyzeImpact(
   })).sort((left, right) => left.source.localeCompare(right.source)
     || left.target.localeCompare(right.target)
     || JSON.stringify(left.callSites).localeCompare(JSON.stringify(right.callSites)));
+  // M4 stage 2: entirely separate from the traversal above - `nodes`/`edges` are read here only to
+  // check which ids already exist (M4 stage 1's dangling-id decision), never written to. Runs on its
+  // own budget (M4 stage 1's "budget/limits leak" decision), so nothing it does can affect
+  // `traversal.limits`/`reachedDepth`/anything `projectCompletion` below derives from `facts`.
+  const augmentation = await runAugmentation(
+    request.augmentationEnabled ?? false,
+    provider.capabilities.detectedLanguageId,
+    workspace,
+    root,
+    symbolId(root),
+    provider,
+    new Set(nodes.map(node => node.id)),
+  );
+  const augmentedEdges = [...augmentation.edges].sort((left, right) =>
+    JSON.stringify(left).localeCompare(JSON.stringify(right)));
   const reachedDepth = Math.max(0, ...traversal.entries.map(entry => entry.depth));
   // Every state field below comes out of this one call. Nothing in this function decides `complete`,
   // `truncated`, `traversalLimits`, `coverage` or `limitations` on its own, which is what keeps the
@@ -122,6 +138,17 @@ export async function analyzeImpact(
     ...(C_FAMILY_LANGUAGE_IDS.has(provider.capabilities.detectedLanguageId)
       ? { compileDatabase: await inspectCompileDatabase(workspace) }
       : {}),
+    // M4 stage 2: signals augmentation's own findings the same way `compileDatabase` above signals
+    // its own read-only discovery - computed here, lowest precedence, so an explicit test/caller
+    // observation can still override it. `evidenceSources` uses the `inferred-` prefix
+    // `coverage.ts`'s `REQUIRED_EVIDENCE_PREFIX` already requires for `static-plus-inference` (M1
+    // scaffolding this lane reuses unmodified, per M4 stage 1's Q1 decision).
+    ...(augmentedEdges.length > 0
+      ? { semantic: { scope: 'static-plus-inference' as const, evidenceSources: [...new Set(augmentedEdges.map(edge => `inferred-${edge.adapterId}`))] } }
+      : {}),
+    ...(augmentation.budgetExceededAdapterIds.length > 0
+      ? { augmentationBudgetExceeded: augmentation.budgetExceededAdapterIds }
+      : {}),
     ...provider.analysisObservations?.(),
     ...observations,
   });
@@ -129,6 +156,7 @@ export async function analyzeImpact(
     rootId: symbolId(root),
     nodes,
     edges,
+    augmentedEdges,
     requestedDepth,
     reachedDepth,
     maxNodes,
@@ -291,7 +319,7 @@ export function isOutside(workspace: string, file: string): boolean {
   return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
 }
 
-function uriFile(uri: string): string {
+export function uriFile(uri: string): string {
   return uri.startsWith('file:') ? fileURLToPath(uri) : uri;
 }
 
@@ -299,7 +327,7 @@ function itemUri(item: CallHierarchyItem): string {
   return item.uri || pathToFileURL('').toString();
 }
 
-function externalRange(range: LspRange): { start: { line: number; column: number }; end: { line: number; column: number } } {
+export function externalRange(range: LspRange): { start: { line: number; column: number }; end: { line: number; column: number } } {
   return {
     start: { line: range.start.line + 1, column: range.start.character + 1 },
     end: { line: range.end.line + 1, column: range.end.character + 1 },

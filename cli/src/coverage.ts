@@ -306,7 +306,29 @@ function limitationDetailsFor(
     }
   }
   details.push(...semanticScopeDetails(completion.semanticScope));
+  details.push(...augmentationBudgetDetails(observations.augmentationBudgetExceeded));
   return details;
+}
+
+/**
+ * Reports an adapter's own budget running out, entirely separate from `facts.limits` (M4 stage 1's
+ * "budget/limits leak" decision) - an adapter that ran out of its own exploration budget only
+ * degrades the augmented findings it produces, never the static `completion`/`complete`/`truncated`/
+ * `traversalLimits` fields this function's caller (`projectCompletion`) also builds from the same
+ * `facts`. Named per-adapter so a reader can tell which adapter degraded, not just that "augmentation"
+ * did in general.
+ */
+function augmentationBudgetDetails(exceededAdapterIds: AnalysisObservations['augmentationBudgetExceeded']): readonly LimitationDetail[] {
+  if (exceededAdapterIds === undefined || exceededAdapterIds.length === 0) {
+    return [];
+  }
+  return [{
+    code: 'augmentation_budget_exceeded',
+    severity: 'warning',
+    scope: 'semantic',
+    message: `The following adapter(s) exhausted their own exploration budget before finishing: ${exceededAdapterIds.join(', ')}. Augmented edges from them may be incomplete; the static call graph above is unaffected.`,
+    action: 'Re-run if a more complete augmented result is needed; the static result already returned is not affected.',
+  }];
 }
 
 function interruptionDetails(completion: GraphCompletion): readonly LimitationDetail[] {

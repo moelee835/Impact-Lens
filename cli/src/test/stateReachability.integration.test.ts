@@ -126,6 +126,18 @@ const CATALOG_DECLARED_READINESS_REACHABLE: readonly CompletionTuple[] = [
   { requestStatus: 'partial', traversalStatus: 'unknown', semanticScope: 'provider-static', indexingStatus: 'working' },
 ];
 
+/**
+ * `static-plus-inference` becoming reachable, M4 stage 2 (docs/work/task-m4-stage2-fastapi-adapter.md).
+ * `stateReachability.sources.test.ts`'s own comment on `UNREACHABLE_SEMANTIC_SCOPES` named this exact
+ * destination ("move it out... into a reachable list in stateReachability.integration.test.ts"). Only
+ * `static-plus-inference` moves - `static-plus-observation` (a runtime trace) still has no producer.
+ * `indexingStatus` stays `unknown` because `bundled-pyright` declares no `readiness` profile (same
+ * reason the shipped-catalog TypeScript rows above are all `unknown`).
+ */
+const AUGMENTATION_REACHABLE: readonly CompletionTuple[] = [
+  { requestStatus: 'succeeded', traversalStatus: 'exhausted', semanticScope: 'static-plus-inference', indexingStatus: 'unknown' },
+];
+
 // ---------------------------------------------------------------------------
 // Bundled TypeScript: one real typescript-language-server session, five real analyses against it.
 //
@@ -368,6 +380,35 @@ test('the shipped and catalog-declared-readiness-additional reachable sets do no
   const shippedKeys = new Set(SHIPPED_CATALOG_REACHABLE.map(tupleKey));
   const overlap = CATALOG_DECLARED_READINESS_REACHABLE.map(tupleKey).filter(key => shippedKeys.has(key));
   assert.deepEqual(overlap, []);
+});
+
+// ---------------------------------------------------------------------------
+// M4 stage 2: real bundled-pyright, real fastapi-static-v1 adapter, the same FastAPI fixture
+// `pythonFastapiIntegration.test.ts` uses (cli/src/test/fixtures/python-fastapi/app.py) - not a new,
+// separate fixture, so this reachability proof and that file's own contract assertions stay about the
+// same real behavior. No `resolution.catalog` override: `bundled-pyright` is reached through ordinary
+// auto-discovery on a `.py` file, exactly the real-request path.
+// ---------------------------------------------------------------------------
+
+const FASTAPI_FIXTURE_WORKSPACE = path.resolve(__dirname, '..', '..', 'src', 'test', 'fixtures', 'python-fastapi');
+
+async function fastapiAugmentationRows(t: TestContext): Promise<readonly ObservedRow[]> {
+  const provider = new LspCallHierarchyProvider(FASTAPI_FIXTURE_WORKSPACE, 'app.py', undefined, 20000);
+  t.after(() => provider.dispose());
+  // `def get_db` in app.py - the Depends() target `pythonFastapiIntegration.test.ts` already proves has
+  // no static incoming caller (`provider_null_incoming_calls`). With augmentation on, the adapter finds
+  // `get_items` referencing it via `Depends(get_db)`.
+  const withAugmentation = await analyzeImpact(
+    { workspace: FASTAPI_FIXTURE_WORKSPACE, file: 'app.py', line: 28, column: 5, depth: 5, maxNodes: 50, augmentationEnabled: true },
+    provider,
+  );
+  assert.ok((withAugmentation.augmentedEdges as unknown[]).length > 0, 'expected the adapter to actually find a candidate here - a vacuous 0-edge run would prove nothing about static-plus-inference being reachable');
+  return [{ scenario: 'fastapi-static-v1: Depends() target found', tuple: tupleOf(withAugmentation) }];
+}
+
+test('the fastapi-static-v1 adapter produces exactly its declared reachable completion state', { timeout: 30000 }, async t => {
+  const rows = await fastapiAugmentationRows(t);
+  assertReachableSetMatches('fastapi augmentation', rows, AUGMENTATION_REACHABLE);
 });
 
 // ---------------------------------------------------------------------------
