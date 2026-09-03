@@ -1,8 +1,10 @@
 # M2 Python·Go·C/C++ v0.8.0 release 정합성
 
-- 상태: 진행 중 — B-3(준비와 정지)까지 진행, **tag·GitHub Release 발행 직전에 멈춘다.** 사용자 승인
-  대기.
-- branch: `release/0.8.0`
+- 상태: **완료.** v0.8.0 tag·GitHub Release 발행(commander 세션, 직접 사용자 승인),
+  release-fallback 공개 default-path 사후 검증(B-4) 완료, release decision(B-5) 기록까지 끝났다.
+  release: https://github.com/moelee835/Impact-Lens/releases/tag/v0.8.0
+- branch: `release/0.8.0`(merge 후 삭제됨, merge commit `54635c2`), 이 문서의 사후 기록은
+  `docs/m2-release-0-8-0-verification-log`.
 - 선행: PR #68(M2 gate-gaps, 8개 종료 gate 전부 닫힘) merge 완료(`8eb1358`) 후 착수.
 - 요구사항 전문(계획 세션 작성, 저장소 밖): `m2-closure-release.md`(commander scratchpad)의 B절.
 - 절차 원본: [`task-m1-release-0-7-0.md`](task-m1-release-0-7-0.md)의 5단계. 그 문서를 먼저 읽고 그대로
@@ -124,7 +126,7 @@ M2는 **언어 지원 추가**다 — breaking change 없음, additive. `schemaV
 C/C++에서 `compile_database_*` 코드와 `.h` 언어 모호성을 확인해야 한다는 것 — 전부 **agent 응답의
 정확성에 직접 영향을 주는 새 지침**이므로 patch가 아니라 minor다. 필드 제거·재정의는 없다(추가뿐).
 
-## B-3. 준비와 정지 (진행 중)
+## B-3. 준비와 정지 (완료)
 
 계획:
 1. 위 B-1 표의 모든 위치를 `0.8.0`으로, plugin manifest 2개를 `0.4.0`으로 갱신한다.
@@ -332,7 +334,11 @@ INSTALL.md와 정확히 같은 방식으로 고쳤다:
   과거 절, M1/M2 역사적 work 문서(이 문서 자신 포함, `0.7.0`을 이전 버전으로 서술하는 것은 의도됨),
   무관한 lockfile `engines` 필드뿐 — **그 밖에는 0건.**
 - **`main`에서 artifact 재생성**(session 전용 `npm_config_cache`, 사용자 홈 `~/.npm` 권한 변경 없음):
-  - `impact-lens-0.8.0.vsix`: `vsce package`로 생성, 31 files, 1,316,011 bytes. SHA-256
+  - `impact-lens-0.8.0.vsix`: `vsce package`로 생성, 31 files, **1,151,985 bytes**(`ls -la`/`stat`로
+    실측한 실제 파일 크기 — 처음 보고했던 1,316,011 bytes는 `unzip -l` 출력 맨 아래 총합 줄을 잘못
+    읽은 것으로, 그 줄은 zip 내부 각 entry의 **압축 해제 후** 크기 합계이지 `.vsix` 파일 자체의
+    디스크 크기가 아니다 — commander가 공개 asset과 대조해 발견, `ls -la`로 재확인해 정정한다).
+    SHA-256은 처음 보고한 값과 일치하고(파일 자체는 맞았다), 실제 크기 숫자만 틀렸었다. SHA-256
     `49a69b0701a607769135de6d94a0c9f005ca091987e0e2993a64f0fc9d57f025`. `unzip -l` + leak 패턴
     grep(`.claude`/`.github`/`scripts/`/`extension/src/`/`extension/cli/`/`extension/plugins/`/
     `extension/docs/`)로 leak 없음 확인(매치 0건). **branch 빌드 checksum
@@ -349,13 +355,107 @@ INSTALL.md와 정확히 같은 방식으로 고쳤다:
 - tag·Release·asset 업로드는 이 세션이 수행하지 않는다 — commander가 자신의 세션에서 받은 직접
   사용자 승인으로 발행을 맡는다(relay된 승인으로는 발행하지 않는다는 v0.7.0 규칙을 지키기 위해).
 
-## Backlog (이 릴리스 lane에서 고치지 않음 — commander 지시)
+### 2026-09-03 — commander 발견: vsix 크기 오보고 정정
 
-- `cli/src/providers/catalog.ts`의 `bundled-pyright` `lastVerified` 주석이 "this preset has no CI
-  job yet exercising windows-latest/ubuntu-latest ... Stage 5 ... is where that gap closes"라고
-  미래형으로 남아 있다 — `unit-tests.yml`의 실제 주석은 이미 그 gap이 실측으로 닫혔다고 서술한다.
-  실제보다 **적게** 주장하는 방향이라 사용자에게 새지 않는다(commander 판단). 코드 주석 정정은
-  별도 lane.
-- reviewer가 발견한 stale worktree 정리(`.claude/worktrees/agent-a74c7b5dab71f5309`,
-  `.claude/worktrees/agent-ad65e9c6c64ba60cc` — 이 세션이 이번 lane 도중 우연히 목격한 것과 같은
-  디렉터리로 보인다) — 이 릴리스 lane의 파일이 아니라 별도 정리 필요.
+commander가 공개 asset과 대조하는 과정에서 발견했다: 위 기록의 `impact-lens-0.8.0.vsix` 크기
+"1,316,011 bytes"가 **실제 파일 크기가 아니다.** 원인을 직접 재확인했다 — 그 숫자는 `unzip -l`
+출력 맨 아래 총합 줄("1316011 31 files")이었는데, 그 줄은 zip **내부 각 entry의 압축 해제 후
+크기 합계**이지 `.vsix` 파일 자체의 디스크 크기가 아니다. `ls -la`/`stat`로 실제 파일을 다시 재본
+결과 **1,151,985 bytes**였고, 이는 commander가 대조한 공개 Release asset의 크기와도 일치한다.
+**SHA-256은 처음부터 정확했다** — 해시한 파일 자체는 맞았고, 옆에 적은 사람이 읽을 수 있는 크기
+숫자만 잘못 옮겨 적은 것이었다. 위 B-3 기록을 실제 값으로 정정했다. `impact-lens-cli-0.8.0.tgz`
+쪽은 npm이 직접 보고한 "package size"(디스크 크기)를 그대로 옮겼던 것이라 `ls -la`로 재대조해도
+100,167 bytes(≈100.2 kB)로 일치 — 정정 불필요.
+
+## B-4. 공개 default-path 사후 검증 — CI가 대신할 수 없는 유일한 검증
+
+`task-m1-release-0-7-0.md` 4단계와 같은 이유로 필수다: `test-plugin-artifact-e2e.mjs:70`이
+`IMPACT_LENS_CLI_PACKAGE`로 로컬 tarball을 주입하므로, PR #69의 3-OS CI 전부 green이었어도 **방금
+발행한 실제 `v0.8.0` Release URL은 한 번도 타지 않았다.**
+
+### 상위 선택 경로 4개를 전부 명시적으로 막고 실행
+
+1. **checkout 경로 차단**: `run-impact-lens` 스크립트를 저장소 밖(`$SCRATCH/b4-verify/`)에 파일
+   하나만 복사해 실행했다 — 원본 경로 `plugins/impact-lens/scripts/run-impact-lens`는 스크립트
+   기준 상대 경로(`plugin_dir/../../cli/dist/index.js`)가 정확히 저장소 root의 `cli/dist/index.js`를
+   가리키도록 설계돼 있으므로, `scripts/`라는 중첩 구조 없이 파일 하나만 복사하면 그 상대 경로가
+   다른 곳을 가리킨다. **가리키는 곳에 실제로 `cli/dist/index.js`가 없음을 스크립트와 동일한 경로
+   계산 로직을 직접 재현해 먼저 확인**했다(`CDPATH= cd -- ... && pwd` 그대로 재현) — 계산된 경로:
+   `.../scratchpad/../../cli/dist/index.js`, `[ -f ... ]` 결과 부재 확인.
+2. **global 경로 차단**: `command -v impact-lens` — 이 머신에 전역 설치 없음을 확인(빈 결과).
+3. **override 환경변수 차단**: `env -u IMPACT_LENS_CLI_PATH -u IMPACT_LENS_CLI_PACKAGE`로 두 변수
+   모두 명시적으로 unset한 상태에서 실행(원래도 미설정이었지만 이중으로 확인).
+4. **fresh npm cache**: 이 검증 전용으로 새로 만든 `$SCRATCH/b4-fresh-npm-cache`(이전에 이 세션이
+   `test:plugin-artifact` 등에서 쓴 캐시와 완전히 분리) — 이전 실행이 실제 release URL을 이미 캐시해
+   둔 것을 재사용하는 착시를 배제한다.
+
+### 실행 결과 — 둘 다 release-fallback, 새 preset(Python)까지 함께 검증
+
+- `doctor bundled-pyright --smoke`: `runtime.cli.version: "0.8.0"`, `runtime.runner.source:
+  "release-fallback"`, `status: "ready"`, 7개 check 전부 `pass`(`bundled-provider-artifact`가
+  `pyright 1.1.413`를 실제로 읽어 들였고 `initialize-capability-smoke`가 실제 Language Server를
+  띄워 `callHierarchy: true`를 확인).
+- 실제 `.py` 2-파일 fixture(`target.py`/`caller.py`, `fixture_caller`가 `fixture_target`을 호출)로
+  `analyze` 실행: `ok: true`, `runtime.cli.version: "0.8.0"`, `runtime.runner.source:
+  "release-fallback"`, `provider.selectedBy: "bundled"`, `fixture_caller`가 `fixture_target`의
+  direct caller로 정확히 검출됨(`completion.requestStatus: "succeeded"`,
+  `traversalStatus: "exhausted"`).
+- **실제 네트워크 fetch였다는 것도 확인**: 방금 만든 fresh cache 안에
+  `_npx/.../node_modules/@impact-lens/cli/package.json`이 실제로 생성됐고 그 `version`이
+  `"0.8.0"`임을 직접 열어 확인했다 — 가정이 아니라 이 검증이 만든 파일을 직접 읽었다.
+
+**결과**: override 없이, checkout·global 경로를 명시적으로 막은 상태에서, release-fallback으로
+`0.8.0`이 실제로 도달 가능함을 doctor와 analyze 양쪽에서, 그리고 신규 preset(bundled-pyright)을
+통해 확인했다. **pin 404 창이 여기서 닫혔다** — commander가 별도로 공개 URL SHA-256 대조로도 이미
+확인했다.
+
+### 검증
+
+- 위 4개 항목 전부 명령 출력으로 직접 확인(추측 없음).
+- doctor·analyze 응답 JSON 원문을 이 로그의 근거로 인용했다(요약이 아니라 실제 필드값).
+
+## B-5. release decision 기록
+
+**무엇을 발행했는가**: `v0.8.0`(CLI/Extension), plugin payload `0.4.0`. `main`의 `54635c2`(PR #69
+merge commit)를 가리키는 tag, non-draft·non-prerelease GitHub Release, asset 2개
+(`impact-lens-0.8.0.vsix`, `impact-lens-cli-0.8.0.tgz`). Release 본문은 `CHANGELOG.md`의 `0.8.0`
+절 전문(known limitation 문단 포함).
+
+**무엇이 검증됐는가**:
+- M2의 8개 종료 gate 전부 근거와 함께 판정됐다(PR #67·#68, `task-m2-closure.md`·
+  `task-m2-gate-gaps.md`).
+- 버전 소유 위치 전수 재조사 — 새 기능적/사용자 대상 위치 없음, 잔존 `0.7.0` 0건(B-1, 이 문서).
+- `npm run test:all`이 branch와 `main` 양쪽에서 통과, VSIX·tarball 패키징 leak 없음, 공개 asset의
+  SHA-256이 로컬 재계산 값과 정확히 일치(commander가 직접 다운로드해 대조).
+- **release-fallback 공개 default-path가 실제로 동작한다** — checkout·global 경로를 명시적으로
+  막은 상태에서 doctor·analyze 둘 다 성공, 새 preset(Python)까지 함께 확인(B-4, 위).
+- CHANGELOG의 preset별 OS/버전 claim을 코드·CI 로그와 대조해 clangd 항목의 과잉 주장 1건을 실제로
+  찾아 고쳤다(commander·reviewer).
+- INSTALL.md·README.md의 `검증`/`verified` 용어가 선택 tier(코드가 확인한 것)와 promotion 등급
+  (사람이 검증한 것)을 섞어 쓰던 지점을 찾아 분리했다 — 사용자가 가장 먼저 읽는 두 문서가 CHANGELOG의
+  known limitation과 반대로 읽히던 문제였다.
+
+**무엇이 여전히 안 됐는가 — 가장 중요한 부분**:
+- **세 preset(`bundled-pyright`/`gopls`/`clangd`) 전부 실제 사용자 검증이 실행되지 않았다.** 이
+  저장소의 `tier`(`bundled`/`verified-external`)는 배포 형태이지 사용자 검증 등급이 아니다 —
+  `verified-external`인 gopls·clangd도, `bundled`인 pyright도 **셋 다 지금은 `experimental`이다.**
+  `user-tests/m2-user-test-spec.md`는 작성·검토만 됐고 실행은 마일스톤 4단계가 명시적으로 보류한
+  상태이며, 이 릴리스도 그 보류를 뒤집지 않는다. **"v0.8.0이 발행됐다"가 "세 언어가 verified로
+  승격됐다"를 뜻하지 않는다** — CHANGELOG 맨 위, INSTALL.md, README.md 세 곳 모두 이 문장을 명시적
+  으로 담고 있다.
+- clangd 18-21 버전의 virtual dispatch 동작은 여전히 미측정이다(17/22/23만 실측, `catalog.ts`
+  `docs.limitations` 참고).
+- upstream LLVM Releases 바이너리 설치 경로는 CI가 검증한 적 없다(apt.llvm.org/Homebrew/Chocolatey
+  세 경로만 CI가 실제로 검증).
+
+**backlog로 남긴 것 3건**(이 릴리스가 고치지 않음, 사용자에게 새지 않는다는 commander 판단 또는
+파일이 이 릴리스 범위 밖이라는 이유):
+1. `cli/src/providers/catalog.ts`의 `bundled-pyright` `lastVerified` 주석이 stage 5 완료 전
+   시점의 미래형 문구("Stage 5 ... is where that gap closes")로 남아 있다 — `unit-tests.yml`의
+   실제 주석은 이미 그 gap이 실측으로 닫혔다고 서술한다. 실제보다 **적게** 주장하는 방향이라
+   사용자에게 새지 않는다.
+2. reviewer가 발견한 stale worktree(`.claude/worktrees/agent-a74c7b5dab71f5309`,
+   `.claude/worktrees/agent-ad65e9c6c64ba60cc`) 정리 — 개발 환경 잔여물이라 릴리스와 무관.
+3. ~~`README.md:210`의 용어 충돌~~ — **이미 이 lane에서 고쳤다**(commander 지시로 범위에
+   포함됨, 위 작업 로그 "README.md도 같은 방식으로 정정" 참고). 애초 backlog 후보였다가 승격된
+   항목이므로 여기 목록에서는 제외한다.
