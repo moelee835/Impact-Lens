@@ -34,12 +34,43 @@ Python·Java·Go·Rust·C/C++·Swift·Kotlin 프로젝트에서 Plugin을 사용
 
 ## 수용 기준
 
-- [ ] 우선 대상 언어마다 지원 버전과 설치 조건이 문서화된다.
-- [ ] preset으로 single-file 및 cross-file incoming call fixture가 통과한다.
-- [ ] preset 감지 실패가 실행 후보와 해결 방법을 포함해 보고된다.
-- [ ] 수동 provider 설정은 하위 호환으로 유지된다.
-- [ ] 검증된 언어는 provider JSON 없이 Plugin 분석을 시작할 수 있다.
-- [ ] 미지원 확장자에서 TypeScript provider로 silent fallback하지 않는다.
+> **2026-09-03 갱신(M2 마일스톤 종료 처리, `docs/work/task-m2-closure.md`)**: 아래 6개 항목을
+> 근거와 함께 판정했다. 2번은 **부분만 충족**이라 미체크로 남긴다 — Go의 single-file 케이스가
+> repeating fixture로 증명된 적이 없다(work document 참고, 후속 lane 후보).
+
+- [x] 우선 대상 언어마다 지원 버전과 설치 조건이 문서화된다. — `cli/src/providers/catalog.ts`의
+      `docs.install`/`lastVerified`가 4개 preset(bundled-typescript, gopls, bundled-pyright, clangd)
+      전부에 있고, README.md/INSTALL.md/cli/README.md가 언어별 설치 요구를 산문으로도 설명한다.
+- [ ] preset으로 single-file 및 cross-file incoming call fixture가 통과한다. — **부분만 충족.**
+      cross-file은 4개 preset 전부 반복 증명됨(TypeScript는 기존, Python은
+      `cli/src/test/contract.test.ts`의 auto-discovery 테스트, Go는 `catalog.ts`의 gopls
+      fixture(`target.go`/`caller.go`)를 실제로 도는
+      `cli/src/test/stateReachability.integration.test.ts`, C/C++는
+      `cli/src/test/clangdIntegration.test.ts`). single-file은 Python(`cli/src/test/
+      pythonFastapiIntegration.test.ts`의 `normal_helper`/`regular_caller` 대조군, 같은 파일)과
+      C/C++(clangd preset 자신의 single-file fixture, `CLANGD_FIXTURE_C`)에는 있지만 **Go에는
+      없다** — `catalog.ts`의 gopls fixture는 `target.go`에 정의만 두고 같은 파일 안 호출자가
+      없는 순수 cross-file 구성이다(직접 grep으로 재확인: `target.go`/`caller.go`를 참조하는 파일이
+      `catalog.ts` 자신뿐). 후속 코드 lane에서 Go의 same-file 케이스를 추가해야 닫힌다.
+- [x] preset 감지 실패가 실행 후보와 해결 방법을 포함해 보고된다. — `cli/src/providers/resolve.ts`의
+      `executableNotFound()`(`provider_executable_not_found`)가 `candidates`(실행 파일 이름 후보)와
+      `install`(공식 설치 링크)을 `error.details`에 싣는다. `cli/src/test/doctor.test.ts:117`,
+      `cli/src/test/providers.test.ts:227`.
+- [x] 수동 provider 설정은 하위 호환으로 유지된다. — raw custom `provider`가 여전히 선택 순서 최우선
+      (`resolve.ts`), `cli/src/test/providers.test.ts`의 우선순위 테스트와
+      `cli/src/test/contract.test.ts`의 구식 요청(`provider` 필드만, preset/override 없음) 테스트가
+      계속 통과.
+- [x] 검증된 언어는 provider JSON 없이 Plugin 분석을 시작할 수 있다. — CLI 레벨 auto-discovery는
+      4개 preset 전부에서 실측됨(위 2번 항목의 각주 참고). Plugin runner
+      (`plugins/impact-lens/scripts/run-impact-lens`)는 "language"/"provider" 관련 분기가 사실상
+      없는 순수 CLI 경로 해석 스크립트임을 직접 확인했다(207줄, "language" 0회, "provider" 1회 —
+      `provider.doctor` operation 이름뿐) — 요청 내용에 관여하지 않으므로 CLI 레벨 증거가 Plugin에도
+      적용된다는 것이 이 사실에서 나오는 추론이다. **다만 Python/Go/clangd를 Plugin runner 자체로
+      돌리는 전용 E2E는 없다** — `scripts/test-plugin-artifact-e2e.mjs`는 스스로 "TS/TSX/JS/JSX"
+      만 검증한다고 밝힌다(출력 문구로 확인). 이 seam(측정된 사실과 추론의 경계)을 표시해 둔다.
+- [x] 미지원 확장자에서 TypeScript provider로 silent fallback하지 않는다. — `cli/src/test/
+      providers.test.ts`와 `cli/src/test/contract.test.ts`의 "unclaimed language"(현재 `.swift`
+      — python→c→swift로 이동해 온 stand-in) 테스트.
 
 ## 검증
 
