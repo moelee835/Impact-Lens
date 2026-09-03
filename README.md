@@ -292,7 +292,9 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 - 다른 언어의 CLI 분석은 표준 LSP Call Hierarchy server command와 `languageId` 설정이 필요합니다.
 - CLI는 대상 파일 언어와 맞지 않는 bundled provider를 실행하지 않으며, provider의 discovery/launch/
   initialize/capability/query 실패를 서로 다른 오류로 반환합니다.
-- Python/FastAPI의 일반 import 호출은 provider 지원 범위에서 나타날 수 있지만 `Depends()`와 decorator routing은 누락될 수 있습니다.
+- Python/FastAPI의 일반 호출은 provider 지원 범위에서 나타나지만, route handler(`@app.get()` 등으로
+  선언되고 프레임워크가 호출)와 `Depends()`로만 참조되는 대상은 둘 다 정적 Call Hierarchy에서 보이지
+  않습니다 — 실제 FastAPI로 측정해 둘 다 같은 신호(`provider_null_incoming_calls`)로 확인된 사실입니다.
 - `provider`에는 선택 근거와 advertised/observed capability가, `coverage`에는 traversal/semantic/indexing
   범위가 기록됩니다. Extension은 VS Code 공개 API가 실제 provider identity를 노출하지 않으므로 이름을
   `unknown`으로 표시합니다.
@@ -326,8 +328,10 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
   `null`을 구분해 반환할 수 있는데, `null`은 "호출자가 없다고 확정한다"는 뜻이 아닙니다. Impact Lens는
   이 차이를 응답에서 지우지 않고 `provider_null_incoming_calls`로 남깁니다 — `indexingStatus: ready`
   아래에서도 사라지지 않습니다(색인 완성 여부와 이 질의 하나의 답은 별개이기 때문입니다). caller
-  0개인 결과에 이 코드가 있으면 "이 함수를 아무도 호출하지 않는다"로 요약하지 마세요 — FastAPI의
-  `Depends()`처럼 정적 Call Hierarchy가 볼 수 없는 경로로 실제로 호출되고 있을 수 있습니다.
+  0개인 결과에 이 코드가 있으면 "이 함수를 아무도 호출하지 않는다"로 요약하지 마세요 — FastAPI route
+  handler(프레임워크의 router가 호출하지만 그 호출이 코드 안 어디에도 call expression으로 없음)와
+  `Depends()`로만 참조되는 대상(애초에 호출된 적이 없음) 둘 다 이 신호로 나타납니다 — 실제
+  FastAPI 코드로 측정해 확인한 사실입니다(추정 아님).
 - `limitationDetails`의 `compile_database_missing`/`_stale`/`_ambiguous`: C/C++(`clangd`) 전용입니다.
   `compile_commands.json`이 없거나, `CMakeLists.txt`보다 오래됐거나, 후보가 여러 개라 하나를 조용히
   골랐다는 뜻입니다. 이 상태에서 clangd는 파일 간 관계를 찾을 색인이 없는 채로 저하 동작합니다 — 이미

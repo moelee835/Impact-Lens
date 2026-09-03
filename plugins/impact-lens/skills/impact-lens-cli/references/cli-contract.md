@@ -130,10 +130,12 @@ An empty incoming-call result has one root node and no edges. Read its limitatio
   `null`, so treat it as "the provider did not commit to zero," not as a stronger or weaker signal than
   that. Unlike `index_state_unknown`, this is not about index completeness — it can appear together with
   `indexingStatus: ready` (proving the index is built says nothing about what this one query returned) —
-  so do not expect it to disappear once the index is proven ready. The motivating case is a symbol invoked
-  only through a mechanism a static Call Hierarchy provider cannot see, such as FastAPI's `Depends()` or
-  other framework-mediated dependency injection: the function is genuinely called, but not through a call
-  expression. When this code is present, do not state or imply that nothing calls the symbol.
+  so do not expect it to disappear once the index is proven ready. The motivating cases are two
+  mechanisms a static Call Hierarchy provider cannot see, measured directly against real FastAPI code, not
+  assumed: a route handler (`@app.get()` and similar) is genuinely called, but by the framework's router,
+  never through a call expression anywhere in the analyzed code; a dependency referenced only via
+  `Depends()` is not called at all, only referenced by name. Both converge on this same `null` signal for
+  those different reasons. When this code is present, do not state or imply that nothing calls the symbol.
 
 ## Indexing state and completeness
 

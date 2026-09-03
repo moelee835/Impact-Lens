@@ -32,12 +32,39 @@ Python/FastAPI 사용 개발자로서 설치 조합별로 검증된 지원 범�
 
 ## 수용 기준
 
-- [ ] 재현 가능한 Python/FastAPI fixture와 실행 절차가 존재한다.
-- [ ] 일반 호출, route와 dependency별 기대·미지원 결과가 명시된다.
-- [ ] 실제 Language Server 기반 자동 또는 반복 가능한 통합 검사가 수행된다.
-- [ ] 검증된 지원 범위가 README/INSTALL과 일치한다.
-- [ ] provider가 없는 Python 요청은 검증 preset을 자동 선택하거나 Python 전용 actionable error를 반환한다.
-- [ ] Python 분석 실패가 빈 그래프 또는 TypeScript provider 실패로 오인되지 않는다.
+> **2026-09-03 갱신(M2 FastAPI E2E lane, `docs/work/task-m2-fastapi-e2e.md`)**: 아래 6개 항목에 근거를
+> 달아 체크했다. 앞 4개는 이 lane이 새로 충족했고, 뒤 2개는 M2 Python preset lane(PR #64)이 이미
+> 충족한 것을 재확인했다. `상태: Backlog`는 건드리지 않는다 — 마일스톤 종료 커밋에서 일괄 처리한다.
+
+- [x] 재현 가능한 Python/FastAPI fixture와 실행 절차가 존재한다. — 실제 `fastapi==0.128.8`로 측정해
+      만든 `cli/src/test/fixtures/python-fastapi/app.py`(pip 설치 불필요 — 측정으로 확인된 사실,
+      `docs/work/task-m2-fastapi-e2e.md` "commander 지시: fastapi 설치 여부가 결과를 바꾸는가" 참고).
+      실행 절차는 `npm run cli:test`(다른 언어 provider처럼 별도 CI job이나 설치 단계 불필요) —
+      `cli/src/test/pythonFastapiIntegration.test.ts`가 그 절차 자체를 코드로 담고 있다.
+- [x] 일반 호출, route와 dependency별 기대·미지원 결과가 명시된다. — 일반 호출은
+      `normal_helper`/`regular_caller`로 찾아짐을 증명(대조군). route handler(`get_items`)와
+      `Depends()` 대상(`get_db`)은 둘 다 `provider_null_incoming_calls`로 미지원임을 명시. 사용자가
+      읽는 위치: README.md("분석 경계", "complete: true가 증명하지 않는 것"), cli/README.md, plugin
+      SKILL.md·cli-contract.md, `catalog.ts`의 `bundledPyright.docs.limitations`(근거 소스).
+- [x] 실제 Language Server 기반 자동 또는 반복 가능한 통합 검사가 수행된다. —
+      `pythonFastapiIntegration.test.ts`가 실제 bundled pyright로 skip 게이트 없이 매 `cli:test` 실행마다
+      3케이스를 검사한다(`contract.test.ts`의 기존 bundled-pyright 테스트와 같은 형태). non-vacuity를
+      역방향 관측(`lspProvider.ts`의 `nullIncomingCallsObserved` 기록을 일시 비활성화 → 대조군은
+      그대로 통과, route·dependency 테스트 2개는 실제로 실패 → byte-identical 복원 확인)으로 직접
+      증명했다.
+- [x] 검증된 지원 범위가 README/INSTALL과 일치한다. — README.md·cli/README.md를 이번 lane의 실측으로
+      갱신(위 항목 참고). INSTALL.md는 FastAPI 관련 세부 동작을 애초에 서술하지 않으므로(Python
+      provider 자체의 설치·검증 등급만 다룸, M2 Python preset lane 때 이미 일치시킴) 상충하는 내용이
+      없다.
+- [x] provider가 없는 Python 요청은 검증 preset을 자동 선택하거나 Python 전용 actionable error를
+      반환한다. — M2 Python preset lane(PR #64)이 이미 충족: `contract.test.ts`의 "auto-discovery
+      reaches bundled-pyright for a real .py file with no provider field at all" 테스트. 이 lane은
+      재확인만 했다(`pythonFastapiIntegration.test.ts`의 각 테스트도 `provider` 필드 없이 순수
+      auto-discovery로 실행되고, `selectedBy: 'bundled'`를 직접 단언한다).
+- [x] Python 분석 실패가 빈 그래프 또는 TypeScript provider 실패로 오인되지 않는다. — M2 Python preset
+      lane(PR #64)이 이미 충족(bundled-pyright는 대상 언어가 아닌 파일에 실행되지 않고,
+      provider 실패는 `ok: false`로 구분됨). 이 lane에서 회귀를 유발하지 않았다 —
+      `npm run cli:test` 전체 재실행으로 기존 327개(신규 3개 포함) 테스트가 모두 통과함을 확인.
 
 ## 검증
 

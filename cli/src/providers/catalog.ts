@@ -303,7 +303,16 @@ const bundledPyright: ProviderPreset = {
       // The observed pyright/Pyrefly null-vs-[] divergence for exactly this shape (Depends()-style
       // reference-only calls) is what task-m2-python-preset.md stage 3's `provider_null_incoming_calls`
       // exists to flag per-response; this line documents the underlying static-analysis gap itself.
-      'Calls made only through framework mechanisms such as dependency injection (for example FastAPI\'s Depends()) are not part of the Call Hierarchy result.',
+      //
+      // M2 FastAPI E2E lane (task-m2-fastapi-e2e.md) measured both halves of this sentence directly
+      // against real fastapi==0.128.8 and found they converge on the exact same signal, for two different
+      // reasons: a route handler IS called, but by FastAPI's router, never through a call expression
+      // anywhere in the analyzed code, so pyright has no call site to find; a `Depends()` argument is
+      // never called at all, only referenced by name. Both come back as raw `null` from
+      // `callHierarchy/incomingCalls` (confirmed at the wire level, not inferred), which is exactly why
+      // this sentence names both rather than treating `Depends()` as the sole special case - it would
+      // read as narrower than the real gap otherwise.
+      'Calls made only through framework mechanisms - a FastAPI route handler invoked by the framework\'s router rather than a call expression in the analyzed code, or a dependency referenced only via Depends() - are not part of the Call Hierarchy result.',
       // Verified directly, task-m2-python-preset.md stage 4: this preset does not auto-detect a virtual
       // environment. A project needs its own pyrightconfig.json/pyproject.toml naming venvPath, or a
       // workspace/configuration response naming pythonPath, or symbols reached only through an

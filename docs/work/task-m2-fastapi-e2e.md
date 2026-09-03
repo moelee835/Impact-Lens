@@ -1,6 +1,6 @@
 # M2 — IL-LIM-006 Python/FastAPI E2E
 
-- 상태: Stage 1 완료 + commander 지시로 추가 측정(fastapi 설치 여부의 영향) 완료, stage 2 설계 승인 대기
+- 상태: Stage 1-3 전부 완료, commander에게 보고 후 검토 대기(PR은 아직 안 올림)
 - branch: `feat/m2-fastapi-e2e`
 - 선행: PR #65(`feat/m2-clangd-preset`, M2 clangd lane) merge 완료(squash `97a3ee0`) 후 착수.
 - 스토리: `docs/development-management/stories/il-lim-006-python-fastapi-e2e.md`
@@ -173,10 +173,88 @@ lane이 이미 "pyright는 pinned dependency라 별도 CI job 불필요"라고 �
 **fixture 파일 자체가 없거나 손상됐을 때** 테스트가 실패하는지로 확인해야 한다(다른 형태의 skip-as-
 failure).
 
+## Stage 2 — 통합 검사
+
+**목적**: stage 1(+추가 측정)의 관측을 CI가 계속 지키게 한다.
+
+**구현**: `cli/src/test/pythonFastapiIntegration.test.ts`(신규). `contract.test.ts`의 bundled-pyright
+테스트와 같은 형태 — `spawnSync`로 실제 CLI(`index.js analyze --stdin`)를 실행하고, `provider` 필드
+없이 순수 auto-discovery로 `bundled-pyright`가 선택되게 한다. skip 게이트 없음(추가 측정 결론대로
+fastapi 설치 여부가 결과에 영향을 주지 않으므로 `IMPACT_LENS_REQUIRE_*`류 게이트 자체가 필요 없다).
+fixture는 `cli/src/test/fixtures/python-fastapi/app.py`(stage 1의 checked-in 파일)를 그대로 분석
+대상 workspace로 삼는다 — 별도 temp 디렉터리 복사 없음(pyright는 분석 대상 workspace에 아무것도 쓰지
+않으므로 필요 없다). `__dirname`(빌드 후 `cli/dist/test/`)에서 `../../src/test/fixtures/...`로
+되짚어 소스 트리의 `.py` 파일을 직접 가리킨다 — `buildInvocation.sources.test.ts`가 이미 쓰는
+"tsc가 컴파일하지 않는 실제 소스 파일을 dist에서 되짚어 읽는다" 관례와 동일(첫 시도는 `__dirname`
+기준 `fixtures/`로 잘못 짚어 `ENOENT`로 실패 — 발견 즉시 수정).
+
+**테스트 3개**:
+1. **대조군**(`normal_helper`, `regular_caller`가 실제 호출): `edges.length === 1`,
+   `provider_null_incoming_calls` 없음을 단언. **같은 실행·같은 fixture**에서 이걸 먼저 증명해야
+   아래 두 "안 찾아짐"이 의미를 갖는다(파이프라인이 전부 죽어도 "안 찾아짐"은 통과할 수 있으므로).
+2. **route handler**(`get_items`): `edges.length === 0` **그리고**
+   `limitationDetails`에 `provider_null_incoming_calls` 포함을 **함께** 단언 — "호출자가 없다"만
+   단언하지 않는다(그러면 "빈 결과 = 정상"을 테스트가 승인하는 셈이 되어 IL-LIM-009가 막으려는 것과
+   같아진다, commander 지적 그대로).
+3. **`Depends()` 대상**(`get_db`): 같은 쌍(edges 비어있음 + `provider_null_incoming_calls`)을 단언.
+
+`diagnostics` 필드는 **의도적으로 assert하지 않는다** — 로컬 관측(전체 CLI 경로, 정상 query
+latency)에서는 fastapi 없이도 `reportMissingImports`가 세 node 어디에도 실리지 않았지만(pyright의
+diagnostics publish가 CLI의 query 응답보다 늦게 도착 — 별도 5초 대기 프로브로만 확인 가능했다), CI
+환경의 timing이 다르면 실릴 수도 있다는 걸 배제하지 않는다. commander 지적대로 이 사실 자체를 관측
+기록으로 남긴다: **CI가 아닌 개발자 자신의 환경에서 이 기능을 쓸 때는 실제로 diagnostics가 보일 수
+있다** — fastapi를 설치하지 않은 실제 사용자에게는 `reportMissingImports`가 나타나는 것이 정상이고,
+이 lane의 테스트는 그 차이 자체를 검증 대상으로 삼지 않을 뿐이다.
+
+**non-vacuity — 역방향 관측(commander 지시, "fixture 파일 존재"가 아니라 "메커니즘"에 묶기)**:
+`cli/src/lspProvider.ts`의 `incoming()`에서 `if (calls === null) { this.nullIncomingCallsObserved =
+true; }`를 `if (false && calls === null) { ... }`로 일시 변경 → 재빌드 → 재실행:
+- 대조군(`normal_helper`)은 **그대로 통과**(애초에 이 코드 경로와 무관).
+- route handler·`Depends()` 테스트 **둘 다 실제로 실패**(`provider_null_incoming_calls` 못 찾음 —
+  `["dynamic_calls_not_inferred","unsaved_buffers_unavailable","no_incoming_callers",
+  "index_state_unknown"]`만 남고 그 코드가 사라짐).
+원상복구 후 `shasum -a 256`으로 원본과 **byte-identical** 복원 확인(`git diff`도 빈 결과). 이로써 이
+테스트가 지키는 것이 "fixture 파일이 읽힌다"가 아니라 "`null`이 `[]`와 구별돼 신호로 살아남는 경로"
+자체임을 직접 증명했다.
+
+**검증**: `npm run cli:build` 클린. `node --test cli/dist/test/pythonFastapiIntegration.test.js` 3/3
+pass(정상 상태). `npm run cli:test` 전체 327/329 pass, 2 skip(기존과 동일, gopls-required — 신규
+3개 포함해 이전 324보다 3개 증가, 회귀 없음).
+
+## Stage 3 — 문서와 수용 기준 정리
+
+**`docs.limitations` 재작성** (`cli/src/providers/catalog.ts`, `bundledPyright`): 기존 문구가
+`Depends()`만 이름 대서 특수 사례처럼 읽혔다. Stage 1의 발견(route handler와 `Depends()` 대상이
+**같은 `null` 신호로 수렴**하되 이유는 다름 — 전자는 프레임워크가 실제로 호출하지만 그 호출이 코드
+어디에도 call expression으로 없고, 후자는 애초에 호출된 적이 없음)을 반영해 두 사례를 함께 명시하는
+문장으로 교체했다.
+
+**사용자가 읽는 위치 갱신**(수용 기준 문구 "일반 호출, route와 dependency별 기대·미지원 결과"를 그대로
+반영):
+- `README.md`: "분석 경계" 절의 Python/FastAPI 한 줄, "complete: true가 증명하지 않는 것" 절의
+  `provider_null_incoming_calls` 설명 — 둘 다 route handler를 `Depends()`와 나란히 명시하도록 교체.
+- `cli/README.md`: `provider_null_incoming_calls` 설명에 두 메커니즘을 나란히.
+- `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`: 기존 문구가 사실 부정확했다
+  — "the function is genuinely called, but not through a call expression"는 route handler에는 맞지만
+  `Depends()` 대상(애초에 호출 안 됨)에는 틀린 서술이었다. 이번에 정확히 구분해 다시 썼다.
+- `plugins/impact-lens/skills/impact-lens-cli/SKILL.md`: 같은 방향으로 교체.
+- `INSTALL.md`: FastAPI 관련 세부 동작을 서술하지 않으므로(Python provider 설치·검증 등급만 다룸)
+  갱신 대상 없음 — 상충하는 문장이 있는지 직접 확인했다(없음).
+
+**`il-lim-006-python-fastapi-e2e.md`의 수용 기준 6개**: 각각 근거(파일 경로·테스트 이름·PR 번호)를
+달아 체크했다(`상태: Backlog` 필드는 건드리지 않음 — commander 지시대로 마일스톤 종료 커밋에서 일괄
+처리). 앞 4개는 이 lane이 새로 충족, 뒤 2개(provider 없는 요청의 자동 선택/actionable error, Python
+실패가 빈 그래프·TS 실패로 오인 안 됨)는 M2 Python preset lane(PR #64)이 이미 충족한 것을 재확인만
+했다 — 이 lane이 새로 만든 게 아니므로 근거에 그 사실을 명시했다.
+
+**검증**: `npm run test:response-policy` 27/27(SKILL.md/cli-contract.md 편집이 doc invariant나
+`<!-- response-policy-example -->` 두 블록을 깨지 않았는지 확인 — 안 건드림). `npm run cli:test`
+327/329(회귀 없음). `npm run test:plugin-artifact` 클린.
+
 ## 남은 작업
 
-- **Stage 1 완료. commander에게 관측 결과 보고 후 stage 2·3 승인 대기** — commander가 명시(stage 1
-  관측이 stage 2·3의 형태를 정한다).
-- Stage 2: CI 통합 검사 — `fastapi` 설치 job/step, skip-as-failure 게이트, non-vacuity 검증(fastapi
-  없을 때 job이 실제로 실패하는지).
-- Stage 3: 문서·수용 기준 정리.
+- **Stage 1-3 전부 완료. commander에게 보고 후 검토 대기 — PR은 올리지 않는다**(commander가 명시,
+  "PR은 올리지 말고 먼저 보고하세요").
+- 이 lane에서 코드로 남은 일은 없다. M2 마일스톤 종료 처리(사용자 테스트 명세 커밋, gate 근거 정리,
+  story 상태 일괄 갱신)와 릴리스가 이 lane 다음 순서로 남아 있다(commander가 명시, 이 lane의 범위
+  밖).
