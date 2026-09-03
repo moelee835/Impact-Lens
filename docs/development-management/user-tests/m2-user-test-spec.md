@@ -7,7 +7,7 @@
 - 상태: 작성 완료, **검토 대기**. **아직 실행하지 않았다.**
 - 작성 규칙: [마일스톤별 사용자 테스트 명세 계획](../milestones/user-validation-planning.md)
 - 근거: [IL-LIM-004](../stories/il-lim-004-first-class-language-presets.md),
-  [IL-LIM-006](../stories/il-lim-006-python-provider.md),
+  [IL-LIM-006](../stories/il-lim-006-python-fastapi-e2e.md),
   [IL-LIM-014](../stories/il-lim-014-c-cpp-clangd-support.md),
   [IL-LIM-009 완전성 의미론](../stories/il-lim-009-completeness-semantics.md)
 

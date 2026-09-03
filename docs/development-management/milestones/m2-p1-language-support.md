@@ -1,6 +1,8 @@
 # M2 Python·Go·C/C++ verified support
 
-- 상태: Planned
+- 상태: 종료 처리 완료(`docs/work/task-m2-closure.md`) — gate 1·2 미충족(Go same-file fixture,
+  C++ method/overload 반복 검증 없음). 세 preset(bundled-pyright/gopls/clangd)은 사용자 검증
+  미실행으로 지금은 `experimental`.
 - 완료 소유: IL-LIM-004, IL-LIM-006, IL-LIM-014
 - 릴리스 성격: 우선 언어 지원 minor release
 
