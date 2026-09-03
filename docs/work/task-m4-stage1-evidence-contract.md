@@ -1,15 +1,18 @@
 # M4 stage 1 — evidence 계약과 false-positive corpus (설계 게이트, 코드 없음)
 
-- 상태: 완료, reviewer 재검토로 발견된 5건과 commander의 후속 발견 1건(총 6건, 3건은 merge
-  차단 사유였다) 반영 후 commander 재보고 대기. Q1~Q5 전체 결론에 (1) `augmentedEdges` endpoint의
-  self-contained 원칙(`nodes` leak 경로 차단, `IL-LIM-001`의 "graph identity는 기존 symbol ID를
-  유지" 추가 정정 포함), (1-보완) **traversal이 depth/node budget으로 잘려 (a)가 dangling ID가 될
-  수 있는 경우** — id 참조는 그 실행의 `nodes`에 실제로 있을 때만 쓰고 아니면 self-contained로
-  낸다, (2) kill switch on 상태 불변식(off 비교만으로는 부족했음), (3) corpus 4번을 "같은 세션
-  dedupe"/"환경 간 표현 일관성"(stage 2 결정 항목으로 기록, 지금 안 정함)으로 분리, (4) 스토리
-  문서 자기 인용을 줄 번호 대신 원문 텍스트로 전환, (5) schemaVersion 근거를
-  `task-m1-state-truth-table.md` 4.3절의 승인 문장 직접 인용으로 보강, (6) corpus 3번 통과 기준에
-  message 텍스트 동일성 추가 — 를 보완했다.
+- 상태: 완료, reviewer 재검토로 발견된 5건과 commander의 후속 발견 2건(총 7건, `nodes` leak과
+  budget/limits leak 2건이 merge 차단 사유였다) 반영 후 commander 재보고 대기. 핵심 두 가지:
+  (1) `augmentedEdges` endpoint의 self-contained 원칙 — `nodes` leak 차단(`IL-LIM-001`의 "graph
+  identity는 기존 symbol ID를 유지" 정정 포함), traversal budget으로 (a)가 dangling ID가 되는
+  경우 보완(그 실행의 `nodes`에 실제로 있을 때만 id 참조, 아니면 self-contained). (2) **budget/limits
+  leak** — static traversal의 `facts.limits`/`TraversalFacts`를 M4가 절대 공유하지 않는다(공유하면
+  `completion`/`complete`/`truncated`/`traversalLimits`/`coverage.traversal.*` 다섯 필드가
+  augmentation 때문에 뒤집힌다 — `IL-LIM-001`의 미해결 질문에 있었지만 이전 판에서 해소하지 않고
+  지나쳤던 것). Q1 보호 목록·Q5 on-state 검증에 이 다섯 필드를 추가했고, `no_incoming_callers`/
+  `index_state_unknown`을 포함해 같은 모양의 세 번째 leak이 없는지도 직접 확인했다. 그 외
+  kill switch on 상태 불변식, corpus 4번 분리("같은 세션 dedupe"/"환경 간 표현 일관성" — 후자는
+  stage 2 결정 항목으로 기록), 스토리 자기 인용을 줄 번호 대신 텍스트로 전환, schemaVersion 근거
+  보강, corpus 3번 message 텍스트 동일성 요구도 반영했다.
 - branch: `docs/m4-stage1-evidence-contract`
 - 마일스톤: [M4 동적 호출·DI·테스트 의미 보완](../development-management/milestones/m4-semantic-augmentation.md)
 - 스토리: IL-LIM-001(동적·런타임 호출), IL-LIM-002(framework DI·라우팅), IL-LIM-010(테스트 탐지)
@@ -75,6 +78,17 @@ edge로 읽히는 걸** 막아야 한다. 이 lane이 끝나면 confirmed/candid
 단 하나의 값도 바뀌지 않는다.** 새 top-level 필드 `data.augmentedEdges`(가칭, 이름은 stage 2에서
 확정)를 신설하고, M4가 만든 edge는 전부 거기에만 들어간다. 항상 존재하되(빈 배열 허용) `edges`와
 절대 섞지 않는다.
+
+**M4가 절대 값을 바꾸지 않는 필드 전체 목록**(reviewer가 두 차례에 걸쳐 찾은 두 leak을 반영해
+최종 확정): `data.edges`, `data.nodes`, `data.limitations`, `data.limitationDetails`(단,
+`inferred_edges_included`/`observed_edges_included`가 **추가**되는 것은 M1이 이미 예약해 둔 신호라
+예외 — 기존 코드가 지워지거나 값이 바뀌는 게 아니라 새 코드가 느는 것뿐이다), `data.completion`,
+`data.complete`, `data.truncated`, `data.traversalLimits`, `data.coverage.traversal.*`. **유일하게
+의도적으로 바뀌는 것**은 `data.coverage.semantic.status`/`data.completion.semanticScope`
+(`'static-only'`/`'provider-static'` → `'augmented'`/`'static-plus-inference'`) — 이건 M4의
+존재를 알리는 신호 그 자체라 바뀌는 게 맞다. 아래 "budget/limits leak" 절이 왜 `completion`/
+`complete`/`truncated`/`traversalLimits`/`coverage.traversal.*`가 이 목록에 있어야 하는지의
+근거다.
 
 ### 왜 "필드 추가"가 아니라 "배열에 항목 추가"가 위험한지 — 선례 1로 직접 검증
 
@@ -168,6 +182,67 @@ budget이 허용할 때만 추가된다**(`current.depth >= maxDepth`면 그 밑
 **틀리면 사용자에게 무엇이 잘못 보이는가**: dangling ID를 낸 `augmentedEdges` entry를 새 소비자가
 `nodes`에서 찾다가 실패하면, 소비자마다 다르게(무시/에러/빈 렌더링) 반응하는 미정의 동작이
 생긴다 — 이 계약 문서가 막으려는 정확히 그 종류의 "정해지지 않아서 소비자마다 다르게 읽는" 상태다.
+
+### budget/limits leak — `nodes`와 같은 모양의 두 번째 leak (reviewer 지적, 차단 사유였음)
+
+**놓쳤던 것**: `coverage.ts`를 다시 읽으면, `projectCompletion()`의 자기 doc comment가 이미
+정확히 경고하고 있었다 — *"`complete`, `truncated`, `traversalLimits`, `coverage`와 `limitations`는
+여기서**만** 함께 만들어진다."* 그 안을 보면 **`facts.limits`(하나의 `Set<'depth'|'nodes'>`) 하나가**
+`graphCompletion()`을 거쳐 `completion.traversalStatus`/`completion.requestStatus`를 정하고,
+그 결과가 다시 `complete`(`traversalStatus === 'exhausted'`), `truncated`(`!complete`),
+`traversalLimits`(`complete ? [] : [...facts.limits].sort()`), `coverage.traversal.status`
+(`V1_TRAVERSAL_STATUS[...]`) **다섯 곳에 동시에 반영된다.** `facts.limits`는 `impact.ts`의
+`traverse()`(static LSP 순회)가 depth/node budget에 부딪힐 때만 채우는 값이다.
+
+**이 계약이 M4의 탐색이 이 budget을 static traversal과 공유할지 안 정했다.** 공유하면: 정적
+부분은 완전히 끝났는데 augmentation이 같은 budget을 나눠 쓰다가 소진되면, 그 순간
+`traversal.limits`에 `'nodes'`나 `'depth'`가 섞여 들어가 **정적 결과와 무관하게**
+`complete: true→false`, `truncated: false→true`, `traversalStatus: 'exhausted'→
+'depth-limited'`, `requestStatus: 'succeeded'→'partial'`로 뒤집힌다. **`nodes` leak보다
+나쁘다** — `complete`는 `IL-LIM-009`가 존재하는 이유이자 M1·M2가 여러 라운드에 걸쳐 지킨
+필드이고, augmentation을 켰다는 이유만으로 이게 뒤집히면 이 계약 문서 전체의 전제("옛 소비자는
+오늘과 정확히 같은 데이터를 본다")가 무너진다.
+
+**이건 새 질문이 아니다** — `IL-LIM-001`의 미해결 질문에 이미 "추론 graph가 depth/node budget을
+공유할지 별도 budget을 가질지 benchmark 후 결정해야 한다"가 있었는데, 이전 판에서 같은 목록의
+다른 질문(`observed` vs `confirmed`)은 정정하면서 이건 인용도 해소도 하지 않고 지나쳤다.
+
+**결정: 추론 탐색은 완전히 별도의 budget을 쓰고, static traversal의 `facts.limits`/
+`TraversalFacts`를 절대 공유하지 않는다.** `completion`/`complete`/`truncated`/
+`traversalLimits`/`coverage.traversal.*` 다섯 필드는 M4가 무엇을 하든 **static traversal
+결과만으로 계산된 값 그대로** 유지된다 — `nodes`에 항목을 안 만들기로 한 것과 정확히 같은 형태의
+결정이다(공유 가능한 리소스를 만들지 않으면, 안전이 "테스트가 지킨다"가 아니라 "애초에 그럴 수
+없다"가 된다).
+
+**비용 문제에 대한 답**: augmentation이 **자기 budget**을 소진하면 **augmentation만 degrade**된다
+(추론 edge가 덜 나온다) — static 결과에는 영향이 없다. 그 사실은 새 limitationDetail 코드
+하나(`augmentation_budget_exceeded`, 가칭, `scope: 'semantic'`, `severity: 'warning'`)로 자기
+채널에 보고한다. `IL-LIM-001`이 이미 adapter 오류를 `inference_adapter_failed:<id>`로 보고하기로
+정해 둔 것과 같은 패턴이다. 마일스톤의 latency budget gate(stage 3)는 이 **별도 budget 자체를
+조율하는 것**으로 답하지, static budget을 나눠 쓰는 것으로 답하지 않는다.
+
+**`coverage.indexing`과 `timings`는 안전하다고 판단, 근거를 남긴다**(reviewer가 별도로 확인):
+`coverage.indexing`은 `observations.indexing`(provider의 index readiness 신호, traversal budget과
+무관하게 provider 세션 초기 단계에서 결정됨)에서 나오므로 augmentation 탐색이 건드릴 이유가
+구조적으로 없다. `timings.totalMs`는 요청 전체의 실제 경과 시간이라 augmentation이 시간을 더
+쓰면 커지는 게 **맞는 동작**이다(Q5에서 이미 "M4 이전에도 실행마다 달랐던 필드"로 분류해 비교
+대상에서 제외한 것과 같은 이유 — 원래도 결정적이지 않은 값이라 이 불변식의 대상이 아니다).
+
+**세 번째가 있는지 직접 확인했다(reviewer에게 넘기기 전에 같은 렌즈를 스스로 적용)**:
+`V1_WITHHELD_REASON_CODES`의 나머지 두 코드도 다시 짚었다 — `no_incoming_callers`는
+`facts.incomingCallerCount === 0`에서 나오는데 `incomingCallerCount`가 바로 위에서 "절대 공유
+안 함"으로 결정한 `TraversalFacts`의 필드다(`impact.ts`의 `traversal.entries.length - 1`) — 이미
+이번 결정으로 보호된다, 별도 조치 불필요. `index_state_unknown`은 `completion.indexingStatus`에서
+나오고 그건 `observations.indexing`(위에서 안전하다고 확인한 바로 그 필드)이 결정한다 — 역시
+이미 안전하다. `cli/src/coverage.ts` 전체에서 "여러 필드를 한 곳에서 함께 만든다"는 형태의 주석은
+`projectCompletion()` 하나뿐이었다(`grep`으로 확인) — 지금 시점에 이 모양의 남은 leak은 없다고
+판단한다.
+
+**틀리면 사용자에게 무엇이 잘못 보이는가**: augmentation을 켰다는 이유만으로 완전히 끝난 정적
+분석이 `truncated: true`로 보이면, 사용자는 실제로는 완전한 정적 caller 목록을 "일부만 확인됨"으로
+오해해 존재하는 caller를 놓치고도 안전하다고 믿거나, 반대로 있지도 않은 불확실성 때문에 실제로는
+확정된 결론에 의심을 갖는다 — `complete`/`truncated`가 이 프로젝트 전체에서 갖는 의미를 M4 하나가
+조용히 무너뜨리는 것이다.
 
 ### `schemaVersion` — 결정: 승격 불필요 (commander 승인, 2026-09-03)
 
@@ -482,21 +557,30 @@ override의 그 관계를 **provider가 직접 찾아내므로** `edges`에서 �
 소비자가 평상시(augmentation이 켜진 채로 정상 사용하는 동안) 안전하다는 것을 조금도 증명하지
 않는다. 옛 소비자는 대부분의 시간을 augmentation이 **켜진** 상태로 보낸다.
 
-**추가 정의**: **augmentation이 켜져 있고 실제로 뭔가를 찾아낸 경우에도**, `data.nodes`와
-`data.edges`는 M4가 없었을 때와 **완전히 같은 개수, 같은 값**이어야 한다 — M4는 이 두 배열에
-절대 항목을 추가하지 않기 때문이다(Q1). 반면 다음은 **의도된, 예상되는 차이**이고 불변식 위반이
-아니다: `data.augmentedEdges`(새 필드, on일 때만 채워짐), `coverage.semantic.status`/
-`completion.semanticScope`(`'static-only'`/`'provider-static'`에서 `'augmented'`/
-`'static-plus-inference'`로 바뀔 수 있음 — 이 필드가 정확히 이 신호를 위해 M1 때 설계된 것),
-`limitationDetails`/`limitations`(`inferred_edges_included`/`observed_edges_included`가 새로
-추가될 수 있음 — 이미 M1이 정한 v1 허용 범위, 아래 5번 참고).
+**추가 정의**: **augmentation이 켜져 있고 실제로 뭔가를 찾아낸 경우에도**, Q1의 "M4가 절대 값을
+바꾸지 않는 필드 전체 목록" — `data.nodes`, `data.edges`, `data.limitations`,
+`data.limitationDetails`(추가 코드 제외), **그리고 `data.completion`/`data.complete`/
+`data.truncated`/`data.traversalLimits`/`data.coverage.traversal.*`** — 는 M4가 없었을 때와
+**완전히 같아야 한다.** 뒤의 다섯 필드를 이번에 처음 이 목록에 넣었다 — budget/limits leak이
+바로 이 다섯을 통해 새기 때문이다(위 "budget/limits leak" 절 참고). 반면 다음은 **의도된, 예상되는
+차이**이고 불변식 위반이 아니다: `data.augmentedEdges`(새 필드, on일 때만 채워짐),
+`coverage.semantic.status`/`completion.semanticScope`(`'static-only'`/`'provider-static'`에서
+`'augmented'`/`'static-plus-inference'`로 바뀔 수 있음 — 이 필드가 정확히 이 신호를 위해 M1 때
+설계된 것), `limitationDetails`/`limitations`(`inferred_edges_included`/
+`observed_edges_included`/`augmentation_budget_exceeded`가 새로 추가될 수 있음 — 이미 M1이 정한
+v1 허용 범위, 아래 5번 참고).
 
-**확인 방법**: 같은 fixture·같은 쿼리를 augmentation on/off 두 번 실행해서 **`data.nodes`와
-`data.edges`가 완전히 동일한지**(개수·값 전부) deep-equality로 비교하는 테스트를 stage 3에
+**확인 방법**: 같은 fixture·같은 쿼리를 augmentation on/off 두 번 실행해서 **위 보호 목록
+전체가(`nodes`/`edges`뿐 아니라 `completion`/`complete`/`truncated`/`traversalLimits`/
+`coverage.traversal.*`까지) 완전히 동일한지** deep-equality로 비교하는 테스트를 stage 3에
 추가한다 — off-vs-과거커밋 비교와 **별도로**, on-vs-off 비교도 필요하다(commander 지시: "off
-상태 비교와 둘 다 필요하다"). 이 테스트가 실패하면 augmentation이 `nodes`/`edges`에 항목을
-추가하고 있다는 뜻이고, 그게 바로 위 "nodes를 통한 leak 경로" 결정을 어긴 것이다.
+상태 비교와 둘 다 필요하다"). **별도 budget으로 결정했다고 이 테스트를 생략하지 않는다** —
+결정을 테스트로 못박아 두면, 나중에 누가 budget을 공유하는 방향으로 되돌려도 그 자리에서 바로
+실패한다. 이 테스트가 실패하면 augmentation이 `nodes`/`edges`에 항목을 추가하거나, static
+traversal의 budget/limits를 나눠 쓰고 있다는 뜻이고, 그게 바로 위 두 leak 결정을 어긴 것이다.
 
-**틀리면 사용자에게 무엇이 잘못 보이는가**: on 상태에서 `nodes`/`edges`가 몰래 늘어나면, 이 문서
-전체(Q1의 self-contained 결정, Q2의 `resolution` 어휘)가 있으나 마나 하다 — 추론된 심볼이
-`augmentedEdges`가 아니라 `nodes`/`edges`를 통해 옛 소비자에게 그대로 새어 나간다.
+**틀리면 사용자에게 무엇이 잘못 보이는가**: on 상태에서 `nodes`/`edges`가 몰래 늘어나면 이
+문서 전체(Q1의 self-contained 결정, Q2의 `resolution` 어휘)가 있으나 마나 하다. on 상태에서
+`complete`/`truncated`가 augmentation의 budget 소진 때문에 뒤집히면, 완전히 끝난 정적 분석이
+"일부만 확인됨"으로 잘못 읽히거나 그 반대로 읽힌다 — `IL-LIM-009`가 존재하는 이유 자체가
+무너진다.

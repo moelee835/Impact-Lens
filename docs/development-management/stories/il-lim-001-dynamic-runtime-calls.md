@@ -211,4 +211,14 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
   resolution이 둘 다 있을 수 있고, `static-inference`도 마찬가지다. `runtime-observation`은
   `IL-LIM-001` 4단계가 이미 별도 승인 필요 사항으로 미뤄 뒀으므로(승인 전에는 구현되지 않음)
   실제로 두 source가 공존하는 시점은 이 마일스톤 밖일 가능성이 높다.
-- 추론 graph가 depth/node budget을 공유할지 별도 budget을 가질지 benchmark 후 결정해야 한다.
+- ~~추론 graph가 depth/node budget을 공유할지 별도 budget을 가질지 benchmark 후 결정해야
+  한다.~~ **2026-09-03 정정(M4 stage 1)**: 이 lane이 해소했다 — **공유하지 않는다. 추론 탐색은
+  완전히 별도의 budget을 쓴다.** 근거: static traversal의 `facts.limits`(`cli/src/coverage.ts`)
+  하나가 `completion`/`complete`/`truncated`/`traversalLimits`/`coverage.traversal.status`
+  다섯 곳을 동시에 결정한다 — 공유하면 정적 부분이 완전히 끝났어도 augmentation이 같은 budget을
+  나눠 쓰다 소진되는 순간 이 다섯 필드가 augmentation 때문에 뒤집힌다(`complete: true→false` 등).
+  `complete`/`truncated`는 `IL-LIM-009`가 존재하는 이유이자 M1·M2가 여러 라운드에 걸쳐 지킨
+  의미라, 이게 augmentation 때문에 뒤집히는 건 benchmark로 정할 성능 트레이드오프가 아니라 구조적
+  안전성 문제였다. augmentation이 자기 budget을 소진하면 augmentation만 degrade되고 별도
+  limitationDetail로 보고한다 — static 결과에는 영향이 없다. 자세한 근거는
+  `docs/work/task-m4-stage1-evidence-contract.md` 참고.
