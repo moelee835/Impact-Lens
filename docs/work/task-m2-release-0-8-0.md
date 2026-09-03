@@ -414,6 +414,48 @@ commander가 공개 asset과 대조하는 과정에서 발견했다: 위 기록�
 - 위 4개 항목 전부 명령 출력으로 직접 확인(추측 없음).
 - doctor·analyze 응답 JSON 원문을 이 로그의 근거로 인용했다(요약이 아니라 실제 필드값).
 
+### reviewer의 독립 재현 — 이 세션과 별개로 다시 실행, 갭 없음
+
+commander가 "발행된 pin이 동작한다"는 주장은 틀리면 지금 사용자에게 영향이 가는 종류라고 판단해
+reviewer에게 B-4의 독립 재현을 별도로 맡겼다. **reviewer의 결과는 이 세션의 결과와 100% 일치했고,
+재현 방법이 세 지점에서 더 강했다**(commander를 통해 전달받은 reviewer의 결과 — 이 세션이 직접
+실행을 관측한 것은 아니고, 아래는 그 보고를 그대로 기록한다):
+
+1. **재도출이 아니라 실행 중인 스크립트 자신의 trace에서 직접 관측**: 이 세션은 `run-impact-lens`의
+   경로 계산 로직(`CDPATH= cd -- ... && pwd`)을 별도로 재현해 결과 경로에 파일이 없음을 확인했다.
+   reviewer는 `sh -x`로 **실행 중인 그 스크립트 자체의 trace**에서 계산된 경로를 직접 뽑았다:
+   ```
+   + impact_lens_repo_entry=<tmp>/plugins/impact-lens/../../cli/dist/index.js
+   ```
+   재도출("내가 계산한 경로와 runner가 실제로 쓰는 경로가 같은가")과 동일 실행 관측("runner가 실제로
+   쓴 경로 그 자체")은 증거의 층위가 다르다 — 후자는 그 질문 자체가 성립하지 않는다.
+   [부수 관측: reviewer가 옮긴 trace 줄이 `plugin_dir` 계산 단계(cd 이전, `..` 미해석)를 보여주는
+   것으로 보인다 — 이 세션이 관측한, `cd`로 이미 해석된 `impact_lens_plugin_dir` 이후의 최종 경로와
+   표현 형태가 다르지만, 가리키는 실질(저장소 밖이라 `cli/dist/index.js` 부재)은 같다.]
+2. **"시도했지만 실패"가 아니라 "진입조차 안 했다"는 것을 trace 전체에서 확인** — `impact_lens_run_path`
+   (explicit/checkout/global 세 경로가 공통으로 호출하는 함수)가 trace에 **한 번도 나타나지 않았고**,
+   `impact_lens_select_source release-fallback` 호출만 실행됐다. **이 세션의 기록에는 없던 사실**이다
+   — 이 세션은 최종 응답의 `runner.source: "release-fallback"` 필드로 결과를 확인했지만, 세 상위 경로
+   함수가 아예 호출되지 않았다는 것을 실행 경로 자체에서 직접 보인 것은 reviewer의 재현이 처음이다.
+3. **npm verbose 로그로 실제 network fetch(cache miss)를 확인**:
+   ```
+   npm http fetch GET 200 https://release-assets.githubusercontent.com/.../impact-lens-cli-0.8.0.tgz ... (cache miss)
+   ```
+   이 세션은 fresh cache 안에 생긴 `_npx/.../package.json`의 `version` 필드를 읽어 "실제로 발행된
+   tarball을 받았다"는 것을 확인했다. reviewer는 npm의 verbose network 로그로 그 fetch가 **cache
+   miss(=이전 실행 결과 재사용이 아니라 이번에 실제로 내려받음)**였다는 것을 한 단계 더 직접
+   확인했다 — 같은 결론에 도달하는 서로 다른 두 증거다.
+4. **같은 fixture를 재사용하지 않고 독립적으로 새로 작성**: 이 세션은 `target.py`/`caller.py`
+   (기존 bundled-pyright preset 정의의 fixture와 같은 구조)로 direct call 1건만 확인했다. reviewer는
+   `util.py`/`main.py`를 직접 새로 작성해 **direct(`run` → `greet`)와 transitive(`(module)` → `run`)
+   두 단계**를 확인했고, call site 줄 번호를 자신이 작성한 소스와 대조까지 했다. 같은 fixture를
+   다시 돌리는 것과 다른 fixture·다른 depth로 같은 결론에 도달하는 것은 서로 다른 종류의 증거다.
+
+**결론**: 두 독립 실행(이 세션 + reviewer)이 서로 다른 방법으로 같은 결과(release-fallback이
+발행된 v0.8.0 URL에서 실제로 CLI를 받아 bundled-pyright로 정확한 결과를 낸다)에 도달했고,
+reviewer의 재현이 특히 "상위 경로가 진입조차 안 했다"는, 이 세션의 기록에는 없던 더 강한 증거를
+추가했다.
+
 ## B-5. release decision 기록
 
 **무엇을 발행했는가**: `v0.8.0`(CLI/Extension), plugin payload `0.4.0`. `main`의 `54635c2`(PR #69
@@ -428,7 +470,9 @@ merge commit)를 가리키는 tag, non-draft·non-prerelease GitHub Release, ass
 - `npm run test:all`이 branch와 `main` 양쪽에서 통과, VSIX·tarball 패키징 leak 없음, 공개 asset의
   SHA-256이 로컬 재계산 값과 정확히 일치(commander가 직접 다운로드해 대조).
 - **release-fallback 공개 default-path가 실제로 동작한다** — checkout·global 경로를 명시적으로
-  막은 상태에서 doctor·analyze 둘 다 성공, 새 preset(Python)까지 함께 확인(B-4, 위).
+  막은 상태에서 doctor·analyze 둘 다 성공, 새 preset(Python)까지 함께 확인(B-4, 위). **reviewer가
+  독립적으로 재현해 100% 일치했고, 상위 경로가 "진입조차 안 했다"는 것을 trace로 추가 확인했다**
+  (B-4의 "reviewer의 독립 재현" 절).
 - CHANGELOG의 preset별 OS/버전 claim을 코드·CI 로그와 대조해 clangd 항목의 과잉 주장 1건을 실제로
   찾아 고쳤다(commander·reviewer).
 - INSTALL.md·README.md의 `검증`/`verified` 용어가 선택 tier(코드가 확인한 것)와 promotion 등급
