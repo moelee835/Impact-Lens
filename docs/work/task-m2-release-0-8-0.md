@@ -288,6 +288,38 @@ lane에서 임의로 고치지 않는다.
   재확인).
 - `git diff --stat`: `INSTALL.md` 1 file, 10 insertions, 6 deletions.
 
+### 2026-09-03 — commander 지시: README.md도 같은 방식으로 정정 (범위 밖 아님)
+
+commander가 README.md를 backlog로 남기지 않고 이 PR에서 고치라고 지시했다 — 이유: (1) 이 PR이
+이미 README.md를 건드리고 있다(`git diff --stat main...release/0.8.0 -- README.md`, 버전 숫자
+5곳), (2) 문제가 INSTALL.md보다 넓다 — README:210은 "그 외 언어는 검증된 preset이 없다"고 해서
+**나머지 셋은 검증됐다는 것을 반대 방향으로 함의**하고, README는 이 도구를 처음 보는 사람이 읽는
+문서라 파급력이 크다.
+
+INSTALL.md와 정확히 같은 방식으로 고쳤다:
+
+- `:196`("검증된 auto-discovery"): 이미 그 자리에서 정의하고 있었지만("감지된 언어를 지원한다고
+  catalog에 선언된 preset이 정확히 하나뿐이고 그 실행 파일을 찾을 수 있을 때만 선택됩니다"),
+  괄호로 명시적 구분을 추가했다 — "CLI가 catalog 선언과 실행 파일 존재를 확인했다는 뜻이지,
+  사용자가 그 결과를 검증했다는 뜻이 아닙니다."
+- `:210`("오늘 검증된 preset이 없어서"): 대비를 검증 여부에서 preset 존재 여부로 바꿨다 — "오늘
+  catalog에 preset 자체가 없어서."
+- 그 직전에 새 문장을 추가했다: **"`bundled-pyright`, `gopls`, `clangd` 세 preset 모두 실제 사용자
+  검증은 아직 실행되지 않아 `experimental` 등급입니다"** + "Auto가 자동으로 고른다는 것은 catalog에
+  등록되고 실행 파일이 발견됐다는 뜻이지, 그 결과가 사람에 의해 검증됐다는 뜻이 아닙니다"(commander
+  지시: CHANGELOG의 known limitation이 README에서도 읽혀야 한다).
+
+**파일 전체 재훑음**(`grep -n "검증\|verified" README.md`): `:107`("검증 근거", 변경 영향 검토용
+증거), `:150`("검토와 검증이 필요한"), `:240`("--fixture는 ... 검증합니다", doctor 명령의 진단
+동작) 셋 다 preset 등급과 무관한 다른 뜻이라 대상 아님. `:207`의 `verified-external` tier 이름은
+그대로 뒀다(이미 옆에 뜻이 명시돼 모호하지 않음, INSTALL.md와 동일 판단).
+
+### 검증
+
+- `grep -n "검증\|verified" README.md` 재확인 — 남은 3곳 전부 무관한 뜻으로 판정.
+- `npm run test:response-policy` 27/27 재실행 — 회귀 없음.
+- `git diff --stat README.md`: 1 file, 8 insertions, 4 deletions.
+
 ## Backlog (이 릴리스 lane에서 고치지 않음 — commander 지시)
 
 - `cli/src/providers/catalog.ts`의 `bundled-pyright` `lastVerified` 주석이 "this preset has no CI
@@ -295,8 +327,6 @@ lane에서 임의로 고치지 않는다.
   미래형으로 남아 있다 — `unit-tests.yml`의 실제 주석은 이미 그 gap이 실측으로 닫혔다고 서술한다.
   실제보다 **적게** 주장하는 방향이라 사용자에게 새지 않는다(commander 판단). 코드 주석 정정은
   별도 lane.
-- `README.md:210`의 "그 외 언어는 아직 검증된 preset이 없어서"도 INSTALL.md와 동일한 대비 구조
-  문제를 갖고 있다 — README.md는 이 릴리스가 건드리는 파일이 아니라 별도 lane에서 처리한다.
 - reviewer가 발견한 stale worktree 정리(`.claude/worktrees/agent-a74c7b5dab71f5309`,
   `.claude/worktrees/agent-ad65e9c6c64ba60cc` — 이 세션이 이번 lane 도중 우연히 목격한 것과 같은
   디렉터리로 보인다) — 이 릴리스 lane의 파일이 아니라 별도 정리 필요.

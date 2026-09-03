@@ -194,7 +194,8 @@ CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는
 2. 요청의 `providerPreset` — catalog에 있는 preset id를 이름으로 지정합니다.
 3. 워크스페이스의 `.impact-lens/provider.json` — 프로젝트가 커밋해 공유하는 선택입니다.
 4. 검증된 auto-discovery — 감지된 언어를 지원한다고 catalog에 선언된 preset이 정확히 하나뿐이고 그 실행
-   파일을 찾을 수 있을 때만 선택됩니다.
+   파일을 찾을 수 있을 때만 선택됩니다. ("검증된"은 CLI가 catalog 선언과 실행 파일 존재를 확인했다는
+   뜻이지, 사용자가 그 결과를 검증했다는 뜻이 아닙니다 — 아래 preset 등급 문단 참고.)
 5. 위 네 단계 모두 실패하면 다른 언어의 provider로 대체하지 않고 `provider_required_for_language`로
    실패합니다.
 
@@ -206,9 +207,12 @@ C/C++(`.c`, `.cc`, `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp`, `.hxx`)도 여기 더해
 `gopls`와 `clangd`는 `verified-external` tier라 사용자가 그 실행 파일을 직접 설치해야 Auto가 찾습니다.
 C/C++는 compile database(`compile_commands.json`)가 없으면 clangd가 파일 간 호출 관계를 찾지 못하는
 채로 저하 동작하므로, 그 상태는 오류가 아니라 `limitationDetails`의 `compile_database_missing` 등으로
-표시됩니다 — 아래 "complete: true가 증명하지 않는 것"에서 설명합니다. 그 외 언어는 "곧 지원 예정"이
-아니라 **오늘 검증된 preset이 없어서 항상 provider를 직접 설정해야 하는 상태**입니다. 지원되지 않는
-언어에서는 아래처럼 표준 LSP Call Hierarchy provider를 요청에 직접 지정합니다.
+표시됩니다 — 아래 "complete: true가 증명하지 않는 것"에서 설명합니다. **`bundled-pyright`, `gopls`,
+`clangd` 세 preset 모두 실제 사용자 검증은 아직 실행되지 않아 `experimental` 등급입니다** — Auto가
+자동으로 고른다는 것은 catalog에 등록되고 실행 파일이 발견됐다는 뜻이지, 그 결과가 사람에 의해
+검증됐다는 뜻이 아닙니다. Swift/Kotlin 등 그 외 언어는 "곧 지원 예정"이 아니라 **오늘 catalog에
+preset 자체가 없어서 항상 provider를 직접 설정해야 하는 상태**입니다. 지원되지 않는 언어에서는
+아래처럼 표준 LSP Call Hierarchy provider를 요청에 직접 지정합니다.
 
 ```json
 {
