@@ -459,3 +459,17 @@ gate가 "sub-dependency(중첩 dependency)"도 요구하는데 fixture가 없다
   강화된 의미로 재검토된 적이 없다. **지금 값을 올리지 않는다** — 예산은 latency와 맞바꾸는 것이고
   그 판단은 stage 3의 일이다. 이 기록 자체가 산출물이다(값을 지금 결정하지 않는다는 게 아니라, 재검토
   없이 남아 있다는 사실을 남긴다).
+- **plugin skill·`cli-contract.md` 문서화 — "stage 3 후보"가 아니라 "augmentation을 기본 on으로
+  바꾸기 전 필수 선행" (리뷰어 발견, commander 확인)**: 이 PR이 `plugins/impact-lens/skills/impact-lens-cli/SKILL.md`,
+  `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`를 전혀 안 건드렸다는 것을
+  직접 확인했다(`grep -c`로 `augmentedEdges`/`augmentationEnabled`/`framework_route_mount_unresolved`/
+  `augmentation_budget_exceeded` 전부 0건). **지금은 문제가 아니다** — kill switch 기본값이 off라서
+  (`options.get('augmentation') === true`, `value.augmentationEnabled === true` 둘 다 strict
+  비교이므로 미지정은 off) augmentation을 안 켜면 응답에 이 필드들이 아예 없고, 그걸 모르는 agent가
+  오해할 대상 자체가 없다. **문제는 augmentation을 실제로 켜는 순간**이다 — 그때 agent(plugin skill을
+  통해 이 CLI를 쓰는 소비자)는 `augmentedEdges`가 뭔지, `framework_route_mount_unresolved`/
+  `augmentation_budget_exceeded`가 무슨 뜻인지 배운 적 없이 응답을 읽는다. **이 마일스톤이 막으려는
+  것이 정확히 "추측이 확정으로 읽히는 것"인데, 그걸 읽을 소비자가 그 구분을 아예 배운 적이 없는
+  상태가 된다.** 그래서 이건 다른 "미확인/미구현" 항목들과 다르게, **stage 3에서 여유 있을 때
+  다루는 후보가 아니라 augmentation의 기본값을 off에서 on으로 바꾸는 결정 이전에 반드시 끝나 있어야
+  하는 선행 조건**으로 남긴다.
