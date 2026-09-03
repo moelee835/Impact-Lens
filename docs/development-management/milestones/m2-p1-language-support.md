@@ -1,8 +1,11 @@
 # M2 Python·Go·C/C++ verified support
 
-- 상태: 종료 처리 완료(`docs/work/task-m2-closure.md`) — gate 1·2 미충족(Go same-file fixture,
-  C++ method/overload 반복 검증 없음). 세 preset(bundled-pyright/gopls/clangd)은 사용자 검증
-  미실행으로 지금은 `experimental`.
+- 상태: **8개 종료 gate 전부 닫힘**(`docs/work/task-m2-gate-gaps.md`) — gate 1·2는 Go same-file,
+  C++ method/overload/virtual dispatch 반복 검증을 3-OS CI로 확인 완료, gate 8은 사용자 검증
+  실행 보류라는 명시적 사유로 닫혔다(아래 gate 목록 참고). **gate가 전부 닫힌 것은 마일스톤
+  범위의 구현·검증이 끝났다는 뜻이지 등급 승격이 아니다** — 세 preset(bundled-pyright/gopls/
+  clangd)은 사용자 검증이 아직 실행되지 않았으므로 지금도 전부 `experimental`이다. 이 PR 이후에
+  남는 것은 릴리스(버전·CHANGELOG·태그)이며, 이는 "M2 완료"와 별개의 후속 작업이다.
 - 완료 소유: IL-LIM-004, IL-LIM-006, IL-LIM-014
 - 릴리스 성격: 우선 언어 지원 minor release
 
@@ -54,14 +57,35 @@
 > 판정했다. 1·2번은 **열어 둔다** — IL-LIM-004의 Go single-file, IL-LIM-014의 C++ method/overload가
 > repeating fixture로 증명된 적이 없다(각 스토리 문서 참고, 코드 lane이 아닌 이 종료 처리의 권한
 > 밖이라 닫지 않는다). 4번은 **macro 관련 정정**을 반영해 판정했다(아래).
+>
+> **2026-09-03 후속 갱신(M2 gate-gaps lane, `docs/work/task-m2-gate-gaps.md`)**: 1·2번의 공백을
+> 코드로 닫아 체크했다. **이 과정에서 3-OS CI(Ubuntu 23.1.1/macOS 23.1.0/Windows 22.1.7)를 직접
+> 돌려 shipped `docs.limitations`의 virtual dispatch 주장이 실제로 버전에 따라 다르다는 것을
+> 발견했다** — 세 OS·두 major가 완전히 같은 방향으로 갈렸다(flaky 아님). `docs.limitations`와
+> 테스트를 버전 인지 형태로 정정했다(각 스토리 문서, `catalog.ts` 참고).
+>
+> **2026-09-03 재후속 갱신**: 정정된 형태의 3-OS CI 재실행에서 두 번째 사전 결함을 발견했다 —
+> `go-provider`/`cli-tests-cross-os`(macOS/Windows)가 GitHub hosted runner에 미리 깔린,
+> 검증되지 않은 clangd(Windows major 20, macOS major 21)로 기존 clangd 테스트 2개를 그 job이
+> 검증하기로 한 적 없는 채로 조용히 실행해 왔다는 것 — 새 버전 인지 assertion이 처음으로
+> 이를 시끄럽게 드러냈다. `IMPACT_LENS_REQUIRE_CLANGD`·`CI` 두 환경변수로 3-way 게이트를 만들어
+> 고쳤다(요청한 job만 검증, 요청 안 한 CI job은 stray 버전을 이름만 남기고 skip, 로컬 개발자는
+> 기존대로 실행). **이 게이트 수정판까지 포함한 3-OS CI 재확인이 완료됐다** — 9개 job 전부
+> green(`https://github.com/moelee835/Impact-Lens/actions/runs/33715243243`), 각 job의 로그를
+> 직접 대조해 의도한 job에서만 실행되고 나머지에서는 이름 붙은 skip으로 처리됨을 확인했다
+> (`docs/work/task-m2-gate-gaps.md`). `lastVerified`에는 20·21을 추가하지 않았다 — 우리가
+> 선택하거나 검증한 버전이 아니다.
 
-- [ ] IL-LIM-004, IL-LIM-006, IL-LIM-014의 수용 기준이 통과한다. — IL-LIM-006은 6/6(PR #66).
-  IL-LIM-004는 5/6(Go single-file 미충족). IL-LIM-014는 4/5(C++ method/overload 미충족). 각 스토리
-  문서에 항목별 근거·사유가 있다.
-- [ ] Python, Go, C와 C++의 single/cross-file fixture가 선언된 OS/provider matrix에서 반복
-  통과한다. — 위와 같은 근본 원인(Go single-file, C++ method/overload)으로 열어 둔다. 그 외 모든
-  조합(Python single/cross-file, Go cross-file, C/C++ single/cross-file)은 3-OS CI에서 반복
-  통과한다(`go-provider`/`clangd-provider` job, `unit`/`cli-tests-cross-os` job).
+- [x] IL-LIM-004, IL-LIM-006, IL-LIM-014의 수용 기준이 통과한다. — 6/6, 6/6, 5/5. 각 스토리
+  문서에 항목별 근거가 있다.
+- [x] Python, Go, C와 C++의 single/cross-file fixture가 선언된 OS/provider matrix에서 반복
+  통과한다. — Go same-file은 `stateReachability.integration.test.ts`의 새 테스트, C++
+  method/overload/virtual dispatch는 `clangdIntegration.test.ts`의 새 테스트(둘 다
+  `docs/work/task-m2-gate-gaps.md`). 그 외 조합은 기존대로 3-OS CI에서 반복 통과한다
+  (`go-provider`/`clangd-provider` job, `unit`/`cli-tests-cross-os` job). **C++ virtual dispatch
+  단언은 이제 버전 인지형이고, 이를 등록하는 게이트도 요청한 job에서만 실행되도록 정정됐다 —
+  둘 다 9-job 3-OS CI 재확인 완료**(`https://github.com/moelee835/Impact-Lens/actions/runs/33715243243`,
+  로그 직접 대조).
 - [x] 검증된 언어는 provider JSON 없이 Auto 또는 explicit preset으로 분석을 시작한다. — 4개 preset
   전부 auto-discovery 실측(IL-LIM-004 수용 기준 5번과 동일 근거, 그 문서의 seam 표시도 함께 적용된다).
 - [x] Python DI/decorator, C function pointer, C++ virtual dispatch와 macro 한계가 결과/문서에
@@ -81,8 +105,8 @@
   세 lane 전부 명시적 설계 결정으로 확인(각 작업 로그). `cli/src/test/buildInvocation.sources.test.ts`의
   production spawn-site 전수조사가 여전히 유효하다 — M2에서 새로 추가된 spawn 지점 없음.
 - [x] 기존 bundled TS/JS 및 custom provider 회귀가 없다. — `npm run cli:test`가 세 lane 전체에 걸쳐
-  지속 통과(가장 최근 327/329, 2 skip은 로컬에 gopls 없음), TypeScript 회귀 테스트와 custom provider
-  우선순위 테스트 불변.
+  지속 통과했고, gate-gaps lane의 3-OS CI 재확인(위 gate 1·2 참고, run 33715243243)에서 9개 job
+  전부 green — TypeScript 회귀 테스트와 custom provider 우선순위 테스트 불변.
 - [x] `user-tests/m2-user-test-spec.md`가 언어별 환경·과업·판정 기준을 포함해 검토됐으며, 실행 결과 또는
   보류 사유가 각 preset 지원 등급 결정에 연결된다. — 명세는 작성·검토 완료(reviewer가 T4 유도 편향
   결함 1건 발견·정정, `docs/development-management/user-tests/m2-user-test-spec.md`). **실행은

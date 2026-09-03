@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -6,7 +7,7 @@ import test, { type TestContext } from 'node:test';
 import { analyzeImpact } from '../impact';
 import { LspCallHierarchyProvider } from '../lspProvider';
 import { CLANGD_PRESET_ID, findPreset, PROVIDER_CATALOG } from '../providers/catalog';
-import { findExecutable } from '../providers/discovery';
+import { findExecutable, parseVersion } from '../providers/discovery';
 import { ProviderPreset } from '../providers/preset';
 import { LimitationDetail } from '../types';
 
@@ -25,27 +26,66 @@ import { LimitationDetail } from '../types';
 // difference between them is whether compile_commands.json exists. That is what makes each one prove
 // something about compile-database presence specifically, not about the fixture shape in general.
 
-const CLANGD_ON_PATH = findExecutable('clangd') !== undefined;
+const CLANGD_PATH = findExecutable('clangd');
+const CLANGD_ON_PATH = CLANGD_PATH !== undefined;
 const REQUIRE_CLANGD = process.env.IMPACT_LENS_REQUIRE_CLANGD === '1';
+// GitHub Actions sets CI=true; used only to tell "a CI job that never asked for clangd" apart from "a
+// contributor's own machine" - see clangdGatedTest's doc comment for why that distinction exists.
+const IS_CI = Boolean(process.env.CI);
 
 /**
- * Runs `fn` normally when clangd is on PATH; skips it (a real, visible skip, not a silent one) when
- * clangd is absent and nothing required it; fails it loudly when clangd is absent but
- * `IMPACT_LENS_REQUIRE_CLANGD=1` said it must be present - the `clangd-provider` CI job sets exactly
- * that. Same shape as `stateReachability.integration.test.ts`'s `goplsGatedTest`, for the same reason:
- * a contributor's machine without clangd installed must not fail `npm run cli:test`, but a CI job that
- * exists specifically to prove this preset works must not silently skip it either.
+ * The major version of the real `clangd` on PATH, or `undefined` if it cannot be determined. Used only by
+ * the virtual-dispatch test below - M2 gate-gaps lane found derived-override attribution is genuinely
+ * version-dependent (confirmed on real 3-OS CI, not assumed), so that assertion has to read the real
+ * version rather than assert one fixed outcome. No shell: `execFileSync` with an argv array, the same
+ * no-shell discipline `findExecutable` itself already follows.
+ */
+function detectClangdMajorVersion(): number | undefined {
+  if (CLANGD_PATH === undefined) {
+    return undefined;
+  }
+  try {
+    const output = execFileSync(CLANGD_PATH, ['--version'], { encoding: 'utf8', timeout: 5000 });
+    const version = parseVersion(output);
+    if (version === undefined) {
+      return undefined;
+    }
+    const major = Number(version.split('.')[0]);
+    return Number.isNaN(major) ? undefined : major;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Three-way gate, in order of precedence:
+ *
+ * 1. `IMPACT_LENS_REQUIRE_CLANGD=1` (the `clangd-provider` CI job sets exactly this): this job
+ *    deliberately installed clangd to prove this preset works, so run for real, and fail loudly - not
+ *    skip - if clangd turns out to be missing after all. Same shape as
+ *    `stateReachability.integration.test.ts`'s `goplsGatedTest`, for the same reason: a CI job that
+ *    exists specifically to prove a preset works must not silently go green without having proven it.
+ * 2. CI, but REQUIRE_CLANGD is unset: this job never asked to verify the clangd preset, yet
+ *    `go-provider` and `cli-tests-cross-os`'s hosted-runner base images ship a clangd anyway (Windows
+ *    major 20, macOS major 21 - discovered by this exact check, see docs/work/task-m2-gate-gaps.md).
+ *    Running against it would make those jobs' logs read as clangd coverage they were never designed
+ *    to provide, at a version this repo never chose and `lastVerified` never claims - the same failure
+ *    shape "skip counts as failure" exists to prevent, just inverted: a job that looks like it verified
+ *    something it did not. So this is the one case that skips even though clangd is on PATH - the
+ *    skip reason names the version so a log reader sees it was a deliberate exclusion, not blindness.
+ * 3. Not CI (a contributor's own machine): run if clangd is on PATH, skip (silently, same as always) if
+ *    not - a contributor without clangd installed must not fail `npm run cli:test`.
  */
 function clangdGatedTest(
   name: string,
   options: { readonly timeout: number },
   fn: (t: TestContext) => Promise<void>,
 ): void {
-  if (CLANGD_ON_PATH) {
-    test(name, options, fn);
-    return;
-  }
   if (REQUIRE_CLANGD) {
+    if (CLANGD_ON_PATH) {
+      test(name, options, fn);
+      return;
+    }
     test(name, () => {
       assert.fail(
         'IMPACT_LENS_REQUIRE_CLANGD=1 but no clangd executable was found on PATH. This job exists ' +
@@ -54,6 +94,23 @@ function clangdGatedTest(
         'having proven anything.',
       );
     });
+    return;
+  }
+  if (IS_CI) {
+    const versionNote = CLANGD_ON_PATH
+      ? `a clangd is on PATH (major ${detectClangdMajorVersion() ?? 'unknown'})`
+      : 'no clangd is on PATH';
+    test(name, {
+      skip:
+        `CI job did not set IMPACT_LENS_REQUIRE_CLANGD, so it never opted into verifying the clangd ` +
+        `preset - ${versionNote}, but running against it would silently exercise an unpinned, ` +
+        `unmeasured version this repo never chose. Skipping rather than reporting a pass that proves ` +
+        `nothing.`,
+    }, fn);
+    return;
+  }
+  if (CLANGD_ON_PATH) {
+    test(name, options, fn);
     return;
   }
   test.skip(name, fn);
@@ -180,5 +237,212 @@ clangdGatedTest(
     );
     const codes = (result.limitationDetails as readonly LimitationDetail[]).map(detail => detail.code);
     assert.ok(codes.includes('compile_database_missing'), `expected compile_database_missing, got ${JSON.stringify(codes)}`);
+  },
+);
+
+// M2 gate-gaps lane (docs/work/task-m2-gate-gaps.md), closing IL-LIM-014 #3: the shipped preset's
+// `docs.limitations` claimed a specific C++ static-analysis shape (a virtual method reached only through
+// a base-class pointer is invisible under the derived override's own Call Hierarchy result) on the
+// strength of exactly one manual probe from stage 4 - never a repeating fixture. Turning that probe into
+// this repeating fixture immediately found the claim was version-scoped, not universal: this exact
+// assertion's first real 3-OS CI run failed identically on Ubuntu (clangd 23.1.1), macOS (23.1.0) and
+// Windows (22.1.7) - all three now attribute the call to the derived override too, unlike the Apple
+// clangd 17.0.0 stage 4 measured. Stage 4's probe was not wrong for the version it ran; the ORIGINAL
+// unqualified "never" was the overclaim. Both `docs.limitations` and this test now read the real clangd
+// version and assert the behavior actually observed for it (see `detectClangdMajorVersion` and the
+// version branch below) instead of one fixed outcome. This fixture closes the gap for
+// method/overload/virtual-dispatch specifically - function pointer and conditional-compilation
+// limitations are out of this lane's scope (already fixture-backed differently, see the story doc).
+//
+// Real compile database, real clang++, one shared file layout, one shared provider session for all five
+// queries below - that is what makes "same execution" literal, not just "same CI job": the positive
+// assertions (method call found, int overload found, base-pointer virtual call found) share a session
+// with the negative/version-branched ones (double overload NOT found, derived override per-version) they
+// exist to give meaning to. A query landing between two files still ambiguous mid-index would fail the
+// earlier positive assertions first, so a later assertion is only ever checked once indexing has already
+// been proven complete by an adjacent positive one in the same run.
+
+const CPP_HEADER = [
+  '#ifndef SHAPES_H',
+  '#define SHAPES_H',
+  '',
+  'class Base {',
+  'public:',
+  '    virtual void target();',
+  '    void helper();',
+  '};',
+  '',
+  'class Derived : public Base {',
+  'public:',
+  '    void target() override;',
+  '};',
+  '',
+  'void overloaded(int value);',
+  'void overloaded(double value);',
+  '',
+  '#endif',
+  '',
+].join('\n');
+
+// Definitions only, deliberately in one file: every symbol this test queries lives here, so all five
+// queries below can share one `LspCallHierarchyProvider` session rooted at this file.
+const CPP_DEFINITIONS = [
+  '#include "shapes.h"',
+  '',
+  'void Base::target() {',
+  '}',
+  '',
+  'void Base::helper() {',
+  '}',
+  '',
+  'void Derived::target() {',
+  '}',
+  '',
+  'void overloaded(int value) {',
+  '}',
+  '',
+  'void overloaded(double value) {',
+  '}',
+  '',
+].join('\n');
+
+const CPP_CALLER = [
+  '#include "shapes.h"',
+  '',
+  'void call_method(Base& obj) {',
+  '    obj.helper();',
+  '}',
+  '',
+  'void call_overloaded_int() {',
+  '    overloaded(42);',
+  '}',
+  '',
+  'void call_via_base_pointer(Base* ptr) {',
+  '    ptr->target();',
+  '}',
+  '',
+].join('\n');
+
+async function realCppWorkspace(t: TestContext): Promise<string> {
+  const workspace = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'impact-lens-clangd-cpp-')));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  await fs.writeFile(path.join(workspace, 'shapes.h'), CPP_HEADER);
+  await fs.writeFile(path.join(workspace, 'shapes.cpp'), CPP_DEFINITIONS);
+  await fs.writeFile(path.join(workspace, 'caller.cpp'), CPP_CALLER);
+  const entries = [
+    { directory: workspace, arguments: ['clang++', '-std=c++17', '-c', 'shapes.cpp', '-o', 'shapes.o'], file: path.join(workspace, 'shapes.cpp') },
+    { directory: workspace, arguments: ['clang++', '-std=c++17', '-c', 'caller.cpp', '-o', 'caller.o'], file: path.join(workspace, 'caller.cpp') },
+  ];
+  await fs.writeFile(path.join(workspace, 'compile_commands.json'), JSON.stringify(entries));
+  return workspace;
+}
+
+async function queryCppSymbolOnce(
+  workspace: string,
+  provider: LspCallHierarchyProvider,
+  line: number,
+  column: number,
+): Promise<readonly string[]> {
+  const result = await analyzeImpact(
+    { workspace, file: 'shapes.cpp', line, column, depth: 5, maxNodes: 50 },
+    provider,
+  );
+  assert.equal(provider.capabilities.selectedBy, 'auto', 'expected auto-discovery, not a test override, to have selected clangd');
+  return (result.nodes as ReadonlyArray<{ readonly name?: string }>)
+    .map(node => node.name)
+    .filter((name): name is string => name !== undefined);
+}
+
+/** Same retry shape as `queryUntilCallerFound` above (background indexing after a compile-database
+ * `didOpen` is async), generalized to any line/column in `shapes.cpp` rather than one hardcoded target. */
+async function queryCppSymbolUntilFound(
+  workspace: string,
+  provider: LspCallHierarchyProvider,
+  line: number,
+  column: number,
+  expectedCaller: string,
+  budgetMs: number,
+): Promise<readonly string[]> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const names = await queryCppSymbolOnce(workspace, provider, line, column);
+    if (names.includes(expectedCaller) || Date.now() >= deadline) {
+      return names;
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+}
+
+clangdGatedTest(
+  'C++ with a real compile database: method calls, overload resolution and virtual-dispatch attribution are all correct for this clangd version',
+  { timeout: 45000 },
+  async t => {
+    const workspace = await realCppWorkspace(t);
+    const provider = new LspCallHierarchyProvider(workspace, 'shapes.cpp', undefined, 20000);
+    t.after(() => provider.dispose());
+
+    // 1. Method call - the feature proof AND the control for assertion 3 below: if the whole pipeline
+    // were broken (wrong compile flags, provider crash, traversal regression), this would already fail,
+    // which is what makes the negative assertions further down meaningful rather than vacuous.
+    const helperCallers = await queryCppSymbolUntilFound(workspace, provider, 6, 12, 'call_method', 15000);
+    assert.ok(helperCallers.includes('call_method'), `expected call_method among ${JSON.stringify(helperCallers)}`);
+
+    // 2. Overload resolution - only `overloaded(42)` (the int overload) is ever called. If clangd (or
+    // this CLI's normalization) conflated the two overloads, the caller would wrongly appear on the
+    // double overload too, or the int overload would wrongly appear empty - either is a silently wrong
+    // result, which is exactly what naming `overload` separately in the acceptance criterion guards
+    // against.
+    const intOverloadCallers = await queryCppSymbolUntilFound(workspace, provider, 12, 6, 'call_overloaded_int', 15000);
+    assert.ok(intOverloadCallers.includes('call_overloaded_int'), `expected call_overloaded_int among ${JSON.stringify(intOverloadCallers)}`);
+    const doubleOverloadCallers = await queryCppSymbolOnce(workspace, provider, 15, 6);
+    assert.ok(
+      !doubleOverloadCallers.includes('call_overloaded_int'),
+      `expected the double overload to have no callers (only the int overload is ever invoked), got ${JSON.stringify(doubleOverloadCallers)}`,
+    );
+
+    // 3. Virtual dispatch - `ptr->target()` through a `Base*` is ALWAYS attributed to Base::target's
+    // Call Hierarchy result (the statically-typed call site), on every clangd version measured so far.
+    // This half never changed and is asserted unconditionally.
+    const baseTargetCallers = await queryCppSymbolUntilFound(workspace, provider, 3, 12, 'call_via_base_pointer', 15000);
+    assert.ok(baseTargetCallers.includes('call_via_base_pointer'), `expected call_via_base_pointer among ${JSON.stringify(baseTargetCallers)}`);
+
+    // Whether it is ALSO attributed to Derived::target's result is version-dependent - found directly
+    // on real 3-OS CI, not assumed: Apple clangd 17.0.0 does not include it there (stage 4's original
+    // finding), but upstream LLVM clangd 22.1.7, 23.1.0 and 23.1.1 all do (M2 gate-gaps lane's first
+    // 3-OS run of this exact assertion failed identically on every OS, which is what surfaced this).
+    // Asserting a single fixed outcome here would either break for every contributor running Apple
+    // clangd locally (17.x) or silently stop verifying the CI-installed versions (22.x/23.x) -
+    // asserting nothing at all would delete the regression watch this lane exists to build. So this
+    // reads the real installed version and asserts the behavior actually observed for it.
+    //
+    // Versions other than 17/22/23 have never been measured. By the time execution reaches here,
+    // clangdGatedTest has already ruled out "CI job that never asked for clangd" (that case skips the
+    // whole test, above) - so an unmeasured version here is either (a) a CI job that DID set
+    // IMPACT_LENS_REQUIRE_CLANGD and got a version we have not pinned for, which must fail loudly the
+    // same way catalog.ts's own `supported.minimum` discipline demands (narrow or widen only after
+    // testing, never by assuming), or (b) a contributor's own machine, whose clangd version this repo
+    // does not control and must not fail their local `npm run cli:test` over - a named skip instead,
+    // so the gap is visible without blocking unrelated work.
+    const derivedTargetCallers = await queryCppSymbolOnce(workspace, provider, 9, 15);
+    const clangdMajor = detectClangdMajorVersion();
+    if (clangdMajor === 17) {
+      assert.ok(
+        !derivedTargetCallers.includes('call_via_base_pointer'),
+        `expected Derived::target to show no callers under clangd 17 (catalog.ts's docs.limitations claim for this version) - if this now finds it, clangd 17's virtual-dispatch resolution changed and both docs.limitations and this test's version branch need re-examination, got ${JSON.stringify(derivedTargetCallers)}`,
+      );
+    } else if (clangdMajor === 22 || clangdMajor === 23) {
+      assert.ok(
+        derivedTargetCallers.includes('call_via_base_pointer'),
+        `expected Derived::target to show call_via_base_pointer under clangd ${clangdMajor} (catalog.ts's docs.limitations claim for this version) - if this no longer finds it, clangd's virtual-dispatch resolution changed again and both docs.limitations and this test's version branch need re-examination, got ${JSON.stringify(derivedTargetCallers)}`,
+      );
+    } else if (REQUIRE_CLANGD) {
+      assert.fail(
+        `clangd major version ${clangdMajor ?? 'unknown'} has never been observed for derived-override virtual-dispatch attribution (only 17, 22, and 23 have been measured directly, on real clangd, not assumed). This job set IMPACT_LENS_REQUIRE_CLANGD=1, so this version must be measured and an explicit branch added above with its real behavior before this job can trust its own result - do not silently fall through to one branch or skip this check.`,
+      );
+    } else {
+      t.skip(
+        `clangd major version ${clangdMajor ?? 'unknown'} has never been observed for derived-override virtual-dispatch attribution (only 17, 22, and 23 have been measured directly, on real clangd). This is a local, non-CI run with no IMPACT_LENS_REQUIRE_CLANGD, so this machine's clangd version is not one this repo controls - skipping this one assertion rather than failing it. Method calls and overload resolution above still ran and were verified against this version.`,
+      );
+    }
   },
 );
