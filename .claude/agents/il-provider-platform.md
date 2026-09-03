@@ -34,8 +34,9 @@ tools: Bash, Read, Edit, Write, Grep, Glob
 - doctor는 `cli/src/index.ts`가 인자로 받은 임의의 preset id를 그대로 `provider.doctor`의 대상으로
   넘긴다(하드코딩된 단일 id 아님). 실제 check 구현은 `cli/src/doctor/checks.ts`·`cli/src/doctor/index.ts`에
   있고, check마다 독립적으로 `pass`/`warn`/`fail`을 내 첫 실패에서 멈추지 않는다.
-- shipped catalog(`cli/src/providers/catalog.ts`)는 오늘 3개 preset이다: `bundled-typescript`,
-  `gopls`(verified-external), `bundled-pyright`(M2, `bundled`). 새 bundled preset을 추가할 때는
+- shipped catalog(`cli/src/providers/catalog.ts`)는 오늘 4개 preset이다: `bundled-typescript`,
+  `gopls`(verified-external), `bundled-pyright`(M2, `bundled`), `clangd`(M2, verified-external). 새
+  bundled preset을 추가할 때는
   `cli/src/doctor/checks.ts`의 `inspectBundledArtifact()` dispatcher에 분기를 추가해야 한다 — 빠뜨리면
   그 preset의 doctor 결과가 다른 bundled preset의 artifact를 잘못 보고하는 대신 `internal_error`로
   시끄럽게 실패하도록 이미 만들어져 있다(분기 추가 자체를 잊는 것까지 막지는 못한다).

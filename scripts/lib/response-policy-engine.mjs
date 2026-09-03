@@ -211,6 +211,34 @@ const INDEX_SCOPED_MAY_NOT_UNCERTAINTY = /\bindex(?:ing)?\b[^.!?]*\bmay not\s+(?
 // all, task-m2-python-preset.md stage 6 addendum 3).
 const PROVIDER_NULL_INCOMING_CALLS_MARKERS = [/\bnull\b/i, /\bdid not commit to zero\b/i, /\bdependency injection\b/i, /Depends\(\)/i];
 
+// M2 clangd lane, stage 6 (task-m2-clangd-preset.md): compile_database_missing/_stale/_ambiguous
+// (coverage.ts) are the C/C++ analogue of provider_null_incoming_calls - the risk they exist to catch is
+// the same shape (an incomplete answer that looks complete), so they get the same treatment: real teaching
+// vocabulary from cli-contract.md/SKILL.md's own wording, not just the underscored code name the generic
+// fallback would produce. Kept as three separate entries, not one shared "compile database" pattern,
+// because a summary correctly naming one state (say, "stale") must not be credited with surfacing a
+// different one (say, "missing") it never mentioned - the same reasoning that keeps provider_not_ready's
+// "still indexing"/"not ready" markers from overlapping with any other code's patterns above.
+const COMPILE_DATABASE_MISSING_MARKERS = [
+  /\bno compile[ _-]?database\b/i,
+  /\bcompile[ _-]?database\b[^.!?]*\bmissing\b/i,
+  /\bmissing\b[^.!?]*\bcompile[ _-]?database\b/i,
+  /\bno compile_commands\.json\b/i,
+  /\bcompile_commands\.json\b[^.!?]*\b(?:missing|not found|absent)\b/i,
+];
+const COMPILE_DATABASE_STALE_MARKERS = [
+  /\bstale compile[ _-]?database\b/i,
+  /\bcompile[ _-]?database\b[^.!?]*\bstale\b/i,
+  /\bstale\b[^.!?]*\bcompile[ _-]?database\b/i,
+  /\bout-?of-?date compile[ _-]?database\b/i,
+];
+const COMPILE_DATABASE_AMBIGUOUS_MARKERS = [
+  /\bambiguous compile[ _-]?database\b/i,
+  /\bcompile[ _-]?database\b[^.!?]*\bambiguous\b/i,
+  /\bmultiple compile_commands\.json\b/i,
+  /\bmultiple compile[ _-]?database\b/i,
+];
+
 const LIMITATION_SURFACE_PATTERNS = {
   no_incoming_callers: [/\bno (?:incoming )?callers?\b/i],
   index_state_unknown: [INDEX_UNCERTAINTY_PATTERN], // paired with INDEX_WORD_PATTERN, see surfacesLimitation
@@ -223,6 +251,9 @@ const LIMITATION_SURFACE_PATTERNS = {
   inferred_edges_included: [/\binferred edges?\b/i],
   observed_edges_included: [/\bobserved edges?\b/i, /\bruntime observation\b/i],
   provider_null_incoming_calls: PROVIDER_NULL_INCOMING_CALLS_MARKERS,
+  compile_database_missing: COMPILE_DATABASE_MISSING_MARKERS,
+  compile_database_stale: COMPILE_DATABASE_STALE_MARKERS,
+  compile_database_ambiguous: COMPILE_DATABASE_AMBIGUOUS_MARKERS,
 };
 
 function escapeRegExp(text) {

@@ -108,15 +108,15 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
 - `coverage.traversal` distinguishes complete, depth-limited, and node-limited traversal.
 - `coverage.semantic` is `static-only` until provenance-bearing augmentation is implemented.
 - `coverage.indexing` (mirrored in `completion.indexingStatus`) is one of `unknown`, `working`, or `ready`.
-  `bundled-typescript` and `bundled-pyright` both declare no readiness profile, so TypeScript/JavaScript
-  and Python analysis only ever report `unknown` — an empty result under `unknown` is not evidence that no
-  caller exists. (pyright does send a real indexing-progress signal, but only after a file is opened, and
-  this CLI's readiness wait runs before that point in the current call order — declared as reachable-in-
-  principle but not usable today, not as "no signal exists"; see `cli/src/providers/catalog.ts`.) `gopls`
-  (the shipped Go preset) does declare a readiness profile, so `working`/`ready` are reachable for Go: no
-  request field or `.impact-lens/provider.json` field lets a user attach `readiness` directly (it is still
-  not part of either schema), but having `gopls` installed and analyzing a Go project through ordinary
-  auto-discovery is enough — no extra configuration needed.
+  `bundled-typescript`, `bundled-pyright`, and `clangd` all declare no readiness profile, so
+  TypeScript/JavaScript, Python, and C/C++ analysis only ever report `unknown` — an empty result under
+  `unknown` is not evidence that no caller exists. (pyright and clangd do send a real indexing-progress
+  signal, but only after a file is opened, and this CLI's readiness wait runs before that point in the
+  current call order — declared as reachable-in-principle but not usable today, not as "no signal exists";
+  see `cli/src/providers/catalog.ts`.) `gopls` (the shipped Go preset) does declare a readiness profile, so
+  `working`/`ready` are reachable for Go: no request field or `.impact-lens/provider.json` field lets a
+  user attach `readiness` directly (it is still not part of either schema), but having `gopls` installed
+  and analyzing a Go project through ordinary auto-discovery is enough — no extra configuration needed.
 - `data.limitationDetails` can carry `provider_null_incoming_calls` (severity `warning`) for any provider:
   LSP gives `callHierarchy/incomingCalls` no method-specific meaning for a `null` response, so the CLI
   keeps that distinct from an explicit `[]` instead of collapsing both into the same empty result. This
@@ -124,6 +124,13 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
   not on index completeness — do not treat an empty result carrying it as proof the symbol has no callers.
   The motivating case is a symbol invoked only through a mechanism a static Call Hierarchy provider cannot
   see, such as FastAPI's `Depends()` or other dependency injection.
+- `data.limitationDetails` can also carry `compile_database_missing`, `compile_database_stale`, or
+  `compile_database_ambiguous` (severity `warning`, scope `provider`) for `clangd`/C/C++ specifically.
+  Without a valid `compile_commands.json`, clangd falls back to a generic command with no cross-file index:
+  it can still resolve a call within a file that is already open (or that `#include`s the declaring
+  header), but has no background index to find a call in a file nothing has opened — a result reporting no
+  callers is not evidence that none exist. Unlike `provider_null_incoming_calls`, these three are
+  unconditional on caller count, so do not assume their absence just because callers were returned.
 - Top-level `runtime` records the CLI and Node versions plus the allowlisted runner source without
   exposing an absolute executable, package URL, or full argument list.
 - Top-level `capabilities` and `limitations` remain schema v1 compatibility projections.
@@ -153,6 +160,9 @@ impact-lens doctor bundled-typescript --fixture
 impact-lens doctor bundled-pyright
 impact-lens doctor bundled-pyright --smoke
 impact-lens doctor bundled-pyright --fixture
+impact-lens doctor clangd
+impact-lens doctor clangd --smoke
+impact-lens doctor clangd --fixture
 ```
 
 The default preflight checks the active Node engine, CLI package, the provider executable/artifact and its
@@ -168,7 +178,7 @@ Only catalog presets can be diagnosed this way. A raw custom `provider` (no pres
 `doctor`; an id that is not in the catalog returns `invalid_command` without diagnosing anything:
 
 ```json
-{"error":{"code":"invalid_command","message":"Unknown provider preset: not-a-real-preset","retryable":false,"details":{"stage":"startup","knownPresetIds":["bundled-typescript","gopls","bundled-pyright"]}}}
+{"error":{"code":"invalid_command","message":"Unknown provider preset: not-a-real-preset","retryable":false,"details":{"stage":"startup","knownPresetIds":["bundled-typescript","gopls","bundled-pyright","clangd"]}}}
 ```
 
 Inspect `runtime.runner.source` to distinguish `direct`, `explicit`, `checkout`, `global`, and
@@ -195,15 +205,42 @@ provider, whichever tier picked it.
 
 ### Shipped catalog
 
-The catalog (`cli/src/providers/catalog.ts`) has three entries today: `bundled-typescript` (`bundled`),
+The catalog (`cli/src/providers/catalog.ts`) has four entries today: `bundled-typescript` (`bundled`),
 covering `.ts`/`.mts`/`.cts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`; `gopls` (`verified-external`), covering
-`.go` when `gopls` is installed and discoverable on `PATH`; and `bundled-pyright` (`bundled`), covering
-`.py`. The two `bundled` presets ship their server inside the CLI package itself, so they need no
-separate install — the only difference from `bundled-typescript` in practice is the language. `gopls`
-stays `verified-external`: the CLI never installs it, so a Go project only reaches Auto once `gopls` is
-on `PATH` at a version the preset accepts. Every other language still ends at
+`.go` when `gopls` is installed and discoverable on `PATH`; `bundled-pyright` (`bundled`), covering `.py`;
+and `clangd` (`verified-external`), covering `.c`/`.cc`/`.cpp`/`.cxx`/`.h`/`.hh`/`.hpp`/`.hxx` when
+`clangd` is installed and discoverable on `PATH`. The two `bundled` presets ship their server inside the
+CLI package itself, so they need no separate install — the only difference from `bundled-typescript` in
+practice is the language. `gopls` and `clangd` stay `verified-external`: the CLI never installs either, so
+a Go or C/C++ project only reaches Auto once the matching executable is on `PATH` at a version the preset
+accepts. Unlike `gopls`, `clangd`'s accuracy also depends on project build metadata it does not install or
+generate — see "Compile database state (C/C++)" below. Every other language still ends at
 `provider_required_for_language` unless a custom `provider` or a project preset is configured — this is
 today's shipped state, not a preview of languages that will arrive soon.
+
+### Compile database state (C/C++)
+
+`clangd` needs a `compile_commands.json` to know each file's compiler flags, defines, and include paths;
+without one it falls back to a generic command with no cross-file index. It can still resolve a call
+within a file that is already open (or that `#include`s the declaring header), but has no background index
+to find a call in a file nothing has opened — so a result reporting no callers is not evidence that none
+exist. The CLI surfaces this as `limitationDetails` (severity `warning`, scope `provider`), unconditional on
+caller count unlike `provider_null_incoming_calls` (a stale or ambiguous database can misdirect a
+non-empty result too):
+
+- `compile_database_missing` — no `compile_commands.json` was found.
+- `compile_database_ambiguous` — multiple candidates were found and the provider silently picked one.
+- `compile_database_stale` — the compile database is older than `CMakeLists.txt`.
+
+`clangd` also declares no `readiness` profile (the same reason `bundled-typescript` and `bundled-pyright`
+do not — see the `coverage.indexing` bullet under "Contract" above), so `indexingStatus` is always
+`unknown` for C/C++; `working`/`ready` never appear there.
+
+`.h` files cannot say on their own whether they belong to a C or a C++ translation unit. The CLI reports
+this file type with the internal language id `c-cpp-header` instead of guessing `c` or `cpp`, so
+`provider.languageMatch` reports `'unknown'` for a `.h` file rather than `true`/`false` — the same third
+value it already uses when a file's detected language cannot be recognized at all. `clangd` still claims
+`.h` files and analyzes them once selected; this is a provider-selection signal, not an error.
 
 ### `.impact-lens/provider.json` and request-level overrides
 

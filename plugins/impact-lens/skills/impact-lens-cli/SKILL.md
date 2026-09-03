@@ -27,9 +27,9 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
   [references/cli-contract.md](references/cli-contract.md) for the full table and JSON examples before
   summarizing an empty or partial result.
   - `unknown`: the provider made no claim about its index. An empty result is not evidence that no caller
-    exists; carry that caveat. `bundled-typescript` and `bundled-pyright` always produce this state (they
-    declare no `readiness` profile); `gopls` does declare one and can produce `working`/`ready` instead — do
-    not assume `unknown` just because no provider was configured.
+    exists; carry that caveat. `bundled-typescript`, `bundled-pyright`, and `clangd` always produce this
+    state (they declare no `readiness` profile); `gopls` does declare one and can produce `working`/`ready`
+    instead — do not assume `unknown` just because no provider was configured.
   - `working`: the provider is still indexing (`requestStatus: partial`, `traversalStatus: unknown`,
     `complete: false`, and an `error`-severity `provider_not_ready` limitation). Report the result as
     incomplete because indexing was in progress and recommend re-running; never report it as "no callers".
@@ -52,6 +52,14 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
   often because the symbol is invoked only through dependency injection or another framework mechanism a
   static Call Hierarchy provider cannot see (FastAPI's `Depends()` is the reference case). When present, do
   not state or imply that nothing calls the symbol.
+- For C/C++ (`clangd`), also check `compile_database_missing`, `compile_database_stale`, and
+  `compile_database_ambiguous` in `limitationDetails`. Without a valid `compile_commands.json`, clangd falls
+  back to a generic command with no cross-file index — it can resolve a call within an already-open file
+  (or one that `#include`s the declaring header) but cannot discover a call in a file nothing has opened, so
+  an empty or partial result is not evidence those callers do not exist. Unlike `provider_null_incoming_calls`,
+  these codes are unconditional on caller count and can appear on a non-empty result too. `.h` files are
+  language-ambiguous (C vs. C++), so `languageMatch` reports `'unknown'` for them rather than `true`/`false`
+  — read [references/cli-contract.md](references/cli-contract.md) for the full explanation.
 - State a summary in this order, conclusion last, because readers act on the first sentence: (1) evidence
   boundary — scope, indexing state, traversal completeness; (2) every `error`-severity then
   `warning`-severity `limitationDetails` entry, before any findings; (3) findings; (4) a conclusion

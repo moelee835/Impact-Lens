@@ -54,6 +54,15 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
 
 ## 현재 기준선
 
+> **2026-09-03 갱신**: 아래 네 항목은 이 스토리가 작성된 시점(작업 착수 전)의 기준선이며, 지금은 더 이상
+> 정확하지 않다. `feat/m2-clangd-preset` branch의 stage 1-5(`docs/work/task-m2-clangd-preset.md`)가 이
+> 기준선 자체를 구현으로 대체했다 — `clangd` verified-external preset이 catalog에 있고, compile
+> database 상태(`compile_database_missing`/`_stale`/`_ambiguous`)와 `.h` ambiguity(`languageMatch:
+> 'unknown'`)가 doctor와 분석 응답 모두에서 구분되며, `cli/src/test/clangdIntegration.test.ts`가 실제
+> clangd process로 cross-file Call Hierarchy 왕복을 증명한다. PR은 아직 열리지 않았고 commander 검토
+> 대기 중이므로 이 절과 상단 `상태: Backlog`는 병합·release 전까지 원문을 보존한다(수정이 아니라 추가
+> 표시).
+
 - CLI의 자동 languageId에는 C/C++ 확장자가 없으며 provider가 없으면 TypeScript server를 실행한다.
 - raw custom provider로 clangd를 지정할 수 있지만 version, compile database와 index readiness를 검사하지 않는다.
 - Source note는 일부 C/C++ 확장자의 `//`를 지원하지만 provider 지원 등급과 연결된 공통 fixture가 없다.

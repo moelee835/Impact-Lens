@@ -1,6 +1,6 @@
 # M2 — C/C++ clangd provider preset
 
-- 상태: Stage 2 완료(`.h` 결정 + 구현), commander 보고 후 stage 3 승인 대기
+- 상태: Stage 6(사용자 문서 sweep) 완료, commander 보고 후 최종 검토 대기(PR은 그 이후)
 - branch: `feat/m2-clangd-preset`(stage 1까지는 `docs/m2-clangd-investigation` — 조사만 있던 단계의
   이름. stage 2부터 실제 코드 변경이 생겨 AGENTS.md 명명 규칙에 맞춰 이 시점에 개명했다. commit
   history는 그대로 이어진다.)
@@ -1054,12 +1054,105 @@ PATH 단계도 `brew --prefix llvm` → `brew --prefix llvm@23`으로 변경. �
 되게 했다. `python3 -c "import yaml; ..."`로 YAML 구문만 재검증(clangd 자체를 실행하는 변경이 아니므로
 `npm run cli:test` 재실행은 불필요 — CI job 정의만 바뀜).
 
+## Stage 6 — 사용자 문서 sweep
+
+### 목적과 사용자 가치
+
+**목적**: stage 1-5가 만든 것(`clangd` verified-external preset, compile database 상태 표면화, `.h`
+ambiguity)은 코드에는 있지만 사용자와 agent가 읽는 문서에는 아직 없었다. 문서가 낡은 채로 남으면 두 가지
+실패가 생긴다 — (1) 사람 사용자가 README/INSTALL만 보고 "C/C++는 아직 preset이 없다"고 오해해서 이미
+동작하는 기능을 쓰지 않거나 raw custom provider를 불필요하게 직접 설정하고, (2) agent가 SKILL.md/
+cli-contract.md에 `compile_database_missing` 계열의 뜻을 배우지 못한 채 그 코드를 만나면 stage 3이 막으려던
+바로 그 오독("호출자가 없다")을 반복한다. **이 stage가 끝나면 사람은 정확한 preset 개수와 설치 요구사항을
+알고, agent는 compile database 상태와 `.h` ambiguity를 올바르게 읽고 요약한다.**
+
+**상위 목표와의 관계**: M2(Python·Go·C/C++)의 마지막 lane, 마지막 stage. 이 stage가 끝나야 PR을 올릴
+근거(코드와 문서가 같은 사실을 말한다)가 갖춰진다.
+
+### 절차 — 식별자 grep, 문장 grep 아님
+
+commander 지시대로 `bundled-typescript`/`gopls`/`bundled-pyright`/`clangd`를 식별자로 grep해 후보 파일을
+추리고, 각 후보는 **전체를 읽었다** — 부분 grep이 아니라 파일 전체 read. 이 방식으로 원래 계획에 없던
+결함 하나를 찾았다(아래 "부수 발견" 참고).
+
+### 변경한 사용자 문서
+
+| 파일 | 무엇을 고쳤나 |
+| --- | --- |
+| `README.md` | "preset이 세 개" → 네 개(clangd 추가); C/C++가 "다음 후보"라는 낡은 문장 제거(이미 shipped); `complete: true`가 증명하지 않는 것 절에 `compile_database_*` 새 항목과 `.h`→`languageMatch: 'unknown'` 항목 추가; 분석 경계 절에 `.h` ambiguity 한 줄 추가 |
+| `INSTALL.md` | "세 preset" → 네 preset; **부수 발견**(아래) 수정 |
+| `cli/README.md` | `knownPresetIds` 예시, doctor 예시 triple, "has three entries" → four entries, 새 "Compile database state (C/C++)" 절 추가(compile_database_* 세 코드, `.h` ambiguity, clangd readiness 미선언) |
+| `CHANGELOG.md` | `## Unreleased`에 clangd preset·`compile_database_*`·`.h` ambiguity 세 항목 추가(gopls/pyright 항목과 같은 형식) |
+| `plugins/impact-lens/skills/impact-lens-cli/SKILL.md` | `unknown` bullet에 clangd 추가; `compile_database_*`/`.h` ambiguity를 다루는 새 bullet 추가 |
+| `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md` | `unknown` 절에 clangd 추가; 새 "C/C++: compile database state and header ambiguity" 절 추가 |
+| `.claude/agents/il-provider-platform.md` | "오늘 3개 preset" → 4개, clangd 추가 |
+| `docs/development-management/stories/il-lim-014-c-cpp-clangd-support.md` | `현재 기준선` 절 위에 "2026-09-03 갱신" 인용 블록 추가(원문은 보존 — 이 lane의 "정정 표시, 원문 유지" 관행) |
+
+### 부수 발견 — INSTALL.md의 낡은 "Python은 아직 미검증" 문구, clangd와 무관하게 이미 틀려 있었다
+
+`INSTALL.md`의 "CLI에서 provider 오류" 절을 전체 read하다가(부분 grep이었다면 못 찾았을 것 — commander가
+정확히 이 실패 방식을 경고했다) 발견: "Python/C/C++/Swift/Kotlin 등은 **아직 검증된 preset이 없어서**..."
+라는 문장이 남아 있었다. Python은 M2 Python lane(PR #64, merge 완료, `bundled-pyright`)이 이미 검증된
+preset을 만들었으므로 **이 문장은 clangd 착수 이전부터, Python lane 자신의 stage 6에서 이미 놓쳤던
+결함**이다(Go는 그 lane에서 이 목록에서 빠졌지만 Python은 남아 있었다 — 아마 같은 문장을 두 번 고칠 때
+Go만 지우고 Python은 남긴 편집 실수로 보인다, git blame으로 확정하지는 않았다). clangd 문서화 작업과
+같은 문단을 만지는 김에 함께 고쳤다: Python/Go/C/C++를 검증된 preset이 있는 언어로 옮기고 Swift/Kotlin만
+"아직 없음" 목록에 남겼다. **clangd 범위 밖의 사전 결함을 발견 즉시 고친 것 — 임의로 범위를 넓힌 것은
+아니다** (같은 문단, 같은 grep에서 나온 발견).
+
+### response-policy 채점기 — 확장 전 SCOPE/KNOWN LIMITATION을 먼저 읽었다
+
+commander가 "fixture 쓰기 전에 `scripts/lib/response-policy-engine.mjs` 최상단 SCOPE/KNOWN LIMITATION을
+읽고, 오탐을 만나도 채점기부터 고치려 하지 말라"고 지시했다. 전문을 읽은 결과:
+
+- SCOPE: 이 채점기의 유일한 caller는 `scripts/test-response-policy.mjs`(`npm run test:response-policy`).
+  cli/나 plugins/ 런타임에서는 아무도 import하지 않는다 — dev-time 회귀 harness다.
+- KNOWN LIMITATION: `INDEX_SCOPED_MAY_NOT_UNCERTAINTY`(대명사 참조, 접속사 경계)는 Python lane이 5라운드
+  측정 끝에 "regex 기반 어휘 매칭은 원리적으로 주어를 판별할 수 없다"고 결론 내고 멈춘 지점이다.
+
+이번에 한 일은 이 KNOWN LIMITATION과 다른 종류다 — 기존 정밀도 문제를 다섯 번째로 다시 건드린 게 아니라,
+**새 코드 세 개(`compile_database_missing`/`_stale`/`_ambiguous`)에 대해 `LIMITATION_SURFACE_PATTERNS`
+테이블 항목을 추가**했다. 이 테이블은 파일 자신의 주석이 "새 코드는 항목이 없으면 밑줄→공백 fallback으로
+검사된다"고 이미 예상해 둔 확장 지점이고, `provider_not_ready`("still indexing"/"not ready")·
+`provider_null_incoming_calls`(`Depends()` 등)처럼 기존 코드마다 이미 있는 패턴과 같은 종류의 항목이다.
+KNOWN LIMITATION이 경고하는 "정밀도를 더 짜내려는 시도"가 아니므로 사전 보고 없이 진행했다 — 다만 무엇을
+왜 추가했는지는 이 절과 커밋 메시지에 남긴다(사후 투명성).
+
+세 코드에 각각 독립 패턴을 줬다(공유 패턴 하나가 아니라) — "stale"이라고 말한 요약이 "missing"/
+"ambiguous"까지 표면화했다고 잘못 인정되는 것을 막기 위해서다. `cli-contract.md`/`SKILL.md`에 쓴 실제
+문구("No compile_commands.json was found", "compile database is stale" 등)와 맞춰 패턴을 만들었다.
+
+fixture 2개 추가(`scripts/fixtures/response-policy/20-*.json`, `21-*.json`), `provider_null_incoming_calls`의
+11/12번 fixture 쌍과 같은 구조 — 20번은 clangd + `indexingStatus: unknown` + `compile_database_missing`을
+모두 정확히 요약한 must-pass, 21번은 같은 응답을 "Nothing calls this, safe to remove"로 오독한 must-fail
+(`unsupported_no_impact_conclusion`/`missing_index_caveat`/`missing_high_severity_disclosure` 3개 위반 동시
+발생 — index 상태 불명과 compile database 부재라는 두 개의 독립된 근거가 한 번에 무시되는 것을 보여준다).
+`stale`/`ambiguous`는 별도 fixture로 잠그지 않았다 — 두 코드는 `missing`과 같은 매커니즘
+(`highSeverityLimitations` + `surfacesLimitation` 테이블 조회)을 쓰고, 그 매커니즘 자체는 20/21번이 이미
+검증한다.
+
+### 검증
+
+- `npm run cli:build` 성공(코드 변경 없음, 문서만 — 실패 시 문서가 실제 식별자와 어긋난다는 신호였을
+  것).
+- `npm run cli:test` 324/324 pass, 2 skip(로컬에 gopls 없음, 기존과 동일).
+- `npm run test:response-policy` — 21개 fixture(신규 2개 포함) 전부 기대한 위반과 정확히 일치, doc
+  invariant와 negative-direction 증명 5개 전부 통과. `<!-- response-policy-example -->` 두 블록은 건드리지
+  않았다.
+- `npm run test:plugin-artifact` — clean install E2E 통과(plugin 쪽 문서 경로는 이번에 변경하지 않았지만
+  전체 sweep이라 회귀 확인 차 실행).
+- `grep -rn "preset이 세\|three entries\|has three entries"` — 남은 매치는 `docs/work/task-m2-gopls-ci-
+  verification.md`의 과거 시점 작업 기록 하나뿐(그 lane 당시엔 실제로 두 preset이었다는 역사적 사실 —
+  고치지 않음, AGENTS.md의 작업 로그 보존 원칙).
+
 ## 남은 작업
 
-- **Stage 5(및 이 addendum) 완료. commander에게 보고 후 승인 대기 — PR 올리기 전에 한 번 더 검토받는다**
-  (commander가 명시).
+- **Stage 1-6 전부 완료. commander에게 보고 후 최종 검토 대기 — PR 올리기 전에 한 번 더 검토받는다**
+  (commander가 명시). 이 lane에서 코드로 남은 일은 없다 — 남은 것은 검토와 CI 실측뿐이다.
 - **push 후 실제 CI 로그로 확인해야 하는 것**: `clangd-provider` job의 3-OS 실행 결과, 특히
-  Windows의 Chocolatey `llvm --version=23.1.0` 설치가 실제로 성공하는지, macOS의 `llvm@23`이 실제 CI
-  러너에서도 설치되는지(이 세션에서는 API 응답으로만 확인, 실제 `brew install` 실행은 못 함) — 둘 다
+  Windows의 Chocolatey `llvm --version=23.1.0` 설치와 macOS의 `llvm@23` 설치가 실제 CI 러너에서
+  성공하는지(이 세션에서는 API 응답으로만 확인, 실제 `brew install`/`choco install` 실행은 못 함) —
   이 세션에서 직접 확인 못 함. 실패하면 그 자리에서 버전 문자열을 조정하는 후속 커밋이 필요하다.
-- Stage 6(사용자 문서 sweep)이 이어진다.
+- **후속 lane 후보로 남긴 것**(이번 lane 범위 밖, il-lim-014 `미해결 질문`에 기록): `awaitReadiness()`를
+  `open()` 뒤로 옮기는 재설계(pyright·clangd 둘 다 뒷받침하는 근거), `ProviderFixtureFile`의 워크스페이스
+  경로 템플릿 메커니즘.

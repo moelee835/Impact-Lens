@@ -198,15 +198,17 @@ CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는
 5. 위 네 단계 모두 실패하면 다른 언어의 provider로 대체하지 않고 `provider_required_for_language`로
    실패합니다.
 
-**오늘 shipped catalog에는 preset이 세 개입니다: `bundled-typescript`, `gopls`, `bundled-pyright`.**
-Auto가 설정 없이 동작하는 언어는 TypeScript/JavaScript(`.ts`, `.tsx`, `.js`, `.jsx` 등)와
-Python(`.py`)이고, `gopls`가 PATH에 설치돼 있는 경우의 Go(`.go`)도 여기 더해집니다. `bundled-typescript`와
+**오늘 shipped catalog에는 preset이 네 개입니다: `bundled-typescript`, `gopls`, `bundled-pyright`,
+`clangd`.** Auto가 설정 없이 동작하는 언어는 TypeScript/JavaScript(`.ts`, `.tsx`, `.js`, `.jsx` 등)와
+Python(`.py`)이고, `gopls`가 PATH에 설치돼 있는 경우의 Go(`.go`)와 `clangd`가 PATH에 설치돼 있는 경우의
+C/C++(`.c`, `.cc`, `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp`, `.hxx`)도 여기 더해집니다. `bundled-typescript`와
 `bundled-pyright`는 CLI 자체에 포함돼 있어(`bundled` tier) 사용자가 아무것도 설치하지 않아도 동작하고,
-`gopls`는 `verified-external` tier라 사용자가 gopls를 직접 설치해야 Auto가 그 실행 파일을 찾습니다. 그
-외 언어는 "곧 지원 예정"이 아니라 **오늘 검증된 preset이 없어서 항상 provider를 직접 설정해야 하는
-상태**입니다. C/C++가 다음 preset 후보이고, 실제 fixture 검증을 통과해 catalog에 들어오기 전까지는 그
-언어가 `verified-external`로 표시되지 않습니다. 지원되지 않는 언어에서는 아래처럼 표준 LSP Call
-Hierarchy provider를 요청에 직접 지정합니다.
+`gopls`와 `clangd`는 `verified-external` tier라 사용자가 그 실행 파일을 직접 설치해야 Auto가 찾습니다.
+C/C++는 compile database(`compile_commands.json`)가 없으면 clangd가 파일 간 호출 관계를 찾지 못하는
+채로 저하 동작하므로, 그 상태는 오류가 아니라 `limitationDetails`의 `compile_database_missing` 등으로
+표시됩니다 — 아래 "complete: true가 증명하지 않는 것"에서 설명합니다. 그 외 언어는 "곧 지원 예정"이
+아니라 **오늘 검증된 preset이 없어서 항상 provider를 직접 설정해야 하는 상태**입니다. 지원되지 않는
+언어에서는 아래처럼 표준 LSP Call Hierarchy provider를 요청에 직접 지정합니다.
 
 ```json
 {
@@ -294,6 +296,10 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 - `provider`에는 선택 근거와 advertised/observed capability가, `coverage`에는 traversal/semantic/indexing
   범위가 기록됩니다. Extension은 VS Code 공개 API가 실제 provider identity를 노출하지 않으므로 이름을
   `unknown`으로 표시합니다.
+- `.h` 파일은 C 헤더인지 C++ 헤더인지 파일 하나만 보고는 확정할 수 없습니다. Impact Lens는 이를 `c`나
+  `cpp`로 추측하지 않고 내부 언어 id `c-cpp-header`로 다루며, `provider.languageMatch`도 `true`/`false`
+  대신 `'unknown'`으로 보고합니다 — 오류가 아니라 provider 선택 근거를 있는 그대로 보여주는 신호이고,
+  `clangd`는 이 상태에서도 `.h` 파일을 계속 분석합니다.
 - CLI/Plugin 응답의 `runtime`은 CLI·Node version과 runner 선택 source를 경로·credential 없이 기록합니다.
 - 저장하지 않은 editor buffer는 Extension live analysis에는 반영되지만 독립 CLI에서는 사용할 수 없습니다.
 
@@ -306,14 +312,15 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 - `coverage.semantic.status`: 오늘 유일하게 가능한 값은 `static-only`입니다. reflection, runtime
   dependency injection, decorator routing, event bus, 문자열 기반 import처럼 provider가 정적으로 추론하지
   못하는 관계는 `complete: true`여도 그래프에 없을 수 있습니다.
-- `coverage.indexing.status`: `unknown` / `working` / `ready` 셋 중 하나입니다. `bundled-typescript`와
-  `bundled-pyright`는 색인 상태를 선언하지 않으므로 TypeScript/JavaScript·Python 분석에서는 여전히
-  `unknown`만 나옵니다(pyright는 색인 진행 신호를 실제로 보내지만 지금 CLI 호출 순서에서는 그 신호가
-  구조적으로 도착할 수 없다는 것을 실측으로 확인했습니다 — 신호가 없어서가 아니라 도달 불가능해서
-  뺐습니다) — `unknown`은 "provider가 색인이 끝났다고 증명하지 않았다"는 뜻이라 caller 0개인 결과가
-  "callee 없음"의 증거가 되지 못합니다. `gopls`는 `readiness`를 선언하므로, Go 프로젝트를 gopls로
-  분석하면 `working`/`ready`가 실제로 나타납니다 — 사용자가 요청 JSON이나 `.impact-lens/provider.json`을
-  직접 건드릴 필요 없이, gopls가 설치돼 있고 색인이 끝났는지 여부만으로 결정됩니다.
+- `coverage.indexing.status`: `unknown` / `working` / `ready` 셋 중 하나입니다. `bundled-typescript`,
+  `bundled-pyright`, `clangd`는 색인 상태를 선언하지 않으므로 TypeScript/JavaScript·Python·C/C++
+  분석에서는 여전히 `unknown`만 나옵니다(pyright와 clangd 둘 다 색인 진행 신호를 실제로 보내지만 지금
+  CLI 호출 순서에서는 그 신호가 구조적으로 도착할 수 없다는 것을 실측으로 확인했습니다 — 신호가 없어서가
+  아니라 도달 불가능해서 뺐습니다) — `unknown`은 "provider가 색인이 끝났다고 증명하지 않았다"는 뜻이라
+  caller 0개인 결과가 "callee 없음"의 증거가 되지 못합니다. `gopls`는 `readiness`를 선언하므로, Go
+  프로젝트를 gopls로 분석하면 `working`/`ready`가 실제로 나타납니다 — 사용자가 요청 JSON이나
+  `.impact-lens/provider.json`을 직접 건드릴 필요 없이, gopls가 설치돼 있고 색인이 끝났는지 여부만으로
+  결정됩니다.
 - `limitationDetails`의 `provider_null_incoming_calls`: 특정 provider 하나의 한계가 아니라 **모든
   provider**에 적용되는 응답 계약입니다. LSP `callHierarchy/incomingCalls`는 명시적 빈 배열 `[]`과
   `null`을 구분해 반환할 수 있는데, `null`은 "호출자가 없다고 확정한다"는 뜻이 아닙니다. Impact Lens는
@@ -321,6 +328,13 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
   아래에서도 사라지지 않습니다(색인 완성 여부와 이 질의 하나의 답은 별개이기 때문입니다). caller
   0개인 결과에 이 코드가 있으면 "이 함수를 아무도 호출하지 않는다"로 요약하지 마세요 — FastAPI의
   `Depends()`처럼 정적 Call Hierarchy가 볼 수 없는 경로로 실제로 호출되고 있을 수 있습니다.
+- `limitationDetails`의 `compile_database_missing`/`_stale`/`_ambiguous`: C/C++(`clangd`) 전용입니다.
+  `compile_commands.json`이 없거나, `CMakeLists.txt`보다 오래됐거나, 후보가 여러 개라 하나를 조용히
+  골랐다는 뜻입니다. 이 상태에서 clangd는 파일 간 관계를 찾을 색인이 없는 채로 저하 동작합니다 — 이미
+  열린 파일(또는 그 파일을 `#include`한 파일) 안에서는 여전히 정확하지만, 아직 한 번도 열지 않은
+  파일에 있는 호출자는 원리적으로 발견할 수 없습니다. `provider_null_incoming_calls`와 달리 caller
+  개수와 무관하게 나타날 수 있으므로, caller가 있는 결과에서도 이 코드가 있으면 "발견된 caller가
+  전부"라고 단정하지 마세요.
 
 `complete: true`인 빈 결과(caller 0개)를 보고 **"안전하게 지워도 된다", "영향 없음", "완전히 분석됨", "모든
 호출자를 확인함"**으로 결론짓지 마세요. 정적 Call Hierarchy 근거는 그 결론이 요구하는 runtime/색인

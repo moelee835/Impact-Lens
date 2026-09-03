@@ -1,0 +1,155 @@
+{
+  "file": "20-compile-database-missing-correctly-reported.json",
+  "name": "compile_database_missing correctly reported alongside indexingStatus: unknown",
+  "description": "task-m2-clangd-preset.md stage 6: clangd declares no readiness (stage 1's own finding - the signal is didOpen-triggered, structurally unreachable at the point awaitReadiness() runs, the same shape stage 1 of the Python lane found for pyright), so indexingStatus is unknown for every clangd analysis, never working/ready. Without a compile_commands.json, clangd falls back to a generic command with no cross-file index (coverage.ts's compileDatabaseDetails()), so this fixture legitimately carries both index_state_unknown and compile_database_missing on the same empty result - two independent reasons the same empty answer is not proof of anything, not one reason stated twice. The summary names both explicitly and never asserts the symbol is uncalled. Must-pass fixture 20 - also the fixture that proves the new compile_database_missing entry in LIMITATION_SURFACE_PATTERNS matches real prose ('No compile_commands.json was found'), not only the underscored code name.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.7.0"
+      },
+      "node": {
+        "version": "22.0.0",
+        "major": 22,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "checkout"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "clangd",
+        "requestedLanguageId": "cpp",
+        "detectedLanguageId": "cpp",
+        "selectedBy": "auto",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": true
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        }
+      },
+      "coverage": {
+        "traversal": {
+          "status": "complete",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "unknown"
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable",
+          "no_incoming_callers",
+          "index_state_unknown"
+        ]
+      },
+      "completion": {
+        "requestStatus": "succeeded",
+        "traversalStatus": "exhausted",
+        "semanticScope": "provider-static",
+        "indexingStatus": "unknown"
+      },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "a1b2c3d4e5f6a1b2c3d4e5f6",
+          "name": "fixture_target"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "no_incoming_callers",
+          "severity": "warning",
+          "scope": "semantic",
+          "message": "No incoming callers were returned for this symbol.",
+          "action": "Confirm dynamic entry points manually before removing this symbol."
+        },
+        {
+          "code": "index_state_unknown",
+          "severity": "warning",
+          "scope": "indexing",
+          "message": "The provider did not report an index state, so an empty result is not evidence that no caller exists.",
+          "action": "Re-run after the provider finishes indexing, or verify with a workspace search."
+        },
+        {
+          "code": "compile_database_missing",
+          "severity": "warning",
+          "scope": "provider",
+          "message": "No compile_commands.json was found for this C/C++ workspace. The provider is analyzing with a generic fallback command that has no cross-file knowledge, so a result reporting no callers is not evidence that none exist.",
+          "action": "Generate a compile database (for CMake: configure with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON) and re-run."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "clangd",
+      "requestedLanguageId": "cpp",
+      "detectedLanguageId": "cpp",
+      "selectedBy": "auto",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": true
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      }
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable",
+      "no_incoming_callers",
+      "index_state_unknown"
+    ],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from clangd; the provider did not report an index state, so this empty result is not proof no caller exists. No compile_commands.json was found for this C/C++ workspace, so the provider analyzed with a generic fallback command that has no cross-file knowledge - a call in a file that was never opened could be undiscoverable this way, not absent. No incoming callers were returned for fixture_target at depth 5. Because of both the unknown index state and the missing compile database, this is not evidence the function is unused - generate a compile database and re-run, or verify with a workspace search before removing it.",
+  "expect": "pass",
+  "expectedViolations": []
+}

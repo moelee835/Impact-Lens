@@ -22,6 +22,23 @@
   `null` no longer reads as a proven zero — it can appear even under `indexingStatus: ready`, since it
   reports on this one query, not on index completeness. The motivating case is a symbol invoked only
   through a mechanism static Call Hierarchy cannot see, such as FastAPI's `Depends()`.
+- A C/C++ developer with `clangd` installed and discoverable on `PATH` now gets function-impact analysis
+  with no provider configuration at all — `clangd` is a third `verified-external` catalog preset,
+  covering `.c`/`.cc`/`.cpp`/`.cxx`/`.h`/`.hh`/`.hpp`/`.hxx`, verified end to end (Call Hierarchy, version
+  policy, a real cross-file compile-database round trip) on darwin/arm64 by hand and, for its pinned
+  minimum version, on Linux/macOS/Windows CI on every push. Unlike `gopls`, `clangd` declares no
+  `readiness` profile, so `indexingStatus` is always `unknown` for C/C++ (the same reason
+  `bundled-pyright` reports `unknown` too).
+- `limitationDetails` can now carry `compile_database_missing`, `compile_database_stale`, or
+  `compile_database_ambiguous` (C/C++ only, severity `warning`): without a valid `compile_commands.json`,
+  `clangd` falls back to a generic command with no cross-file index, so it can resolve a call within an
+  already-open file but cannot discover one in a file nothing has opened. Unlike
+  `provider_null_incoming_calls`, these codes are unconditional on caller count, since a stale or
+  ambiguous database can misdirect a non-empty result too.
+- `.h` files are now recognized as language-ambiguous (a header alone cannot say C vs. C++) instead of
+  being guessed as one or the other: they get the internal language id `c-cpp-header`, and
+  `provider.languageMatch` reports `'unknown'` for them rather than `true`/`false`. `clangd` still claims
+  and analyzes `.h` files once selected.
 
 ## 0.7.0
 
