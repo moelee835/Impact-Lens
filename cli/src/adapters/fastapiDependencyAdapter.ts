@@ -34,15 +34,49 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Bounded alias tracking (`from module import target as alias`) - not a real import graph. Returns
- * every local name this file could plausibly use to refer to `targetName`, `targetName` itself first. */
-function localNamesFor(text: string, targetName: string): readonly string[] {
-  const names = new Set([targetName]);
-  const aliasPattern = new RegExp(`\\bimport\\s+${escapeRegExp(targetName)}\\s+as\\s+(\\w+)`, 'g');
-  for (const match of text.matchAll(aliasPattern)) {
-    names.add(match[1]);
-  }
-  return [...names];
+interface AliasBinding {
+  readonly alias: string;
+  /** Position of `targetName`'s OWN occurrence in the import statement (not the alias name) - this is
+   * what makes the binding provider-verifiable, see `aliasBindingsFor`'s doc comment. */
+  readonly line: number;
+  readonly character: number;
+}
+
+/**
+ * Bounded alias detection (`from module import target as alias`) - not a real import graph, and narrower
+ * than "every local name this file could plausibly use" (this comment's own earlier wording, found
+ * inaccurate by a direct regex probe - the same kind of shipped-doc/reality gap this milestone has
+ * already caught twice elsewhere). `targetName` is detected as aliased only when it is the FIRST name
+ * immediately after the `import` keyword, on one line. Two common real shapes are NOT detected - both
+ * false-negative (a missed candidate, never a wrong one), not incorrect:
+ * - `from module import other, targetName as alias` - target is not first in a comma-separated list.
+ * - `from module import (\n    targetName as alias,\n)` - a parenthesized multi-line import (a common
+ *   black/isort output shape).
+ * Widening the regex to catch these was considered and rejected: without a real parser, dropping the
+ * `import` anchor to catch a non-first name risks matching Python's OTHER `X as Y` syntax
+ * (`except SomeError as e`), which has nothing to do with imports - trading a safe false negative for a
+ * possible false positive is the wrong direction here (confirmed empirically: `except get_db as db:`
+ * matches a name-only widened pattern). `import module as m` followed by `m.targetName(...)` (qualified
+ * access through a module alias) is separately out of scope, per this file's own top-of-file comment.
+ *
+ * Each binding returned here still MUST be verified before its alias is trusted - `prepare()` at the
+ * alias name's OWN use site (e.g. `target_alias` inside `Depends(target_alias)`) resolves to the import
+ * statement's local binding as its own distinct symbol identity, not through to `targetName`'s real
+ * definition (found empirically: an alias fixture that should resolve produced a different `symbolId`
+ * than root's). `targetName`'s own occurrence in the import line, by contrast, is a genuine reference to
+ * the original symbol and resolves correctly - that is the position this returns, precisely so the
+ * caller can call `prepare()` there and confirm it actually names root before trusting the alias, the
+ * same "verify through the real provider" discipline `Depends()` references get elsewhere in this file.
+ */
+function aliasBindingsFor(text: string, targetName: string): readonly AliasBinding[] {
+  const aliasPattern = new RegExp(`\\bimport\\s+(${escapeRegExp(targetName)})\\s+as\\s+(\\w+)`, 'g');
+  const bindings: AliasBinding[] = [];
+  text.split('\n').forEach((line, index) => {
+    for (const match of line.matchAll(aliasPattern)) {
+      bindings.push({ alias: match[2], line: index, character: match.index! + match[0].indexOf(match[1]) });
+    }
+  });
+  return bindings;
 }
 
 function importsFastapi(text: string): boolean {
@@ -52,6 +86,10 @@ function importsFastapi(text: string): boolean {
 interface DependsMatch {
   readonly line: number;
   readonly character: number;
+  /** Which local name this matched (root's own name, or a verified alias) - needed downstream because an
+   * alias reference cannot be re-verified the same way (see the note where this is consumed), and because
+   * the evidence range must use THIS name's length, not root's (an alias is rarely the same length). */
+  readonly name: string;
 }
 
 function findDependsReferences(lines: readonly string[], localNames: readonly string[]): readonly DependsMatch[] {
@@ -60,7 +98,7 @@ function findDependsReferences(lines: readonly string[], localNames: readonly st
     const pattern = new RegExp(`\\bDepends\\(\\s*${escapeRegExp(name)}\\b`, 'g');
     lines.forEach((line, index) => {
       for (const match of line.matchAll(pattern)) {
-        matches.push({ line: index, character: match.index! + match[0].length - name.length });
+        matches.push({ line: index, character: match.index! + match[0].length - name.length, name });
       }
     });
   }
@@ -145,6 +183,23 @@ interface MountSearchResult {
   readonly truncated: boolean;
 }
 
+/** Windows drive letters and directory names are case-insensitive at the filesystem level, and this
+ * adapter's two path provenances (`fileURLToPath()` for `rootFile` vs `path.join()` while walking the
+ * workspace) are not guaranteed to agree on case even for the identical file - a plain `===` on resolved
+ * paths falsely treats root's own file as "some other file" there, which is exactly what turned root's
+ * own router binding into a phantom name collision (CI, Windows only: `mounted_router.py`'s regression
+ * test dropped its expected edge). `path.resolve()` alone does not fix this - Node's `path` module is a
+ * string utility, not filesystem-aware, and does not case-fold. Linux/macOS stay a strict comparison.
+ * The reverse error is possible on a case-SENSITIVE NTFS volume (rare, opt-in): two genuinely different
+ * files whose paths differ only by case would be treated as the same file, so a real competing binding in
+ * one of them would be skipped as "root's own" instead of counted - an unsafe direction in principle, but
+ * accepted here as the ordinary Windows default is case-insensitive. */
+function sameFile(a: string, b: string): boolean {
+  const resolvedA = path.resolve(a);
+  const resolvedB = path.resolve(b);
+  return process.platform === 'win32' ? resolvedA.toLowerCase() === resolvedB.toLowerCase() : resolvedA === resolvedB;
+}
+
 /**
  * Corpus case 3 (docs/work/task-m4-stage1-evidence-contract.md): a route decorator on a plain
  * `APIRouter()` is not reachable until something actually mounts it - `include_router(name)` referencing
@@ -162,30 +217,33 @@ interface MountSearchResult {
  * 2. A bare identifier match in a file whose `name` refers to an UNRELATED `APIRouter()` - two files can
  *    each define their own router under the same local name (e.g. both call it `router`), and a text
  *    search that only matches by name cannot tell them apart. If any file OTHER than `rootFile` also
- *    binds `name = APIRouter(...)`, the name is ambiguous workspace-wide and mount can never be confirmed
- *    for it (stage 1's "if it cannot be confirmed, do not assert" - matching the false-negative direction
- *    corpus case 3 already requires, not a new relaxation).
+ *    binds `name = APIRouter(...)` - a type-annotated (`name: APIRouter = APIRouter(...)`) or
+ *    module-qualified (`name = fastapi.APIRouter(...)`) binding counts too, not just the bare form - the
+ *    name is ambiguous workspace-wide and mount can never be confirmed for it (stage 1's "if it cannot be
+ *    confirmed, do not assert" - matching the false-negative direction corpus case 3 already requires,
+ *    not a new relaxation).
+ *
+ * A third thing this search must NOT do: treat a TRUNCATED walk as having confirmed there is no
+ * collision. `mountFound` is a positive claim - a truncated search that never finds it is safely "not
+ * found", same as always. `nameAmbiguous` is the opposite, a negative/universal claim ("no OTHER file
+ * anywhere binds this name") - a walk that stopped early cannot support it, because the one colliding
+ * file could be exactly the one it never reached (found by direct reproduction: a 1-file budget that
+ * happened to visit only root's own self-mounting file produced a confident edge while a real competing
+ * binding sat unread in a second file). So `found` is `true` only when the walk actually completed
+ * (`!truncated`) - a truncated walk is always reported unresolved, at whatever extra cost that carries in
+ * a workspace large enough to need it, per the same "if it cannot be confirmed, do not assert" rule.
  *
  * Matching only a bare identifier argument (`include_router(name` / `include_router(name,`, never
  * `include_router(name()` or `include_router(get_name())`) IS deliberate: it is exactly what leaves
  * dynamic registration (stage 1's own out-of-scope example) unmatched, with no special-casing needed.
  */
-/** Windows drive letters and directory names are case-insensitive at the filesystem level, and this
- * adapter's two path provenances (`fileURLToPath()` for `rootFile` vs `path.join()` while walking the
- * workspace) are not guaranteed to agree on case even for the identical file - a plain `===` on resolved
- * paths falsely treats root's own file as "some other file" there, which is exactly what turned root's
- * own router binding into a phantom name collision (CI, Windows only: `mounted_router.py`'s regression
- * test dropped its expected edge). `path.resolve()` alone does not fix this - Node's `path` module is a
- * string utility, not filesystem-aware, and does not case-fold. Linux/macOS stay a strict comparison. */
-function sameFile(a: string, b: string): boolean {
-  const resolvedA = path.resolve(a);
-  const resolvedB = path.resolve(b);
-  return process.platform === 'win32' ? resolvedA.toLowerCase() === resolvedB.toLowerCase() : resolvedA === resolvedB;
-}
-
 async function isRouterMounted(name: string, rootFile: string, workspace: string, budget: AdapterBudget): Promise<MountSearchResult> {
   const mountPattern = new RegExp(`\\binclude_router\\(\\s*${escapeRegExp(name)}\\s*[,)]`);
-  const bindingPattern = new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*APIRouter\\s*\\(`);
+  // Allows an optional type annotation (`name: APIRouter = ...`) and an optional module-qualified prefix
+  // before the constructor call (`name = fastapi.APIRouter(...)`) - both found missing in an isolated
+  // regex probe before this was written, which is what "same name, different symbol" (corpus case 1)
+  // already warned this adapter to check for empirically rather than assume.
+  const bindingPattern = new RegExp(`\\b${escapeRegExp(name)}(?:\\s*:\\s*[^=\\n]+)?\\s*=\\s*(?:\\w+\\.)*APIRouter\\s*\\(`);
   const walkState = { filesVisited: 0, maxFiles: budget.maxFiles, truncated: false };
   let mountFound = false;
   let nameAmbiguous = false;
@@ -204,7 +262,8 @@ async function isRouterMounted(name: string, rootFile: string, workspace: string
       nameAmbiguous = true;
     }
   });
-  return { found: mountFound && !nameAmbiguous, truncated: walkState.truncated };
+  // A truncated walk cannot support the negative claim `!nameAmbiguous` makes - see the doc comment above.
+  return { found: mountFound && !nameAmbiguous && !walkState.truncated, truncated: walkState.truncated };
 }
 
 async function walkPythonFiles(
@@ -356,7 +415,6 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
   }
 
   // 2. Is root referenced as a Depends() target anywhere in the workspace?
-  const localNames = localNamesFor(rootText, input.root.name);
   const walkState = { filesVisited: 0, maxFiles: input.budget.maxFiles, truncated: false };
   let matchesProcessed = 0;
 
@@ -370,6 +428,25 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
     if (!importsFastapi(text) && !text.includes('Depends(')) {
       return;
     }
+    // Per file, not computed once from rootText: an alias (`from module import target as alias`) is a
+    // property of whichever file DOES the importing, never of root's own definition file - the original
+    // one-shot-from-rootText version could never see it (found empirically: an alias fixture referencing
+    // root only through its alias produced zero edges), since a plain definition file has no reason to
+    // import its own top-level symbol under another name.
+    const localNames = [input.root.name];
+    for (const binding of aliasBindingsFor(text, input.root.name)) {
+      if (matchesProcessed >= input.budget.maxFiles * input.budget.maxMatchesPerFile) {
+        budgetExceeded = true;
+        break;
+      }
+      matchesProcessed += 1;
+      // Verify before trusting - see aliasBindingsFor's doc comment for why this specific position (not
+      // the alias's own use site) is what a text match alone cannot substitute for.
+      const verified = await resolveEndpoint(input, file, { line: binding.line, character: binding.character });
+      if (verified.items.some(item => symbolId(item) === input.rootId)) {
+        localNames.push(binding.alias);
+      }
+    }
     const lines = text.split('\n');
     const references = findDependsReferences(lines, localNames);
     for (const reference of references) {
@@ -378,15 +455,28 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
         return;
       }
       matchesProcessed += 1;
-      const resolved = await resolveEndpoint(input, file, { line: reference.line, character: reference.character });
-      if (resolved.items.length === 0) {
-        continue;
-      }
-      const matchesRoot = resolved.items.some(item => symbolId(item) === input.rootId);
-      if (!matchesRoot) {
-        // A same-named symbol that resolved to something other than root (corpus case 1) - correctly
-        // produces nothing for root, since this reference is not actually about root.
-        continue;
+      // A reference matching a verified alias cannot be re-verified the same way a literal-name reference
+      // can: `prepare()` at the alias's OWN use site resolves to the import statement's local binding as
+      // its own distinct symbol identity, never through to root's (found empirically - the reason
+      // aliasBindingsFor verifies at the ORIGINAL name's position in the import line instead, once per
+      // file, not per use site). That verification already happened before `localNames` was built, so an
+      // alias reference is trusted here; a literal-name reference still goes through the same
+      // provider-based check corpus case 1 requires (a same-named symbol resolving to something else must
+      // still produce nothing for root).
+      const isVerifiedAlias = reference.name !== input.root.name;
+      let resolutionCandidateCount = 1;
+      if (!isVerifiedAlias) {
+        const resolved = await resolveEndpoint(input, file, { line: reference.line, character: reference.character });
+        if (resolved.items.length === 0) {
+          continue;
+        }
+        const matchesRoot = resolved.items.some(item => symbolId(item) === input.rootId);
+        if (!matchesRoot) {
+          // A same-named symbol that resolved to something other than root (corpus case 1) - correctly
+          // produces nothing for root, since this reference is not actually about root.
+          continue;
+        }
+        resolutionCandidateCount = resolved.items.length;
       }
       const enclosing = findEnclosingDef(lines, reference.line);
       if (!enclosing) {
@@ -410,12 +500,15 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
         // More than one real candidate for the same reference (rare - genuine provider-side
         // ambiguity) is reported as `multiple`; the common case, a single resolved symbol, is
         // `single`. Never `confirmed` - this array is by definition what the provider did not
-        // confirm (M4 stage 1 Q2 decision).
-        resolution: resolved.items.length > 1 ? 'multiple' : 'single',
+        // confirm (M4 stage 1 Q2 decision). A verified-alias reference is always `single` - its
+        // ambiguity, if any, was already resolved at the import-line verification step.
+        resolution: resolutionCandidateCount > 1 ? 'multiple' : 'single',
         reasonCode: 'fastapi-depends',
         evidenceRanges: [externalRange({
           start: { line: reference.line, character: reference.character },
-          end: { line: reference.line, character: reference.character + input.root.name.length },
+          // `reference.name`, not `input.root.name` - an alias is rarely the same length as the name it
+          // stands for, and using root's length here for an alias reference would misalign the range.
+          end: { line: reference.line, character: reference.character + reference.name.length },
         })],
       });
     }

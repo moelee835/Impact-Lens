@@ -327,4 +327,126 @@ path.resolve(b))`를 쓴다)를 살펴봤지만, 그 함수는 대소문자를 �
 
 **검증**: 로컬(macOS) 재빌드·전체 재실행 — 343 pass, 3 skip, 0 fail(이 플랫폼은 애초에 이 버그를
 재현하지 않으므로 로컬 실행만으로는 Windows 수정 자체를 증명 못 한다 — **Windows CI 재실행 결과로
-확인 예정**, 아직 주장하지 않음).
+확인 예정**, 아직 주장하지 않음). **이후 Windows CI 12개 전부 재실행해 통과 확인함**(commander에게도
+보고, PR #73 `CLEAN`/`MERGEABLE`로 전환).
+
+## 리뷰어 발견 A·B — mount 확인이 여전히 안전하지 않은 두 방향
+
+리뷰어가 corpus 3 수정을 fixture로 재현: 서로 다른 두 파일이 각각 `router = APIRouter()`를 갖고
+하나만 mount되면 **mount 안 된 쪽에도 edge가 생긴다.** commander가 독립적으로 격리 스크립트로 같은
+검사를 실행해 **리뷰어가 안 짚은 오탐 형태 셋을 추가로 찾았다**(주석 처리된 mount, docstring 언급,
+문자열 리터럴 언급) — 전부 `stripCommentsAndStrings`가 이미 처리하는 형태였지만, **truncate와
+binding 형태에서 남은 위험 둘**을 별도로 지적했다.
+
+### A(심각, merge 차단) — truncate된 검색이 부정 주장을 뒷받침하면 안 된다
+
+**직접 재현**(먼저 재현 후 판단하라는 지시대로): `maxFiles`를 1로 임시로 낮추고, root 파일 자신이
+router를 정의·자기-mount하는 fixture(`a_root_and_mount.py`)와, **같은 이름을 바인딩하는 별도 파일**
+(`z_collision_router.py`, 알파벳 순으로 뒤에 오게 이름 지음)을 워크스페이스에 둔 뒤 실행 —
+**`augmentedEdges`에 edge가 실제로 생겼다**, `augmentation_budget_exceeded`가 동시에 떠 있는데도.
+walk가 root 파일 하나만 보고 끝나 `z_collision_router.py`의 진짜 충돌을 못 본 채 "충돌 없음"으로
+결론 낸 것 — commander의 진단이 실측으로 확인됐다.
+
+**원인**: `mountFound`(긍정 주장, truncate돼도 안전 — 못 찾으면 그냥 못 찾은 것)와 `nameAmbiguous`
+불린 부정(`!nameAmbiguous`, "다른 어떤 파일도 이 이름을 안 쓴다")의 성질이 다른데 똑같이 취급했다.
+truncate된 walk는 **부정 주장을 뒷받침할 근거가 없다**(안 본 파일에 충돌이 있었을 수 있음).
+
+**수정**: `isRouterMounted()`의 반환을 `found: mountFound && !nameAmbiguous && !walkState.truncated`로 —
+truncate되면 무조건 unresolved. 큰 프로젝트에서 비용이 커질 수 있다는 게 commander의 지적인데, stage
+1 계약 5번("확정 불가면 edge를 안 만든다")과 정확히 같은 방향이라 그 비용을 받아들였다.
+
+**검증**: 같은 재현 시나리오에서 수정 후 재실행 — `augmentedEdges: []`, 두 limitation
+(`augmentation_budget_exceeded`/`framework_route_mount_unresolved`) 모두 뜸. 원래 예산(200)으로
+복원 후 전체 재실행 — 정상.
+
+### B(같은 라운드) — binding pattern이 흔한 두 형태를 놓쳤다
+
+commander가 격리 실행으로 확인: `router: APIRouter = APIRouter()`(타입 주석)와 `router =
+fastapi.APIRouter()`(모듈 경유)가 **원래 bindingPattern에 안 걸렸다** — corpus 1이 경고한 것과
+정확히 같은 형태("fixture가 코드가 다루는 모양만 써서" 통과). 직접 재현(격리 정규식 스크립트)으로
+동일하게 확인.
+
+**수정**: `bindingPattern`에 선택적 타입 주석(`(?:\s*:\s*[^=\n]+)?`)과 선택적 모듈 접두
+(`(?:\w+\.)*`)를 추가. `except SomeError as e` 같은 무관 구문과 안 겹치는지도 확인(이건 `bindingPattern`이
+아니라 alias 쪽 우려였지만 같은 종류의 위험이라 함께 점검).
+
+**fixture 4개 신규**(`collision_typed_unmounted/mounted.py`, `collision_qualified_unmounted/mounted.py`),
+**non-vacuity 확인**: `bindingPattern`만 narrow 버전으로 되돌려 재실행 — **"다른 파일이 exotic
+형태를 쓰는" 방향 2개만 정확히 실패**(같은 파일이 exotic 형태를 쓰는 반대 방향은 기존에 이미 걸리던
+plain 형태 매치라 안 바뀜 — 예상과 일치). 복원 후 재검증 — 21개 전부 통과.
+
+**`sameFile()`에도 위험 방향 기록**: win32 소문자 비교가 반대 방향 오류(대소문자만 다른 진짜 별개
+파일을 같다고 오판)를 낼 수 있다는 것을 주석에 명시(commander 지적 — case-sensitive NTFS라는 드문
+전제가 필요해 받아들일 만하다고 판단했지만, 방향을 숨기지 않는다).
+
+## 리뷰어·commander가 짚은 검증 공백 둘 — mount 버그를 놓친 것과 같은 형태
+
+commander가 mount 버그와 같은 메커니즘("fixture가 코드가 다루는 모양만 쓴다")으로 **fixture가 아예
+그 코드 경로를 부르지도 않는** 곳 둘을 찾았다. 우선순위 A→B→1→2(→3)로 처리.
+
+### 1. import alias 추적 — commander 예상보다 더 깊이 깨져 있었다
+
+commander의 격리 정규식 실행: alias는 **import 목록 첫 번째일 때만** 감지되고, **괄호 여러 줄
+import**(black/isort 기본 출력 형태)는 전혀 안 잡힌다. 직접 재현으로 동일 확인.
+
+**정규식을 넓힐지 판단**: 넓히지 않기로 결정했다 — `import` 앵커를 없애고 이름만으로 매칭하면
+`except SomeError as e`(import와 무관한 Python 문법) 오탐 위험이 생긴다는 걸 **직접 실행으로
+확인**(`except get_db as db:`가 이름-only 패턴에 매칭됨). 안전한 false negative를 위험한 false
+positive로 바꾸는 방향이라 거부. 주석을 실제 범위("첫 자리 단일 줄만")로 정정.
+
+**그런데 fixture를 만들다가 이보다 깊은 결함을 발견했다**: `localNames`가 **root 파일 자신의
+텍스트에서** 계산되고 있었다 — alias는 **가져다 쓰는(consumer) 파일**의 속성인데, root는 자기 자신을
+import하지 않으므로 이 메커니즘은 **애초에 alias를 하나도 못 찾는 구조**였다(narrow냐 wide냐의
+문제가 아니라 완전히 다른 파일을 보고 있었음). "caught" 방향 fixture를 만들어 직접 재현: 0 edge.
+
+**1차 수정**(파일 스코프 교정) 후에도 여전히 0 edge — **두 번째, 더 깊은 원인**을 발견: pyright의
+`prepareCallHierarchy`가 **alias 사용 지점(`Depends(target_alias)`의 `target_alias`)에서 원본
+심볼로 안 이어진다** — alias 자신의 독립된 symbol identity를 반환한다(`name`도 "target_alias",
+`id`도 root와 다름 — 직접 쿼리로 확인). 반면 **import 문 안의 원본 이름(`alias_target_fn`) 자신의
+위치**에서 `prepare()`하면 root로 정확히 resolve된다(직접 쿼리로 확인).
+
+**2차 수정**(진짜 fix): `aliasBindingsFor()`가 alias 이름 대신 **import 문의 원본 이름 위치**를
+반환하도록 재설계 → 그 위치에서 `prepare()`로 검증 → 검증된 alias만 `localNames`에 추가. 검증된
+alias로 찾은 `Depends(alias)` 참조는 참조 지점에서 재검증하지 않는다(어차피 실패하므로) — import
+문에서 이미 provider로 검증했다는 사실을 신뢰한다. 이 과정에서 **잠재 버그 하나 더** 발견: edge의
+evidence range 길이가 `input.root.name.length`로 고정돼 있어 alias(길이가 다름)에 적용하면 범위가
+어긋났다 — `reference.name.length`로 교체.
+
+**fixture 3개**(`alias_target.py`, `alias_caught_consumer.py`, `alias_uncaught_consumer.py`), 테스트
+1개(잡히는 것 1개 + 안 잡히는 것 1개를 edge count로 함께 검증). **non-vacuity**: 전체 변경분을
+되돌려 재실행 — 정확히 이 테스트 1개만 실패(21/22), 나머지 전부 통과(A·B 변경은 안 건드렸다는 것도
+같이 확인). 복원 후 348/348.
+
+### 2. `resolution: 'multiple'` — fixture를 못 만들었다, 근거 기록
+
+`resolved.items.length > 1 ? 'multiple' : 'single'` 분기를 실제로 타는 테스트가 없다는 지적 확인 —
+`grep`으로 재대조, `'single'` 단언만 2건, `'multiple'`은 0건.
+
+**시도**: 가장 자연스러운 Python 패턴(조건부 재정의 — `if cond: def f(): ... else: def f(): ...`)으로
+throwaway fixture를 만들어 실제 pyright에 직접 쿼리 — `Depends(multi_get_db)` 참조 지점에서
+`prepare()`한 결과 **`nodes.length === 1`**(마지막에 정의된 쪽 하나만 resolve, 두 후보를 안 냄).
+**pyright가 이 패턴에서 ambiguity를 노출하지 않는다는 것을 직접 확인했다.**
+
+**억지로 만들지 않는다** — commander 지시대로. `@typing.overload`처럼 다른 구성도 있지만, 그건 타입
+스텁 선언이지 "런타임에 실제로 여럿 중 하나가 선택되는" 상황과 성질이 달라 이 corpus 항목의 의도와
+안 맞을 수 있어 시도하지 않았다. **stage 3로 미룬다** — pyright가 실제로 다중 후보를 내는 조건을
+더 조사하거나, provider mock으로 우회 검증하는 방법을 그때 검토한다. 이 항목(작업 로그의 이 절)이
+그 기록 위치다.
+
+### 3. 중첩 dependency(sub-dependency) — fixture 없음, 별도 코드 경로 아님
+
+gate가 "sub-dependency(중첩 dependency)"도 요구하는데 fixture가 없다. commander 판단대로 **별도
+코드 경로가 아니라 같은 `Depends()` 탐색이 한 단계 더 도는 것**(예: `get_db`가 자기 `Depends(get_config)`를
+가짐)으로 보인다 — `findEnclosingDef`가 이미 임의 깊이의 enclosing function을 찾고, `Depends()` 검색은
+파일 단위로 이미 재귀적이라 추가 코드 변경 없이도 동작할 가능성이 높다. **fixture로 직접 확인하지는
+않았다** — stage 3(마일스톤 종료 판정)에서 재확인 필요. 이 절이 그 기록 위치다.
+
+## 남은 것 (갱신)
+
+- **corpus 2(조건부 대입)·4a(같은 세션 dedupe)**: 앞서 기록한 대로 미구현, 심각도가 달라 연기.
+- **`resolution: 'multiple'` fixture**: 위 "2" 참고 — pyright가 조건부 재정의에서 ambiguity를
+  안 내는 것을 확인했고, 다른 구성은 stage 3에서 재검토.
+- **중첩 dependency fixture**: 위 "3" 참고 — 별도 코드 경로는 아닌 것으로 보이나 fixture로 미확인,
+  stage 3에서 재확인.
+- decorator-level·router-level dependency 선언은 의도적 범위 제외(기존 기록 그대로).
+- corpus 4b(환경 간 표현 일관성) — 기존 기록대로 아직 미결.

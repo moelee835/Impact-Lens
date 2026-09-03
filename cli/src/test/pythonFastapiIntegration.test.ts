@@ -232,6 +232,35 @@ test(
 );
 
 // ---------------------------------------------------------------------------
+// Import-alias tracking (commander-found gap, docs/work/task-m4-stage2-fastapi-adapter.md): the M4
+// exit gate names "FastAPI import alias" as a required coverage shape, but no fixture exercised
+// localNamesFor() at all before this. It only detects an alias when the target name is the FIRST name
+// immediately after `import` on one line - alias_caught_consumer.py exercises that (detected) and
+// alias_uncaught_consumer.py exercises the target NOT being first in a comma-separated list (NOT
+// detected, a documented limitation). Combined into one test: if either direction regressed, the edge
+// count would be wrong in a way that shows exactly which one broke.
+// ---------------------------------------------------------------------------
+
+test(
+  'import alias tracking, augmentation ON: a single-name import alias is found, a non-first name in a comma-separated import is not',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('alias_target.py', 8, 5, true); // `def alias_target_fn` in alias_target.py
+    assert.equal(response.ok, true);
+    assert.equal(
+      response.data.augmentedEdges.length,
+      1,
+      `expected exactly the caught alias (target_alias from alias_caught_consumer.py), not the uncaught one (target_alias2 from alias_uncaught_consumer.py): ${JSON.stringify(response.data.augmentedEdges)}`,
+    );
+    const [edge] = response.data.augmentedEdges;
+    assert.equal(edge.reasonCode, 'fastapi-depends');
+    assert.equal(edge.resolution, 'single');
+    assert.equal(edge.source.kind, 'synthetic');
+    assert.equal(edge.source.name, 'caught_handler');
+  },
+);
+
+// ---------------------------------------------------------------------------
 // Corpus case 3 (docs/work/task-m4-stage1-evidence-contract.md) - orphan_router.py/
 // dynamic_mount_router.py. A route decorator alone must not become a confirmed route edge: a genuinely
 // unmounted router and one mounted only through a form this scan cannot follow (dynamic registration)
@@ -313,8 +342,12 @@ const MOUNT_UNRESOLVED_GUARD_FIXTURES: ReadonlyArray<{ readonly file: string; re
   { file: 'commented_out_router.py', line: 12, label: 'a commented-out include_router(...) call' },
   { file: 'docstring_mention_router.py', line: 12, label: 'include_router(...) mentioned only in a docstring' },
   { file: 'string_literal_router.py', line: 11, label: 'include_router(...) mentioned only in a string literal' },
-  { file: 'collision_router_unmounted.py', line: 15, label: 'name collision - this router is genuinely unmounted' },
-  { file: 'collision_router_mounted.py', line: 13, label: 'name collision - this router IS mounted, but the name is ambiguous workspace-wide' },
+  { file: 'collision_router_unmounted.py', line: 15, label: 'name collision (bare form) - this router is genuinely unmounted' },
+  { file: 'collision_router_mounted.py', line: 13, label: 'name collision (bare form) - this router IS mounted, but the name is ambiguous workspace-wide' },
+  { file: 'collision_typed_unmounted.py', line: 15, label: 'name collision (type-annotated form on the OTHER file) - this router is genuinely unmounted' },
+  { file: 'collision_typed_mounted.py', line: 14, label: 'name collision (type-annotated form on THIS file) - mounted, but ambiguous workspace-wide' },
+  { file: 'collision_qualified_unmounted.py', line: 15, label: 'name collision (module-qualified form on the OTHER file) - this router is genuinely unmounted' },
+  { file: 'collision_qualified_mounted.py', line: 15, label: 'name collision (module-qualified form on THIS file) - mounted, but ambiguous workspace-wide' },
 ];
 
 for (const fixture of MOUNT_UNRESOLVED_GUARD_FIXTURES) {
