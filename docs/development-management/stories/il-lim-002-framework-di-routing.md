@@ -168,6 +168,14 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 
 ### 5단계 — Spring Java/Kotlin feasibility와 adapter 분리
 
+> **2026-09-03 추가(M4 stage 2, `docs/work/task-m4-stage2-fastapi-adapter.md`)**: 이 단계가
+> FastAPI(1~4단계) 이후라는 순서는 이미 맞았다 — 다만 "언젠가는 온다"가 아니라 **지금은 하드
+> 블로커로 막혀 있다**는 것을 명시적으로 남긴다. 직접 확인: `cli/src/providers/resolve.ts`의
+> `languageId()`에 `.java` case가 없고, `PROVIDER_CATALOG`에 Java/Kotlin preset이 없다. 이
+> 단계는 Java 또는 Kotlin이 먼저 언어 지원을 얻은 뒤(M3 이후)에만 시작할 수 있다 — 그 전까지는
+> "후속"이 아니라 "착수 불가"다. `m4-semantic-augmentation.md`의 종료 gate도 이 사실을 반영해
+> 정정했다.
+
 1. component/service/repository, constructor injection, `@Bean`, qualifier/primary와 interface 구현 fixture를 만든다.
 2. profile, conditional, collection injection, proxy/AOP와 programmatic registration을 negative/runtime-only로 둔다.
 3. Java/Kotlin provider definition 결과와 build model을 이용해 bean type을 기존 symbol ID에 mapping할 수 있는지 측정한다.
