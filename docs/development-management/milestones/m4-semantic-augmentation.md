@@ -4,6 +4,19 @@
 - 완료 소유: IL-LIM-001, IL-LIM-002, IL-LIM-010
 - 릴리스 성격: semantic evidence preview/minor release
 
+> **2026-09-03 정정(M4 stage 2, `docs/work/task-m4-stage2-fastapi-adapter.md`)**: 아래 "포함 범위"와
+> "종료 gate"가 **Spring Java/Kotlin을 1차 adapter로 전제**한다. 이건 지금 불가능하다 — 직접
+> 확인했다: `cli/src/providers/resolve.ts`의 `languageId()`에 `.java` case가 아예 없고(`.kt`/
+> `.kts`는 `'kotlin'`으로 감지되지만), `PROVIDER_CATALOG`(`cli/src/providers/catalog.ts`)에는
+> Java나 Kotlin preset이 하나도 없다(`bundledTypeScript`/`gopls`/`bundledPyright`/`clangd`
+> 넷뿐). **Spring adapter를 만들려면 Java/Kotlin 언어 지원이 먼저 필요하고, 그건 M3 이후의
+> 일이다.** 이건 임의 범위 변경이 아니라 이 저장소가 이미 갖춘 것과 안 갖춘 것이 강제하는
+> 사실이다. **FastAPI가 이 마일스톤에서 실제로 가능한 유일한 framework adapter다** — Python
+> preset이 이미 shipped됐고, `IL-LIM-002` 자신의 "권장 대응"도 이미 "첫 adapter를
+> `fastapi-static-v1`로 한정"하고 Spring을 "후속 adapter"로 적어 뒀다(이 문서만 Spring을 1차로
+> 잘못 적어 뒀다). **Spring은 이 마일스톤에서 만들지 않는다** — Java/Kotlin 언어 지원이 생긴
+> 뒤(M3 이후)로 미룬다. 원문은 보존하고, 아래 해당 항목마다 정정을 남긴다.
+
 ## 목표
 
 LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관련성을 근거 없이 확정하지 않으면서
@@ -13,8 +26,10 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
 
 - 공통 evidence graph와 `confirmed/candidate/runtime-only` 또는 동등 confidence 계약
 - function pointer, virtual/interface dispatch, closure/lambda와 reflection 후보 보완
-- framework adapter registry와 Spring Java/Kotlin bean/context resolution 1차 adapter
-- FastAPI/Koin/Dagger/Hilt/Swift DI 등 후속 adapter SPI 및 unsupported 표시
+- ~~framework adapter registry와 Spring Java/Kotlin bean/context resolution 1차 adapter~~
+  (정정됨, 위 참고 — **FastAPI가 1차**, Spring은 Java/Kotlin 언어 지원 이후로 연기)
+- ~~FastAPI/Koin/Dagger/Hilt/Swift DI 등 후속 adapter SPI 및 unsupported 표시~~ (정정됨 — FastAPI는
+  후속이 아니라 1차. Koin/Dagger/Hilt/Swift DI는 원문 그대로 후속 후보)
 - test candidate evidence, include/exclude convention과 실제 실행 상태 분리
 - LSP-only와 augmented 결과의 비교·rollback·성능 budget
 
@@ -28,15 +43,16 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
 
 - provenance/confidence가 포함된 augmented edge schema와 UI/Plugin 표현
 - 언어별 제한된 정적 추론 adapter와 false-positive corpus
-- Spring bean definition/injection candidate graph와 unresolved bean 설명
+- ~~Spring bean definition/injection candidate graph와 unresolved bean 설명~~ (정정됨, 위 참고 —
+  Java/Kotlin 언어 지원 이후로 연기. 이 자리를 FastAPI dependency/route candidate graph가 대신한다)
 - test evidence classifier, rule ID와 freshness/run-state model
 - adapter별 precision/recall proxy, latency와 disable/rollback switch
 
 ## 단계별 계획
 
 1. **evidence 계약·corpus**: confirmed/candidate/runtime-only provenance와 false-positive corpus를 확정한다.
-2. **언어·framework adapter 구현**: 제한된 dynamic 추론, Spring bean/context와 test evidence adapter를
-   kill switch와 함께 구현한다.
+2. **언어·framework adapter 구현**: 제한된 dynamic 추론, ~~Spring bean/context~~(정정됨, 위 참고 —
+   **FastAPI** dependency/route adapter)와 test evidence adapter를 kill switch와 함께 구현한다.
 3. **자동 정확도·성능 gate**: LSP-only 비교, ambiguity, false-positive, latency와 rollback fixture를 통과한다.
 4. **사용자 테스트 명세 제안**: evidence UI가 안정되면 `user-tests/m4-user-test-spec.md`를 작성한다. Spring/
    FastAPI 및 동적 dispatch를 사용하는 실제 사용자가 변경 영향 검토에서 confirmed와 candidate를 구분하고,
@@ -49,7 +65,13 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
 
 - [ ] IL-LIM-001, IL-LIM-002, IL-LIM-010의 수용 기준이 통과한다.
 - [ ] LSP 확정 edge와 추론/framework/runtime evidence가 JSON과 UI에서 구분된다.
-- [ ] Spring constructor/field/method injection의 대표 fixture가 bean candidate와 ambiguity를 재현한다.
+- [ ] ~~Spring constructor/field/method injection의 대표 fixture가 bean candidate와 ambiguity를
+  재현한다.~~ **2026-09-03 정정**: Java/Kotlin 언어 지원이 없어 이 마일스톤에서 이 gate를 이
+  형태로 통과시킬 수 없다 — Spring은 M3 이후로 연기됐다(위 참고). **이 마일스톤의 실제 종료
+  gate로 대신 쓴다**: FastAPI `Depends()`/route dependency의 대표 fixture가 candidate(단일/복수
+  후보)와 ambiguity를 재현한다. Spring 버전 fixture는 Java/Kotlin 언어 지원이 생긴 뒤 별도
+  milestone/story의 gate로 이어받는다 — `IL-LIM-002`의 stage 5(Spring feasibility spike)가 이미
+  "정확도·성능이 승인된 경우에만 독립 구현 Issue로 승격"이라고 조건부로 적어 둔 것과 일치한다.
 - [ ] 모호한 DI/dynamic target은 하나의 확정 caller로 임의 승격되지 않는다.
 - [ ] path convention만으로 가짜 call edge나 test passed 상태를 만들지 않는다.
 - [ ] augmentation을 끄면 기존 LSP-only graph로 안전하게 rollback된다.
