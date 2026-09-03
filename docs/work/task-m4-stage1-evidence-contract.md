@@ -1,13 +1,15 @@
 # M4 stage 1 — evidence 계약과 false-positive corpus (설계 게이트, 코드 없음)
 
-- 상태: 완료, reviewer 재검토로 발견된 5건 반영(2건은 merge 차단 사유였다) 후 commander 재보고
-  대기. Q1~Q5 전체 결론에 (1) `augmentedEdges` endpoint의 self-contained 원칙(`nodes` leak 경로
-  차단, `IL-LIM-001`의 "graph identity는 기존 symbol ID를 유지" 추가 정정 포함), (2) kill switch
-  on 상태 불변식(off 비교만으로는 부족했음), (3) corpus 4번을 "같은 세션 dedupe"/"환경 간 표현
-  일관성"(stage 2 결정 항목으로 기록, 지금 안 정함)으로 분리, (4) 스토리 문서 자기 인용을 줄
-  번호 대신 원문 텍스트로 전환, (5) schemaVersion 근거를 `task-m1-state-truth-table.md` 4.3절의
-  승인 문장 직접 인용으로 보강, (6) corpus 3번 통과 기준에 message 텍스트 동일성 추가 — 를
-  보완했다.
+- 상태: 완료, reviewer 재검토로 발견된 5건과 commander의 후속 발견 1건(총 6건, 3건은 merge
+  차단 사유였다) 반영 후 commander 재보고 대기. Q1~Q5 전체 결론에 (1) `augmentedEdges` endpoint의
+  self-contained 원칙(`nodes` leak 경로 차단, `IL-LIM-001`의 "graph identity는 기존 symbol ID를
+  유지" 추가 정정 포함), (1-보완) **traversal이 depth/node budget으로 잘려 (a)가 dangling ID가 될
+  수 있는 경우** — id 참조는 그 실행의 `nodes`에 실제로 있을 때만 쓰고 아니면 self-contained로
+  낸다, (2) kill switch on 상태 불변식(off 비교만으로는 부족했음), (3) corpus 4번을 "같은 세션
+  dedupe"/"환경 간 표현 일관성"(stage 2 결정 항목으로 기록, 지금 안 정함)으로 분리, (4) 스토리
+  문서 자기 인용을 줄 번호 대신 원문 텍스트로 전환, (5) schemaVersion 근거를
+  `task-m1-state-truth-table.md` 4.3절의 승인 문장 직접 인용으로 보강, (6) corpus 3번 통과 기준에
+  message 텍스트 동일성 추가 — 를 보완했다.
 - branch: `docs/m4-stage1-evidence-contract`
 - 마일스톤: [M4 동적 호출·DI·테스트 의미 보완](../development-management/milestones/m4-semantic-augmentation.md)
 - 스토리: IL-LIM-001(동적·런타임 호출), IL-LIM-002(framework DI·라우팅), IL-LIM-010(테스트 탐지)
@@ -145,6 +147,27 @@ node**를 별도로 요구했던 것도 같은 필요의 다른 표현이다 —
 evidence를 보존하고, **graph identity는 기존 symbol ID를 유지한다**"*는 위와 같은 이유로 위험한
 안이었다 — 새 symbol을 "기존 symbol ID 체계"에 편입시키는 것 자체가 `nodes`에 새 entry를 넣는
 것과 같다. 이 문장도 원문 보존 + 정정으로 스토리 문서에 반영한다(아래 스토리 정정 갱신 참고).
+
+**추가 규칙 — (a)가 dangling이 될 수 있는 경우 (commander 지적으로 보완)**: 이 저장소의 traversal은
+잘린다 — `impact.ts`의 `traverse()`를 직접 읽으면, root는 `entries`에 무조건 seed되지만(`entries:
+[{item: root, depth: 0}]`, budget과 무관하게 항상 있음) **root가 아닌 다른 모든 node는 depth/node
+budget이 허용할 때만 추가된다**(`current.depth >= maxDepth`면 그 밑은 안 들어가고, `entries.length
+>= maxNodes`면 `limits.add('nodes')`하고 건너뛴다 — 이 상태가 `traversalLimits`/`depth-limited`/
+`node-limited`로 보고된다). **adapter가 "이 심볼은 보통 graph에 있다"는 구조적 가정만으로 bare ID를
+내면, 이번 실행이 depth-limited/node-limited로 잘려서 그 id가 실제로는 이번 응답의 `nodes`에 없을
+수 있다** — 새 소비자가 `augmentedEdges`의 ID를 `nodes`에서 찾다가 실패하는, 계약에 없는 상태가
+생긴다.
+
+**결정: (a)는 그 실행의 `data.nodes`에 실제로 존재하는 id에만 쓴다 — adapter가 그걸 확인할 수
+없으면(또는 확인이 안 됐으면) (b, self-contained)로 낸다.** self-contained는 budget과 무관하게
+항상 유효하므로 이 규칙이면 stage 2 adapter가 매번 예외 없이 안전한 쪽을 기본값으로 삼게 된다 —
+"root는 항상 있으니 (a)"처럼 특정 노드에 대한 암묵적 예외를 만들지 않는다(root도 이 규칙 아래에서는
+그냥 "확인해 보니 `nodes`에 있어서 (a)"가 되는 것이지, "root라서 예외로 (a)"가 아니다). **지금
+정하는 이유**: stage 2가 "root는 항상 nodes에 있다" 같은 암묵적 가정으로 adapter를 짜면 depth 1
+분석이나 node budget 소진 상황에서 조용히 깨지고, 계약에 없으면 adapter마다 다르게 가정한다.
+**틀리면 사용자에게 무엇이 잘못 보이는가**: dangling ID를 낸 `augmentedEdges` entry를 새 소비자가
+`nodes`에서 찾다가 실패하면, 소비자마다 다르게(무시/에러/빈 렌더링) 반응하는 미정의 동작이
+생긴다 — 이 계약 문서가 막으려는 정확히 그 종류의 "정해지지 않아서 소비자마다 다르게 읽는" 상태다.
 
 ### `schemaVersion` — 결정: 승격 불필요 (commander 승인, 2026-09-03)
 
@@ -297,7 +320,7 @@ binding 메커니즘이 감지됐지만 정적으로 target을 특정할 수 없
 | --- | --- | --- | --- |
 | 출처(provenance) | `source` | `static-inference` \| `runtime-observation` | 이 edge가 어떤 메커니즘으로 만들어졌는가. `language-server`는 없음(그건 `edges`) |
 | 확실성(target certainty) | `resolution` | `single` \| `multiple` | target이 정적으로 몇 개나 좁혀지는가. `unresolved`는 필드값이 아니라 **edge 부재 + limitation**으로 표현 |
-| endpoint 표현 | (양 끝 각각) | 기존 `nodes[].id` 참조 **또는** self-contained(`name`/`kind`/`file`/`range`) | `data.nodes`에는 항목을 추가하지 않는다(위 "`nodes`를 통한 leak 경로" 참고) |
+| endpoint 표현 | (양 끝 각각) | 기존 `nodes[].id` 참조 **또는** self-contained(`name`/`kind`/`file`/`range`) | `data.nodes`에는 항목을 추가하지 않는다. id 참조는 **그 실행의 `nodes`에 실제로 존재할 때만** 쓰고, 확인 안 되면 self-contained로 낸다(traversal이 depth/node budget으로 잘려 예상한 id가 없을 수 있음, 위 "`nodes`를 통한 leak 경로" 참고) |
 
 `edges`(기존, LSP) 자체에는 어떤 M4 어휘도 붙지 않는다 — clangd 23이 derived override에 준 edge는
 "confirmed"도 "candidate"도 아니고, M4 이전과 똑같이 그냥 `edges`의 한 항목일 뿐이다(commander의
