@@ -241,3 +241,62 @@ commander가 PR #69의 CHANGELOG를 직접 대조해 발견했다: clangd 항목
 - `git diff --stat`: `CHANGELOG.md` 1 file, 5 insertions, 3 deletions 만 변경.
 - `npm run test:all` 재실행 — 회귀 없음(clangd 항목 문구 수정은 코드가 아니라 CHANGELOG 텍스트만
   바꾸므로 테스트 영향 없음, response-policy eval은 CHANGELOG.md를 읽지 않는다는 것도 재확인).
+
+### 2026-09-03 — reviewer 발견: INSTALL.md의 `검증`/`verified` 용어 충돌 정정 (backlog 아님)
+
+reviewer가 `INSTALL.md:438`(당시 줄 번호)에서 "Python·Go·C/C++는 이미 **검증된 preset**이 있어
+Auto가 자동으로 고릅니다"가 같은 릴리스 CHANGELOG 맨 위의 "All three ship as `experimental` ...
+not as 'verified'"와 **정반대로 읽힌다**고 지적했다. commander가 backlog로 미루지 않고 이 PR에서
+바로 고치라고 지시했다 — 이 PR이 이미 INSTALL.md를 건드리고 있어(버전 bump) 범위 밖이 아니라는
+이유였다.
+
+**진단**: "검증된"이 여기서는 `resolve.ts`의 선택 순서 용어("verified auto-discovery" — CLI가
+catalog 선언과 실행 파일 존재를 확인했다는 뜻)를 가리키는 기존 표현이었다 — 이 PR이 만든 결함이
+아니다. 하지만 문장이 "검증된 preset**이 있어**"로 읽혀 preset 자체의 속성(사용자 검증 완료)처럼
+보인다.
+
+**INSTALL.md 전체를 같은 눈으로 재훑었다**(`grep -n "검증\|verified" INSTALL.md`):
+
+- `:133-134`의 `verified-external` tier 이름은 그대로 두었다 — 배포 형태 tier의 정식 이름이고
+  바로 옆에 무엇을 뜻하는지(PATH 설치 필요) 이미 명시돼 있어 모호하지 않다.
+  `:144`("설치 검증")과 `:231`("다운로드 파일 검증")은 동사형 "확인하다"의 뜻으로 완전히 다른
+  의미이며 모호하지 않다 — 대상 아님.
+- `:422`("검증된 auto-discovery")와 `:427`("검증된 provider 후보")은 정의 없이 쓰인 선택 순서
+  전문 용어였다 — README.md:196의 기존 정의("감지된 언어를 지원한다고 catalog에 선언된 preset이
+  정확히 하나뿐이고 그 실행 파일을 찾을 수 있을 때만 선택된다")를 빌려와 `:422`에 괄호로 명시적
+  정의를 추가했고("사용자가 그 결과를 검증했다는 뜻이 아닙니다"까지 명시), `:427`은 "검증된"을
+  빼고 "auto-discovery 후보"로만 표현해 재사용 없이 단순화했다.
+- `:438-443`(reviewer가 지목한 문단): "이미 **검증된** preset이 있어"를 "이미 catalog에 preset이
+  있어"로 바꿔 preset의 속성이 아니라 **Auto가 찾아 자동 선택한다는 사실**만 말하게 했다. 그
+  바로 뒤에 새 문장을 추가했다: **"세 preset 모두 실제 사용자 검증은 아직 실행되지 않아
+  `experimental` 등급입니다"** + "Auto가 자동으로 고른다는 것은 catalog에 등록되고 실행 파일이
+  발견됐다는 뜻이지, 그 결과가 사람에 의해 검증됐다는 뜻이 아닙니다"(commander 지시: 그 근처에
+  등급·미검증 사실을 한 줄로 넣으라는 것). 대비 구조도 고쳤다 — "그 외 언어는 아직 검증된
+  preset이 없어서"(검증 여부로 대비)를 "그 외 언어는 catalog에 preset 자체가 없어서"(preset
+  존재 여부로 대비, 실제 차이와 일치)로 바꿨다.
+
+**부수 발견(이 PR 범위 밖, 기록만)**: `README.md:210`에 **동일한 대비 구조**("그 외 언어는 ...
+오늘 검증된 preset이 없어서")가 있다 — README.md는 이번 버전 bump 대상에 포함되지 않아(B-1 감사
+결과, 버전 숫자 5곳뿐) 이 PR이 건드리지 않는 파일이다. commander에게 별도로 보고하고 이 릴리스
+lane에서 임의로 고치지 않는다.
+
+### 검증
+
+- `grep -n "검증\|verified" INSTALL.md` 전체 재확인 — 남은 항목은 전부 위에서 검토한 대로
+  모호하지 않은 것으로 판정.
+- `npm run test:response-policy` 27/27 재실행 — 회귀 없음(eval이 INSTALL.md를 읽지 않는다는 것도
+  재확인).
+- `git diff --stat`: `INSTALL.md` 1 file, 10 insertions, 6 deletions.
+
+## Backlog (이 릴리스 lane에서 고치지 않음 — commander 지시)
+
+- `cli/src/providers/catalog.ts`의 `bundled-pyright` `lastVerified` 주석이 "this preset has no CI
+  job yet exercising windows-latest/ubuntu-latest ... Stage 5 ... is where that gap closes"라고
+  미래형으로 남아 있다 — `unit-tests.yml`의 실제 주석은 이미 그 gap이 실측으로 닫혔다고 서술한다.
+  실제보다 **적게** 주장하는 방향이라 사용자에게 새지 않는다(commander 판단). 코드 주석 정정은
+  별도 lane.
+- `README.md:210`의 "그 외 언어는 아직 검증된 preset이 없어서"도 INSTALL.md와 동일한 대비 구조
+  문제를 갖고 있다 — README.md는 이 릴리스가 건드리는 파일이 아니라 별도 lane에서 처리한다.
+- reviewer가 발견한 stale worktree 정리(`.claude/worktrees/agent-a74c7b5dab71f5309`,
+  `.claude/worktrees/agent-ad65e9c6c64ba60cc` — 이 세션이 이번 lane 도중 우연히 목격한 것과 같은
+  디렉터리로 보인다) — 이 릴리스 lane의 파일이 아니라 별도 정리 필요.

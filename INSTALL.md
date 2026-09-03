@@ -419,12 +419,14 @@ Output 채널에서 확인할 수 있습니다. VS Code 공개 API는 "이 언�
 ### CLI에서 provider 오류
 
 CLI는 provider를 고정된 순서로 선택합니다: 요청의 raw `provider` > 요청의 `providerPreset` > 워크스페이스의
-`.impact-lens/provider.json` > 검증된 auto-discovery. 이 중 먼저 조건을 만족하는 하나만 쓰이고, 그중
-어디에도 해당하지 않으면 다른 언어의 provider로 자동 fallback하지 않습니다.
+`.impact-lens/provider.json` > 검증된 auto-discovery(감지된 언어를 지원한다고 catalog에 선언된 preset이
+정확히 하나뿐이고 그 실행 파일을 찾을 수 있다는 뜻이지, 사용자가 그 결과를 검증했다는 뜻이 아닙니다). 이 중
+먼저 조건을 만족하는 하나만 쓰이고, 그중 어디에도 해당하지 않으면 다른 언어의 provider로 자동 fallback하지
+않습니다.
 
 `provider_required_for_language`이면 해당 언어의 표준 LSP Call Hierarchy server command, argument와
 `languageId`를 CLI request에 명시합니다. `provider_language_mismatch`이면 파일과 `languageId`를 맞춥니다.
-`provider_selection_ambiguous`는 검증된 provider 후보가 둘 이상이라 `providerPreset`으로 하나를 직접
+`provider_selection_ambiguous`는 auto-discovery 후보가 둘 이상이라 `providerPreset`으로 하나를 직접
 지정해야 한다는 뜻입니다. `provider_config_invalid`는 `.impact-lens/provider.json`이 허용 필드
 (`presetId`, `command`, `args`, `languageId`, `initializationOptions`, `settings`) 밖의 값을 담고 있거나
 JSON으로 파싱되지 않는다는 뜻이므로, 요청이 아니라 그 파일을 고칩니다. `provider_launch_failed`,
@@ -436,9 +438,11 @@ adapter로 동작하지 않을 수 있습니다.
 Bundled TypeScript/JavaScript 오류라면 위 doctor 절차를 먼저 사용합니다. `doctor <preset>`은 catalog에
 등록된 preset만 진단하므로, `provider` 필드로 직접 지정한 custom provider는 doctor로 점검할 수 없고 위
 `error.details`를 직접 읽어야 합니다. Python(`bundled-pyright`)과 Go(`gopls`), C/C++(`clangd`)는 이미
-검증된 preset이 있어 Auto가 자동으로 고릅니다 — Go와 C/C++는 `verified-external`이라 사용자가 그
-실행 파일을 PATH에 직접 설치해야 하고, Python은 `bundled`라 설치가 필요 없습니다. Swift/Kotlin 등
-**그 외 언어는 아직 검증된 preset이 없어서** 오늘은 항상 provider를 직접 지정해야 하는 상태입니다 —
+catalog에 preset이 있어 Auto가 자동으로 고릅니다 — Go와 C/C++는 `verified-external`이라 사용자가 그
+실행 파일을 PATH에 직접 설치해야 하고, Python은 `bundled`라 설치가 필요 없습니다. **세 preset 모두 실제
+사용자 검증은 아직 실행되지 않아 `experimental` 등급입니다** — Auto가 자동으로 고른다는 것은 catalog에
+등록되고 실행 파일이 발견됐다는 뜻이지, 그 결과가 사람에 의해 검증됐다는 뜻이 아닙니다. Swift/Kotlin 등
+**그 외 언어는 catalog에 preset 자체가 없어서** 오늘은 항상 provider를 직접 지정해야 하는 상태입니다 —
 이는 곧 지원 예정이라는 뜻이 아니라, `provider_required_for_language`가 provider artifact 손상을
 뜻하지 않는다는 뜻입니다.
 
