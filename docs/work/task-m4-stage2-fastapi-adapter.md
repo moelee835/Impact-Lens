@@ -299,3 +299,32 @@ fail.**
   측정: 이 형태들은 지금도 이미 매치 안 됨). import 연결을 실제로 추적하는 (A) 방향은 이번에 채택하지
   않았고, 채택 시 Python import 해석을 부분 구현해야 해 같은 계열의 새 오탐을 만들 위험이 있다는 게
   이번 판단의 근거였다 — 다음에 이 부분을 넓히려면 이 판단부터 재검토해야 한다.
+
+### CI 회귀 — Windows 3개 job 실패, 원인은 이번 수정 자체의 새 버그였다
+
+`aacb7ec` push 후 PR #73 CI에서 `clangd`/`gopls`/`cli:test`의 **windows-latest 3개 job만** 실패,
+macOS·Linux는 전부 통과. 실패 지점은 정확히 새로 추가한 회귀 테스트 하나: `mounted_router.py`(충돌도
+comment/string 트릭도 없는, 유일하게 mount된 정상 케이스)의 `augmentedEdges.length`가 기대한 1이 아니라
+0 — 즉 **이 수정 자체가 Windows에서 정상 케이스까지 unresolved로 오분류**하고 있었다.
+
+**추적**: `isRouterMounted()`의 신규 ambiguity 검사가 `path.resolve(file) !== resolvedRootFile`로 "이
+파일이 root 파일이 맞는지"를 비교하는데, 두 경로의 출처가 다르다 — `rootFile`은
+`fileURLToPath(input.root.uri)`(root의 `uri`는 **bundled-pyright LSP 서버가 응답한 값**이고,
+`vscode-uri` 계열 라이브러리의 관행대로 Windows drive letter를 **소문자**로 반환하는 경우가 흔하다),
+반면 workspace 순회 중의 `file`은 `path.join(workspace, ...)`(CI 로그에 실측된 실제 작업 디렉터리
+`D:\a\Impact-Lens\Impact-Lens` — **대문자** `D`)로 만들어진다. `path.resolve()`는 대소문자를
+정규화하지 않으므로(파일시스템을 아는 함수가 아니라 순수 문자열 유틸리티), `d:\...`와 `D:\...`가
+strict `!==`로 다른 파일 취급되고, **root 파일 자신의 router 바인딩이 "다른 파일의 동명이인
+바인딩"으로 오인**돼 매번 ambiguous 처리됐다 — 오직 Windows에서만, drive letter가 있는 플랫폼이라서.
+
+이 저장소의 기존 관례(`impact.ts`의 `isOutside()`가 `path.relative(path.resolve(a),
+path.resolve(b))`를 쓴다)를 살펴봤지만, 그 함수는 대소문자를 맞춰 주지 않는다(Node의 `path` 모듈은
+파일시스템의 대소문자 무시 규칙을 모른다) — 이번 문제는 대소문자 정규화가 필요한 경우였다.
+
+**수정**: `sameFile(a, b)` 신규 — `path.resolve()` 후 `process.platform === 'win32'`일 때만
+소문자로 비교(Windows/NTFS는 대소문자를 구분하지 않는다는 사실에 근거, Linux/macOS는 기존 strict
+비교 유지). `path.resolve(file) !== resolvedRootFile` 자리를 `!sameFile(file, rootFile)`로 교체.
+
+**검증**: 로컬(macOS) 재빌드·전체 재실행 — 343 pass, 3 skip, 0 fail(이 플랫폼은 애초에 이 버그를
+재현하지 않으므로 로컬 실행만으로는 Windows 수정 자체를 증명 못 한다 — **Windows CI 재실행 결과로
+확인 예정**, 아직 주장하지 않음).

@@ -170,10 +170,22 @@ interface MountSearchResult {
  * `include_router(name()` or `include_router(get_name())`) IS deliberate: it is exactly what leaves
  * dynamic registration (stage 1's own out-of-scope example) unmatched, with no special-casing needed.
  */
+/** Windows drive letters and directory names are case-insensitive at the filesystem level, and this
+ * adapter's two path provenances (`fileURLToPath()` for `rootFile` vs `path.join()` while walking the
+ * workspace) are not guaranteed to agree on case even for the identical file - a plain `===` on resolved
+ * paths falsely treats root's own file as "some other file" there, which is exactly what turned root's
+ * own router binding into a phantom name collision (CI, Windows only: `mounted_router.py`'s regression
+ * test dropped its expected edge). `path.resolve()` alone does not fix this - Node's `path` module is a
+ * string utility, not filesystem-aware, and does not case-fold. Linux/macOS stay a strict comparison. */
+function sameFile(a: string, b: string): boolean {
+  const resolvedA = path.resolve(a);
+  const resolvedB = path.resolve(b);
+  return process.platform === 'win32' ? resolvedA.toLowerCase() === resolvedB.toLowerCase() : resolvedA === resolvedB;
+}
+
 async function isRouterMounted(name: string, rootFile: string, workspace: string, budget: AdapterBudget): Promise<MountSearchResult> {
   const mountPattern = new RegExp(`\\binclude_router\\(\\s*${escapeRegExp(name)}\\s*[,)]`);
   const bindingPattern = new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*APIRouter\\s*\\(`);
-  const resolvedRootFile = path.resolve(rootFile);
   const walkState = { filesVisited: 0, maxFiles: budget.maxFiles, truncated: false };
   let mountFound = false;
   let nameAmbiguous = false;
@@ -188,7 +200,7 @@ async function isRouterMounted(name: string, rootFile: string, workspace: string
     if (mountPattern.test(searchable)) {
       mountFound = true;
     }
-    if (path.resolve(file) !== resolvedRootFile && bindingPattern.test(searchable)) {
+    if (!sameFile(file, rootFile) && bindingPattern.test(searchable)) {
       nameAmbiguous = true;
     }
   });
