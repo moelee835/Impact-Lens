@@ -182,3 +182,172 @@ clangdGatedTest(
     assert.ok(codes.includes('compile_database_missing'), `expected compile_database_missing, got ${JSON.stringify(codes)}`);
   },
 );
+
+// M2 gate-gaps lane (docs/work/task-m2-gate-gaps.md), closing IL-LIM-014 #3: the shipped preset's
+// `docs.limitations` claims a specific C++ static-analysis shape (a virtual method reached only through
+// a base-class pointer is invisible under the derived override's own Call Hierarchy result) on the
+// strength of exactly one manual probe from stage 4 - never a repeating fixture. If clangd's behavior
+// ever changes (or that probe was simply wrong), nothing today would notice. This fixture closes that gap
+// for method/overload/virtual-dispatch specifically - function pointer and conditional-compilation
+// limitations are out of this lane's scope (already fixture-backed differently, see the story doc).
+//
+// Real compile database, real clang++, one shared file layout, one shared provider session for all five
+// queries below - that is what makes "same execution" literal, not just "same CI job": the positive
+// assertions (method call found, int overload found, base-pointer virtual call found) share a session
+// with the negative ones (double overload NOT found, derived override NOT found) they exist to give
+// meaning to. A query landing between two files still ambiguous mid-index would fail the earlier positive
+// assertions first, so a negative assertion is only ever checked once indexing has already been proven
+// complete by an adjacent positive one in the same run.
+
+const CPP_HEADER = [
+  '#ifndef SHAPES_H',
+  '#define SHAPES_H',
+  '',
+  'class Base {',
+  'public:',
+  '    virtual void target();',
+  '    void helper();',
+  '};',
+  '',
+  'class Derived : public Base {',
+  'public:',
+  '    void target() override;',
+  '};',
+  '',
+  'void overloaded(int value);',
+  'void overloaded(double value);',
+  '',
+  '#endif',
+  '',
+].join('\n');
+
+// Definitions only, deliberately in one file: every symbol this test queries lives here, so all five
+// queries below can share one `LspCallHierarchyProvider` session rooted at this file.
+const CPP_DEFINITIONS = [
+  '#include "shapes.h"',
+  '',
+  'void Base::target() {',
+  '}',
+  '',
+  'void Base::helper() {',
+  '}',
+  '',
+  'void Derived::target() {',
+  '}',
+  '',
+  'void overloaded(int value) {',
+  '}',
+  '',
+  'void overloaded(double value) {',
+  '}',
+  '',
+].join('\n');
+
+const CPP_CALLER = [
+  '#include "shapes.h"',
+  '',
+  'void call_method(Base& obj) {',
+  '    obj.helper();',
+  '}',
+  '',
+  'void call_overloaded_int() {',
+  '    overloaded(42);',
+  '}',
+  '',
+  'void call_via_base_pointer(Base* ptr) {',
+  '    ptr->target();',
+  '}',
+  '',
+].join('\n');
+
+async function realCppWorkspace(t: TestContext): Promise<string> {
+  const workspace = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'impact-lens-clangd-cpp-')));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  await fs.writeFile(path.join(workspace, 'shapes.h'), CPP_HEADER);
+  await fs.writeFile(path.join(workspace, 'shapes.cpp'), CPP_DEFINITIONS);
+  await fs.writeFile(path.join(workspace, 'caller.cpp'), CPP_CALLER);
+  const entries = [
+    { directory: workspace, arguments: ['clang++', '-std=c++17', '-c', 'shapes.cpp', '-o', 'shapes.o'], file: path.join(workspace, 'shapes.cpp') },
+    { directory: workspace, arguments: ['clang++', '-std=c++17', '-c', 'caller.cpp', '-o', 'caller.o'], file: path.join(workspace, 'caller.cpp') },
+  ];
+  await fs.writeFile(path.join(workspace, 'compile_commands.json'), JSON.stringify(entries));
+  return workspace;
+}
+
+async function queryCppSymbolOnce(
+  workspace: string,
+  provider: LspCallHierarchyProvider,
+  line: number,
+  column: number,
+): Promise<readonly string[]> {
+  const result = await analyzeImpact(
+    { workspace, file: 'shapes.cpp', line, column, depth: 5, maxNodes: 50 },
+    provider,
+  );
+  assert.equal(provider.capabilities.selectedBy, 'auto', 'expected auto-discovery, not a test override, to have selected clangd');
+  return (result.nodes as ReadonlyArray<{ readonly name?: string }>)
+    .map(node => node.name)
+    .filter((name): name is string => name !== undefined);
+}
+
+/** Same retry shape as `queryUntilCallerFound` above (background indexing after a compile-database
+ * `didOpen` is async), generalized to any line/column in `shapes.cpp` rather than one hardcoded target. */
+async function queryCppSymbolUntilFound(
+  workspace: string,
+  provider: LspCallHierarchyProvider,
+  line: number,
+  column: number,
+  expectedCaller: string,
+  budgetMs: number,
+): Promise<readonly string[]> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const names = await queryCppSymbolOnce(workspace, provider, line, column);
+    if (names.includes(expectedCaller) || Date.now() >= deadline) {
+      return names;
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+}
+
+clangdGatedTest(
+  'C++ with a real compile database: method calls, overload resolution and virtual-dispatch invisibility are all correct',
+  { timeout: 45000 },
+  async t => {
+    const workspace = await realCppWorkspace(t);
+    const provider = new LspCallHierarchyProvider(workspace, 'shapes.cpp', undefined, 20000);
+    t.after(() => provider.dispose());
+
+    // 1. Method call - the feature proof AND the control for assertion 3 below: if the whole pipeline
+    // were broken (wrong compile flags, provider crash, traversal regression), this would already fail,
+    // which is what makes the negative assertions further down meaningful rather than vacuous.
+    const helperCallers = await queryCppSymbolUntilFound(workspace, provider, 6, 12, 'call_method', 15000);
+    assert.ok(helperCallers.includes('call_method'), `expected call_method among ${JSON.stringify(helperCallers)}`);
+
+    // 2. Overload resolution - only `overloaded(42)` (the int overload) is ever called. If clangd (or
+    // this CLI's normalization) conflated the two overloads, the caller would wrongly appear on the
+    // double overload too, or the int overload would wrongly appear empty - either is a silently wrong
+    // result, which is exactly what naming `overload` separately in the acceptance criterion guards
+    // against.
+    const intOverloadCallers = await queryCppSymbolUntilFound(workspace, provider, 12, 6, 'call_overloaded_int', 15000);
+    assert.ok(intOverloadCallers.includes('call_overloaded_int'), `expected call_overloaded_int among ${JSON.stringify(intOverloadCallers)}`);
+    const doubleOverloadCallers = await queryCppSymbolOnce(workspace, provider, 15, 6);
+    assert.ok(
+      !doubleOverloadCallers.includes('call_overloaded_int'),
+      `expected the double overload to have no callers (only the int overload is ever invoked), got ${JSON.stringify(doubleOverloadCallers)}`,
+    );
+
+    // 3. Virtual dispatch limitation - `ptr->target()` through a `Base*` is attributed to Base::target's
+    // Call Hierarchy result (the statically-typed call site), never to Derived::target's - the exact
+    // shape catalog.ts's docs.limitations claims. This asserts the LIMITATION, not a feature: if clangd
+    // later becomes able to resolve the derived override too, this assertion starts failing, which is
+    // the point - it forces docs.limitations to be re-examined instead of quietly going stale.
+    const baseTargetCallers = await queryCppSymbolUntilFound(workspace, provider, 3, 12, 'call_via_base_pointer', 15000);
+    assert.ok(baseTargetCallers.includes('call_via_base_pointer'), `expected call_via_base_pointer among ${JSON.stringify(baseTargetCallers)}`);
+    const derivedTargetCallers = await queryCppSymbolOnce(workspace, provider, 9, 15);
+    assert.ok(
+      !derivedTargetCallers.includes('call_via_base_pointer'),
+      `expected Derived::target to show no callers (the call site is statically attributed to Base::target instead) - if this now finds it, clangd's virtual-dispatch resolution changed and catalog.ts's docs.limitations needs re-examination, got ${JSON.stringify(derivedTargetCallers)}`,
+    );
+  },
+);
