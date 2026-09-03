@@ -50,10 +50,10 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
   ready` — unlike `index_state_unknown` it is not suppressed there, since it says something about this one
   query, not about the index. It means the provider answered with `null` rather than an explicit `[]`, most
   often because the symbol is invoked only through a framework mechanism a static Call Hierarchy provider
-  cannot see - measured directly against real FastAPI code: a route handler the framework's router calls
-  (never through a call expression in the analyzed code), or a dependency referenced only via `Depends()`
-  (never called at all). Both converge on this same signal. When present, do not state or imply that
-  nothing calls the symbol.
+  cannot see - measured directly against real FastAPI code: a route handler or a `Depends()` dependency.
+  Both are genuinely called by FastAPI at request time, just never through a call expression in the
+  analyzed code - the call happens inside the framework's own router dispatch or dependency resolver.
+  Both converge on this same signal. When present, do not state or imply that nothing calls the symbol.
 - For C/C++ (`clangd`), also check `compile_database_missing`, `compile_database_stale`, and
   `compile_database_ambiguous` in `limitationDetails`. Without a valid `compile_commands.json`, clangd falls
   back to a generic command with no cross-file index — it can resolve a call within an already-open file

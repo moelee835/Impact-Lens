@@ -251,6 +251,35 @@ pass(정상 상태). `npm run cli:test` 전체 327/329 pass, 2 skip(기존과 �
 `<!-- response-policy-example -->` 두 블록을 깨지 않았는지 확인 — 안 건드림). `npm run cli:test`
 327/329(회귀 없음). `npm run test:plugin-artifact` 클린.
 
+## Stage 3 addendum — commander가 사실 오류를 지적, 실측으로 확인 후 정정
+
+**stage 3에서 쓴 문구가 틀렸다.** commander가 지적: cli-contract.md의 새 문구
+"a dependency referenced only via `Depends()` is not called at all, only referenced by name"는
+**FastAPI에 대해 사실이 아니다** — `Depends(get_db)`는 FastAPI가 요청 처리 시 `get_db()`를 **실제로
+호출**하고 반환값을 handler에 주입하는 메커니즘이다(그게 dependency injection의 정의). 원래 있던
+문구("the function is genuinely called, but not through a call expression")가 route handler와
+`Depends()` 대상 **둘 다에 참**이었고, 그래서 하나의 문장으로 둘을 함께 덮을 수 있었다. 이 세션이
+"둘 다 `null`로 수렴 → 서로 다른 이유로 수렴 → 하나는 호출되고 하나는 안 된다"로 추론한 마지막
+걸음이 **측정되지 않은 추론**이었고, 그 추론이 틀렸다 — 정확히 이 lane이 반복해서 잡아 온 형태(측정된
+사실 위에 검증 안 된 한 걸음을 이음매 표시 없이 얹는 것)를 이번엔 내가 직접 저질렀다(위 118-122행,
+229행, 239행이 그 원문 — 원문은 보존하고 여기 추가로 정정한다).
+
+**지적을 그대로 받아들이지 않고 직접 재현해 확인했다**: 실제 fastapi 설치된 venv에서 `get_db`에
+side-effect(`call_log.append(...)`)를 추가한 변형 fixture를 만들고, `fastapi.testclient.TestClient`로
+`/items`를 실제로 GET 요청했다. 결과: `call_log == ['get_db executed']` — **`get_db`가 실제로 호출됨을
+직접 확인**했다. commander의 지적이 옳았다.
+
+**고침**(원래 프레이밍으로 복원, route handler를 나란히 예시로 두는 개선은 유지):
+`cli/src/providers/catalog.ts`(`bundledPyright.docs.limitations`), `README.md`(두 곳),
+`cli/README.md`, `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`,
+`plugins/impact-lens/skills/impact-lens-cli/SKILL.md` — 전부 "둘 다 FastAPI가 실제로 호출하지만, 그
+호출이 분석 대상 코드의 call expression이 아니라 프레임워크 내부(route는 router dispatch, `Depends()`는
+dependency resolver)에서 일어난다"는 정확한 서술로 교체했다. "호출되는가"가 아니라 "호출 지점이 어디
+있는가"로 차이를 서술하라는 commander의 방향을 그대로 따랐다.
+
+**검증**: `npm run cli:build` 클린(문서·주석만 변경). `npm run test:response-policy` 27/27(재확인).
+`npm run cli:test` 327/329(회귀 없음, 재확인).
+
 ## 남은 작업
 
 - **Stage 1-3 전부 완료. commander에게 보고 후 검토 대기 — PR은 올리지 않는다**(commander가 명시,

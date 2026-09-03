@@ -123,9 +123,10 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
   code can appear even under `indexingStatus: ready`, since it reports on what this one query returned,
   not on index completeness — do not treat an empty result carrying it as proof the symbol has no callers.
   The motivating case is a symbol invoked only through a mechanism a static Call Hierarchy provider cannot
-  see: a FastAPI route handler the framework's router calls, never through a call expression anywhere in
-  the analyzed code, or a dependency referenced only via `Depends()` and never called at all. Both are
-  real, measured against actual FastAPI code (not assumed), and both come back as this same `null` signal.
+  see: a FastAPI route handler, or a `Depends()` dependency. Both are genuinely called by FastAPI at
+  request time, just never through a call expression anywhere in the analyzed code — the call happens
+  inside the framework's own router dispatch or dependency resolver. Measured against actual FastAPI code,
+  not assumed, and both come back as this same `null` signal.
 - `data.limitationDetails` can also carry `compile_database_missing`, `compile_database_stale`, or
   `compile_database_ambiguous` (severity `warning`, scope `provider`) for `clangd`/C/C++ specifically.
   Without a valid `compile_commands.json`, clangd falls back to a generic command with no cross-file index:
