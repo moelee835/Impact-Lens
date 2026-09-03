@@ -214,12 +214,54 @@ commander가 셋 중 하나를 고르지 않고 **1(문구 정정)과 2(버전 �
 - `npm run cli:test` 전체 3회 연속 331/331(0 skip, 로컬에 gopls·clangd 둘 다 있음).
 - `npm run test:response-policy` 27/27(회귀 없음).
 
+## 재실행 결과 — `clangd-provider`는 전부 통과, 그런데 다른 job에서 새 문제가 나왔다
+
+`workflow_dispatch`로 재실행(`https://github.com/moelee835/Impact-Lens/actions/runs/33714214413`).
+**`clangd-provider` job 3개(ubuntu 23.1.1/macos 23.1.0/windows 22.1.7) 전부 통과** — 정정이 의도대로
+동작한다.
+
+**그런데 `go-provider`(macOS·Windows)와 `cli-tests-cross-os`(macOS·Windows)가 새로 실패했다** —
+**같은 새 테스트, 다른 원인**:
+
+```
+cli:test / windows-latest: clangd major version 20 has never been observed...
+gopls / windows-latest:    clangd major version 20 has never been observed...
+gopls / macos-latest:      clangd major version 21 has never been observed...
+cli:test / macos-latest:   clangd major version 21 has never been observed...
+```
+
+**원인**: `clangdGatedTest`는 원래부터(이 lane 이전, stage 5 설계 그대로) **어떤 job인지와 무관하게
+clangd가 PATH에 있으면 그 job의 `npm run cli:test`가 clangd 테스트 전부를 실행**한다 — job 이름과
+무관하다. GitHub Actions의 **macOS·Windows hosted runner 이미지에는 clangd가 기본으로 미리 설치돼
+있다**(Windows는 major 20, macOS는 major 21 — 이 세션이 이번에 처음 알게 된 사실, 둘 다 이전
+`clangd-provider` job이 설치하는 22/23과도, stage 4의 17과도 다른 **완전히 별개의, 한 번도 측정한
+적 없는 버전**). Ubuntu 쪽(`go-provider`/`Node 22`)은 실패하지 않았다 — Ubuntu 기본 이미지에는
+clangd가 없는 것으로 보인다(직접 확인은 못 함, 실패 로그에 안 나타난 것으로 추정).
+
+**이건 이 lane이 만든 버그가 아니라, 이 lane의 fix가 의도대로 동작해서 드러난 사실이다** — "미측정
+버전은 조용히 통과시키지 말고 명시적으로 실패시켜라"는 지시를 그대로 따른 결과, **원래도 이 stray
+clangd가 `go-provider`/`cli-tests-cross-os`에서 기존 clangd 테스트 2개를 조용히 실행해 왔다는 것**
+(cross-file 결과 자체는 버전 무관이라 우연히 계속 통과해 온 것으로 보인다)까지 이번에 드러났다. 이
+구조적 사실(job 경계와 무관하게 PATH의 clangd를 전부 문다)은 stage 5 때부터 있었고 이 lane이
+새로 만든 게 아니다 — 이번에 버전 인지 assertion을 추가하면서 처음으로 "조용히 통과"가 아니라
+"시끄럽게 실패"로 바뀌어 눈에 띄게 됐을 뿐이다.
+
+**이 세션이 임의로 고르지 않는다.** 후보만 적는다:
+1. Windows 20·macOS 21을 실제로 측정해(가능하다면 이 CI 이미지 자체에서) 세 번째·네 번째 관측
+   버전으로 코드에 추가한다 — 그러면 `docs.limitations`가 5개 버전을 아는 상태가 된다.
+2. `clangdGatedTest`(또는 이 특정 virtual-dispatch 테스트만)가 **의도된 job에서만** 돌도록 범위를
+   좁힌다(예: `IMPACT_LENS_REQUIRE_CLANGD` 환경변수가 설정된 job에서만) — 다만 이건 stage 5가 정한
+   "PATH에 있으면 로컬 개발자에게도 실행된다" 설계를 바꾸는 것이라 이 lane 혼자 결정할 사안이 아니다.
+   기존 2개 clangd 테스트도 같은 변경의 영향을 받는다.
+3. 다른 방향.
+
 ## 남은 작업
 
-- **정정을 push하고 3-OS CI를 다시 `workflow_dispatch`로 돌려 전부 통과하는지 확인한 뒤 보고한다**
-  (commander 지시: "정정 후 3-OS CI를 다시 돌려 전부 통과하는지 확인하고 보고하세요").
-- Stage 2(Go)는 이미 이전 커밋에서 완료돼 있다 — 이 정정 작업이 stage 1(C++)의 후속이었을 뿐, stage
-  2를 다시 할 필요는 없다.
-- PR 본문에 **이 발견을 맨 앞에 쓴다**(commander 지시) — "테스트를 추가했다"가 아니라 "shipped된
-  문서가 최신 clangd에서 틀렸다는 것을 발견하고 고쳤다"가 이 lane의 산출물이다.
-- PR은 여전히 올리지 않는다 — commander가 3-OS 재확인 보고를 받은 뒤 지시한다.
+- **commander에게 즉시 보고, 다음 지시 대기.** `docs.limitations`/derived-override 정정 자체는
+  `clangd-provider` job(이 preset이 실제로 검증하는 job) 3-OS 전부에서 확인됐다 — 이 부분은
+  완료로 볼 수 있다. **새로 드러난 stray-clangd 문제는 별개 결정이 필요하다.**
+- Stage 2(Go)는 이전 커밋에서 완료돼 있다 — 이번 재실행에서 `go-provider`/`gopls` 관련 실패는 전부
+  이 stray clangd 문제이지 Go same-file 테스트 자체의 실패가 아니다(로그에 Go 테스트 실패는 없다).
+- PR 본문에 **이 발견(문서가 틀렸다는 것 + 이번에 드러난 stray clangd 문제)을 맨 앞에 쓴다**
+  (commander 지시).
+- PR은 여전히 올리지 않는다.
