@@ -325,9 +325,18 @@ const bundledPyright: ProviderPreset = {
       'Third-party imports are not resolved unless pyright is told where the interpreter that has them installed lives; this preset does not auto-detect a virtual environment.',
     ],
   },
-  // Evidence for the bundled tier. Verified on darwin/arm64 only, by hand (task-m2-python-preset.md
-  // stage 4) - this preset has no CI job yet exercising windows-latest/ubuntu-latest, unlike gopls's
-  // go-provider job. Stage 5 of the same document is where that gap closes.
+  // Evidence for the bundled tier. 1.1.413 was verified on darwin/arm64 only, by hand
+  // (task-m2-python-preset.md stage 4). Unlike gopls/clangd, this preset needs no dedicated CI job to
+  // close an OS gap: pyright ships as a pinned `dependencies` entry (cli/package.json, no caret), so
+  // `pnpm install --frozen-lockfile` resolves that exact same version identically on ubuntu-latest,
+  // macos-latest and windows-latest in the `unit` and `cli-tests-cross-os` jobs
+  // (.github/workflows/unit-tests.yml), and cli/src/test/contract.test.ts's bundled-pyright tests
+  // (preflight, --smoke, --fixture, and a real .py auto-discovery E2E) run unconditionally there - not
+  // assumed: temporarily moving cli/node_modules/pyright aside and rerunning `npm run cli:test` fails
+  // those four tests loudly on every OS, never skips them (unit-tests.yml's own comment on why no
+  // dedicated `python-provider` job exists records this check). Unlike clangd, there is no OS-to-OS
+  // version spread to track here - the one pinned version is what every OS installs, which is why
+  // `lastVerified.versions` below names a single version rather than one per OS.
   lastVerified: {
     date: '2026-09-02',
     versions: ['1.1.413'],
