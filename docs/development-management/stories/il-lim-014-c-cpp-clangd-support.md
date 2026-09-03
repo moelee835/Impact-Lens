@@ -38,11 +38,12 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
 > 판정했다 — stage 4 실측이 작성 시점 가정("macro는 한계")을 반증했다(simple macro는 정확히 잡힘).
 >
 > **2026-09-03 후속 갱신(M2 gate-gaps lane, `docs/work/task-m2-gate-gaps.md`)**: 그 공백을 닫아 3번도
-> 체크했다. 근거는 아래 3번 항목 자체를 교체했다. **주의**: 이 판정 시점에 실측은 darwin/arm64
-> (Apple clangd 17.0.0)만 됐다 — clangd major가 다른 3-OS CI(Ubuntu 23.1.1/macOS 23.1.0/Windows
-> 22.1.7)에서 같은 결과인지가 이 lane의 핵심 위험이었고(clangd 버전에 따라 virtual dispatch 처리가
-> 달라질 수 있다), push 후 실제 CI 로그로 확인이 필요하다. 다르면 이 체크와 `docs.limitations`를
-> 다시 열어야 한다.
+> 체크했다. **이 과정에서 실측이 shipped `docs.limitations`를 실제로 반증했다** — virtual dispatch
+> 항목의 "never under a derived override's"가 Apple clangd 17.0.0에서만 참이고, 3-OS CI가 실제로
+> 설치하는 22.1.7/23.1.0/23.1.1에서는 전부 거짓임을 real CI로 확인했다(세 OS·두 major가 완전히 같은
+> 방향으로 갈렸다 — flaky 아님). `docs.limitations`를 버전별 사실로 정정하고, 테스트 자체도 실제
+> clangd major를 읽어 그 버전에서 관측된 동작을 단언하도록 바꿨다(17/22/23 외 버전은 조용히 통과시키지
+> 않고 명시적으로 실패). 4번도 이 정정을 반영해 재판정했다.
 
 - [x] provider JSON 없이 `.c`·`.cpp` fixture에서 검증 clangd가 자동 선택된다. —
       `cli/src/test/clangdIntegration.test.ts`의 두 테스트 전부 `provider` 필드 없이 순수
@@ -54,21 +55,29 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
       통과한다. — direct·cross-file은 `cli/src/test/clangdIntegration.test.ts`의 기존 두 테스트가
       compile database 있음/없음 양방향으로 반복 증명한다. **method·overload·virtual dispatch는
       M2 gate-gaps lane stage 1이 추가했다** — 같은 파일의 새 `clangdGatedTest`("C++ with a real
-      compile database: method calls, overload resolution and virtual-dispatch invisibility are all
-      correct")가 한 provider 세션에서: (1) 클래스 메서드 호출(`Base::helper`) 발견 — 기능 증명이자
-      아래 두 negative 단언의 대조군, (2) overload 구분(`overloaded(int)`에만 호출자, `overloaded
-      (double)`에는 없음), (3) virtual dispatch 한계(`Base::target`에는 호출자, `Derived::target`
-      에는 없음 — 한계 자체를 단언, clangd가 나중에 derived를 찾게 되면 이 테스트가 실패해
-      `docs.limitations`를 다시 볼 기회를 준다)를 증명한다. non-vacuity는 assertion 위치를 실제로
-      바꿔 실패를 확인한 뒤 byte-identical 복원으로 확인했다(`docs/work/task-m2-gate-gaps.md`).
+      compile database: method calls, overload resolution and virtual-dispatch attribution are all
+      correct for this clangd version")가 한 provider 세션에서: (1) 클래스 메서드 호출
+      (`Base::helper`) 발견 — 기능 증명이자 아래 단언들의 대조군, (2) overload 구분
+      (`overloaded(int)`에만 호출자, `overloaded(double)`에는 없음 — 버전 무관, 세 major 전부
+      불변), (3) virtual dispatch — `Base::target`에는 항상 호출자가 붙음(버전 무관), `Derived::
+      target`은 **실제 설치된 clangd major를 읽어** 그 버전에서 관측된 동작을 단언한다(17 → 없음,
+      22·23 → 있음, 그 외 미관측 버전 → 명시적 실패). non-vacuity는 assertion 위치/값을 실제로
+      바꿔 각각 실패를 확인한 뒤 byte-identical 복원으로 확인했다(`docs/work/task-m2-gate-gaps.md`).
+      **주의**: 이 정정된 형태의 3-OS CI 재실행 결과는 아직 확인 전이다 — push 후 실제 로그로
+      확인이 남아 있다(정정 전 형태는 이미 3-OS 전부에서 이 버전 차이를 실측으로 잡아냈다).
 - [x] function pointer, virtual dispatch, macro와 조건부 컴파일 한계가 provider 원본 결과와 함께
       기록된다. — `cli/src/providers/catalog.ts`의 clangd `docs.limitations` 4항목 전부가 실제
-      probe로 뒷받침된다: function pointer, virtual dispatch, 조건부 컴파일(`#ifdef`)은 원래 문구
-      그대로 유효하다. **macro는 정정된 문구로 판정한다** — "simple macro that expands directly to a
-      function call is resolved correctly (verified); more complex macro patterns... have not been
-      tested." 즉 macro는 무조건적 "한계"가 아니라 **단순한 경우는 한계가 아님이 실측으로 확인됐고
-      복잡한 패턴만 미검증**이다. 이 정정 없이 "macro 한계가 기록된다"를 문자 그대로 판정하면 실측과
-      반대되는 기록을 요구하는 셈이 된다(`docs/work/task-m2-closure.md`의 A-3 참고).
+      probe로 뒷받침된다: function pointer, 조건부 컴파일(`#ifdef`)은 원래 문구 그대로 유효하다.
+      **macro는 정정된 문구로 판정한다**(M2 마일스톤 종료 처리 A-3) — "simple macro that expands
+      directly to a function call is resolved correctly (verified); more complex macro patterns...
+      have not been tested." 즉 macro는 무조건적 "한계"가 아니라 단순한 경우는 한계가 아님이
+      실측으로 확인됐고 복잡한 패턴만 미검증이다. **virtual dispatch도 M2 gate-gaps lane이 다시
+      정정했다** — 원래 문구("appears under the statically-declared base method's Call Hierarchy
+      result, never under a derived override's")의 `never`가 틀렸다. 정정된 문구: base 메서드에는
+      **항상**(17/22/23 전부) 붙고, derived override에는 **버전에 따라** 다르다(17.0.0은 없음,
+      22.1.7/23.1.0/23.1.1은 있음, 18-21은 미측정 — 경계를 추측하지 않는다). 이 정정 자체가 "한 번짜리
+      수동 probe를 반복 검증으로 바꾸자 실제로 그 주장이 틀렸다는 게 드러난" 이 lane의 핵심
+      산출물이다.
 - [x] metadata가 없을 때 configure/build를 실행하지 않고 안전한 생성 안내만 제공한다. —
       `cli/src/coverage.ts`의 `compile_database_missing.action`은 안내 문구뿐이고("Generate a compile
       database... and re-run"), 세 M2 lane 전체에서 CMake configure나 build를 실행하는 코드 경로가

@@ -1,6 +1,7 @@
 # M2 — gate 1·2 공백 2건 닫기
 
-- 상태: Stage 1-3 전부 완료(로컬 검증), 3-OS CI 실측 대기 중, commander 보고 후 PR 지시 대기
+- 상태: 첫 3-OS CI가 실제 발견(virtual dispatch 버전 의존성)을 찾음 → `docs.limitations`·테스트
+  정정 완료(로컬 검증) → 정정된 형태의 3-OS CI 재확인 대기
 - branch: `feat/m2-gate-gaps`
 - 선행: PR #67(M2 마일스톤 종료 처리 A) merge 완료(squash `4a1de44`) 후 착수.
 - 요구사항 전문(계획 세션 작성, 저장소 밖): `m2-gate-gaps.md`(commander scratchpad)
@@ -165,11 +166,60 @@ method's Call Hierarchy result, **never** under a derived override's"* — 는 *
 기록하고 보고한다. **IL-LIM-014 #3와 마일스톤 gate 1·2의 체크 상태는 이 발견이 반영되기 전까지
 잠정 상태다** — 이미 커밋했지만(로컬 실측만으로), 이 발견 때문에 재검토가 필요하다.
 
+## commander 결정 — 둘 다 고친다 (1과 2를 함께, 3은 기각)
+
+commander가 셋 중 하나를 고르지 않고 **1(문구 정정)과 2(버전 인지 단언) 둘 다**를 지시했다 — "단언을
+빼는" 쪽도 "CI 버전만 단언"하는 쪽도 기각(각각 이 lane이 만들려던 회귀 감시가 사라지는 것, 로컬
+개발자의 Apple clangd 17이 깨지고 `supported.minimum: '17.0.0'` 주장이 비는 것을 근거로).
+
+### `docs.limitations` 정정 (`cli/src/providers/catalog.ts`)
+
+`never`를 지웠다. 정정된 문구: base 메서드에는 **항상** 붙고(17/22/23 전부 불변), derived override에는
+**버전에 따라** 다르다 — 17.0.0은 없음, 22.1.7/23.1.0/23.1.1은 있음, **18-21은 미측정이라 경계를
+추측하지 않는다**(commander 지시 그대로 — `supported.minimum`이 하한을 추측하지 않는 것과 같은 규칙).
+`lastVerified` 주석에도 이 버전별 차이가 `lastVerified.versions`를 범위가 아니라 정확한 값 목록으로
+적어 온 이유임을 추가했다. `supported.minimum: '17.0.0'`은 그대로 뒀다 — 17에서 Call Hierarchy 자체는
+동작하고, 이건 한계의 범위가 버전마다 다른 것이지 지원 여부가 아니다(commander 지시).
+
+### 단언을 버전 인지로 (`cli/src/test/clangdIntegration.test.ts`)
+
+`detectClangdMajorVersion()` 추가 — `execFileSync`(no shell)로 실제 설치된 clangd의 `--version`을
+읽고 기존 `parseVersion()`(`providers/discovery.ts`, 이미 있는 유틸 재사용)으로 major를 뽑는다.
+
+- **불변인 것은 무조건 단언**: method 호출, overload 구분, **base 메서드 attribution**(assertion
+  1·2·3a) — 셋 다 버전 분기 없이 그대로.
+- **derived는 버전별로 분기**: `clangdMajor === 17`이면 없음을, `22`/`23`이면 있음을 단언. **그 외
+  값(18-21 포함)은 `assert.fail`로 명시적으로 실패**시킨다 — "이 버전은 관측된 적 없다"는 메시지와
+  함께, 조용히 한쪽으로 처리하지 않는다.
+- 테스트 이름도 "invisibility are all correct"(보편적 주장처럼 읽힘)에서 "attribution are all
+  correct for this clangd version"으로 바꿨다.
+
+**non-vacuity — 이번에도 실제로 깨뜨려 확인**: `clangdMajor`를 임시로 `99`(관측된 적 없는 값)로
+바꿔 재실행 → 정확히 의도한 메시지로 실패 확인(`clangd major version 99 has never been observed...`)
+→ 원상복구, byte-identical 확인.
+
+### 재판정
+
+`il-lim-014-c-cpp-clangd-support.md`의 #3(재확인)과 #4(재판정 — commander 지시대로, 정정 전 문구로
+체크됐던 근거가 이제 틀렸으므로)를 갱신했다. 마일스톤 gate 1·2도 이 발견과 정정을 반영해 갱신했다.
+**"3-OS CI로 확인됨"이라고 먼저 쓰려다 스스로 잡았다** — 아직 정정된 형태로 CI를 다시 안 돌렸는데
+확인됐다고 쓸 뻔했다. 문구를 "재실행 결과는 push 후 확인 대기 중"으로 고쳤다.
+
+### 검증
+
+- `npm run cli:build` 클린.
+- `node --test cli/dist/test/clangdIntegration.test.js` 격리 3/3 pass(darwin, Apple clangd 17.0.0 —
+  17 분기로 통과).
+- non-vacuity: 위 참고(derived assertion 위치 변경 + 미관측 버전 강제 둘 다 실제로 깨서 확인).
+- `npm run cli:test` 전체 3회 연속 331/331(0 skip, 로컬에 gopls·clangd 둘 다 있음).
+- `npm run test:response-policy` 27/27(회귀 없음).
+
 ## 남은 작업
 
-- **commander에게 즉시 보고, 다음 지시 대기.** 후보 방향(이 세션이 임의로 택하지 않음):
-  1. `docs.limitations`를 실측대로 정정(예: "17.0.0에서는 derived에 안 보였으나 22.x/23.x부터는
-     보인다" — OS/버전별 차이를 `lastVerified`처럼 명시).
-  2. assertion 3b를 버전에 따라 분기하거나, "한계가 아니게 됐다"는 사실 자체를 다른 형태로 고정.
-  3. 이 lane의 범위를 넘는 문제로 판단해 별도 lane으로 분리.
-- PR은 여전히 올리지 않는다.
+- **정정을 push하고 3-OS CI를 다시 `workflow_dispatch`로 돌려 전부 통과하는지 확인한 뒤 보고한다**
+  (commander 지시: "정정 후 3-OS CI를 다시 돌려 전부 통과하는지 확인하고 보고하세요").
+- Stage 2(Go)는 이미 이전 커밋에서 완료돼 있다 — 이 정정 작업이 stage 1(C++)의 후속이었을 뿐, stage
+  2를 다시 할 필요는 없다.
+- PR 본문에 **이 발견을 맨 앞에 쓴다**(commander 지시) — "테스트를 추가했다"가 아니라 "shipped된
+  문서가 최신 clangd에서 틀렸다는 것을 발견하고 고쳤다"가 이 lane의 산출물이다.
+- PR은 여전히 올리지 않는다 — commander가 3-OS 재확인 보고를 받은 뒤 지시한다.

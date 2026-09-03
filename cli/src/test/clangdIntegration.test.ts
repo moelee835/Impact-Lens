@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -6,7 +7,7 @@ import test, { type TestContext } from 'node:test';
 import { analyzeImpact } from '../impact';
 import { LspCallHierarchyProvider } from '../lspProvider';
 import { CLANGD_PRESET_ID, findPreset, PROVIDER_CATALOG } from '../providers/catalog';
-import { findExecutable } from '../providers/discovery';
+import { findExecutable, parseVersion } from '../providers/discovery';
 import { ProviderPreset } from '../providers/preset';
 import { LimitationDetail } from '../types';
 
@@ -25,8 +26,33 @@ import { LimitationDetail } from '../types';
 // difference between them is whether compile_commands.json exists. That is what makes each one prove
 // something about compile-database presence specifically, not about the fixture shape in general.
 
-const CLANGD_ON_PATH = findExecutable('clangd') !== undefined;
+const CLANGD_PATH = findExecutable('clangd');
+const CLANGD_ON_PATH = CLANGD_PATH !== undefined;
 const REQUIRE_CLANGD = process.env.IMPACT_LENS_REQUIRE_CLANGD === '1';
+
+/**
+ * The major version of the real `clangd` on PATH, or `undefined` if it cannot be determined. Used only by
+ * the virtual-dispatch test below - M2 gate-gaps lane found derived-override attribution is genuinely
+ * version-dependent (confirmed on real 3-OS CI, not assumed), so that assertion has to read the real
+ * version rather than assert one fixed outcome. No shell: `execFileSync` with an argv array, the same
+ * no-shell discipline `findExecutable` itself already follows.
+ */
+function detectClangdMajorVersion(): number | undefined {
+  if (CLANGD_PATH === undefined) {
+    return undefined;
+  }
+  try {
+    const output = execFileSync(CLANGD_PATH, ['--version'], { encoding: 'utf8', timeout: 5000 });
+    const version = parseVersion(output);
+    if (version === undefined) {
+      return undefined;
+    }
+    const major = Number(version.split('.')[0]);
+    return Number.isNaN(major) ? undefined : major;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Runs `fn` normally when clangd is on PATH; skips it (a real, visible skip, not a silent one) when
@@ -184,20 +210,26 @@ clangdGatedTest(
 );
 
 // M2 gate-gaps lane (docs/work/task-m2-gate-gaps.md), closing IL-LIM-014 #3: the shipped preset's
-// `docs.limitations` claims a specific C++ static-analysis shape (a virtual method reached only through
+// `docs.limitations` claimed a specific C++ static-analysis shape (a virtual method reached only through
 // a base-class pointer is invisible under the derived override's own Call Hierarchy result) on the
-// strength of exactly one manual probe from stage 4 - never a repeating fixture. If clangd's behavior
-// ever changes (or that probe was simply wrong), nothing today would notice. This fixture closes that gap
-// for method/overload/virtual-dispatch specifically - function pointer and conditional-compilation
+// strength of exactly one manual probe from stage 4 - never a repeating fixture. Turning that probe into
+// this repeating fixture immediately found the claim was version-scoped, not universal: this exact
+// assertion's first real 3-OS CI run failed identically on Ubuntu (clangd 23.1.1), macOS (23.1.0) and
+// Windows (22.1.7) - all three now attribute the call to the derived override too, unlike the Apple
+// clangd 17.0.0 stage 4 measured. Stage 4's probe was not wrong for the version it ran; the ORIGINAL
+// unqualified "never" was the overclaim. Both `docs.limitations` and this test now read the real clangd
+// version and assert the behavior actually observed for it (see `detectClangdMajorVersion` and the
+// version branch below) instead of one fixed outcome. This fixture closes the gap for
+// method/overload/virtual-dispatch specifically - function pointer and conditional-compilation
 // limitations are out of this lane's scope (already fixture-backed differently, see the story doc).
 //
 // Real compile database, real clang++, one shared file layout, one shared provider session for all five
 // queries below - that is what makes "same execution" literal, not just "same CI job": the positive
 // assertions (method call found, int overload found, base-pointer virtual call found) share a session
-// with the negative ones (double overload NOT found, derived override NOT found) they exist to give
-// meaning to. A query landing between two files still ambiguous mid-index would fail the earlier positive
-// assertions first, so a negative assertion is only ever checked once indexing has already been proven
-// complete by an adjacent positive one in the same run.
+// with the negative/version-branched ones (double overload NOT found, derived override per-version) they
+// exist to give meaning to. A query landing between two files still ambiguous mid-index would fail the
+// earlier positive assertions first, so a later assertion is only ever checked once indexing has already
+// been proven complete by an adjacent positive one in the same run.
 
 const CPP_HEADER = [
   '#ifndef SHAPES_H',
@@ -311,7 +343,7 @@ async function queryCppSymbolUntilFound(
 }
 
 clangdGatedTest(
-  'C++ with a real compile database: method calls, overload resolution and virtual-dispatch invisibility are all correct',
+  'C++ with a real compile database: method calls, overload resolution and virtual-dispatch attribution are all correct for this clangd version',
   { timeout: 45000 },
   async t => {
     const workspace = await realCppWorkspace(t);
@@ -337,17 +369,39 @@ clangdGatedTest(
       `expected the double overload to have no callers (only the int overload is ever invoked), got ${JSON.stringify(doubleOverloadCallers)}`,
     );
 
-    // 3. Virtual dispatch limitation - `ptr->target()` through a `Base*` is attributed to Base::target's
-    // Call Hierarchy result (the statically-typed call site), never to Derived::target's - the exact
-    // shape catalog.ts's docs.limitations claims. This asserts the LIMITATION, not a feature: if clangd
-    // later becomes able to resolve the derived override too, this assertion starts failing, which is
-    // the point - it forces docs.limitations to be re-examined instead of quietly going stale.
+    // 3. Virtual dispatch - `ptr->target()` through a `Base*` is ALWAYS attributed to Base::target's
+    // Call Hierarchy result (the statically-typed call site), on every clangd version measured so far.
+    // This half never changed and is asserted unconditionally.
     const baseTargetCallers = await queryCppSymbolUntilFound(workspace, provider, 3, 12, 'call_via_base_pointer', 15000);
     assert.ok(baseTargetCallers.includes('call_via_base_pointer'), `expected call_via_base_pointer among ${JSON.stringify(baseTargetCallers)}`);
+
+    // Whether it is ALSO attributed to Derived::target's result is version-dependent - found directly
+    // on real 3-OS CI, not assumed: Apple clangd 17.0.0 does not include it there (stage 4's original
+    // finding), but upstream LLVM clangd 22.1.7, 23.1.0 and 23.1.1 all do (M2 gate-gaps lane's first
+    // 3-OS run of this exact assertion failed identically on every OS, which is what surfaced this).
+    // Asserting a single fixed outcome here would either break for every contributor running Apple
+    // clangd locally (17.x) or silently stop verifying the CI-installed versions (22.x/23.x) -
+    // asserting nothing at all would delete the regression watch this lane exists to build. So this
+    // reads the real installed version and asserts the behavior actually observed for it. Versions
+    // 18-21 have never been measured, so this deliberately fails loudly rather than guessing which
+    // branch they would fall into - the same rule catalog.ts's own `supported.minimum` follows (narrow
+    // or widen only after testing a version, never by assuming).
     const derivedTargetCallers = await queryCppSymbolOnce(workspace, provider, 9, 15);
-    assert.ok(
-      !derivedTargetCallers.includes('call_via_base_pointer'),
-      `expected Derived::target to show no callers (the call site is statically attributed to Base::target instead) - if this now finds it, clangd's virtual-dispatch resolution changed and catalog.ts's docs.limitations needs re-examination, got ${JSON.stringify(derivedTargetCallers)}`,
-    );
+    const clangdMajor = detectClangdMajorVersion();
+    if (clangdMajor === 17) {
+      assert.ok(
+        !derivedTargetCallers.includes('call_via_base_pointer'),
+        `expected Derived::target to show no callers under clangd 17 (catalog.ts's docs.limitations claim for this version) - if this now finds it, clangd 17's virtual-dispatch resolution changed and both docs.limitations and this test's version branch need re-examination, got ${JSON.stringify(derivedTargetCallers)}`,
+      );
+    } else if (clangdMajor === 22 || clangdMajor === 23) {
+      assert.ok(
+        derivedTargetCallers.includes('call_via_base_pointer'),
+        `expected Derived::target to show call_via_base_pointer under clangd ${clangdMajor} (catalog.ts's docs.limitations claim for this version) - if this no longer finds it, clangd's virtual-dispatch resolution changed again and both docs.limitations and this test's version branch need re-examination, got ${JSON.stringify(derivedTargetCallers)}`,
+      );
+    } else {
+      assert.fail(
+        `clangd major version ${clangdMajor ?? 'unknown'} has never been observed for derived-override virtual-dispatch attribution (only 17, 22, and 23 have been measured directly, on real clangd, not assumed). Measure this version directly and add an explicit branch above with its real behavior before trusting either outcome - do not silently fall through to one branch or skip this check.`,
+      );
+    }
   },
 );

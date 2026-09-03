@@ -451,11 +451,19 @@ const clangd: ProviderPreset = {
       // incomingCalls on fixture_target returned only the assignment site (surfaced as a reference
       // named "fp"), never the function that performed the indirect call through the pointer.
       'Calls made only through a function pointer invocation are not part of the Call Hierarchy result; only the pointer\'s own assignment site may appear as a reference.',
-      // Probed directly: a virtual method Derived::target overriding Base::target, called through a
-      // Base* as `b->target()`. incomingCalls on Base::target correctly included the call site;
-      // incomingCalls on Derived::target was empty - the statically-typed call site never appears
-      // under the override that could be reached at runtime through dynamic dispatch.
-      'A call reached only through virtual dispatch on a base-class pointer or reference appears under the statically-declared base method\'s Call Hierarchy result, never under a derived override\'s.',
+      // Probed directly, twice, with different outcomes - a real version-dependent behavior change,
+      // not a flake: a virtual method Derived::target overriding Base::target, called through a
+      // Base* as `b->target()`. incomingCalls on Base::target correctly included the call site under
+      // every clangd version measured (stage 4's Apple 17.0.0, and M2 gate-gaps lane's real 3-OS CI
+      // run on upstream 22.1.7/23.1.0/23.1.1) - that half never changed. incomingCalls on
+      // Derived::target was empty under Apple clangd 17.0.0 (stage 4), but M2 gate-gaps lane's
+      // repeating fixture (clangdIntegration.test.ts) found it now ALSO includes the call site under
+      // upstream LLVM clangd 22.1.7, 23.1.0, and 23.1.1 - identically on all three OSes in the same CI
+      // run, ruling out a race. Versions 18-21 have never been measured; their behavior is not guessed
+      // - the same rule this preset's own `supported.minimum` already follows (narrow or widen only
+      // after testing a version, never by assuming). The test asserts both halves per-version and
+      // fails loudly, not silently, for any clangd major it has not observed.
+      'A call reached only through virtual dispatch on a base-class pointer or reference always appears under the statically-declared base method\'s Call Hierarchy result. Whether it ALSO appears under a derived override\'s result depends on the clangd version: Apple clangd 17.0.0 does not include it there, but upstream LLVM clangd 22.1.7, 23.1.0, and 23.1.1 do (versions 18-21 have not been measured). Under a version where it is absent, an empty result on the derived override is not evidence that override has no callers.',
       // Probed directly, and the result contradicts the naive assumption: a simple macro expanding
       // directly to a function call (`#define CALL_TARGET() macro_target()`) WAS correctly resolved -
       // incomingCalls found the real caller, because clangd operates on the post-preprocessor AST.
@@ -483,6 +491,13 @@ const clangd: ProviderPreset = {
   // (Chocolatey) has no 23.x package at all as of this writing (confirmed directly against the Chocolatey
   // OData API, not assumed); its newest available is 22.1.7, which is what CI actually installs and
   // exercises there. So the 23.x claim is NOT verified on Windows - only 22.1.7 is, there.
+  //
+  // M2 gate-gaps lane found this version spread is not just an install-availability accident - the three
+  // CI-installed versions (22.1.7, 23.1.0, 23.1.1) actually behave differently from 17.0.0 for virtual
+  // dispatch (see the docs.limitations entry above): a derived override's Call Hierarchy result is empty
+  // under 17.0.0 but non-empty under all three of 22.1.7/23.1.0/23.1.1. This is exactly why
+  // `lastVerified.versions` lists every exact version actually run, not a range - a "17.0.0 to 23.1.1"
+  // shorthand would have hidden the one version whose behavior differs from the other three.
   lastVerified: {
     date: '2026-09-03',
     versions: ['17.0.0', '22.1.7', '23.1.0', '23.1.1'],
