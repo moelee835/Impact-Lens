@@ -201,3 +201,43 @@ C/C++에서 `compile_database_*` 코드와 `.h` 언어 모호성을 확인해야
     (branch 빌드): `baff6e9f3fc6ce10ec9cfacabdf756c496fc17007ddca435c44198dc8fe4798f`.
   - **이 두 값은 branch 빌드 값이다. PR merge 후 `main`에서 재생성해 재확인한다**(M1과 동일 절차 —
     tree가 다르면 값이 달라질 수 있으므로 release 시점 재생성이 필수).
+
+### 2026-09-03 — commander 발견: CHANGELOG의 clangd 항목 과잉 주장 정정
+
+commander가 PR #69의 CHANGELOG를 직접 대조해 발견했다: clangd 항목의 "verified end to end ...
+**for its pinned minimum version**, on Linux/macOS/Windows CI on every push" 문장이 **사실이
+아니다.** 직접 재확인했다:
+
+- `catalog.ts`의 clangd `supported.minimum`은 `'17.0.0'`이다.
+- `.github/workflows/unit-tests.yml`의 `clangd-provider` job은 17.0.0을 설치하지 않는다 — Linux는
+  `apt.llvm.org`의 clangd 23(실측 23.1.1), macOS는 Homebrew `llvm@23`(실측 23.1.0), Windows는
+  Chocolatey `llvm --version=22.1.7`(Chocolatey에 23.x 패키지가 없어서). **CI는 17.0.0을 한 번도
+  돌리지 않는다.**
+- `catalog.ts`의 `lastVerified` 주석이 이미 이 사실을 정확히 적어 뒀다: *"the CI-verified version is
+  NOT the same on all three OSes, so 'verified on 3 OSes' would overclaim"*. 이 문장이 `gopls`
+  항목(실제로 CI가 `supported.minimum`과 정확히 같은 `0.19.1`을 설치·실행함, `go install
+  golang.org/x/tools/gopls@v0.19.1`)에서 그대로 복사돼 clangd에 잘못 옮겨진 것으로 보인다 — CHANGELOG
+  작성 시점에 재검증하지 않았다.
+- **CHANGELOG를 정정했다**: "for its pinned minimum version"을 지우고, darwin/arm64 수동 검증은
+  17.0.0(pinned minimum) 기준이라는 것과, CI는 그와 **다른** 버전(Linux 23.1.1/macOS 23.1.0/Windows
+  22.1.7)을 돈다는 것을 명시적으로 구분해서 적었다.
+- **같은 기준으로 나머지 전체를 재대조했다**: gopls 항목(CI가 정확히 `0.19.1` pin을 설치·실행 —
+  `lastVerified.versions: ['0.19.1', '0.23.0']`와 workflow의 `go install ...@v0.19.1`이 실제로
+  일치함을 재확인, 정정 불필요), Python 항목의 "covered unconditionally by the existing cross-OS
+  `cli:test` jobs"(`unit-tests.yml`의 python-provider 부재 설명 주석이 "temporarily moving
+  cli/node_modules/pyright aside... fails those four tests loudly... never skips them"이라고 실측을
+  적어 뒀음을 재확인 — 정정 불필요), 나머지 6개 bullet(모두 OS/버전 claim이 없는 순수 동작 설명 —
+  대상 없음). **clangd 항목 1건만 정정 대상이었다.**
+- **부수 발견(이 lane의 범위 밖, 기록만 한다)**: `catalog.ts`의 Python(`bundled-pyright`)
+  `lastVerified` 주석이 "this preset has no CI job yet exercising windows-latest/ubuntu-latest ...
+  Stage 5 ... is where that gap closes"라고 미래형으로 적혀 있는데, `unit-tests.yml`의 실제 주석은
+  이미 그 gap이 닫혔다고(실측 포함) 서술한다 — `catalog.ts` 쪽 주석이 stage 5 완료 후 갱신되지 않은
+  것으로 보인다. **CHANGELOG의 근거는 아니었다**(CHANGELOG는 이미 두 사실을 정확히 구분해서 적었다 —
+  "darwin에서 손으로 검증"과 "cross-OS cli:test가 무조건 커버"를 별개 문장으로 뒀다), 릴리스 lane의
+  범위도 아니라 고치지 않았다 — commander에게 별도로 보고한다.
+
+### 검증
+
+- `git diff --stat`: `CHANGELOG.md` 1 file, 5 insertions, 3 deletions 만 변경.
+- `npm run test:all` 재실행 — 회귀 없음(clangd 항목 문구 수정은 코드가 아니라 CHANGELOG 텍스트만
+  바꾸므로 테스트 영향 없음, response-policy eval은 CHANGELOG.md를 읽지 않는다는 것도 재확인).

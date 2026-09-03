@@ -31,9 +31,11 @@
 - A C/C++ developer with `clangd` installed and discoverable on `PATH` now gets function-impact analysis
   with no provider configuration at all — `clangd` is a third `verified-external` catalog preset,
   covering `.c`/`.cc`/`.cpp`/`.cxx`/`.h`/`.hh`/`.hpp`/`.hxx`, verified end to end (Call Hierarchy, version
-  policy, a real cross-file compile-database round trip) on darwin/arm64 by hand and, for its pinned
-  minimum version, on Linux/macOS/Windows CI on every push. Unlike `gopls`, `clangd` declares no
-  `readiness` profile, so `indexingStatus` is always `unknown` for C/C++ (the same reason
+  policy, a real cross-file compile-database round trip) on darwin/arm64 by hand at its pinned minimum
+  version (17.0.0), and separately on Linux/macOS/Windows CI on every push — but not at that same
+  version: CI installs newer clangd (23.1.1 on Linux, 23.1.0 on macOS, 22.1.7 on Windows, since
+  Chocolatey does not distribute a 23.x package), never 17.0.0 itself. Unlike `gopls`, `clangd` declares
+  no `readiness` profile, so `indexingStatus` is always `unknown` for C/C++ (the same reason
   `bundled-pyright` reports `unknown` too).
 - `limitationDetails` can now carry `compile_database_missing`, `compile_database_stale`, or
   `compile_database_ambiguous` (C/C++ only, severity `warning`): without a valid `compile_commands.json`,
