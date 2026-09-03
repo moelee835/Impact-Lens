@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/moelee835/Impact-Lens/releases/tag/v0.7.0"><img src="https://img.shields.io/badge/Release-v0.7.0-F5B942?style=for-the-badge" alt="Release v0.7.0"></a>
+  <a href="https://github.com/moelee835/Impact-Lens/releases/tag/v0.8.0"><img src="https://img.shields.io/badge/Release-v0.8.0-F5B942?style=for-the-badge" alt="Release v0.8.0"></a>
   <a href="INSTALL.md"><img src="https://img.shields.io/badge/VS_Code-1.96%2B-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.96+"></a>
   <a href="INSTALL.md#3-agent-cli-설치"><img src="https://img.shields.io/badge/Agent_CLI-Node_22%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Agent CLI Node.js 22+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2EA44F?style=for-the-badge" alt="MIT License"></a>
@@ -49,10 +49,10 @@ Impact Lens는 함수 변경의 잠재 영향 범위를 탐색하는 **local-fir
 
 ### VS Code Extension
 
-[v0.7.0 VSIX](https://github.com/moelee835/Impact-Lens/releases/download/v0.7.0/impact-lens-0.7.0.vsix)를 내려받아 설치합니다.
+[v0.8.0 VSIX](https://github.com/moelee835/Impact-Lens/releases/download/v0.8.0/impact-lens-0.8.0.vsix)를 내려받아 설치합니다.
 
 ```sh
-code --install-extension ./impact-lens-0.7.0.vsix --force
+code --install-extension ./impact-lens-0.8.0.vsix --force
 ```
 
 VS Code를 reload한 뒤 함수 선언 위의 `Show impact`를 선택합니다.
@@ -61,7 +61,7 @@ VS Code를 reload한 뒤 함수 선언 위의 `Show impact`를 선택합니다.
 
 ```sh
 npm install --global \
-  https://github.com/moelee835/Impact-Lens/releases/download/v0.7.0/impact-lens-cli-0.7.0.tgz
+  https://github.com/moelee835/Impact-Lens/releases/download/v0.8.0/impact-lens-cli-0.8.0.tgz
 ```
 
 ```sh
@@ -194,7 +194,8 @@ CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는
 2. 요청의 `providerPreset` — catalog에 있는 preset id를 이름으로 지정합니다.
 3. 워크스페이스의 `.impact-lens/provider.json` — 프로젝트가 커밋해 공유하는 선택입니다.
 4. 검증된 auto-discovery — 감지된 언어를 지원한다고 catalog에 선언된 preset이 정확히 하나뿐이고 그 실행
-   파일을 찾을 수 있을 때만 선택됩니다.
+   파일을 찾을 수 있을 때만 선택됩니다. ("검증된"은 CLI가 catalog 선언과 실행 파일 존재를 확인했다는
+   뜻이지, 사용자가 그 결과를 검증했다는 뜻이 아닙니다 — 아래 preset 등급 문단 참고.)
 5. 위 네 단계 모두 실패하면 다른 언어의 provider로 대체하지 않고 `provider_required_for_language`로
    실패합니다.
 
@@ -206,9 +207,12 @@ C/C++(`.c`, `.cc`, `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp`, `.hxx`)도 여기 더해
 `gopls`와 `clangd`는 `verified-external` tier라 사용자가 그 실행 파일을 직접 설치해야 Auto가 찾습니다.
 C/C++는 compile database(`compile_commands.json`)가 없으면 clangd가 파일 간 호출 관계를 찾지 못하는
 채로 저하 동작하므로, 그 상태는 오류가 아니라 `limitationDetails`의 `compile_database_missing` 등으로
-표시됩니다 — 아래 "complete: true가 증명하지 않는 것"에서 설명합니다. 그 외 언어는 "곧 지원 예정"이
-아니라 **오늘 검증된 preset이 없어서 항상 provider를 직접 설정해야 하는 상태**입니다. 지원되지 않는
-언어에서는 아래처럼 표준 LSP Call Hierarchy provider를 요청에 직접 지정합니다.
+표시됩니다 — 아래 "complete: true가 증명하지 않는 것"에서 설명합니다. **`bundled-pyright`, `gopls`,
+`clangd` 세 preset 모두 실제 사용자 검증은 아직 실행되지 않아 `experimental` 등급입니다** — Auto가
+자동으로 고른다는 것은 catalog에 등록되고 실행 파일이 발견됐다는 뜻이지, 그 결과가 사람에 의해
+검증됐다는 뜻이 아닙니다. Swift/Kotlin 등 그 외 언어는 "곧 지원 예정"이 아니라 **오늘 catalog에
+preset 자체가 없어서 항상 provider를 직접 설정해야 하는 상태**입니다. 지원되지 않는 언어에서는
+아래처럼 표준 LSP Call Hierarchy provider를 요청에 직접 지정합니다.
 
 ```json
 {
@@ -273,7 +277,7 @@ Claude Code에서는 slash command로도 직접 실행할 수 있습니다.
 /impact-lens:notes list
 ```
 
-plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.7.0 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요하며, 이 단계의 실패도 raw npm 출력이 아니라 단일 JSON 오류로 보고됩니다.
+plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.8.0 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요하며, 이 단계의 실패도 raw npm 출력이 아니라 단일 JSON 오류로 보고됩니다.
 
 | Host | Manifest | Marketplace |
 | --- | --- | --- |

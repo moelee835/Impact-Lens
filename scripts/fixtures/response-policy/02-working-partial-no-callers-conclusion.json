@@ -9,7 +9,7 @@
     "runtime": {
       "cli": {
         "name": "@impact-lens/cli",
-        "version": "0.7.0"
+        "version": "0.8.0"
       },
       "node": {
         "version": "22.0.0",
