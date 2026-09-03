@@ -83,13 +83,43 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
 
 ## 권장 대응
 
+> **2026-09-03 정정(M4 stage 1, `docs/work/task-m4-stage1-evidence-contract.md`)**: 아래 두 항목이
+> **뒤집혔다** — 원문은 보존하고 이 정정으로 대체 방향을 남긴다.
+>
+> 1. *"CLI schema는 기존 `source`/`target`을 유지하면서 optional `evidence[]`를 추가해 하위 호환을
+>    우선한다"* — **하위 호환이 아니라고 판단했다.** 이 저장소가 이미 같은 문제를 푼 선례
+>    (`limitations` vs `limitationDetails`, `cli/src/coverage.ts`의 `V1_WITHHELD_REASON_CODES`)를
+>    직접 읽으면, 오늘 `edges`를 전수로 읽는 소비자는 그 배열의 모든 항목을 확정 관계로 취급한다.
+>    새 optional 필드 하나를 기존 항목에 얹는 것은 "필드 추가"가 아니라 **그 소비자에게 배열
+>    전체의 의미를 조용히 바꾸는 것**이다. 대신 `data.augmentedEdges`라는 완전히 새 top-level
+>    필드를 쓴다 — `edges`는 M4로 인해 단 하나의 값도 안 바뀐다.
+> 2. *"기존 LSP edge를 `language-server/confirmed` evidence로 변환한다"* — **하지 않는다.** `edges`의
+>    기존 항목을 M4의 어휘로 재분류(retag)하는 것 자체가 그 항목들의 기존 의미를 재정의하는
+>    행위이고, 위 1번과 같은 이유로 위험하다. `edges`는 M4 이전과 이후가 완전히 동일하게 유지된다
+>    — provider가 준 edge는 M4 도입 전과 똑같이 아무 confidence 라벨 없이 그대로 있다.
+> 3. *"graph identity는 기존 symbol ID를 유지한다"*(아래 "동일 source/target edge에 여러
+>    evidence를 보존하고" 문장) — **하지 않는다.** `ImpactEdge`/CLI edge는 둘 다 `source`/`target`이
+>    `nodes[].id`를 가리키는 bare ID이고, `src/impactTreeProvider.ts`의 `getChildren()`은
+>    `nodes` 전체를 provenance 구분 없이 순회·렌더링한다 — LSP가 한 번도 순회하지 못한 순수 추론
+>    symbol을 "기존 symbol ID 체계"에 편입시키면(=`nodes`에 새 entry) 그 심볼이 옛 소비자의
+>    tree에 아무 표시 없이 나타난다. 대신 `augmentedEdges`의 endpoint는 **self-contained**
+>    (`name`/`kind`/`file`/`range`를 그 entry 자신이 직접 보유)로 표현하고, `data.nodes`에는
+>    항목을 추가하지 않는다.
+>
+> `EdgeEvidence`의 나머지 필드 모양(`adapterId`/`adapterVersion`/`evidenceRanges`/`reasonCode`)은
+> 유효하고 그대로 쓴다 — `confidence: confirmed|inferred|observed`만 `source`(출처)와
+> `resolution`(확실성, `single`/`multiple` — `confirmed`는 쓰지 않는다) 두 축으로 분리해 대체한다.
+> 자세한 근거는 work document 참고.
+
 - 공통 `EdgeEvidence` 모델을 먼저 정의한다.
   - `source`: `language-server | static-inference | runtime-observation`
   - `adapterId`와 `adapterVersion`: 관계를 만든 구현과 버전
   - `confidence`: `confirmed | inferred | observed`
   - `evidenceRanges`: 등록·호출·trace 근거 위치
   - `reasonCode`: 예를 들어 `callback-registration`, `event-subscription`
-- 동일 source/target edge에 여러 evidence를 보존하고, graph identity는 기존 symbol ID를 유지한다.
+- 동일 source/target edge에 여러 evidence를 보존하고, ~~graph identity는 기존 symbol ID를
+  유지한다~~(정정됨, 위 참고 — 새 symbol은 `nodes`에 편입되지 않고 augmented edge 안에
+  self-contained로 표현된다).
 - 보조 분석은 기본 정적 결과를 감싸는 `AugmentedIncomingProvider` 형태로 구성하고 adapter 실패를
   부분 limitation으로 격리한다.
 - 첫 구현 후보는 이름 해석이 가능한 명시적 callback 전달과 event subscription 두 종류로 제한한다.
@@ -103,8 +133,12 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
 
 ### 1단계 — provenance 계약
 
+> **2026-09-03 정정(M4 stage 1)**: 2번은 위 "권장 대응" 정정과 같은 이유로 하지 않는다. `IL-LIM-001`이
+> 정의하는 새 `EdgeEvidence` 계약은 `data.augmentedEdges`(새 top-level 필드)의 항목에만 붙고, 기존
+> `edges`는 이 단계에서 손대지 않는다 — "기존 LSP edge를 변환"할 대상 자체가 없다.
+
 1. Extension·CLI edge의 공통 개념과 JSON schema 변경안을 설계한다.
-2. 기존 LSP edge를 `language-server/confirmed` evidence로 변환한다.
+2. ~~기존 LSP edge를 `language-server/confirmed` evidence로 변환한다.~~ (정정됨, 위 참고)
 3. 여러 evidence의 정렬, deduplication과 serialization 규칙을 정의한다.
 4. 기존 소비자가 새 optional 필드를 무시해도 동작하는지 contract fixture로 확인한다.
 
@@ -168,5 +202,23 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
 ## 미해결 질문
 
 - 첫 언어와 callback API를 TypeScript/Node로 한정할지, Python callable까지 함께 다룰지 결정이 필요하다.
-- `observed` edge가 `confirmed`보다 강한 근거인지 별도 축으로 표현할지 UX 검토가 필요하다.
-- 추론 graph가 depth/node budget을 공유할지 별도 budget을 가질지 benchmark 후 결정해야 한다.
+- ~~`observed` edge가 `confirmed`보다 강한 근거인지 별도 축으로 표현할지 UX 검토가 필요하다.~~
+  **2026-09-03 정정(M4 stage 1)**: `confirmed`가 이 스토리의 어휘에서 빠지면서(위 "권장 대응" 정정)
+  이 질문의 원래 형태는 성립하지 않는다. 새 모델에서 `source`(어디서 왔는가:
+  `static-inference`/`runtime-observation`)와 `resolution`(target이 몇 개로 좁혀지는가:
+  `single`/`multiple`)은 독립 축이라, "어느 쪽이 더 강한 근거인가"라는 단일 서열 질문 자체가 이
+  구조에서는 다시 묻지 않아도 된다 — `runtime-observation` source에도 `single`/`multiple`
+  resolution이 둘 다 있을 수 있고, `static-inference`도 마찬가지다. `runtime-observation`은
+  `IL-LIM-001` 4단계가 이미 별도 승인 필요 사항으로 미뤄 뒀으므로(승인 전에는 구현되지 않음)
+  실제로 두 source가 공존하는 시점은 이 마일스톤 밖일 가능성이 높다.
+- ~~추론 graph가 depth/node budget을 공유할지 별도 budget을 가질지 benchmark 후 결정해야
+  한다.~~ **2026-09-03 정정(M4 stage 1)**: 이 lane이 해소했다 — **공유하지 않는다. 추론 탐색은
+  완전히 별도의 budget을 쓴다.** 근거: static traversal의 `facts.limits`(`cli/src/coverage.ts`)
+  하나가 `completion`/`complete`/`truncated`/`traversalLimits`/`coverage.traversal.status`
+  다섯 곳을 동시에 결정한다 — 공유하면 정적 부분이 완전히 끝났어도 augmentation이 같은 budget을
+  나눠 쓰다 소진되는 순간 이 다섯 필드가 augmentation 때문에 뒤집힌다(`complete: true→false` 등).
+  `complete`/`truncated`는 `IL-LIM-009`가 존재하는 이유이자 M1·M2가 여러 라운드에 걸쳐 지킨
+  의미라, 이게 augmentation 때문에 뒤집히는 건 benchmark로 정할 성능 트레이드오프가 아니라 구조적
+  안전성 문제였다. augmentation이 자기 budget을 소진하면 augmentation만 degrade되고 별도
+  limitationDetail로 보고한다 — static 결과에는 영향이 없다. 자세한 근거는
+  `docs/work/task-m4-stage1-evidence-contract.md` 참고.

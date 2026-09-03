@@ -38,6 +38,25 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 - [ ] 모호한 관계는 확정 edge로 생성되지 않고 limitation으로 보고된다.
 - [ ] 단일 후보, 복수 후보와 runtime-only binding이 확정·후보·미지원 관계로 구분된다.
 
+> **2026-09-03 정정(M4 stage 1, `docs/work/task-m4-stage1-evidence-contract.md`)**: 이 문서 안에서
+> 바로 위 문장(확정·후보·미지원)과 아래 "권장 대응"의 Spring 절("Spring Java/Kotlin 후속
+> adapter는 bean registration과 injection point를 분리하고 결과를 세 단계로 표현한다"로 시작하는
+> 부분, `confirmed`/`candidate`/`runtime-only`를 라벨로 나란히 씀)이 **서로 다른 어휘를 쓴다** —
+> 같은 스토리 안의 모순이며, 어느 쪽도 그냥 "따르면" 안 된다(줄 번호가 아니라 원문으로 인용한다 —
+> 이 정정을 처음 쓸 때 줄 번호로 인용했다가, 정정 삽입 자체가 그 줄 번호를 밀어서 자기 인용이
+> 깨진 적이 있다). stage 1이 정한 최종 vocabulary: **`edges`(기존, LSP)에는 M4 어휘를 붙이지
+> 않는다.** M4가 새로 만드는 `data.augmentedEdges` 항목은 두 독립 축을 갖는다 —
+> `source: static-inference | runtime-observation`(어디서 왔는가), `resolution: single |
+> multiple`(target이 몇 개로 좁혀지는가, "단일 후보"/"복수 후보"에 대응). **`confirmed`는 어느
+> 축에도 쓰지 않는다** — `augmentedEdges`는 정의상 provider가 확정하지 않은 것들이라, 안에서
+> "confirmed"를 쓰면 `edges`가 이미 암묵적으로 갖는 그 의미와 충돌해 추측이 확정으로 오독된다.
+> **"runtime-only binding"(바로 위 수용 기준 문장)/"미지원"은 세 번째 `resolution` 값이 아니라
+> edge 자체가 생기지 않는 경우다** — profile, 정적으로 안 풀리는 conditional, programmatic
+> registration, proxy/AOP처럼 후보 target을 정적으로 단 하나도 나열할 수 없으면 edge를 만들지
+> 않고 limitation만 보고한다("모호한 관계는 확정 edge로 생성되지 않고 limitation으로 보고된다"는
+> 바로 위 수용 기준을, 이 경우엔 대체가 아니라 유일한 출력으로 적용한다). 자세한 근거는 work
+> document 참고.
+
 ## 검증
 
 - 최소 FastAPI fixture의 route → handler → dependency 관계 통합 테스트
@@ -103,6 +122,10 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
   - `confirmed`: type·qualifier·primary·조건으로 단일 bean이 결정됨
   - `candidate`: 복수 implementation 또는 정적으로 확정하지 못한 조건
   - `runtime-only`: profile, conditional, programmatic registration, proxy/AOP 등 실행 전 확정 불가
+  > **2026-09-03 정정(M4 stage 1)**: 이 세 판정 기준(단일 bean 결정/복수 또는 미확정 조건/실행 전
+  > 확정 불가) 자체는 그대로 쓰지만, **라벨은 바뀐다** — `confirmed`→`resolution: 'single'`,
+  > `candidate`→`resolution: 'multiple'`(edge로 노출), `runtime-only`→ **edge 없음, limitation만**
+  > (위 수용 기준 정정 참고). "confirmed"라는 단어를 M4의 새 edge 어휘에 쓰지 않기로 했기 때문이다.
 - Koin, Dagger/Hilt와 Swift DI container는 annotation/generated/runtime 모델이 달라 별도 수요·fixture 검토 후
   독립 adapter story로 승격한다.
 
@@ -151,6 +174,8 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 4. FastAPI adapter의 공통 SPI만 재사용하고 Spring resolution rule은 별도 adapter와 release gate로 분리한다.
 
 종료 조건: exact/candidate/runtime-only 분류 정확도와 성능이 승인된 경우에만 독립 구현 Issue를 만든다.
+(2026-09-03 정정: `exact`/`runtime-only`는 M4 stage 1이 정한 `resolution: single/multiple` + edge
+없음(limitation만)으로 대체 — 위 수용 기준 정정 참고.)
 
 ## 예상 변경 영역
 
@@ -169,7 +194,7 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 | 통합 | route → handler → direct/sub-dependency | 모든 edge가 inferred provenance로 연결됨 |
 | cross-file | 다른 module의 dependency와 router include | 실제 symbol ID로 연결되고 이동 가능 |
 | 부정 | `Depends(factory())`, 동적 decorator, 동명 함수 | 모호한 확정 edge가 생성되지 않음 |
-| Spring spike | 단일·복수·조건부 bean | confirmed/candidate/runtime-only가 근거와 함께 분리됨 |
+| Spring spike | 단일·복수·조건부 bean | confirmed/candidate/runtime-only가 근거와 함께 분리됨(2026-09-03 정정: `resolution: single/multiple` + edge 없음(limitation만)으로 대체, 위 참고) |
 | 안전 | import 시 side effect가 있는 module | 사용자 module을 실행하지 않음 |
 | 회귀 | adapter 비활성화 | 기존 Language Server graph와 JSON이 유지됨 |
 
