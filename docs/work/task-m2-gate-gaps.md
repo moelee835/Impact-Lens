@@ -132,13 +132,44 @@ lane이 만든 근거로 스스로 체크했다(각 문서 자체에 근거). `m
 버전에 따라 달라질 수 있는 종류의 동작이다. 3-OS CI 결과를 아직 못 봤으므로 각 문서에 "push 후
 CI 로그로 재확인 필요"를 명시해 뒀다 — CI 확인 후 이 절을 갱신한다.
 
+## 3-OS CI 실측 결과 — commander가 예측한 그 일이 실제로 일어났다
+
+`workflow_dispatch`로 이 branch를 직접 3-OS CI에 돌렸다(`https://github.com/moelee835/Impact-Lens/
+actions/runs/33713131515`, PR 없이 직접 트리거). **`clangd-provider` job 3개 전부 실패했다** — 정확히
+같은 이유로, 정확히 같은 assertion에서:
+
+| OS | clangd 버전 | 실패 지점 | 실제 반환값 |
+| --- | --- | --- | --- |
+| ubuntu-latest | 23.1.1 | `Derived::target`가 호출자 없어야 함 | `["Derived::target","call_via_base_pointer"]` |
+| macos-latest | 23.1.0 | 동일 | 동일 |
+| windows-latest | 22.1.7 | 동일 | 동일 |
+
+**세 OS·세 major(22, 23) 전부 완전히 같은 결과**: `Base::target`(assertion 3a)는 여전히
+`call_via_base_pointer`를 찾는다(이 assertion이 먼저 통과했기 때문에 코드가 3b까지 도달했다) — 그런데
+**이제 `Derived::target`(assertion 3b)도 같은 caller를 찾는다.** darwin/arm64의 Apple clangd
+17.0.0에서는 `Derived::target`이 비어 있었다(로컬 실측, 이 문서 앞부분).
+
+**method 호출(assertion 1)과 overload 구분(assertion 2)은 세 OS 전부 문제없이 통과했다** —
+`not ok 20`의 실패가 정확히 마지막 assertion(3b) 하나뿐이라는 것은, 그 앞의 1·2a·2b·3a 네 assertion이
+전부 예외 없이 끝났다는 뜻이다(순차 실행 코드이므로 앞에서 실패했다면 에러가 그쪽에서 났을 것이다).
+
+**이것은 테스트 결함이 아니라 발견이다(commander가 미리 정확히 예측한 그대로)**: clangd가 major
+17→22/23 사이에 **virtual dispatch 정적 해석을 개선**해서, 이제 base-class pointer를 통한 호출이
+base 메서드뿐 아니라 **derived override의 Call Hierarchy 결과에도** 나타난다. 즉
+`catalog.ts`의 clangd `docs.limitations` 현재 문구 — *"appears under the statically-declared base
+method's Call Hierarchy result, **never** under a derived override's"* — 는 **17.0.0에서는 참이었고
+22.x/23.x에서는 더 이상 참이 아니다.**
+
+**이 lane이 스스로 고치지 않는다.** commander 지시: "실패하면 테스트를 느슨하게 고치지 말고 즉시
+보고하세요... 문서 수정 범위가 이 lane을 넘습니다." 코드·문서를 건드리지 않고 이 사실만 정확히
+기록하고 보고한다. **IL-LIM-014 #3와 마일스톤 gate 1·2의 체크 상태는 이 발견이 반영되기 전까지
+잠정 상태다** — 이미 커밋했지만(로컬 실측만으로), 이 발견 때문에 재검토가 필요하다.
+
 ## 남은 작업
 
-- **Stage 1-3 로컬 완료. 3-OS CI 실측을 이 branch에서 `workflow_dispatch`로 직접 트리거해 확인한
-  뒤 commander에게 보고한다** — PR은 아직 올리지 않는다(commander가 stage 2·3 완료 후 PR을
-  지시하겠다고 명시).
-- **CI 결과에 따라 갈리는 다음 행동**: Linux·macOS·Windows 전부 로컬과 같은 결과(base는 발견,
-  derived는 안 됨; overload 정확히 구분)면 caveat을 제거하고 보고한다. **어느 OS에서든 다르면
-  (특히 Ubuntu/macOS의 clangd 23.x가 derived override를 찾아버리면) 테스트를 느슨하게 고치지 않고
-  즉시 보고한다** — 그 경우 shipped `docs.limitations`가 최신 clangd에서 틀렸다는 뜻이고, 수정
-  범위가 이 lane을 넘는다(commander 지시).
+- **commander에게 즉시 보고, 다음 지시 대기.** 후보 방향(이 세션이 임의로 택하지 않음):
+  1. `docs.limitations`를 실측대로 정정(예: "17.0.0에서는 derived에 안 보였으나 22.x/23.x부터는
+     보인다" — OS/버전별 차이를 `lastVerified`처럼 명시).
+  2. assertion 3b를 버전에 따라 분기하거나, "한계가 아니게 됐다"는 사실 자체를 다른 형태로 고정.
+  3. 이 lane의 범위를 넘는 문제로 판단해 별도 lane으로 분리.
+- PR은 여전히 올리지 않는다.
