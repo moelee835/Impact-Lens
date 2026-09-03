@@ -1,8 +1,8 @@
 # M2 — gate 1·2 공백 2건 닫기
 
-- 상태: 정정된 `docs.limitations`/테스트, stray clangd 게이트 수정 **모두 3-OS CI로 확인 완료**
-  (`https://github.com/moelee835/Impact-Lens/actions/runs/33715243243`, 9개 job 전부 green).
-  commander 보고·다음 지시 대기.
+- 상태: **commander 승인, stage 3(수용 기준·gate 닫기) 완료.** IL-LIM-004 #2, IL-LIM-014 #3·#4,
+  마일스톤 gate 1·2 갱신. M2 8개 종료 gate 전부 닫힘 — 세 preset은 여전히 `experimental`(등급
+  승격 아님). PR 작성·오픈 진행 중.
 - branch: `feat/m2-gate-gaps`
 - 선행: PR #67(M2 마일스톤 종료 처리 A) merge 완료(squash `4a1de44`) 후 착수.
 - 요구사항 전문(계획 세션 작성, 저장소 밖): `m2-gate-gaps.md`(commander scratchpad)
@@ -379,15 +379,34 @@ GitHub hosted runner 기본 이미지에 clangd가 **미리 설치돼 있다**(�
 **derived-override 분기도 22/23에서 여전히 올바른 쪽으로 통과했다**(clangd-provider 3개 다
 `ok 20`, "has never been observed" 실패 없음) — 이전 정정이 이 게이트 변경으로 깨지지 않았다.
 
+## Stage 3 — 수용 기준·gate 재확인 (commander 승인 후)
+
+commander가 stage 3와 PR 오픈을 승인했다("승인합니다. stage 3 하고 PR까지 올리세요."). 지시대로
+닫았다:
+
+- `il-lim-004-first-class-language-presets.md` #2 — 이미 `[x]`, Go same-file 근거 그대로 유효
+  (수정 불필요, 확인만 함).
+- `il-lim-014-c-cpp-clangd-support.md` #3 — "3-OS CI 재실행 결과는 아직 확인 전" caveat를
+  지우고, 9-job 재확인(run 33715243243) + stray clangd 게이트 정정 사실을 근거에 추가했다.
+- `il-lim-014-c-cpp-clangd-support.md` #4 — 이미 정정된 문구(base 항상/derived 버전별)로
+  재판정돼 있음을 확인했다(이전 "재판정" 단계에서 이미 반영됨, 이번엔 무효가 된 옛 근거가
+  남아 있지 않은지만 재확인).
+- `m2-p1-language-support.md` — `상태`를 "8개 종료 gate 전부 닫힘"으로 갱신하되, **같은 문장
+  안에** 세 preset이 여전히 `experimental`이라는 것과 이 PR 이후 남는 것은 릴리스라는 것을 명시했다
+  (commander 지시: 등급 승격 문장이 새지 않게). gate 1·2 항목에도 9-job 재확인 링크를 추가하고,
+  gate 6(회귀 없음)의 stale한 "327/329" 카운트를 3-OS CI 근거로 교체했다. **스토리 `상태`(Backlog)는
+  건드리지 않았다** — M1 선례 그대로.
+
+### 검증
+
+- 세 문서 모두 `[x]`/판정 상태는 그대로 두고 근거 문구만 갱신했는지 diff로 확인.
+- `git diff --stat`: 2 files changed(milestone, il-lim-014), il-lim-004는 근거 이미 충분해 diff 없음.
+- 각 스토리 `상태: Backlog` 유지 확인(`grep`).
+
 ## 남은 작업
 
-- **commander에게 보고한다** — 이 절 전체(3-OS 재확인 완료, 9/9 green, 로그 대조 표)가 그 근거다.
-- 다음이 commander가 말한 "stage 3(수용 기준·gate 닫기)" — `il-lim-004`/`il-lim-014`/마일스톤
-  gate 1·2는 이미 "재판정" 절에서 이 lane의 근거로 체크돼 있다. stray-clangd 발견·수정 자체가
-  그 문서들의 수용 기준 문구를 바꾸지는 않는다(수용 기준은 clangd-provider가 실제로 검증하는
-  내용에 대한 것이고, 이번 수정은 검증하지 않는 job이 검증한 것처럼 보이던 것을 바로잡은 것) —
-  commander 확인 후 필요하면 반영한다.
-- PR 본문에 **이 발견(문서가 틀렸다는 것 발견·수정 + stray clangd 사전 결함 발견·수정)을 맨
-  앞에 쓴다** — "CI 게이트 수정"이 아니라 "clangd 테스트가 의도하지 않은 job에서 미고정 버전으로
-  조용히 돌아 왔다는 사전 결함을 발견하고 고쳤다"로(commander 지시).
-- PR은 여전히 올리지 않는다 — commander 지시 대기.
+- PR을 연다 — 본문 맨 앞에 두 발견(문서 정정, stray clangd 사전 결함)을 쓴다(commander 지시).
+- PR CI(pull_request 트리거, workflow_dispatch 아님)에서 9개 job 전부 green인지 재확인 — 특히
+  `go-provider`가 실제로 통과하는지(로컬 `npm test`의 gopls skip 3개는 이 세션 shell의 PATH
+  문제로 보이므로, PR CI 결과로 로컬 환경 문제와 실제 회귀를 구분한다, commander 지시).
+- CI 확인 후 commander에게 보고, reviewer에게 넘긴다.

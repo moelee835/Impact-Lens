@@ -63,8 +63,17 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
       target`은 **실제 설치된 clangd major를 읽어** 그 버전에서 관측된 동작을 단언한다(17 → 없음,
       22·23 → 있음, 그 외 미관측 버전 → 명시적 실패). non-vacuity는 assertion 위치/값을 실제로
       바꿔 각각 실패를 확인한 뒤 byte-identical 복원으로 확인했다(`docs/work/task-m2-gate-gaps.md`).
-      **주의**: 이 정정된 형태의 3-OS CI 재실행 결과는 아직 확인 전이다 — push 후 실제 로그로
-      확인이 남아 있다(정정 전 형태는 이미 3-OS 전부에서 이 버전 차이를 실측으로 잡아냈다).
+      **정정된 형태의 3-OS CI 재실행도 확인 완료다** — `clangd-provider` job 3개(ubuntu 23.1.1/
+      macos 23.1.0/windows 22.1.7) 전부 이 테스트를 실행해서 pass했다(로그에 SKIP 마커 없음,
+      `https://github.com/moelee835/Impact-Lens/actions/runs/33715243243`). **같은 재실행에서 이
+      테스트를 등록하는 `clangdGatedTest` 게이트 자체도 정정됐다** — `go-provider`/
+      `cli-tests-cross-os`가 runner에 미리 깔린, 검증되지 않은 clangd(Windows major 20, macOS
+      major 21)로 이 테스트를 조용히 실행해 온 사전 결함을 이 lane이 발견해 고쳤다. 지금은
+      `IMPACT_LENS_REQUIRE_CLANGD`가 설정된 job에서만 실행되고, 그 외 CI job은 stray 버전을
+      로그에 이름만 남기고 skip한다(로컬 개발자는 여전히 PATH의 clangd로 실행). 이 게이트 변경은
+      **이 수용 기준이 검증하는 내용 자체를 바꾸지 않는다** — `clangd-provider`가 실제로 이
+      preset을 검증하는 job이라는 사실은 그대로이고, 바뀐 것은 그 job이 아닌 곳에서의 오검증
+      착시를 없앤 것뿐이다.
 - [x] function pointer, virtual dispatch, macro와 조건부 컴파일 한계가 provider 원본 결과와 함께
       기록된다. — `cli/src/providers/catalog.ts`의 clangd `docs.limitations` 4항목 전부가 실제
       probe로 뒷받침된다: function pointer, 조건부 컴파일(`#ifdef`)은 원래 문구 그대로 유효하다.
