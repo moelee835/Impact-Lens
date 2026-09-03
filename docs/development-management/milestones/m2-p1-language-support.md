@@ -6,6 +6,12 @@
   범위의 구현·검증이 끝났다는 뜻이지 등급 승격이 아니다** — 세 preset(bundled-pyright/gopls/
   clangd)은 사용자 검증이 아직 실행되지 않았으므로 지금도 전부 `experimental`이다. 이 PR 이후에
   남는 것은 릴리스(버전·CHANGELOG·태그)이며, 이는 "M2 완료"와 별개의 후속 작업이다.
+  > **2026-09-03 갱신(M1·M2 상태 표기 정리, `docs/work/task-m2-m1-milestone-status-cleanup.md`)**:
+  > 위 문단은 v0.8.0 발행 전(PR #69 착수 시점, PR #68 merge 직후)에 쓰였다 — "이 PR 이후에 남는
+  > 것은 릴리스"가 그때는 사실이었지만 지금은 아니다. **v0.8.0이 이미 발행됐다**(PR #69·#70, tag
+  > `v0.8.0`, `docs/work/task-m2-release-0-8-0.md`). **상태: Done — v0.8.0으로 발행됨.** 세
+  > preset이 `experimental`이라는 결론은 발행 전후로 바뀌지 않는다 — v0.8.0 발행도 등급 승격이
+  > 아니다(위 문단의 원래 결론 그대로).
 - 완료 소유: IL-LIM-004, IL-LIM-006, IL-LIM-014
 - 릴리스 성격: 우선 언어 지원 minor release
 

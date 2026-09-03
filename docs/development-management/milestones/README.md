@@ -12,8 +12,8 @@
 | 순서 | 마일스톤 | 완료 소유 story | 선행 기여 story | 사용자 결과 | 상태 |
 | ---: | --- | --- | --- | --- | --- |
 | M0 | [Provider 실행 신뢰성](m0-provider-runtime-trust.md) | IL-LIM-003, 017 | IL-LIM-006 1~2단계 | JS/TS Plugin 분석이 배포 환경에서 재현 가능하고 실패 원인이 구분됨 | In progress |
-| M1 | [Provider 플랫폼과 무설정 UX 기반](m1-provider-platform-ux.md) | IL-LIM-005, 009 | IL-LIM-004 1~2단계 | Auto/doctor/custom의 일관된 계약과 과신하지 않는 결과 의미 | Planned |
-| M2 | [Python·Go·C/C++ verified support](m2-p1-language-support.md) | IL-LIM-004, 006, 014 | 없음 | 우선 언어를 raw provider JSON 없이 분석하고 준비 문제를 안내 | Planned |
+| M1 | [Provider 플랫폼과 무설정 UX 기반](m1-provider-platform-ux.md) | IL-LIM-005, 009 | IL-LIM-004 1~2단계 | Auto/doctor/custom의 일관된 계약과 과신하지 않는 결과 의미 | Done |
+| M2 | [Python·Go·C/C++ verified support](m2-p1-language-support.md) | IL-LIM-004, 006, 014 | 없음 | 우선 언어를 raw provider JSON 없이 분석하고 준비 문제를 안내 | Done |
 | M3 | [Swift·Kotlin 및 callable 확장](m3-p2-language-callables.md) | IL-LIM-015, 016, 011 | 없음 | toolchain 기반 언어와 검증된 callable syntax 지원 | Planned |
 | M4 | [동적 호출·DI·테스트 의미 보완](m4-semantic-augmentation.md) | IL-LIM-001, 002, 010 | 없음 | provenance가 있는 동적/framework/test evidence로 주요 미탐 감소 | Planned |
 | M5 | [편집 중 분석과 대규모 workspace](m5-workspace-workflow.md) | IL-LIM-007, 008 | 없음 | 저장 전 변경과 큰 graph에서도 제한이 예측 가능한 workflow | Planned |

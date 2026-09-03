@@ -494,12 +494,16 @@ merge commit)를 가리키는 tag, non-draft·non-prerelease GitHub Release, ass
 
 **backlog로 남긴 것 3건**(이 릴리스가 고치지 않음, 사용자에게 새지 않는다는 commander 판단 또는
 파일이 이 릴리스 범위 밖이라는 이유):
-1. `cli/src/providers/catalog.ts`의 `bundled-pyright` `lastVerified` 주석이 stage 5 완료 전
-   시점의 미래형 문구("Stage 5 ... is where that gap closes")로 남아 있다 — `unit-tests.yml`의
-   실제 주석은 이미 그 gap이 실측으로 닫혔다고 서술한다. 실제보다 **적게** 주장하는 방향이라
-   사용자에게 새지 않는다.
-2. reviewer가 발견한 stale worktree(`.claude/worktrees/agent-a74c7b5dab71f5309`,
-   `.claude/worktrees/agent-ad65e9c6c64ba60cc`) 정리 — 개발 환경 잔여물이라 릴리스와 무관.
+1. ~~`cli/src/providers/catalog.ts`의 `bundled-pyright` `lastVerified` 주석이 stage 5 완료 전
+   시점의 미래형 문구("Stage 5 ... is where that gap closes")로 남아 있다~~ — **M2 종료 후 별도
+   정리 lane에서 clangd의 정정된 주석을 본으로 삼아 고쳤다**(`docs/m2-m1-milestone-status-cleanup`
+   branch). `unit-tests.yml`의 실제 주석은 이미 그 gap이 실측으로 닫혔다고 서술했었다.
+2. ~~reviewer가 발견한 stale worktree(`.claude/worktrees/agent-a74c7b5dab71f5309`,
+   `.claude/worktrees/agent-ad65e9c6c64ba60cc`) 정리~~ — **같은 정리 lane에서 확인**: 둘 다
+   `.gitignore:10`(`.claude/worktrees/`)로 추적 제외된 로컬 산출물이다(`git ls-files` 0건, `git
+   check-ignore -v`로 확인). **저장소에 정리할 대상이 없다** — PR에 포함하지 않는다. (부수 확인:
+   같은 디렉터리에 M1 시절 branch를 가리키는 worktree가 4개 더 있었다 — 전부 로컬 전용, 저장소
+   정리 대상 아님, 실제 디스크 정리가 필요하면 별도 사용자 판단.)
 3. ~~`README.md:210`의 용어 충돌~~ — **이미 이 lane에서 고쳤다**(commander 지시로 범위에
    포함됨, 위 작업 로그 "README.md도 같은 방식으로 정정" 참고). 애초 backlog 후보였다가 승격된
    항목이므로 여기 목록에서는 제외한다.
