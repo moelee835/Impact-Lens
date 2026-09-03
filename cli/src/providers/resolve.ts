@@ -19,6 +19,8 @@ import {
   resolveManifestStrings,
 } from './manifest';
 import {
+  AMBIGUOUS_LANGUAGE_ID,
+  C_FAMILY_LANGUAGE_IDS,
   DEFAULT_SETTINGS_DELIVERY,
   JsonObject,
   JsonValue,
@@ -28,6 +30,12 @@ import {
   SettingsDelivery,
 } from './preset';
 import { ProjectProviderChoice, readProjectProviderChoice } from './projectConfig';
+
+// Defined in ./preset (see its own comment for why); re-exported here so every existing import site
+// (`from '../providers/resolve'`, across impact.ts, doctor/checks.ts and providers.test.ts) keeps
+// working unchanged now that catalog.ts also needs AMBIGUOUS_LANGUAGE_ID and imports it from ./preset
+// directly, to avoid a circular edge (resolve.ts already imports PROVIDER_CATALOG from catalog.ts).
+export { AMBIGUOUS_LANGUAGE_ID, C_FAMILY_LANGUAGE_IDS };
 
 /**
  * Everything provider selection decides before a process is spawned.
@@ -126,10 +134,34 @@ export function resolveProvider(
     : presetCommand(choice.preset, detectedLanguageId, choice.languageIdOverride, options, env);
   const preset = choice.kind === 'preset' ? choice.preset : undefined;
 
-  const requestedLanguageId = actual.languageId ?? detectedLanguageId;
+  const requestedLanguageIdBeforeWireGuard = actual.languageId ?? detectedLanguageId;
+  // AMBIGUOUS_LANGUAGE_ID is an internal-only marker this CLI invented (see `languageId()` below) - no
+  // LSP server understands it. `requestedLanguageId` is not just a report field: it becomes
+  // `LspCallHierarchyProvider`'s `languageIdOverride` and is sent verbatim as `textDocument/didOpen`'s
+  // `languageId` (`cli/src/lspProvider.ts`). A custom provider could pick a parser by that field or
+  // reject an unrecognized value outright, so this string must never reach the wire. Substitute the
+  // standard 'plaintext' - the same honest "unknown" value this code sent before AMBIGUOUS_LANGUAGE_ID
+  // existed - whenever it would otherwise leak.
+  //
+  // In practice this only fires on the raw custom command path with no explicit `languageId` - the
+  // preset path cannot reach it: `assertPresetSpeaksLanguage()` already requires a named preset's
+  // `languageIds` to literally include AMBIGUOUS_LANGUAGE_ID before it is chosen at all, and
+  // auto-discovery's `presetsForLanguage()` filter does the same, so `presetLanguageId()` never sees an
+  // empty `languageIds` array for this value - it always resolves to a real declared language first.
+  // The guard still lives here, not only in the raw path, so "never leaks" is one invariant checked in
+  // one place rather than distributed across every current and future caller of `resolveProvider()`
+  // (found via commander review, M2 clangd lane stage 2 addendum - confirmed by directly capturing a
+  // real `didOpen` frame sent to a fake LSP server before this fix, which carried
+  // `"languageId":"c-cpp-header"`).
+  const requestedLanguageId = requestedLanguageIdBeforeWireGuard === AMBIGUOUS_LANGUAGE_ID
+    ? 'plaintext'
+    : requestedLanguageIdBeforeWireGuard;
   // An unrecognized extension carries no claim about the language, so a configured provider is not
-  // contradicted by it. That is 'unknown', not a mismatch.
-  const languageMatch = detectedLanguageId === 'plaintext'
+  // contradicted by it. That is 'unknown', not a mismatch. A recognized-but-ambiguous extension
+  // (AMBIGUOUS_LANGUAGE_ID, currently only `.h`) gets the same 'unknown' treatment for the same reason:
+  // whichever concrete language the provider ends up using is a guess this CLI made, not a confirmed
+  // fact, so it must not be reported as a match either.
+  const languageMatch = detectedLanguageId === 'plaintext' || detectedLanguageId === AMBIGUOUS_LANGUAGE_ID
     ? 'unknown'
     : requestedLanguageId === detectedLanguageId;
   if (languageMatch === false) {
@@ -334,6 +366,10 @@ function requirePreset(
  * TypeScript preset and handing it a `.py` file would otherwise start tsserver on Python and return
  * an empty graph. The check is skipped for `plaintext` because an unrecognized extension asserts
  * nothing, which is the same rule `languageMatch: 'unknown'` already encodes.
+ *
+ * Deliberately NOT skipped for AMBIGUOUS_LANGUAGE_ID (`.h`): unlike `plaintext`, it does assert
+ * something (a C-family header), so a preset for an unrelated language is still rejected. A preset
+ * must list AMBIGUOUS_LANGUAGE_ID in its own `languageIds` to opt into serving ambiguous headers.
  */
 function assertPresetSpeaksLanguage(
   preset: ProviderPreset,
@@ -434,10 +470,12 @@ function presetLanguageId(preset: ProviderPreset, detectedLanguageId: string): s
   if (preset.command.languageIdFrom !== 'detected') {
     return preset.command.languageIdFrom;
   }
-  // An unrecognized extension tells us nothing, but naming a preset does. Falling back to the
-  // preset's primary language is the explicit claim the caller made; `languageMatch` still reports
-  // `unknown` so nothing downstream reads it as confirmation.
-  return detectedLanguageId === 'plaintext'
+  // An unrecognized extension tells us nothing, but naming a preset does. An ambiguous-but-recognized
+  // extension (AMBIGUOUS_LANGUAGE_ID) tells us "C or C++" but not which - the preset's own language
+  // order breaks the tie the same way. Either way, falling back to the preset's primary language is
+  // the explicit claim the caller made; `languageMatch` still reports `unknown` so nothing downstream
+  // reads it as confirmation.
+  return detectedLanguageId === 'plaintext' || detectedLanguageId === AMBIGUOUS_LANGUAGE_ID
     ? (preset.languageIds[0] ?? detectedLanguageId)
     : detectedLanguageId;
 }
@@ -601,6 +639,7 @@ export function languageId(file: string): string {
     case '.hh': return 'cpp';
     case '.hpp': return 'cpp';
     case '.hxx': return 'cpp';
+    case '.h': return AMBIGUOUS_LANGUAGE_ID;
     case '.swift': return 'swift';
     case '.kt': return 'kotlin';
     case '.kts': return 'kotlin';

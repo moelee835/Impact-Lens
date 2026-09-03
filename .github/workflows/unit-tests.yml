@@ -108,6 +108,114 @@ jobs:
       - name: Run Agent CLI tests (gopls required, not optional)
         run: npm run cli:test
 
+  # M2 clangd lane, stage 5 (docs/work/task-m2-clangd-preset.md). Separate from `unit`/`cli-tests-cross-os`
+  # for the same reason `go-provider` is: an install failure here must never hide or delay the
+  # Extension/CLI unit results, and clangd's OS matrix is not worth paying for on every push. Unlike
+  # `go-provider`, this job cannot lean on one install command working identically everywhere - clangd is
+  # an LLVM binary with a different install path per OS (apt.llvm.org on Linux, Homebrew on macOS since
+  # the Xcode-bundled clangd does not track upstream LLVM's own version numbering at all, Chocolatey on
+  # Windows), which is exactly the risk the shipped preset's own version check (`supported.minimum`)
+  # exists to catch if any of the three drifts.
+  #
+  # The three OSes are NOT pinned to the same major, and that asymmetry is deliberate, not an oversight:
+  # Linux (apt.llvm.org) and macOS (Homebrew) both currently offer 23 - the current LLVM release
+  # (llvm/llvm-project's own releases page) as of this job's authoring, and the same major this lane's own
+  # stage 1 cross-check already verified via Homebrew (23.1.0, alongside Apple clangd 17.0.0). Windows
+  # (Chocolatey) does not: its `llvm` package's newest published version is 22.1.7, verified directly
+  # against the Chocolatey OData API - see that step's own comment for how "pin to 23 everywhere" was
+  # tried first and failed for real in this PR's own initial CI run before being corrected here. None of
+  # this is the catalog's `supported.minimum` (17) itself, because apt.llvm.org only keeps package repos
+  # for roughly the last two LLVM majors and 17 is long past that window by now. `supported.minimum:
+  # '17.0.0'` with no maximum covers both 23 and 22 - this job proves each OS's actual newest
+  # currently-installable version stays inside that range, not that 17.0.0 itself is still reachable
+  # everywhere, and not that every OS runs the identical major.
+  # IMPACT_LENS_REQUIRE_CLANGD=1 turns the clangd-gated rows in `clangdIntegration.test.ts` from an
+  # optional local skip into a hard failure here, the same mechanism `go-provider` uses for gopls - see
+  # that file's own comment for why a silent skip was rejected (verified directly: hiding clangd from
+  # PATH with the env var set fails the job loudly, not silently - the same check this lane's Python
+  # preset lane ran by moving a symlink aside).
+  clangd-provider:
+    name: clangd / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      IMPACT_LENS_REQUIRE_CLANGD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pnpm
+        run: npm install --global pnpm@10.34.5
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install clangd 23 (Linux, via apt.llvm.org)
+        if: runner.os == 'Linux'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 23
+          sudo apt-get install -y clangd-23
+          sudo ln -sf /usr/bin/clangd-23 /usr/local/bin/clangd
+      # Homebrew, not the Xcode-bundled /usr/bin/clangd already on this runner: Xcode's own clangd tracks
+      # Apple's release cadence and version numbers (17.0.0 on this lane's own darwin/arm64 dev machine),
+      # not upstream LLVM's, so it cannot be pinned to a chosen LLVM major version at all. Installing bare
+      # `llvm` is NOT a pin - it tracks whatever homebrew-core's current default major is, so the day
+      # Homebrew bumps past 23 this job would silently start testing a different major than the one this
+      # step name and CI comment claim, with no failure to flag it. `llvm@23` is the real pin: verified
+      # directly against formulae.brew.sh's live API that it exists today as the current release's own
+      # version alias (23.1.0) and that homebrew-core keeps prior majors (llvm@22, @21, ... @14) as
+      # separate versioned formulae once a new default lands - the same pattern this repo relies on staying
+      # true for 23 once 24 ships.
+      #
+      # `brew update` first is required, not optional: this PR's own first CI run (33700721044) proved that
+      # without it, `brew install llvm@23` fails outright - "No available formula with the name llvm@23. Did
+      # you mean llvm, llvm@21, ... llvm@14?" - because the macOS runner image ships with a Homebrew tap
+      # snapshot baked in at image-build time, not one that tracks homebrew-core HEAD live. That snapshot
+      # predated even the 22 release (no llvm@22 offered either), while formulae.brew.sh's API - queried
+      # live, not from the runner - already showed 23.1.0 as current. The live-API check that motivated the
+      # `llvm@23` pin was correct about upstream; it said nothing about which upstream state this runner
+      # image actually has baked in, and this failure is the direct proof that gap exists.
+      #
+      # The `llvm`/`llvm@23` formula is keg-only (does not link onto PATH by default, stage 1's own finding)
+      # - PATH is set explicitly in the next step rather than relying on a `brew link` that Homebrew warns
+      # against for keg-only formulas.
+      - name: Install clangd 23 (macOS, via Homebrew, pinned)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install llvm@23
+      - name: Add Homebrew llvm to PATH (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: echo "$(brew --prefix llvm@23)/bin" >> "$GITHUB_PATH"
+      # NOT 23 - verified directly against the Chocolatey OData API
+      # (community.chocolatey.org/api/v2/FindPackagesById()?id='llvm', which a direct curl reaches even
+      # though this lane's earlier WebFetch attempt got HTTP 403 there) that 22.1.7 is the actual latest
+      # `llvm` package Chocolatey has (IsLatestVersion/IsAbsoluteLatestVersion both true); no 23.x package
+      # exists there yet. This PR's own first CI run proved this the hard way: `--version=23.1.0` failed
+      # outright ("Version was specified as '23.1.0'. It is possible that version does not exist for
+      # 'llvm'"). So Windows is pinned one major behind Linux/macOS on purpose, not by oversight - it is
+      # the newest version Chocolatey actually publishes, and `supported.minimum: '17.0.0'` with no maximum
+      # still covers it.
+      - name: Install clangd 22 (Windows, via Chocolatey - Chocolatey's llvm package lags upstream, no 23.x yet)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install llvm --version=22.1.7 -y --no-progress
+      # Ground truth for the version this run actually exercised, independent of what catalog.ts's
+      # `lastVerified` claims - a mismatch between the two is itself a defect worth seeing in the log, the
+      # same principle as `go-provider`'s equivalent step. A mismatch BETWEEN the three OSes is expected
+      # here, not a defect on its own (Windows is intentionally one major behind, see above) - only check
+      # each OS's own logged version against what that OS's install step actually requested.
+      - name: Log installed clangd version
+        run: clangd --version
+      - name: Run Agent CLI tests (clangd required, not optional)
+        run: npm run cli:test
+
   # No `python-provider` job here on purpose (M2 Python preset, stage 5, task-m2-python-preset.md).
   # `bundled-pyright` needs no analogue of the `go install` step above: pyright ships as a pinned
   # `dependencies` entry in cli/package.json (not a separately installed external tool), so

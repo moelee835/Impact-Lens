@@ -9,7 +9,7 @@ import { LspCallHierarchyProvider } from '../lspProvider';
 import { findPreset, GOPLS_PRESET_ID, PROVIDER_CATALOG } from '../providers/catalog';
 import { findExecutable } from '../providers/discovery';
 import { ProviderPreset, ProviderReadinessProfile } from '../providers/preset';
-import { fieldsClassified } from './stateReachabilityClassification';
+import { fieldsClassified, fieldsProducedBy } from './stateReachabilityClassification';
 
 // Answers a question `completion.test.ts` and `coverage.test.ts` cannot: not "does the projection report the
 // right thing for an observation", but "can the product ever produce that observation in the first place".
@@ -327,15 +327,30 @@ test('the shipped catalog produces exactly its declared reachable completion sta
   assert.equal(typeof observations, 'object', 'expected analysisObservations() to return an object');
   assert.ok(observations !== null, 'expected analysisObservations() to return a non-null object');
   const actualKeys = Object.keys(observations).sort();
-  const expectedKeys = fieldsClassified('has-producer');
+  // Not fieldsClassified('has-producer') directly: `compileDatabase` is real and has-producer, but its
+  // producer is impact.ts's analyzeImpact(), not this method - see OBSERVATION_FIELD_PRODUCER's comment
+  // in stateReachabilityClassification.ts (docs/work/task-m2-clangd-preset.md stage 3). Comparing against
+  // the full has-producer list here would fail forever for a field this specific method can never return.
+  const expectedKeys = fieldsProducedBy('lsp-provider');
   assert.deepEqual(
     actualKeys,
     expectedKeys,
     `provider.analysisObservations() returned ${JSON.stringify(actualKeys)}, but ` +
-    `stateReachabilityClassification.ts classifies only ${JSON.stringify(expectedKeys)} as has-producer. ` +
-    'If a field was legitimately added here, update CLASSIFIED_OBSERVATION_FIELDS and, if it unlocks a ' +
-    'new completion state, add that state to the reachable lists above.',
+    `stateReachabilityClassification.ts's OBSERVATION_FIELD_PRODUCER classifies only ` +
+    `${JSON.stringify(expectedKeys)} as produced by the lsp-provider. ` +
+    'If a field was legitimately added here, update CLASSIFIED_OBSERVATION_FIELDS and ' +
+    'OBSERVATION_FIELD_PRODUCER, and if it unlocks a new completion state, add that state to the ' +
+    'reachable lists above.',
   );
+});
+
+// Closes the loop the two maps above open: OBSERVATION_FIELD_PRODUCER must classify exactly the fields
+// CLASSIFIED_OBSERVATION_FIELDS calls 'has-producer' - no more (a 'no-producer' field with a claimed
+// producer location would be a direct contradiction) and no fewer (a 'has-producer' field with no
+// producer location would silently vanish from every runtime check that reads OBSERVATION_FIELD_PRODUCER,
+// exactly the kind of drift stateReachabilityClassification.ts's own header comment exists to prevent).
+test('OBSERVATION_FIELD_PRODUCER classifies exactly the has-producer fields, no more and no fewer', () => {
+  assert.deepEqual(fieldsProducedBy('lsp-provider').concat(fieldsProducedBy('analyze-caller')).sort(), fieldsClassified('has-producer'));
 });
 
 // Title note, 2026-09-02 (M2 stage 2): this test previously read "...(test-only path, not reachable by a

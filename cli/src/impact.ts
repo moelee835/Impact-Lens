@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { classifyRelation } from './testFile';
 import { projectCompletion } from './coverage';
+import { inspectCompileDatabase } from './providers/compileDatabase';
+import { C_FAMILY_LANGUAGE_IDS } from './providers/resolve';
 import {
   AnalysisObservations,
   AnalyzeRequest,
@@ -111,7 +113,18 @@ export async function analyzeImpact(
     // result it says nothing about. Re-verify this invariant before making that kind of change.
     incomingCallerCount: traversal.entries.length - 1,
     diagnosticsSupported: provider.capabilities.diagnostics,
-  }, { ...provider.analysisObservations?.(), ...observations });
+  }, {
+    // Read-only filesystem discovery, not a provider-reported fact - only C_FAMILY_LANGUAGE_IDS
+    // requests pay for it, and every other language keeps `observations.compileDatabase` unset
+    // (M2 clangd lane stage 3, `docs/work/task-m2-clangd-preset.md`). Lowest precedence of the three
+    // layers: a provider's own claim or an explicit test/caller observation can still override it,
+    // matching how `provider.analysisObservations?.()` and `observations` already relate below.
+    ...(C_FAMILY_LANGUAGE_IDS.has(provider.capabilities.detectedLanguageId)
+      ? { compileDatabase: await inspectCompileDatabase(workspace) }
+      : {}),
+    ...provider.analysisObservations?.(),
+    ...observations,
+  });
   return {
     rootId: symbolId(root),
     nodes,

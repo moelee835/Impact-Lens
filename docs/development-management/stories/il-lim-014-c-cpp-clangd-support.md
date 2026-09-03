@@ -54,6 +54,15 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
 
 ## 현재 기준선
 
+> **2026-09-03 갱신**: 아래 네 항목은 이 스토리가 작성된 시점(작업 착수 전)의 기준선이며, 지금은 더 이상
+> 정확하지 않다. `feat/m2-clangd-preset` branch의 stage 1-5(`docs/work/task-m2-clangd-preset.md`)가 이
+> 기준선 자체를 구현으로 대체했다 — `clangd` verified-external preset이 catalog에 있고, compile
+> database 상태(`compile_database_missing`/`_stale`/`_ambiguous`)와 `.h` ambiguity(`languageMatch:
+> 'unknown'`)가 doctor와 분석 응답 모두에서 구분되며, `cli/src/test/clangdIntegration.test.ts`가 실제
+> clangd process로 cross-file Call Hierarchy 왕복을 증명한다. PR은 아직 열리지 않았고 commander 검토
+> 대기 중이므로 이 절과 상단 `상태: Backlog`는 병합·release 전까지 원문을 보존한다(수정이 아니라 추가
+> 표시).
+
 - CLI의 자동 languageId에는 C/C++ 확장자가 없으며 provider가 없으면 TypeScript server를 실행한다.
 - raw custom provider로 clangd를 지정할 수 있지만 version, compile database와 index readiness를 검사하지 않는다.
 - Source note는 일부 C/C++ 확장자의 `//`를 지원하지만 provider 지원 등급과 연결된 공통 fixture가 없다.
@@ -164,14 +173,33 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
 - header가 여러 target에 포함될 때 사용자에게 target 선택을 언제 요청할지 결정해야 한다.
 - compile database staleness를 mtime만으로 판단할지 build-system adapter가 필요한지 검토해야 한다.
 - MSVC/clang-cl과 Apple clangd를 같은 verified matrix로 볼 수 있는지 실제 fixture가 필요하다.
-- **readiness 신호가 파일 open 이후에만 오는 provider의 일반 문제.** M2 Python preset lane
-  (`docs/work/task-m2-python-preset.md`, "아키텍처 발견 독립 기록" 항목)이 실측으로 확인:
-  pyright의 work-done-progress는 workspace 초기화가 아니라 `textDocument/didOpen`이 트리거하는데,
-  `cli/src/lspProvider.ts`의 `LspCallHierarchyProvider.awaitReadiness()`는 `doInitialize()` 안에서
-  어떤 파일도 열리기 전에 호출된다 — 그래서 이런 provider의 readiness 신호는 지금 구조에서 구조적으로
-  도달 불가능하다. clangd도 background index를 쓰고(위 "조사 결과") 그 신호가 파일 open 전에
-  workspace 단위로 오는지 아직 확인되지 않았다 — Python과 같은 함정을 다시 밟을 수 있다. 3단계
-  착수 전에 clangd의 신호가 gopls형(workspace 단위, open 불필요)인지 pyright형(`didOpen` 트리거)인지
-  raw probe로 먼저 확인해야 한다. `awaitReadiness()`를 `open()` 뒤로 옮기는 재설계는 TS·gopls·custom이
-  공유하는 경로라 이런 provider 하나만의 fix가 아니라 별도 lane 규모다(gopls readiness의 3-OS
-  재검증이 필요).
+- **readiness 신호가 파일 open 이후에만 오는 provider의 일반 문제 — 지금까지 조사한 non-bundled
+  provider 셋 중 gopls만 예외다.** M2 Python preset lane(`docs/work/task-m2-python-preset.md`,
+  "아키텍처 발견 독립 기록" 항목)이 pyright의 work-done-progress가 workspace 초기화가 아니라
+  `textDocument/didOpen`이 트리거한다는 것을 실측으로 확인했다. M2 clangd lane stage 1
+  (`docs/work/task-m2-clangd-preset.md`)이 clangd도 같은 형태임을 실측으로 확인했다 — `with-db`
+  fixture에서 `initialize` 후 15초 동안 어떤 파일도 열지 않았을 때 `$/progress` 0건, `didOpen`
+  직후 즉시 도착. Apple clangd 17.0.0과 upstream LLVM clangd 23.1.0 양쪽에서 재현해 빌드 특성이
+  아님을 확인했다. **즉 "readiness는 파일 open 전에 workspace 단위로 온다"는 것이 다수 사례가
+  아니라 gopls 하나의 사례다** — 지금 구조(`cli/src/lspProvider.ts`의
+  `LspCallHierarchyProvider.awaitReadiness()`가 `doInitialize()` 안, 어떤 `open()`보다 먼저 호출됨,
+  `:585` vs `:651`)가 전제하는 순서가 실제로는 소수 provider에만 맞는다. `awaitReadiness()`를
+  `open()` 뒤로 옮기는 재설계는 TS·gopls·custom이 공유하는 경로라 provider 하나만의 fix가 아니라
+  별도 lane 규모다(gopls readiness의 3-OS 재검증이 필요) — 이 사실을 이제 두 provider(pyright,
+  clangd)가 뒷받침하므로, 그 별도 lane의 우선순위를 다음 계획 세션이 재평가할 근거가 됐다.
+- **preset `fixture` 메커니즘이 절대 경로가 필요한 project metadata 파일을 못 다룬다 — clangd
+  하나의 각주가 아니라 메커니즘 자체의 한계다.** `ProviderFixtureFile.content`(`preset.ts`)는 정적
+  문자열이고, `fixtureCheck()`(`doctor/index.ts:275,281`)는 그 내용을 `fs.mkdtempSync()`로 만든
+  런타임 임시 디렉터리에 쓰기만 한다 — preset 정의 시점에는 그 경로가 존재하지 않는다. gopls의
+  `go.mod`는 경로를 담지 않고, pyright는 project metadata 파일 자체가 필요 없어서 이 lane 전까지는
+  이 한계가 드러난 적이 없었다. M2 clangd lane stage 4(`docs/work/task-m2-clangd-preset.md`)가
+  실제로 부딪혔다 — `compile_commands.json`의 `directory` 필드는 절대 경로를 요구하는데 fixture에
+  그 값을 주입할 방법이 없어서, 이 preset의 shipped fixture는 **저하 경로(database 없음, 단일
+  파일)만 증명한다.** 정상 경로(database 있음, cross-file 호출자 발견 — 이 preset이 실제로 파는
+  기능)는 별도 CI 전용 integration test(`cli/src/test/clangdIntegration.test.ts`, stage 5)가 실제
+  temp 경로로 진짜 `compile_commands.json`을 만들어 증명한다 — **preset fixture 메커니즘 자체는
+  여전히 이 종류의 project metadata를 못 다룬다.** 앞으로 절대 경로 기반 project metadata가 필요한
+  provider가 또 나오면(예: 다른 build-system 기반 언어) 같은 벽에 부딪힌다. M2 Python preset
+  lane의 readiness 발견과 같은 성격의 cross-cutting 항목 — `ProviderFixtureFile`에 워크스페이스
+  경로를 참조할 수 있는 템플릿 메커니즘(예: `{{workspace}}` 치환)을 추가하는 것이 후속 lane의
+  범위다.

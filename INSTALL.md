@@ -128,9 +128,11 @@ impact-lens note list --workspace /path/to/project
 두 번째 명령은 stdout에 `schemaVersion`, `operation`, `ok`, `data`를 포함한 compact JSON 한 줄을 출력해야 합니다.
 
 기본 TypeScript/JavaScript provider까지 점검합니다. `doctor`는 `bundled-typescript`뿐 아니라 provider
-catalog의 어떤 preset id도 받는 일반 명령입니다. 오늘 shipped catalog에는 세 preset이 있습니다:
+catalog의 어떤 preset id도 받는 일반 명령입니다. 오늘 shipped catalog에는 네 preset이 있습니다:
 `bundled-typescript`와 `bundled-pyright`(Python, CLI에 포함돼 있어 설정 없이 바로 동작)와 `gopls`
-(Go, `gopls`가 PATH에 설치돼 있을 때만 동작하는 `verified-external`).
+(Go, `gopls`가 PATH에 설치돼 있을 때만 동작하는 `verified-external`)와 `clangd`(C/C++, `clangd`가
+PATH에 설치돼 있을 때만 동작하는 `verified-external` — compile database가 없으면 파일 간 호출 관계를
+찾지 못하는 채로 저하 동작하며, 이 상태는 `doctor`와 분석 응답 모두에서 구분됩니다).
 
 ```sh
 impact-lens doctor bundled-typescript
@@ -433,9 +435,12 @@ adapter로 동작하지 않을 수 있습니다.
 
 Bundled TypeScript/JavaScript 오류라면 위 doctor 절차를 먼저 사용합니다. `doctor <preset>`은 catalog에
 등록된 preset만 진단하므로, `provider` 필드로 직접 지정한 custom provider는 doctor로 점검할 수 없고 위
-`error.details`를 직접 읽어야 합니다. Python/C/C++/Swift/Kotlin 등은 **아직 검증된 preset이 없어서** 오늘은
-항상 provider를 직접 지정해야 하는 상태입니다 — 이는 곧 지원 예정이라는 뜻이 아니라,
-`provider_required_for_language`가 provider artifact 손상을 뜻하지 않는다는 뜻입니다.
+`error.details`를 직접 읽어야 합니다. Python(`bundled-pyright`)과 Go(`gopls`), C/C++(`clangd`)는 이미
+검증된 preset이 있어 Auto가 자동으로 고릅니다 — Go와 C/C++는 `verified-external`이라 사용자가 그
+실행 파일을 PATH에 직접 설치해야 하고, Python은 `bundled`라 설치가 필요 없습니다. Swift/Kotlin 등
+**그 외 언어는 아직 검증된 preset이 없어서** 오늘은 항상 provider를 직접 지정해야 하는 상태입니다 —
+이는 곧 지원 예정이라는 뜻이 아니라, `provider_required_for_language`가 provider artifact 손상을
+뜻하지 않는다는 뜻입니다.
 
 ### `provider_ipc_unavailable`: 샌드박스 안에서 분석이 동작하지 않음
 

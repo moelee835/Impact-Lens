@@ -143,18 +143,18 @@ different statement about an empty or partial result; do not treat them intercha
 ### `unknown` — the provider made no claim
 
 The provider never reported an index state. An empty result is not evidence that no caller exists, which is
-why the response carries `index_state_unknown`. `bundled-typescript` and `bundled-pyright` (the shipped
-Python preset, M2) both declare no `readiness` profile, so `unknown` is what agents see for every
-TypeScript/JavaScript and Python analysis. For `bundled-pyright` this is not "no signal exists": pyright
-sends a real indexing-progress notification, but only once a file is opened, and this CLI's readiness wait
-runs before that point in the current call order, so the signal cannot arrive in time — declaring
-`readiness` anyway would only add a fixed timeout with no benefit (`cli/src/providers/catalog.ts` records
-the measurement). `gopls` (the shipped Go preset, M2) does declare `readiness`, so `working`/`ready` are
-real for Go: no request field or `.impact-lens/provider.json` field lets a user attach a `readiness`
-profile directly — `readiness` is still not part of either schema — but a user reaches `ready`/`working`
-simply by having `gopls` installed and analyzing a Go project through ordinary auto-discovery, no extra
-configuration needed. Implement handling for all three states: which one appears depends on which preset
-auto-discovery selects, not on anything the request configures.
+why the response carries `index_state_unknown`. `bundled-typescript`, `bundled-pyright`, and `clangd` (the
+shipped Python and C/C++ presets, M2) all declare no `readiness` profile, so `unknown` is what agents see
+for every TypeScript/JavaScript, Python, and C/C++ analysis. For `bundled-pyright` and `clangd` this is not
+"no signal exists": both servers send a real indexing-progress notification, but only once a file is
+opened, and this CLI's readiness wait runs before that point in the current call order, so the signal
+cannot arrive in time — declaring `readiness` anyway would only add a fixed timeout with no benefit
+(`cli/src/providers/catalog.ts` records the measurement for both). `gopls` (the shipped Go preset, M2) does
+declare `readiness`, so `working`/`ready` are real for Go: no request field or `.impact-lens/provider.json`
+field lets a user attach a `readiness` profile directly — `readiness` is still not part of either schema —
+but a user reaches `ready`/`working` simply by having `gopls` installed and analyzing a Go project through
+ordinary auto-discovery, no extra configuration needed. Implement handling for all three states: which one
+appears depends on which preset auto-discovery selects, not on anything the request configures.
 
 ### `working` — the provider is still indexing
 
@@ -225,6 +225,35 @@ ready is what keeps it meaningful when it does appear. `no_incoming_callers` sti
 is still reported, just without the unproven-index caveat. Runtime-completeness claims (reflection,
 dependency injection, generated code, other runtime-only wiring) stay forbidden regardless of
 `indexingStatus`.
+
+## C/C++: compile database state and header ambiguity
+
+`clangd` (the shipped C/C++ preset, M2) is `verified-external` like `gopls` — the CLI never installs it, so
+a C/C++ project only reaches Auto once `clangd` is on `PATH` at a version the preset accepts. Unlike
+`gopls`, `clangd` declares no `readiness` profile (see "`unknown`" above), so `indexingStatus` is always
+`unknown` for C/C++; `working`/`ready` never appear there.
+
+`compile_database_missing`, `compile_database_stale`, and `compile_database_ambiguous`
+(`limitationDetails`, severity `warning`, scope `provider`) report the state of the workspace's
+`compile_commands.json`, the file that tells clangd which compiler flags, defines, and include paths apply
+to each translation unit. Without a valid one, clangd falls back to a generic command with no cross-file
+knowledge: it can resolve a call within a file that is already open (or that `#include`s the declaring
+header, making it effectively the same translation unit), but it has no background index to find a call in
+a file nothing has opened yet — a result reporting no callers is not evidence that none exist.
+`compile_database_missing` means no `compile_commands.json` was found; `compile_database_ambiguous` means
+multiple candidates were found and the provider silently picked one, so the result may reflect a different
+build target than intended; `compile_database_stale` means the compile database is older than
+`CMakeLists.txt` and may not reflect the current build configuration. Unlike `provider_null_incoming_calls`,
+these three are unconditional on caller count — a stale or ambiguous database can misdirect a non-empty
+result just as easily as an empty one, so do not assume their absence just because callers were returned.
+When any of these codes is present, do not state or imply that nothing calls the symbol.
+
+`.h` files are language-ambiguous: a header alone cannot say whether it belongs to a C or a C++ translation
+unit. Impact Lens reports this file type with the internal language id `c-cpp-header` rather than guessing
+`c` or `cpp`, so `languageMatch` in the provider block reports `'unknown'` for a `.h` file instead of
+`true`/`false` — the same third value `languageMatch` already uses when a file's detected language cannot
+be recognized at all. This is a provider-selection signal, not an error: `clangd` still claims `.h` files
+and analyzes them once selected.
 
 ## `requestStatus: partial`
 

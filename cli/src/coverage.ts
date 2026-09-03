@@ -45,13 +45,17 @@ export const UNKNOWN_INDEXING_COVERAGE: IndexingCoverage = { status: 'unknown' }
  * and the plugin eval lands together.
  *
  * See docs/work/task-m1-completeness-emit.md decision D6 for the first two codes, and
- * docs/work/task-m2-python-preset.md stage 3 for `provider_null_incoming_calls`. Emptying this set is
- * the whole change.
+ * docs/work/task-m2-python-preset.md stage 3 for `provider_null_incoming_calls`, and
+ * docs/work/task-m2-clangd-preset.md stage 3 for the three `compile_database_*` codes. Emptying this
+ * set is the whole change.
  */
 export const V1_WITHHELD_REASON_CODES: ReadonlySet<string> = new Set([
   'no_incoming_callers',
   'index_state_unknown',
   'provider_null_incoming_calls',
+  'compile_database_missing',
+  'compile_database_stale',
+  'compile_database_ambiguous',
 ]);
 
 /** How `completion.traversalStatus` is written in the v1 `coverage.traversal.status` field. */
@@ -233,6 +237,7 @@ function limitationDetailsFor(
       message: 'Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk.',
     },
   ];
+  details.push(...compileDatabaseDetails(observations.compileDatabase));
   if (!facts.diagnosticsSupported) {
     details.push({
       code: 'provider_diagnostics_unsupported',
@@ -363,4 +368,56 @@ function semanticScopeDetails(scope: GraphSemanticScope): readonly LimitationDet
     }];
   }
   return [];
+}
+
+/**
+ * Surfaces compile database state as a limitation rather than a hard gate.
+ *
+ * M2 clangd lane stage 3 (docs/work/task-m2-clangd-preset.md) weighed a hard gate (refuse to analyze
+ * without a fresh, unambiguous database, mirroring gopls's `requiredProjectFiles` for `go.mod`) against
+ * surfacing this instead, and chose surfacing: stage 2's own fixture proved clangd gives a fully
+ * correct, cross-file-accurate answer for a project with no compile database at all, as long as the
+ * query does not need project-specific flags a generic fallback command cannot supply. A hard gate
+ * would turn every one of those already-working queries into `unsupported`, which the story's own
+ * language ("구분한다", "안내한다" - distinguish, guide - never "차단한다", block) does not ask for.
+ * `missing`/`stale` reuse `provider_null_incoming_calls`'s pattern (`scope: 'provider'`,
+ * `V1_WITHHELD_REASON_CODES`) precisely because the risk is the same shape: an incomplete answer that
+ * looks complete, not a wrong claim reaching a reader through the two v1 fields these codes are held
+ * back from.
+ *
+ * Deliberately unconditional on caller count, unlike `provider_null_incoming_calls`: a missing or stale
+ * database can produce an incomplete-but-nonzero caller list just as easily as an empty one (stage 2's
+ * fallback-mode observation found zero cross-file index at all, not merely fewer results), so gating
+ * this on `incomingCallerCount === 0` would under-warn on every other outcome the same root cause can
+ * produce.
+ */
+function compileDatabaseDetails(observation: AnalysisObservations['compileDatabase']): readonly LimitationDetail[] {
+  if (observation === undefined || (observation.status === 'present' && !observation.stale)) {
+    return [];
+  }
+  if (observation.status === 'missing') {
+    return [{
+      code: 'compile_database_missing',
+      severity: 'warning',
+      scope: 'provider',
+      message: 'No compile_commands.json was found for this C/C++ workspace. The provider is analyzing with a generic fallback command that has no cross-file knowledge, so a result reporting no callers is not evidence that none exist.',
+      action: 'Generate a compile database (for CMake: configure with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON) and re-run.',
+    }];
+  }
+  if (observation.status === 'ambiguous') {
+    return [{
+      code: 'compile_database_ambiguous',
+      severity: 'warning',
+      scope: 'provider',
+      message: `${observation.relativePaths.length} compile_commands.json candidates were found. The provider silently picks one internally, so this result may reflect a different build target than intended.`,
+      action: 'Keep only the compile_commands.json that matches this file, or point the provider at the correct one directly.',
+    }];
+  }
+  return [{
+    code: 'compile_database_stale',
+    severity: 'warning',
+    scope: 'provider',
+    message: `${observation.relativePath} is older than CMakeLists.txt, so it may not reflect the current build configuration.`,
+    action: 'Regenerate the compile database after your last build configuration change.',
+  }];
 }

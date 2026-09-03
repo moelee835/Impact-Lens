@@ -188,12 +188,16 @@ test('reports a missing Language Server as a launch failure', () => {
 // (clangd is a future lane, not yet a preset) - the point being tested is unchanged: an unclaimed
 // language must fail with `provider_required_for_language`, never silently fall back to bundled-typescript.
 test('does not launch the bundled TypeScript provider for an unclaimed language', () => {
+  // .swift, not .c: M2 clangd lane (docs/work/task-m2-clangd-preset.md) added a real clangd preset to
+  // PROVIDER_CATALOG, so .c is no longer unclaimed - this test moved the same way
+  // providers.test.ts's fixtureUnclaimedLanguagePreset() did, to a language the catalog still does not
+  // cover (languageId() maps .swift to 'swift', no preset claims it).
   const executable = path.resolve(__dirname, '..', 'index.js');
   const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
     encoding: 'utf8',
     input: JSON.stringify({
       workspace: path.resolve(__dirname, '..', '..'),
-      file: 'not-created.c',
+      file: 'not-created.swift',
       line: 1,
       column: 1,
     }),
@@ -203,7 +207,7 @@ test('does not launch the bundled TypeScript provider for an unclaimed language'
   assert.equal(error.code, 'provider_required_for_language');
   assert.equal(error.retryable, false);
   assert.equal(error.details.stage, 'discovery');
-  assert.equal(error.details.detectedLanguageId, 'c');
+  assert.equal(error.details.detectedLanguageId, 'swift');
 });
 
 test('rejects an explicit languageId mismatch before launching the provider', () => {

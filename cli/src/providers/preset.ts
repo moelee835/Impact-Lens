@@ -175,6 +175,41 @@ export interface ProviderFixture {
 export const PROVIDER_TIERS = ['bundled', 'verified-external', 'custom', 'unsupported'] as const;
 export type ProviderTier = (typeof PROVIDER_TIERS)[number];
 
+/**
+ * A language id that intentionally makes no language claim beyond "C or C++" - the extension is real
+ * and recognized, but which of the two it is cannot be told from the extension alone. `.h` is the only
+ * case today: it is a valid header for both C and C++, and this repository's own compile-database
+ * probe (M2 clangd lane stage 2, `docs/work/task-m2-clangd-preset.md`) found clangd itself resolves
+ * that ambiguity per translation unit, silently, with no signal to the client about which one it
+ * picked - so this CLI cannot resolve it either by guessing.
+ *
+ * Treated the same as `plaintext` wherever `resolve.ts` already asks "did we actually confirm a
+ * language, or just guess" - `languageMatch` and `presetLanguageId()`'s wire-value fallback - because a
+ * guessed `'c'` or `'cpp'` would let `languageMatch` report a confirmed match it never earned, the same
+ * failure mode `languageMatch: 'unknown'` already exists to prevent for unrecognized extensions.
+ *
+ * Deliberately NOT treated like `plaintext` in `resolve.ts`'s `assertPresetSpeaksLanguage()`:
+ * `plaintext` asserts nothing, so any explicitly-named preset is allowed to claim it, but `.h` does
+ * assert something (a C-family header) - a preset for an unrelated language must still be rejected. A
+ * preset that wants to serve `.h` files must list this value in its own `languageIds`, the same way it
+ * lists `'c'`/`'cpp'` - see the clangd preset in `catalog.ts`.
+ *
+ * Lives here, not in `resolve.ts` where the rest of this logic runs: `catalog.ts` needs this value in
+ * the clangd preset's own `languageIds`, and `resolve.ts` already imports `PROVIDER_CATALOG` from
+ * `catalog.ts`, so `catalog.ts` importing this from `resolve.ts` would be a circular edge.
+ * `preset.ts` has no imports of its own and both `resolve.ts` and `catalog.ts` already depend on it.
+ */
+export const AMBIGUOUS_LANGUAGE_ID = 'c-cpp-header';
+
+/**
+ * `detectedLanguageId` values a compile-database-driven provider (clangd, today the only one) can
+ * apply to. Used to gate `impact.ts`'s read-only `compile_commands.json` discovery (M2 clangd lane
+ * stage 3, `docs/work/task-m2-clangd-preset.md`) so every other language's response stays untouched -
+ * the discovery only runs, and `AnalysisObservations.compileDatabase` only gets set, for a request
+ * that resolved to one of these three.
+ */
+export const C_FAMILY_LANGUAGE_IDS: ReadonlySet<string> = new Set(['c', 'cpp', AMBIGUOUS_LANGUAGE_ID]);
+
 export interface ProviderPreset {
   /** Stable identifier. A request's `providerPreset` and `doctor <preset>` name this. */
   readonly id: string;
