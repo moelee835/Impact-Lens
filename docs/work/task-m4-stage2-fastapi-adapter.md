@@ -240,3 +240,62 @@ corpus 2(조건부 대입)는 **false negative**(못 찾는 것 — 이 저장�
   아님).
 - 환경 간 표현 일관성(corpus 4b, clangd 17 vs 23에서 같은 관계가 `edges`/`augmentedEdges` 중 어디에
   나타나는지) — handover에 기록된 대로 아직 미결.
+
+### PR #73 review — mount 확인의 텍스트 검색이 낸 활성 오탐, 리뷰어·commander 독립 발견
+
+리뷰어가 fixture로 재현: 서로 다른 두 파일이 각각 `router = APIRouter()`를 정의하고 하나만 mount되면,
+**mount 안 된 쪽의 handler에도 edge가 생겼다** — `isRouterMounted()`가 이름만 보고 파일을 구분하지
+않았기 때문. commander가 독립적으로 격리된 정규식 스크립트로 같은 함수를 직접 실행해 **리뷰어가 안 짚은
+형태 셋을 추가로 찾았다**: 주석 처리된 mount 호출, docstring 안의 mount 언급, 문자열 리터럴 안의 mount
+언급 — 전부 `include_router(name`이라는 텍스트만 보고 실제 코드인지 확인하지 않아서 생기는 같은 계열의
+오탐. **주석 케이스가 특히 심각한 이유**: corpus 3이 재현하려는 "등록만 되고 mount 안 된 router"의
+가장 흔한 실제 발생 경로가 mount 코드를 주석 처리하는 것이라, 이 오탐이 corpus 3의 목표 상황과 정확히
+겹친다.
+
+**메커니즘**: mount "확인"의 진짜 의미는 "이 root 파일의 이 router 변수가 mount됐다"여야 하는데, 지금
+구현은 "workspace 어딘가에 이 이름을 mount하는 텍스트가 있다"였다 — 다른 진술이고 후자가 전자를
+뒷받침하지 않는다. commander는 두 방향을 검토했다: (A) import 연결을 실제로 추적(정확하지만 Python
+import를 부분 구현하면 같은 계열의 오탐을 더 많은 코드로 재생산할 위험), (B) 모호성을 감지해 안전한
+쪽(edge 없음)으로 fallback. **(B)를 골랐다** — router 이름은 root 파일의 데코레이터에서 이미 알고
+있고 이미 모든 Python 파일을 순회하므로 추가 비용이 거의 없으며, 실패 방향이 stage 1 계약 5번("확정
+못 하면 edge를 만들지 않는다")과 정확히 같은 안전한 쪽이다.
+
+**구현** (`cli/src/adapters/fastapiDependencyAdapter.ts`):
+- `stripCommentsAndStrings(text)`(신규): triple-quoted 블록 전체 제거 → 줄 단위로 문자열 리터럴 제거 →
+  남은 첫 `#` 기준으로 줄 자르기, 이 순서로 처리. **순서가 중요하다**: 문자열을 먼저 제거하기 때문에
+  `x = "#"; app.include_router(router)` 같은 줄에서 `"#"` 안의 `#`가 주석 시작으로 오인되지 않는다
+  (naive하게 raw 줄에서 첫 `#`를 바로 자르는 방식이었다면 이 줄의 진짜 mount 호출까지 지웠을 것 —
+  commander가 그 실패 형태를 미리 지적했고, 순서를 바꿔 피했다).
+- `isRouterMounted()`에 **모호성 검사 추가**: `name`을 `= APIRouter(...)`로 바인딩하는 파일이 root
+  파일 말고 **또 있으면**, mount 여부와 무관하게 `found: false`로 처리(그 이름은 워크스페이스 전체에서
+  모호하다는 뜻). 두 검사(mount 텍스트 검색, 바인딩 충돌 검사) 모두 `stripCommentsAndStrings`를 거친
+  텍스트에 대해 수행.
+- 코드 주석을 "bare identifier만 매칭하는 게 deliberate"에서 "동적 등록을 안 잡는 것만 deliberate이고,
+  이름 충돌·주석·문자열을 걸러내는 건 원래 의도가 아니라 이번에 고친 부작용"으로 정정.
+
+**fixture 6개 신규**: `mounted_router.py`(정상 매치 회귀 고정 — 유일하게 mount되고 충돌 없는 router는
+여전히 edge가 생겨야 함), `commented_out_router.py`, `docstring_mention_router.py`,
+`string_literal_router.py`(오탐 형태 3건), `collision_router_unmounted.py`/`collision_router_mounted.py`
+(리뷰어의 이름 충돌 — 둘 다 unresolved가 나와야 하고, **진짜 mount된 쪽도 예외 없이** unresolved다).
+테스트 6개: guard fixture 5개가 baseline(`orphan_router.py`)과 **message 텍스트까지 동일**한지 데이터
+기반 루프로 검증, `mounted_router.py`는 정상 edge가 그대로 나오는지 검증.
+
+**non-vacuity 직접 검증**: 새 fixture들이 다른 이유로 우연히 통과하는 게 아님을 실제로 되돌려 확인했다
+— `isRouterMounted()`를 임시로 고치기 전 버전(bare `include_router(name` 텍스트 검색, stripping도
+ambiguity 검사도 없음)으로 되돌리고 재빌드·재실행: **새 guard 테스트 5개 전부 실패**(주석·docstring·
+문자열·이름 충돌 2건 — 전부 잘못된 edge 1개씩 생성하며 실패), 반면 `mounted_router.py` 회귀 테스트와
+기존 corpus 3(a)/(b)/app 회귀 테스트는 **그대로 통과**(새 메커니즘과 무관함을 확인). 이후 수정을
+정확히 복원(`diff`로 원본과 byte-identical 확인)하고 재빌드·전체 재실행 — **343 pass, 3 skip, 0
+fail.**
+
+**잡히는 것과 남는 한계 (commander 지시: "고쳤다"가 아니라 "어디까지 고쳤다")**:
+- 잡힘: 주석 처리된 mount 호출, docstring 안 언급, 문자열 리터럴 안 언급, 서로 다른 파일의 동명이인
+  router 바인딩 충돌(양쪽 다 unresolved 처리).
+- 남는 한계: `stripCommentsAndStrings`는 Python lexer가 아니다. 알려진 미해결 형태:
+  f-string 안에 중첩된 quote(`f"...{'#'}..."`류)나 삼중따옴표 안에 이스케이프된 삼중따옴표가 있는
+  극단적인 경우는 완전히 정확하지 않을 수 있다. 모듈 속성 접근(`users.router`)이나 alias 변수
+  (`users_router`)로 mount하는 흔한 다중 모듈 layout은 **이전부터, 그리고 지금도** bare-identifier
+  패턴에 안 걸려 unresolved로 나간다(이번 수정이 만든 회귀가 아니라 기존 한계 — commander가 사전에
+  측정: 이 형태들은 지금도 이미 매치 안 됨). import 연결을 실제로 추적하는 (A) 방향은 이번에 채택하지
+  않았고, 채택 시 Python import 해석을 부분 구현해야 해 같은 계열의 새 오탐을 만들 위험이 있다는 게
+  이번 판단의 근거였다 — 다음에 이 부분을 넓히려면 이 판단부터 재검토해야 한다.

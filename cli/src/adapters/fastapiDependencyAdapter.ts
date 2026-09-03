@@ -117,6 +117,29 @@ function isDirectFastapiApp(name: string, rootText: string): boolean {
   return new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*FastAPI\\s*\\(`).test(rootText);
 }
 
+/**
+ * A bounded pass to strip text that is not real code, before it is searched for an
+ * `include_router(...)`/`APIRouter(...)` mention - not a Python lexer. Order matters: triple-quoted
+ * blocks are removed first, so a `#` or a quote character inside a docstring cannot confuse the next
+ * steps; then each line's single/double-quoted string literals are removed, so a `#` inside a string
+ * (e.g. `x = "#"`) cannot be mistaken for a comment marker; then each line is truncated at its first
+ * remaining `#`. This does not guarantee "real code only" survives - nested or escaped edge cases outside
+ * this bounded pass can still slip through in either direction - but it removes the three confounders
+ * this adapter's own corpus fixtures exercise: a commented-out mount call, one mentioned in a docstring,
+ * and one mentioned in a string literal.
+ */
+function stripCommentsAndStrings(text: string): string {
+  const withoutTripleQuoted = text.replace(/"""[\s\S]*?"""|'''[\s\S]*?'''/g, '');
+  return withoutTripleQuoted
+    .split('\n')
+    .map(line => {
+      const withoutStrings = line.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '');
+      const hashIndex = withoutStrings.indexOf('#');
+      return hashIndex === -1 ? withoutStrings : withoutStrings.slice(0, hashIndex);
+    })
+    .join('\n');
+}
+
 interface MountSearchResult {
   readonly found: boolean;
   readonly truncated: boolean;
@@ -128,30 +151,48 @@ interface MountSearchResult {
  * this exact variable, anywhere in the workspace. This is a text search, not a provider-resolved
  * reference lookup: `CallHierarchyProvider` only resolves callable symbols (functions/methods), and a
  * router variable is neither - the reason `Depends()`/route-handler resolution elsewhere in this file CAN
- * be provider-verified and this cannot. Matching only a bare identifier argument
- * (`include_router(name` / `include_router(name,`, never `include_router(name()` or
- * `include_router(get_name())`) is deliberate: it is exactly what leaves dynamic registration (stage 1's
- * own out-of-scope example) unmatched, with no special-casing needed.
+ * be provider-verified and this cannot.
+ *
+ * Two things this search must NOT claim are mount evidence, both found empirically (a reviewer fixture,
+ * and a direct regex probe against representative Python shapes before this was written):
+ *
+ * 1. A bare identifier match inside a comment, docstring or string literal - `stripCommentsAndStrings`
+ *    removes these before either pattern below is tested against a file's text, incidentally (not the
+ *    reason the patterns are written the way they are).
+ * 2. A bare identifier match in a file whose `name` refers to an UNRELATED `APIRouter()` - two files can
+ *    each define their own router under the same local name (e.g. both call it `router`), and a text
+ *    search that only matches by name cannot tell them apart. If any file OTHER than `rootFile` also
+ *    binds `name = APIRouter(...)`, the name is ambiguous workspace-wide and mount can never be confirmed
+ *    for it (stage 1's "if it cannot be confirmed, do not assert" - matching the false-negative direction
+ *    corpus case 3 already requires, not a new relaxation).
+ *
+ * Matching only a bare identifier argument (`include_router(name` / `include_router(name,`, never
+ * `include_router(name()` or `include_router(get_name())`) IS deliberate: it is exactly what leaves
+ * dynamic registration (stage 1's own out-of-scope example) unmatched, with no special-casing needed.
  */
-async function isRouterMounted(name: string, workspace: string, budget: AdapterBudget): Promise<MountSearchResult> {
-  const pattern = new RegExp(`\\binclude_router\\(\\s*${escapeRegExp(name)}\\s*[,)]`);
+async function isRouterMounted(name: string, rootFile: string, workspace: string, budget: AdapterBudget): Promise<MountSearchResult> {
+  const mountPattern = new RegExp(`\\binclude_router\\(\\s*${escapeRegExp(name)}\\s*[,)]`);
+  const bindingPattern = new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*APIRouter\\s*\\(`);
+  const resolvedRootFile = path.resolve(rootFile);
   const walkState = { filesVisited: 0, maxFiles: budget.maxFiles, truncated: false };
-  let found = false;
+  let mountFound = false;
+  let nameAmbiguous = false;
   await walkPythonFiles(workspace, walkState, async file => {
-    if (found) {
-      return;
-    }
     let text: string;
     try {
       text = await fs.readFile(file, 'utf8');
     } catch {
       return;
     }
-    if (pattern.test(text)) {
-      found = true;
+    const searchable = stripCommentsAndStrings(text);
+    if (mountPattern.test(searchable)) {
+      mountFound = true;
+    }
+    if (path.resolve(file) !== resolvedRootFile && bindingPattern.test(searchable)) {
+      nameAmbiguous = true;
     }
   });
-  return { found, truncated: walkState.truncated };
+  return { found: mountFound && !nameAmbiguous, truncated: walkState.truncated };
 }
 
 async function walkPythonFiles(
@@ -274,7 +315,7 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
   if (routeDecorator) {
     let mountConfirmed = isDirectFastapiApp(routeDecorator.routerName, rootText);
     if (!mountConfirmed) {
-      const mountCheck = await isRouterMounted(routeDecorator.routerName, input.workspace, input.budget);
+      const mountCheck = await isRouterMounted(routeDecorator.routerName, rootFile, input.workspace, input.budget);
       mountConfirmed = mountCheck.found;
       if (mountCheck.truncated) {
         budgetExceeded = true;

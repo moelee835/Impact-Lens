@@ -297,3 +297,63 @@ test(
     );
   },
 );
+
+// ---------------------------------------------------------------------------
+// Corpus case 3 false-positive guard (reviewer + commander finding, docs/work/task-m4-stage2-fastapi-
+// adapter.md): the mount search is text-based, and a bare identifier match alone is not proof of a real
+// mount. Four confounders were found empirically (a reviewer fixture, and a direct regex probe against
+// representative Python shapes) - a commented-out call, a docstring mention, a string-literal mention, and
+// a same-named router in an unrelated file. Each must produce the SAME result as a genuinely unmounted
+// router: zero augmented edges, and a framework_route_mount_unresolved message byte-identical to the
+// baseline (orphan_router.py) - proving these are treated as "cannot confirm", never as a softer or
+// harder verdict than that.
+// ---------------------------------------------------------------------------
+
+const MOUNT_UNRESOLVED_GUARD_FIXTURES: ReadonlyArray<{ readonly file: string; readonly line: number; readonly label: string }> = [
+  { file: 'commented_out_router.py', line: 12, label: 'a commented-out include_router(...) call' },
+  { file: 'docstring_mention_router.py', line: 12, label: 'include_router(...) mentioned only in a docstring' },
+  { file: 'string_literal_router.py', line: 11, label: 'include_router(...) mentioned only in a string literal' },
+  { file: 'collision_router_unmounted.py', line: 15, label: 'name collision - this router is genuinely unmounted' },
+  { file: 'collision_router_mounted.py', line: 13, label: 'name collision - this router IS mounted, but the name is ambiguous workspace-wide' },
+];
+
+for (const fixture of MOUNT_UNRESOLVED_GUARD_FIXTURES) {
+  test(
+    `corpus case 3 false-positive guard, augmentation ON: ${fixture.label} produces no edge and the same mount-unresolved message as the baseline`,
+    { timeout: 25000 },
+    () => {
+      const baseline = analyzeFile('orphan_router.py', 13, 5, true);
+      const response = analyzeFile(fixture.file, fixture.line, 5, true);
+      assert.equal(response.ok, true);
+      assert.equal(
+        response.data.augmentedEdges.length,
+        0,
+        `${fixture.label} must not produce a mount edge: ${JSON.stringify(response.data.augmentedEdges)}`,
+      );
+      const baselineDetail = baseline.data.limitationDetails.find(entry => entry.code === 'framework_route_mount_unresolved');
+      const detail = response.data.limitationDetails.find(entry => entry.code === 'framework_route_mount_unresolved');
+      assert.ok(baselineDetail, 'baseline (orphan_router.py) must itself produce framework_route_mount_unresolved');
+      assert.ok(detail, `expected framework_route_mount_unresolved for ${fixture.label}: ${JSON.stringify(response.data.limitationDetails)}`);
+      assert.equal(
+        detail!.message,
+        baselineDetail!.message,
+        `${fixture.label} must produce byte-identical message text to the baseline`,
+      );
+    },
+  );
+}
+
+test(
+  'corpus case 3 false-positive guard, augmentation ON: a genuinely single mounted router (no collision, no comment/string tricks) still produces a normal edge',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('mounted_router.py', 13, 5, true); // `def mounted_handler` in mounted_router.py
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    assert.equal(response.data.augmentedEdges[0]!.reasonCode, 'fastapi-route-handler');
+    assert.ok(
+      !response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+      `a genuinely mounted, unambiguous router must not be flagged as mount-unresolved: ${JSON.stringify(response.data.limitationDetails)}`,
+    );
+  },
+);
