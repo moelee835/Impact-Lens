@@ -230,8 +230,17 @@ function sameFile(a: string, b: string): boolean {
  * file could be exactly the one it never reached (found by direct reproduction: a 1-file budget that
  * happened to visit only root's own self-mounting file produced a confident edge while a real competing
  * binding sat unread in a second file). So `found` is `true` only when the walk actually completed
- * (`!truncated`) - a truncated walk is always reported unresolved, at whatever extra cost that carries in
- * a workspace large enough to need it, per the same "if it cannot be confirmed, do not assert" rule.
+ * (`!truncated`) - a truncated walk is always reported unresolved.
+ *
+ * The concrete cost of that, spelled out rather than left as "some extra cost" (commander review round
+ * 2): this made `maxFiles` (`DEFAULT_BUDGET` in `./index.ts`, 200 as of this writing) mean
+ * something stronger than it used to. Before this fix, exceeding it degraded mount detection partially -
+ * a mount might still be found. After this fix, a workspace whose `.py` file count (after
+ * `IGNORED_DIRECTORIES` pruning - `venv`/`site-packages` etc. do not count against this) exceeds
+ * `maxFiles` can NEVER confirm a plain-`APIRouter()` route's mount, at all - every such route's edge is
+ * suppressed, unconditionally, for as long as the workspace stays over budget. `maxFiles: 200` was picked
+ * back when truncation only meant partial degradation; it has not been re-reviewed against this new,
+ * stronger meaning (see the work document's "남은 것" for the stage 3 follow-up this is tracked under).
  *
  * Matching only a bare identifier argument (`include_router(name` / `include_router(name,`, never
  * `include_router(name()` or `include_router(get_name())`) IS deliberate: it is exactly what leaves

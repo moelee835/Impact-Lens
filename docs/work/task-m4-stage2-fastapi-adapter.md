@@ -450,3 +450,12 @@ gate가 "sub-dependency(중첩 dependency)"도 요구하는데 fixture가 없다
   stage 3에서 재확인.
 - decorator-level·router-level dependency 선언은 의도적 범위 제외(기존 기록 그대로).
 - corpus 4b(환경 간 표현 일관성) — 기존 기록대로 아직 미결.
+- **`maxFiles: 200`(`cli/src/adapters/index.ts`의 `DEFAULT_BUDGET`) 재검토 — commander 리뷰 3라운드
+  발견**: A 수정(truncate → 무조건 unresolved) 이후 이 상수의 의미가 바뀌었다. 이전에는 truncate가
+  "mount를 못 찾을 수도 있음"(부분 열화)이었지만, 지금은 **"소스 `.py`가 `maxFiles`를 넘는
+  workspace에서는 route mount를 절대 확정할 수 없다 — 그 workspace의 plain-`APIRouter()` route
+  edge가 전부 안 나온다"**로 강화됐다(`.py` 카운트는 `IGNORED_DIRECTORIES` 제외 후 기준이라
+  `venv`/`site-packages`는 예산을 안 먹는다는 것도 확인됨). 200은 옛 의미 기준으로 정해진 값이라 이
+  강화된 의미로 재검토된 적이 없다. **지금 값을 올리지 않는다** — 예산은 latency와 맞바꾸는 것이고
+  그 판단은 stage 3의 일이다. 이 기록 자체가 산출물이다(값을 지금 결정하지 않는다는 게 아니라, 재검토
+  없이 남아 있다는 사실을 남긴다).
