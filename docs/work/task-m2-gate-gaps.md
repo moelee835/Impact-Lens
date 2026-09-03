@@ -1,7 +1,8 @@
 # M2 — gate 1·2 공백 2건 닫기
 
-- 상태: 첫 3-OS CI가 실제 발견(virtual dispatch 버전 의존성)을 찾음 → `docs.limitations`·테스트
-  정정 완료(로컬 검증) → 정정된 형태의 3-OS CI 재확인 대기
+- 상태: 정정된 `docs.limitations`/테스트는 3-OS CI로 확인됨(`clangd-provider` 3개 전부 통과) →
+  같은 재실행에서 stray clangd 사전 결함 발견 → commander 결정(세 조건 게이트) 수신, 구현·로컬
+  검증 완료 → 이 게이트 수정판의 3-OS CI 재확인 대기
 - branch: `feat/m2-gate-gaps`
 - 선행: PR #67(M2 마일스톤 종료 처리 A) merge 완료(squash `4a1de44`) 후 착수.
 - 요구사항 전문(계획 세션 작성, 저장소 밖): `m2-gate-gaps.md`(commander scratchpad)
@@ -255,13 +256,114 @@ clangd가 `go-provider`/`cli-tests-cross-os`에서 기존 clangd 테스트 2개�
    기존 2개 clangd 테스트도 같은 변경의 영향을 받는다.
 3. 다른 방향.
 
+## Stage 4 — stray clangd: 게이트가 원래 의도한 것을 표현하게 고침
+
+### commander 결정 — 후보 1 기각, 세 조건으로 가름
+
+commander가 앞서 적어 둔 후보 1(Windows 20·macOS 21을 관측 버전으로 추가)을 명시적으로
+기각했다: "runner가 실어 준 버전을 관측 목록에 넣는 건 쫓아다니는 것 — 다음 이미지 갱신에 major
+24가 오면 또 깨진다. 그리고 우리가 고르지 않은 버전을 '검증됨'으로 만드는 것은 `lastVerified`가
+의미하는 것과 정면으로 어긋난다."
+
+**진단도 다시 정확히 했다**: 이건 이 lane이 만든 문제가 아니라 **clangd lane이 shipped된
+시점부터 있던 사전 결함**이다 — `go-provider`와 `cli-tests-cross-os`가 runner에 딸려 온 미고정
+clangd로 기존 clangd 테스트 2개를 조용히 돌려 왔고, cross-file 동작이 버전 무관이라 우연히
+계속 통과해 온 것뿐이다. 그 job들의 로그에는 clangd 테스트가 통과한 것으로 찍히지만, **우리가
+고르지 않은 버전에서 나온 결과라 아무 주장도 뒷받침하지 않는다** — INSTALL.md가 Python을 "검증된
+preset 없음"으로 잘못 남겨 뒀던 것과 같은 계열의, 이 lane의 수정이 없었으면 계속 몰랐을 사전 결함.
+
+**결정**: "skip은 실패로 취급"이라는 규칙의 목적은 *검증하기로 한 job*이 조용히 통과하는 걸 막는
+것이다. `go-provider`/`cli-tests-cross-os`는 clangd를 검증하기로 한 job이 아니므로, 거기서
+skip되는 것은 규칙 위반이 아니라 **규칙의 의도 그대로**다. 세 조건으로 가른다:
+
+1. `IMPACT_LENS_REQUIRE_CLANGD`가 설정된 경우(= clangd를 의도적으로 설치한 job): 실행하고,
+   미관측 버전이면 지금처럼 명시적으로 실패(pin이 흔들리면 시끄럽게 드러나야 한다).
+2. CI가 아닌 경우(로컬 개발자): clangd가 PATH에 있으면 실행. 미관측 버전이면 **실패가 아니라
+   버전을 이름 댄 skip** — 로컬 개발자의 clangd 버전은 이 저장소가 정할 수 있는 게 아니다.
+3. CI인데 REQUIRE가 없는 경우(= runner에 우연히 딸려 온 clangd): **skip.** 버전을 로그에 남기되
+   실행하지 않는다.
+
+GitHub Actions가 `CI=true`를 설정하므로 이것으로 가른다. stage 5의 "PATH에 있으면 로컬
+개발자에게도 실행" 의도는 그대로 유지되고, 바뀌는 건 "CI인데 아무도 clangd를 요청하지 않은
+job"뿐이다.
+
+### 구현
+
+`cli/src/test/clangdIntegration.test.ts`:
+
+- `IS_CI = Boolean(process.env.CI)` 추가.
+- `clangdGatedTest`를 세 조건 순서로 재작성 — `REQUIRE_CLANGD` 우선(기존 동작 그대로: 있으면
+  실행, 없으면 loud fail), 그다음 `IS_CI`(REQUIRE 없이 CI면 **무조건 skip**, PATH에 clangd가
+  있어도 skip하며 skip 사유에 감지된 major 버전을 적는다), 마지막 로컬 개발자 경로(PATH에 있으면
+  실행, 없으면 기존처럼 조용한 skip).
+- 기존 clangd 테스트 2개(`with a real compile database...`, `negative control...`)는 이미
+  `clangdGatedTest`를 통해서만 등록되므로 **별도 수정 없이 같은 게이트를 자동으로 물려받는다** —
+  commander가 "같은 게이트를 쓰는지 확인하라"고 한 항목, 코드를 다시 읽어 확인했다(파일 163행·
+  185행).
+- virtual-dispatch 테스트의 "미관측 버전" 분기도 나눴다: `REQUIRE_CLANGD`면 기존처럼
+  `assert.fail`(loud), 아니면(= 이 지점에 도달했다는 것 자체가 이미 "CI인데 REQUIRE 없음"은 바깥
+  게이트가 걸러냈다는 뜻이므로 로컬 개발자 경로) `t.skip(message)` — node:test의
+  `TestContext.skip()`을 사용해 실패가 아니라 이름 붙은 skip으로 만든다.
+- `lastVerified`(`catalog.ts`)는 건드리지 않았다 — 20·21을 검증된 버전으로 추가하지 않는다는
+  commander 지시 그대로.
+
+### 로컬 검증 — 4가지 경로 전부 직접 재현
+
+이 개발 머신(darwin/arm64, Apple clangd 17.0.0)에서 환경변수를 바꿔 가며 `node --test
+dist/test/clangdIntegration.test.js`를 직접 실행해 4가지 경로 전부 확인했다(추측이 아니라 실측):
+
+| 조건 | 결과 |
+| --- | --- |
+| `CI=true IMPACT_LENS_REQUIRE_CLANGD=1`(clangd 있음) | 3/3 pass — 기존 `clangd-provider` job 동작 불변 |
+| `CI=true`(REQUIRE 없음, clangd 있음) | 3/3 **skip**, 사유에 "a clangd is on PATH (major 17)" 포함 — `go-provider`/`cli-tests-cross-os` 재현 |
+| 로컬(REQUIRE 없음, `CI` 없음, clangd 있음) | 3/3 pass — 기존 로컬 개발자 동작 불변 |
+| 로컬(clangd를 PATH에서 숨김) | 3/3 skip(무명, 기존과 동일) |
+
+**non-vacuity — virtual-dispatch 분기도 실제로 깨서 확인**: `dist`(git 추적 안 함, `.gitignore`
+확인됨)의 `clangdMajor`를 임시로 `99`로 바꿔 두 경로를 재실행했다:
+
+- `IMPACT_LENS_REQUIRE_CLANGD=1` → 정확한 메시지로 `AssertionError`(loud fail, 기존과 동일한
+  실패 형태 유지).
+- REQUIRE 없음(로컬) → **fail이 아니라** `t.skip()`으로 정확한 메시지와 함께 skip.
+
+`npm run cli:build`로 다시 빌드해 `dist`를 원상태로 복원(소스는 애초에 건드리지 않았다 —
+`dist`만 임시로 편집했으므로 diff/shasum 절차는 불필요, 재빌드로 충분).
+
+### 전체 회귀
+
+`npm test`(Extension 유닛 포함) 331개 중 328 pass, 0 fail, 3 skip(로컬에 gopls가 PATH에 없음 —
+이 세션의 새 shell에서 `go env GOPATH`/bin이 안 잡힌 환경 문제, 이 lane의 코드와 무관) — 회귀
+없음.
+
+### 환경 사실 기록 — 이번에 처음 알게 됨
+
+GitHub hosted runner 기본 이미지에 clangd가 **미리 설치돼 있다**(우리가 설치한 게 아님):
+
+- Windows: major **20**
+- macOS: major **21**
+- Ubuntu: **없음**(확인됨 — `unit`/Node 22 job은 이번 재실행에서 실패하지 않았다)
+
+**이 버전들은 검증된 것이 아니다** — `lastVerified`/`docs.limitations`에 추가하지 않는다. 이
+사실 자체(다음에 같은 함정을 만날 사람을 위한 기록)는 위 "재실행 결과" 절에서 처음 발견했을 때
+이미 자세히 적어 뒀다(원인 분석 포함) — 이 절은 commander가 별도로 지시한 대로 그 사실을
+명시적으로 다시 짚어 두는 것이다.
+
+### 검증
+
+- `npm run cli:build` 클린.
+- `node --test cli/dist/test/clangdIntegration.test.js` 4가지 환경 조합 격리 실행(위 표) — 전부
+  기대한 결과.
+- non-vacuity: 위 참고(미관측 버전 강제 후 REQUIRE 유무에 따라 fail/skip 분기 둘 다 실제로 확인).
+- `npm test` 전체 331개, 328 pass·0 fail·3 skip(gopls PATH 문제, 무관).
+
 ## 남은 작업
 
-- **commander에게 즉시 보고, 다음 지시 대기.** `docs.limitations`/derived-override 정정 자체는
-  `clangd-provider` job(이 preset이 실제로 검증하는 job) 3-OS 전부에서 확인됐다 — 이 부분은
-  완료로 볼 수 있다. **새로 드러난 stray-clangd 문제는 별개 결정이 필요하다.**
-- Stage 2(Go)는 이전 커밋에서 완료돼 있다 — 이번 재실행에서 `go-provider`/`gopls` 관련 실패는 전부
-  이 stray clangd 문제이지 Go same-file 테스트 자체의 실패가 아니다(로그에 Go 테스트 실패는 없다).
-- PR 본문에 **이 발견(문서가 틀렸다는 것 + 이번에 드러난 stray clangd 문제)을 맨 앞에 쓴다**
-  (commander 지시).
+- **이 게이트 수정판을 push하고 `workflow_dispatch`로 3-OS CI를 다시 돌려 전부 green인지
+  확인한다** — 특히 `go-provider`(macOS/Windows)와 `cli-tests-cross-os`(macOS/Windows)가 이제
+  skip으로 바뀌는지, `clangd-provider` 3개는 여전히 pass인지.
+- CI 확인 후 commander에게 보고한다. 그다음이 commander가 말한 "stage 3(수용 기준·gate 닫기)" —
+  이미 문서에는 반영해 뒀지만(재판정 절), 이 게이트 수정 자체로 인한 재확인이 필요한지 다시 본다.
+- PR 본문에 **이 발견(문서가 틀렸다는 것 발견·수정 + stray clangd 사전 결함 발견·수정)을 맨
+  앞에 쓴다** — "CI 게이트 수정"이 아니라 "clangd 테스트가 의도하지 않은 job에서 미고정 버전으로
+  조용히 돌아 왔다는 사전 결함을 발견하고 고쳤다"로(commander 지시).
 - PR은 여전히 올리지 않는다.

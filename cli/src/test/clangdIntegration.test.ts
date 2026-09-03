@@ -29,6 +29,9 @@ import { LimitationDetail } from '../types';
 const CLANGD_PATH = findExecutable('clangd');
 const CLANGD_ON_PATH = CLANGD_PATH !== undefined;
 const REQUIRE_CLANGD = process.env.IMPACT_LENS_REQUIRE_CLANGD === '1';
+// GitHub Actions sets CI=true; used only to tell "a CI job that never asked for clangd" apart from "a
+// contributor's own machine" - see clangdGatedTest's doc comment for why that distinction exists.
+const IS_CI = Boolean(process.env.CI);
 
 /**
  * The major version of the real `clangd` on PATH, or `undefined` if it cannot be determined. Used only by
@@ -55,23 +58,34 @@ function detectClangdMajorVersion(): number | undefined {
 }
 
 /**
- * Runs `fn` normally when clangd is on PATH; skips it (a real, visible skip, not a silent one) when
- * clangd is absent and nothing required it; fails it loudly when clangd is absent but
- * `IMPACT_LENS_REQUIRE_CLANGD=1` said it must be present - the `clangd-provider` CI job sets exactly
- * that. Same shape as `stateReachability.integration.test.ts`'s `goplsGatedTest`, for the same reason:
- * a contributor's machine without clangd installed must not fail `npm run cli:test`, but a CI job that
- * exists specifically to prove this preset works must not silently skip it either.
+ * Three-way gate, in order of precedence:
+ *
+ * 1. `IMPACT_LENS_REQUIRE_CLANGD=1` (the `clangd-provider` CI job sets exactly this): this job
+ *    deliberately installed clangd to prove this preset works, so run for real, and fail loudly - not
+ *    skip - if clangd turns out to be missing after all. Same shape as
+ *    `stateReachability.integration.test.ts`'s `goplsGatedTest`, for the same reason: a CI job that
+ *    exists specifically to prove a preset works must not silently go green without having proven it.
+ * 2. CI, but REQUIRE_CLANGD is unset: this job never asked to verify the clangd preset, yet
+ *    `go-provider` and `cli-tests-cross-os`'s hosted-runner base images ship a clangd anyway (Windows
+ *    major 20, macOS major 21 - discovered by this exact check, see docs/work/task-m2-gate-gaps.md).
+ *    Running against it would make those jobs' logs read as clangd coverage they were never designed
+ *    to provide, at a version this repo never chose and `lastVerified` never claims - the same failure
+ *    shape "skip counts as failure" exists to prevent, just inverted: a job that looks like it verified
+ *    something it did not. So this is the one case that skips even though clangd is on PATH - the
+ *    skip reason names the version so a log reader sees it was a deliberate exclusion, not blindness.
+ * 3. Not CI (a contributor's own machine): run if clangd is on PATH, skip (silently, same as always) if
+ *    not - a contributor without clangd installed must not fail `npm run cli:test`.
  */
 function clangdGatedTest(
   name: string,
   options: { readonly timeout: number },
   fn: (t: TestContext) => Promise<void>,
 ): void {
-  if (CLANGD_ON_PATH) {
-    test(name, options, fn);
-    return;
-  }
   if (REQUIRE_CLANGD) {
+    if (CLANGD_ON_PATH) {
+      test(name, options, fn);
+      return;
+    }
     test(name, () => {
       assert.fail(
         'IMPACT_LENS_REQUIRE_CLANGD=1 but no clangd executable was found on PATH. This job exists ' +
@@ -80,6 +94,23 @@ function clangdGatedTest(
         'having proven anything.',
       );
     });
+    return;
+  }
+  if (IS_CI) {
+    const versionNote = CLANGD_ON_PATH
+      ? `a clangd is on PATH (major ${detectClangdMajorVersion() ?? 'unknown'})`
+      : 'no clangd is on PATH';
+    test(name, {
+      skip:
+        `CI job did not set IMPACT_LENS_REQUIRE_CLANGD, so it never opted into verifying the clangd ` +
+        `preset - ${versionNote}, but running against it would silently exercise an unpinned, ` +
+        `unmeasured version this repo never chose. Skipping rather than reporting a pass that proves ` +
+        `nothing.`,
+    }, fn);
+    return;
+  }
+  if (CLANGD_ON_PATH) {
+    test(name, options, fn);
     return;
   }
   test.skip(name, fn);
@@ -382,10 +413,16 @@ clangdGatedTest(
     // Asserting a single fixed outcome here would either break for every contributor running Apple
     // clangd locally (17.x) or silently stop verifying the CI-installed versions (22.x/23.x) -
     // asserting nothing at all would delete the regression watch this lane exists to build. So this
-    // reads the real installed version and asserts the behavior actually observed for it. Versions
-    // 18-21 have never been measured, so this deliberately fails loudly rather than guessing which
-    // branch they would fall into - the same rule catalog.ts's own `supported.minimum` follows (narrow
-    // or widen only after testing a version, never by assuming).
+    // reads the real installed version and asserts the behavior actually observed for it.
+    //
+    // Versions other than 17/22/23 have never been measured. By the time execution reaches here,
+    // clangdGatedTest has already ruled out "CI job that never asked for clangd" (that case skips the
+    // whole test, above) - so an unmeasured version here is either (a) a CI job that DID set
+    // IMPACT_LENS_REQUIRE_CLANGD and got a version we have not pinned for, which must fail loudly the
+    // same way catalog.ts's own `supported.minimum` discipline demands (narrow or widen only after
+    // testing, never by assuming), or (b) a contributor's own machine, whose clangd version this repo
+    // does not control and must not fail their local `npm run cli:test` over - a named skip instead,
+    // so the gap is visible without blocking unrelated work.
     const derivedTargetCallers = await queryCppSymbolOnce(workspace, provider, 9, 15);
     const clangdMajor = detectClangdMajorVersion();
     if (clangdMajor === 17) {
@@ -398,9 +435,13 @@ clangdGatedTest(
         derivedTargetCallers.includes('call_via_base_pointer'),
         `expected Derived::target to show call_via_base_pointer under clangd ${clangdMajor} (catalog.ts's docs.limitations claim for this version) - if this no longer finds it, clangd's virtual-dispatch resolution changed again and both docs.limitations and this test's version branch need re-examination, got ${JSON.stringify(derivedTargetCallers)}`,
       );
-    } else {
+    } else if (REQUIRE_CLANGD) {
       assert.fail(
-        `clangd major version ${clangdMajor ?? 'unknown'} has never been observed for derived-override virtual-dispatch attribution (only 17, 22, and 23 have been measured directly, on real clangd, not assumed). Measure this version directly and add an explicit branch above with its real behavior before trusting either outcome - do not silently fall through to one branch or skip this check.`,
+        `clangd major version ${clangdMajor ?? 'unknown'} has never been observed for derived-override virtual-dispatch attribution (only 17, 22, and 23 have been measured directly, on real clangd, not assumed). This job set IMPACT_LENS_REQUIRE_CLANGD=1, so this version must be measured and an explicit branch added above with its real behavior before this job can trust its own result - do not silently fall through to one branch or skip this check.`,
+      );
+    } else {
+      t.skip(
+        `clangd major version ${clangdMajor ?? 'unknown'} has never been observed for derived-override virtual-dispatch attribution (only 17, 22, and 23 have been measured directly, on real clangd). This is a local, non-CI run with no IMPACT_LENS_REQUIRE_CLANGD, so this machine's clangd version is not one this repo controls - skipping this one assertion rather than failing it. Method calls and overload resolution above still ran and were verified against this version.`,
       );
     }
   },
