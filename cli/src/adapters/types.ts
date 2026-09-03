@@ -43,6 +43,15 @@ export interface AdapterResult {
   /** True if the adapter stopped early because it hit its own budget, not because it ran out of real
    * work. Surfaced as `augmentation_budget_exceeded`, never as a static traversal limit. */
   readonly budgetExceeded: boolean;
+  /**
+   * True when a route decorator was found but no `include_router(...)` call referencing its router could
+   * be confirmed within the searched workspace (corpus case 3,
+   * docs/work/task-m4-stage1-evidence-contract.md). No edge is emitted for that route in this case -
+   * surfaced instead as `framework_route_mount_unresolved`, never silently dropped and never asserted as
+   * proof the router is unmounted (a static scan cannot tell "genuinely unmounted" from "mounted outside
+   * this scan's reach" apart).
+   */
+  readonly mountUnresolved: boolean;
 }
 
 export type FrameworkAdapter = (input: AdapterInput) => Promise<AdapterResult>;

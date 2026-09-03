@@ -149,6 +149,9 @@ export async function analyzeImpact(
     ...(augmentation.budgetExceededAdapterIds.length > 0
       ? { augmentationBudgetExceeded: augmentation.budgetExceededAdapterIds }
       : {}),
+    ...(augmentation.mountUnresolvedAdapterIds.length > 0
+      ? { augmentationMountUnresolved: augmentation.mountUnresolvedAdapterIds }
+      : {}),
     ...provider.analysisObservations?.(),
     ...observations,
   });

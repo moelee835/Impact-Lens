@@ -166,10 +166,75 @@ UNREACHABLE_SEMANTIC_SCOPES here into a reachable list ... in the same change") 
 으로는 안 보였고, 이 저장소의 trip-wire 테스트 인프라(`errors.ts`의 `CONTRACT_ONLY_ERROR_CODES`와 같은
 기법)가 "선언과 구현의 어긋남"을 스스로 잡아냈다 — 정확히 그 인프라가 설계된 목적대로.
 
+### PR 분리 (`main`에 없던 문서 4건 vs 구현) — commander와의 handoff
+
+commander가 문서 4건(`72d830c`/`dd77125`/`8b8cfd3`/`1389a0b`)으로 PR #73을 열었는데, 그 직후 이
+세션이 stage 2 구현(`cfa218b`)을 같은 branch에 push해 PR #73이 자동으로 "docs-only" 설명과 어긋나는
+diff를 갖게 됐다(PR은 고정 commit이 아니라 branch tip을 추적하므로) — 잡아서 보고했다. commander가
+문서 4건만 담은 새 branch(`docs/m4-stage2-groundwork`)로 **PR #74**를 새로 열어 분리했고, **PR #73은
+이 stage 2 구현 전용 PR**로 남았다. `main`에 아직 없는 파일이 있어야 diff가 나므로, `main`에 없던 M4
+계약·정정 문서 4건은 #74로, 구현은 #73으로 각각 검토받는다.
+
+### corpus 커버리지 재검사 — 4건 중 1건만 구현돼 있었다
+
+PR #73 본문을 정확하게 다시 쓰기 전에 stage 1 계약의 corpus 4건(1/2/3/4a, 4b는 stage 2 범위 밖)을
+`grep -rn "orphan|ProdService|DevService|framework_route_mount|dedupe" src/test/ src/adapters/
+src/coverage.ts src/impact.ts`로 재대조 — **결과 0건**. corpus 1(이름만 같고 무관)만 구현·테스트돼
+있었고, corpus 2(조건부 대입 → `resolution: 'multiple'`)·3(orphan router)·4a(같은 세션 dedupe)는
+코드도 fixture도 없었다.
+
+**심각도가 셋이 다르다는 걸 commander가 구분했다**: corpus 3만 **활성 false positive**다 — 지금 코드는
+mount 여부를 전혀 확인하지 않고 `@x.get(...)` 데코레이터만 보면 route edge를 만들었으므로, **mount
+안 된 orphan router의 handler도 "reachable"로 잘못 보고했다.** 이건 이 마일스톤의 첫 번째 위험("false
+positive가 신뢰를 훼손할 수 있다")을 첫 adapter가 그대로 어기는 것이라 **연기 불가**로 판단했다.
+corpus 2(조건부 대입)는 **false negative**(못 찾는 것 — 이 저장소가 항상 고르는 안전한 방향과 같은
+편)라 연기 가능. corpus 4a(dedupe)는 **소음**(같은 관계가 `edges`/`augmentedEdges`에 중복 — 혼란스럽지만
+거짓 주장은 아님)이라 역시 연기 가능. 둘 다 "틀린 결론에 도달하게 만들지는 않는다"는 게 연기 판단의
+근거다.
+
+### corpus case 3 구현 — orphan router mount 확인
+
+**변경한 파일**:
+- `cli/src/adapters/fastapiDependencyAdapter.ts` — `ROUTE_DECORATOR_PATTERN`이 데코레이터의 base
+  식별자(`@app.get(...)`의 `app`)를 캡처하도록 확장. `isDirectFastapiApp(name, rootText)`: `name`이 이
+  파일에서 `FastAPI()`로 직접 바인딩됐는지 확인(root 파일 범위, `importsFastapi`와 같은 bounded 범위) —
+  참이면 이미 최상위 app이라 mount 확인 자체가 불필요(기존 `app.py` 테스트가 안 깨지는 이유).
+  `isRouterMounted(name, workspace, budget)`: workspace 전체를 도는 bounded 텍스트 검색으로
+  `include_router(name` 형태(bare identifier 인자만, 함수 호출 결과는 제외)를 찾는다. **provider 기반
+  reference resolution이 아니라 텍스트 검색이다** — `CallHierarchyProvider`가 노출하는 건 `prepare()`
+  하나뿐이고 이건 callable 심볼(함수/메서드)만 다루므로, 함수가 아닌 router 변수에는 애초에 적용할
+  방법이 없다(코드 주석에 이유를 명시). route handler 판정 블록을 "mount 확인됨 → 기존 edge 생성" /
+  "mount 미확인 → edge 생성 안 함 + `mountUnresolved` 플래그"로 분기.
+- `cli/src/adapters/types.ts` — `AdapterResult.mountUnresolved: boolean` 추가.
+- `cli/src/adapters/index.ts` — `AugmentationResult.mountUnresolvedAdapterIds` 추가·집계.
+- `cli/src/types.ts` — `AnalysisObservations.augmentationMountUnresolved?: readonly string[]` 추가.
+- `cli/src/impact.ts` — 위 필드를 observations에 threading(기존 `augmentationBudgetExceeded`와 같은
+  패턴).
+- `cli/src/coverage.ts` — `mountUnresolvedDetails()`: `framework_route_mount_unresolved` limitation
+  생성. **message는 코드 경로 하나에서만 만들어지는 단일 문자열**이라 두 fixture가 다른 문구를 낼 방법이
+  구조적으로 없다(commander 지시대로 — "message를 상수 하나로 두세요... 문구로 구별하는 게 구조적으로
+  불가능해집니다"). 문구는 "이 workspace 범위에서 mount를 찾지 못했다"만 말하고 "mount가 없다"는
+  주장하지 않는다.
+- `cli/src/test/stateReachabilityClassification.ts` — `augmentationMountUnresolved`를
+  `has-producer`/`analyze-caller`로 분류.
+- 신규 fixture: `orphan_router.py`(진짜 unmounted), `dynamic_mount_router.py`(동적 등록으로만 mount —
+  `include_router(get_dynamic_router())`처럼 인자가 함수 호출 결과라 bare-identifier 검색 범위 밖).
+- 신규 테스트 3개: corpus 3(a)(edge 없음 + limitation), corpus 3(b)(3(a)와 **message 텍스트까지 완전
+  동일**함을 직접 비교로 확인), 그리고 회귀 가드(`app.py`의 `@app.get(...)`은 mount 확인 없이 기존과
+  동일하게 동작 — mount 체크가 일반 app route에 오탐을 내지 않는지 확인).
+
+**검증**: 재빌드 후 전체 재실행 — **337 pass, 3 skip(실제 gopls 필요, 기존과 동일), 0 fail.**
+`pythonFastapiIntegration.test.ts` 단독 실행 11개 전부 통과, corpus 3(b) 테스트가 3(a)와 3(b) 응답의
+`message` 문자열을 실제로 `assert.equal`로 비교해 통과함을 직접 확인(코드가 같다고 주장만 한 게
+아니라 실행으로 증명).
+
 ### 남은 것
 
-- `git status`가 보여주는 변경분(신규 `cli/src/adapters/` 3개 파일, fixture 3개, 수정 8개 파일 + 이
-  문서)은 아직 커밋되지 않음 — 이 작업 로그 직후 커밋·push 예정.
+- **corpus 2(조건부 대입 → `resolution: 'multiple'`)**: 미구현. false negative 방향(못 찾음)이라
+  연기. stage 3 정확도 gate 이전에 구현 필요.
+- **corpus 4a(같은 세션 dedupe)**: 미구현. `runAugmentation()`이 이미 계산된 `edges` 배열을 받지
+  않아 dedupe할 방법이 구조적으로 없음. 소음 방향(중복 표시, 거짓 아님)이라 연기. stage 3 이전에
+  `edges`를 augmentation 입력에 threading해야 구현 가능.
 - decorator-level(`dependencies=[Depends(target)]`)·router-level(`APIRouter(...,
   dependencies=[...])`) 선언은 이 패스가 다루지 않음(구현 docstring에 명시된 의도적 범위 제외, 누락
   아님).

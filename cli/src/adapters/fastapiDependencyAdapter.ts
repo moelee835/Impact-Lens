@@ -20,14 +20,14 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { externalRange, relativeFile, symbolId, symbolKindName, uriFile } from '../impact';
 import { AugmentedEdge, CallHierarchyItem, LspPosition } from '../types';
-import { AdapterInput, AdapterResult } from './types';
+import { AdapterBudget, AdapterInput, AdapterResult } from './types';
 
 const IGNORED_DIRECTORIES = new Set([
   '.git', 'node_modules', 'out', 'dist', '.pnpm-store',
   '__pycache__', 'venv', '.venv', 'env', 'site-packages',
 ]);
 
-const ROUTE_DECORATOR_PATTERN = /^\s*@(?:\w+\.)*\w+\.(get|post|put|delete|patch|options|head)\(\s*(?:['"]([^'"]*)['"])?/;
+const ROUTE_DECORATOR_PATTERN = /^\s*@(\w+)(?:\.\w+)*\.(get|post|put|delete|patch|options|head)\(\s*(?:['"]([^'"]*)['"])?/;
 const DEF_PATTERN = /^(\s*)(?:async\s+)?def\s+(\w+)\s*\(/;
 
 function escapeRegExp(value: string): string {
@@ -86,6 +86,7 @@ function findEnclosingDef(lines: readonly string[], fromLine: number): Enclosing
 }
 
 interface RouteDecorator {
+  readonly routerName: string;
   readonly method: string;
   readonly path: string | undefined;
   readonly line: number;
@@ -102,10 +103,55 @@ function findRouteDecorator(lines: readonly string[], defLine: number): RouteDec
     }
     const match = line.match(ROUTE_DECORATOR_PATTERN);
     if (match) {
-      return { method: match[1], path: match[2], line: index };
+      return { routerName: match[1], method: match[2], path: match[3], line: index };
     }
   }
   return undefined;
+}
+
+/** True when `name` is bound to a `FastAPI()` instance directly in this file - the top-level app object
+ * is reachable by definition (nothing needs to `include_router()` it), so no mount check applies. Root
+ * file only, not workspace-wide - the same bounded scope `importsFastapi` already uses; an app
+ * instantiated elsewhere and merely imported here is a documented limitation, not silently guessed at. */
+function isDirectFastapiApp(name: string, rootText: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*FastAPI\\s*\\(`).test(rootText);
+}
+
+interface MountSearchResult {
+  readonly found: boolean;
+  readonly truncated: boolean;
+}
+
+/**
+ * Corpus case 3 (docs/work/task-m4-stage1-evidence-contract.md): a route decorator on a plain
+ * `APIRouter()` is not reachable until something actually mounts it - `include_router(name)` referencing
+ * this exact variable, anywhere in the workspace. This is a text search, not a provider-resolved
+ * reference lookup: `CallHierarchyProvider` only resolves callable symbols (functions/methods), and a
+ * router variable is neither - the reason `Depends()`/route-handler resolution elsewhere in this file CAN
+ * be provider-verified and this cannot. Matching only a bare identifier argument
+ * (`include_router(name` / `include_router(name,`, never `include_router(name()` or
+ * `include_router(get_name())`) is deliberate: it is exactly what leaves dynamic registration (stage 1's
+ * own out-of-scope example) unmatched, with no special-casing needed.
+ */
+async function isRouterMounted(name: string, workspace: string, budget: AdapterBudget): Promise<MountSearchResult> {
+  const pattern = new RegExp(`\\binclude_router\\(\\s*${escapeRegExp(name)}\\s*[,)]`);
+  const walkState = { filesVisited: 0, maxFiles: budget.maxFiles, truncated: false };
+  let found = false;
+  await walkPythonFiles(workspace, walkState, async file => {
+    if (found) {
+      return;
+    }
+    let text: string;
+    try {
+      text = await fs.readFile(file, 'utf8');
+    } catch {
+      return;
+    }
+    if (pattern.test(text)) {
+      found = true;
+    }
+  });
+  return { found, truncated: walkState.truncated };
 }
 
 async function walkPythonFiles(
@@ -199,6 +245,7 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
   const edges: AugmentedEdge[] = [];
   const seenPairs = new Set<string>();
   let budgetExceeded = false;
+  let mountUnresolved = false;
 
   // No blanket "root's own file must import fastapi" gate: root can be a plain dependency function
   // (e.g. a shared db.py with no fastapi import of its own) whose only FastAPI-relevant reference lives
@@ -211,31 +258,47 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
   try {
     rootText = await fs.readFile(rootFile, 'utf8');
   } catch {
-    return { edges: [], budgetExceeded: false };
+    return { edges: [], budgetExceeded: false, mountUnresolved: false };
   }
 
   // 1. Is root itself a route handler? The framework's router dispatch calls it, with no user-code
   // caller to name - a synthetic entrypoint node, never a `data.nodes` entry (IL-LIM-002's own
-  // "권장 대응": "일반 function node와 다른 kind·provenance로 표시").
+  // "권장 대응": "일반 function node와 다른 kind·provenance로 표시"). But a decorator alone is not proof
+  // of reachability (corpus case 3) - if the decorator's target is a plain `APIRouter()` rather than the
+  // app itself, an edge is only emitted once `include_router(...)` mounting it is actually found; if not
+  // found, no edge is fabricated and `mountUnresolved` is raised instead (surfaced as
+  // `framework_route_mount_unresolved`, never as a claim that the router is definitely unmounted).
   const rootLines = rootText.split('\n');
   const rootDefLine = input.root.selectionRange.start.line;
   const routeDecorator = findRouteDecorator(rootLines, rootDefLine);
   if (routeDecorator) {
-    const pairKey = `route|${input.rootId}`;
-    if (!seenPairs.has(pairKey)) {
-      seenPairs.add(pairKey);
-      edges.push({
-        source: syntheticRouteSource(input, routeDecorator, rootLines),
-        target: { kind: 'existing', id: input.rootId },
-        adapterId: 'fastapi-static-v1',
-        evidenceSource: 'static-inference',
-        resolution: 'single',
-        reasonCode: 'fastapi-route-handler',
-        evidenceRanges: [externalRange({
-          start: { line: routeDecorator.line, character: 0 },
-          end: { line: rootDefLine, character: rootLines[rootDefLine].length },
-        })],
-      });
+    let mountConfirmed = isDirectFastapiApp(routeDecorator.routerName, rootText);
+    if (!mountConfirmed) {
+      const mountCheck = await isRouterMounted(routeDecorator.routerName, input.workspace, input.budget);
+      mountConfirmed = mountCheck.found;
+      if (mountCheck.truncated) {
+        budgetExceeded = true;
+      }
+    }
+    if (!mountConfirmed) {
+      mountUnresolved = true;
+    } else {
+      const pairKey = `route|${input.rootId}`;
+      if (!seenPairs.has(pairKey)) {
+        seenPairs.add(pairKey);
+        edges.push({
+          source: syntheticRouteSource(input, routeDecorator, rootLines),
+          target: { kind: 'existing', id: input.rootId },
+          adapterId: 'fastapi-static-v1',
+          evidenceSource: 'static-inference',
+          resolution: 'single',
+          reasonCode: 'fastapi-route-handler',
+          evidenceRanges: [externalRange({
+            start: { line: routeDecorator.line, character: 0 },
+            end: { line: rootDefLine, character: rootLines[rootDefLine].length },
+          })],
+        });
+      }
     }
   }
 
@@ -308,5 +371,5 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
     budgetExceeded = true;
   }
 
-  return { edges, budgetExceeded };
+  return { edges, budgetExceeded, mountUnresolved };
 }

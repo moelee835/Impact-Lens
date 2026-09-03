@@ -307,6 +307,7 @@ function limitationDetailsFor(
   }
   details.push(...semanticScopeDetails(completion.semanticScope));
   details.push(...augmentationBudgetDetails(observations.augmentationBudgetExceeded));
+  details.push(...mountUnresolvedDetails(observations.augmentationMountUnresolved));
   return details;
 }
 
@@ -328,6 +329,29 @@ function augmentationBudgetDetails(exceededAdapterIds: AnalysisObservations['aug
     scope: 'semantic',
     message: `The following adapter(s) exhausted their own exploration budget before finishing: ${exceededAdapterIds.join(', ')}. Augmented edges from them may be incomplete; the static call graph above is unaffected.`,
     action: 'Re-run if a more complete augmented result is needed; the static result already returned is not affected.',
+  }];
+}
+
+/**
+ * Corpus case 3 (docs/work/task-m4-stage1-evidence-contract.md): a route decorator was found but no
+ * `include_router(...)` call referencing its router could be confirmed within the searched workspace.
+ * This is the false-positive risk the corpus case exists to prevent - a route decorator alone is not
+ * proof of reachability - so no edge was emitted for it; this warns that the omission happened rather
+ * than letting it pass silently as "nothing found here." The message is a single constant on purpose: a
+ * genuinely unmounted router and one mounted outside this scan's reach are indistinguishable to a static
+ * scan, so both cases must produce byte-identical text - never a message that quietly claims to know
+ * which one it is.
+ */
+function mountUnresolvedDetails(mountUnresolvedAdapterIds: AnalysisObservations['augmentationMountUnresolved']): readonly LimitationDetail[] {
+  if (mountUnresolvedAdapterIds === undefined || mountUnresolvedAdapterIds.length === 0) {
+    return [];
+  }
+  return [{
+    code: 'framework_route_mount_unresolved',
+    severity: 'warning',
+    scope: 'semantic',
+    message: 'A route decorator was found, but no include_router(...) call referencing this router could be found within the analyzed workspace. This does not mean the route is unmounted - the router may be included from outside this workspace, through a directory this scan does not reach, or through dynamic registration (e.g. include_router(get_router())) that this scan cannot follow.',
+    action: 'If this route should be reachable, confirm how its router is mounted; this warning only reflects what a static scan of this workspace could find.',
   }];
 }
 

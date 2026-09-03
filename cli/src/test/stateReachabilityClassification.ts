@@ -35,6 +35,10 @@ export const CLASSIFIED_OBSERVATION_FIELDS: Readonly<Record<string, ObservationF
   // traversal's) runs out (M4 stage 1's "budget/limits leak" decision). Same producer layer as
   // `compileDatabase` and `semantic` above - never inside LspCallHierarchyProvider.analysisObservations().
   augmentationBudgetExceeded: 'has-producer',
+  // impact.ts's analyzeImpact() sets this directly when the fastapi-static-v1 adapter finds a route
+  // decorator it cannot confirm is mounted (corpus case 3, docs/work/task-m4-stage1-evidence-contract.md).
+  // Same producer layer as augmentationBudgetExceeded above.
+  augmentationMountUnresolved: 'has-producer',
 };
 
 /**
@@ -66,6 +70,7 @@ export const OBSERVATION_FIELD_PRODUCER: Readonly<Record<string, 'lsp-provider' 
   // impact.ts's analyzeImpact(), never inside analysisObservations().
   semantic: 'analyze-caller',
   augmentationBudgetExceeded: 'analyze-caller',
+  augmentationMountUnresolved: 'analyze-caller',
 };
 
 export function fieldsClassified(classification: ObservationFieldClassification): readonly string[] {

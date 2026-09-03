@@ -17,6 +17,7 @@ const DEFAULT_BUDGET: AdapterBudget = { maxFiles: 200, maxMatchesPerFile: 20 };
 export interface AugmentationResult {
   readonly edges: readonly AugmentedEdge[];
   readonly budgetExceededAdapterIds: readonly string[];
+  readonly mountUnresolvedAdapterIds: readonly string[];
 }
 
 /**
@@ -36,10 +37,11 @@ export async function runAugmentation(
   existingNodeIds: ReadonlySet<string>,
 ): Promise<AugmentationResult> {
   if (!enabled) {
-    return { edges: [], budgetExceededAdapterIds: [] };
+    return { edges: [], budgetExceededAdapterIds: [], mountUnresolvedAdapterIds: [] };
   }
   const edges: AugmentedEdge[] = [];
   const budgetExceededAdapterIds: string[] = [];
+  const mountUnresolvedAdapterIds: string[] = [];
   for (const adapter of ADAPTERS) {
     if (!adapter.languageIds.includes(languageId)) {
       continue;
@@ -56,6 +58,9 @@ export async function runAugmentation(
     if (result.budgetExceeded) {
       budgetExceededAdapterIds.push(adapter.id);
     }
+    if (result.mountUnresolved) {
+      mountUnresolvedAdapterIds.push(adapter.id);
+    }
   }
-  return { edges, budgetExceededAdapterIds };
+  return { edges, budgetExceededAdapterIds, mountUnresolvedAdapterIds };
 }

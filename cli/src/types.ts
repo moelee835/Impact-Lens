@@ -372,6 +372,14 @@ export interface AnalysisObservations {
    * separate channel, never through `completion`/`complete`/`truncated`/`traversalLimits`.
    */
   readonly augmentationBudgetExceeded?: readonly string[];
+  /**
+   * M4 stage 2 (corpus case 3, docs/work/task-m4-stage1-evidence-contract.md): adapter ids that found a
+   * route decorator but could not confirm, within the searched workspace, that its router is actually
+   * mounted (`include_router(...)`). No augmented edge is produced for that route while this is set -
+   * this is what keeps an unmounted (or mounted-outside-scan-scope) handler from being reported as a
+   * confirmed reachable entrypoint.
+   */
+  readonly augmentationMountUnresolved?: readonly string[];
 }
 
 /**

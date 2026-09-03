@@ -54,7 +54,7 @@ interface AnalyzeResponse {
     readonly nodes: ReadonlyArray<{ readonly id: string; readonly name: string }>;
     readonly edges: ReadonlyArray<unknown>;
     readonly augmentedEdges: readonly AugmentedEdge[];
-    readonly limitationDetails: ReadonlyArray<{ readonly code: string }>;
+    readonly limitationDetails: ReadonlyArray<{ readonly code: string; readonly message: string }>;
     readonly coverage: { readonly semantic: { readonly status: string } };
     readonly completion: { readonly semanticScope: string };
   };
@@ -228,5 +228,72 @@ test(
     assert.equal(edge.resolution, 'single');
     assert.equal(edge.source.kind, 'synthetic');
     assert.equal(edge.source.name, 'handler');
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Corpus case 3 (docs/work/task-m4-stage1-evidence-contract.md) - orphan_router.py/
+// dynamic_mount_router.py. A route decorator alone must not become a confirmed route edge: a genuinely
+// unmounted router and one mounted only through a form this scan cannot follow (dynamic registration)
+// must produce the SAME result, including byte-identical limitation message text - this is the
+// false-positive risk the corpus case exists to prevent (commander: "M4가 존재하는 이유가 추측을
+// 확정처럼 보이지 않게 하는 것").
+// ---------------------------------------------------------------------------
+
+test(
+  'corpus case 3(a), augmentation ON: a route decorator with no include_router() anywhere in the workspace produces no edge, only a limitation',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('orphan_router.py', 13, 5, true); // `def orphan_handler` in orphan_router.py
+    assert.equal(response.ok, true);
+    assert.equal(
+      response.data.augmentedEdges.length,
+      0,
+      `a route decorator alone must not become an edge without a confirmed mount: ${JSON.stringify(response.data.augmentedEdges)}`,
+    );
+    const detail = response.data.limitationDetails.find(entry => entry.code === 'framework_route_mount_unresolved');
+    assert.ok(detail, `expected framework_route_mount_unresolved: ${JSON.stringify(response.data.limitationDetails)}`);
+  },
+);
+
+test(
+  'corpus case 3(b), augmentation ON: a route decorator mounted only via dynamic registration produces the same result as 3(a), byte-identical message',
+  { timeout: 25000 },
+  () => {
+    const orphanResponse = analyzeFile('orphan_router.py', 13, 5, true);
+    const dynamicResponse = analyzeFile('dynamic_mount_router.py', 16, 5, true); // `def dynamic_handler`
+    assert.equal(dynamicResponse.ok, true);
+    assert.equal(
+      dynamicResponse.data.augmentedEdges.length,
+      0,
+      `dynamic include_router(get_dynamic_router()) is out of this scan's resolvable scope, same as an unmounted router: ${JSON.stringify(dynamicResponse.data.augmentedEdges)}`,
+    );
+    const orphanDetail = orphanResponse.data.limitationDetails.find(entry => entry.code === 'framework_route_mount_unresolved');
+    const dynamicDetail = dynamicResponse.data.limitationDetails.find(entry => entry.code === 'framework_route_mount_unresolved');
+    assert.ok(orphanDetail, `expected framework_route_mount_unresolved on 3(a): ${JSON.stringify(orphanResponse.data.limitationDetails)}`);
+    assert.ok(dynamicDetail, `expected framework_route_mount_unresolved on 3(b): ${JSON.stringify(dynamicResponse.data.limitationDetails)}`);
+    assert.equal(
+      dynamicDetail!.message,
+      orphanDetail!.message,
+      'a genuinely-unmounted router and one mounted out of this scan\'s reach must be indistinguishable in the message text - a static scan cannot tell them apart',
+    );
+  },
+);
+
+test(
+  'FastAPI fixture, augmentation ON, route handler on the app itself: no mount check applies, existing edge is unchanged',
+  { timeout: 25000 },
+  () => {
+    // Regression guard for the mount check added for corpus case 3: `@app.get(...)` where `app = FastAPI()`
+    // must NOT be treated as an unmounted router - this must still produce the same edge as before the
+    // mount check existed, with no framework_route_mount_unresolved limitation.
+    const response = analyze(33, 5, true); // `def get_items` in app.py
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    assert.equal(response.data.augmentedEdges[0]!.reasonCode, 'fastapi-route-handler');
+    assert.ok(
+      !response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+      `the app's own routes must never be flagged as mount-unresolved: ${JSON.stringify(response.data.limitationDetails)}`,
+    );
   },
 );
