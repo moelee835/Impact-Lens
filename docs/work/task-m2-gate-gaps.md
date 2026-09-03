@@ -1,6 +1,6 @@
 # M2 — gate 1·2 공백 2건 닫기
 
-- 상태: Stage 1(C++) 완료, commander 보고 후 stage 2(Go) 승인 대기
+- 상태: Stage 1-3 전부 완료(로컬 검증), 3-OS CI 실측 대기 중, commander 보고 후 PR 지시 대기
 - branch: `feat/m2-gate-gaps`
 - 선행: PR #67(M2 마일스톤 종료 처리 A) merge 완료(squash `4a1de44`) 후 착수.
 - 요구사항 전문(계획 세션 작성, 저장소 밖): `m2-gate-gaps.md`(commander scratchpad)
@@ -78,9 +78,67 @@ commander의 "다르면 즉시 보고" 조건은 발동하지 않았다 — `doc
 - non-vacuity: 위 "실제로 깨뜨려 확인" 참고.
 - `docs.limitations`와 관측 대조: 위 참고, 일치.
 
+## Stage 2 — Go same-file 호출자 (IL-LIM-004 #2)
+
+### 구현
+
+`cli/src/test/stateReachability.integration.test.ts`에 `goplsGatedTest` 하나를 추가했다(새 CI job
+없음, 기존 `go-provider` job에 자연히 포함). **shipped preset fixture(`catalog.ts`의
+`target.go`/`caller.go`)는 건드리지 않았다** — commander 지시대로 별도 workspace
+(`realGoGateGapsWorkspace`)를 새로 만들었다:
+
+- `go.mod`(`module gategaps`), `samefile.go`(`SameFileTarget`/`SameFileCaller`, 같은 파일),
+  `crosstarget.go`/`crosscaller.go`(cross-file, 기존 shipped fixture와 별개 이름).
+- 하나의 provider 세션에서 same-file 질의 → cross-file 질의 순서로 실행(**같은 실행**) — 서로가
+  서로의 대조군: 파이프라인이 통째로 죽으면(module 해석 실패, provider crash) 둘 다 같이
+  실패하므로, 어느 한쪽만 통과하는 상태를 잡는다.
+- gopls는 이미 `readiness`를 선언하므로(clangd와 달리) 재시도 루프 없이 단발 질의로 충분하다 — 같은
+  파일의 기존 "the real shipped gopls preset..." 테스트와 같은 패턴.
+
+### non-vacuity — 실제로 깨뜨려 확인
+
+same-file 질의의 `file`을 일부러 `crosstarget.go`(다른 파일)로 바꿔 재실행 — 실제로 실패했다:
+
+```
+AssertionError: expected SameFileCaller ... among ["CrossFileTarget","CrossFileCaller"]
+```
+
+즉 same-file 질의가 실제로 그 파일 안 호출자를 찾는 것이지, 아무 값이나 통과시키는 게 아님을 직접
+확인했다. 원상복구 후 `shasum -a 256`으로 byte-identical 복원 확인.
+
+### 로컬 실측 — 실제 gopls 0.19.1(CI가 pin한 버전과 동일)로 검증
+
+이 개발 머신에 로컬로 `go install golang.org/x/tools/gopls@v0.19.1`(CI가 pin한 버전과 동일 —
+`.github/workflows/unit-tests.yml`)을 설치해 **실제로 돌려서** 확인했다(전에는 로컬에 gopls가 없어
+skip됐었다). same-file·cross-file 둘 다 발견됨을 확인.
+
+### 검증
+
+- `npm run cli:build` 클린.
+- `node --test cli/dist/test/stateReachability.integration.test.js` 격리 실행 7/7 pass(신규 포함).
+- non-vacuity: 위 참고.
+- `npm run cli:test` 전체 3회 연속 재실행 — **이번엔 로컬에 gopls·clangd 둘 다 있어 331/331
+  pass, 0 skip**(기존엔 gopls 없어 2 skip이었다).
+
+## Stage 3 — 수용 기준·gate 닫기
+
+`il-lim-004-first-class-language-presets.md` #2, `il-lim-014-c-cpp-clangd-support.md` #3을 이
+lane이 만든 근거로 스스로 체크했다(각 문서 자체에 근거). `m2-p1-language-support.md`의 gate 1·2와
+`상태`를 갱신했다 — 다른 gate는 건드리지 않았다.
+
+**중요한 caveat을 문서에 남겼다**: C++ 쪽(virtual dispatch) 실측은 이 시점까지 **darwin/arm64
+(Apple clangd 17.0.0) 하나뿐**이다. commander가 지적한 이 lane의 진짜 위험 — CI는 Ubuntu
+23.1.1/macOS 23.1.0/Windows 22.1.7로 도는데 major가 다르고, virtual dispatch 처리는 clangd
+버전에 따라 달라질 수 있는 종류의 동작이다. 3-OS CI 결과를 아직 못 봤으므로 각 문서에 "push 후
+CI 로그로 재확인 필요"를 명시해 뒀다 — CI 확인 후 이 절을 갱신한다.
+
 ## 남은 작업
 
-- **Stage 1 완료. commander에게 보고 후 stage 2(Go)·stage 3(수용 기준 닫기) 승인 대기** —
-  commander가 명시("PR은 올리지 말고 stage 1 끝나면 먼저 보고하세요").
-- Stage 1의 3-OS CI 실행 결과는 아직 못 봤다 — 이 branch가 push된 뒤 실제 로그로 확인이 필요하다
-  (로컬은 darwin/arm64 Apple clangd 17.0.0 하나뿐).
+- **Stage 1-3 로컬 완료. 3-OS CI 실측을 이 branch에서 `workflow_dispatch`로 직접 트리거해 확인한
+  뒤 commander에게 보고한다** — PR은 아직 올리지 않는다(commander가 stage 2·3 완료 후 PR을
+  지시하겠다고 명시).
+- **CI 결과에 따라 갈리는 다음 행동**: Linux·macOS·Windows 전부 로컬과 같은 결과(base는 발견,
+  derived는 안 됨; overload 정확히 구분)면 caveat을 제거하고 보고한다. **어느 OS에서든 다르면
+  (특히 Ubuntu/macOS의 clangd 23.x가 derived override를 찾아버리면) 테스트를 느슨하게 고치지 않고
+  즉시 보고한다** — 그 경우 shipped `docs.limitations`가 최신 clangd에서 틀렸다는 뜻이고, 수정
+  범위가 이 lane을 넘는다(commander 지시).

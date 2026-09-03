@@ -34,8 +34,15 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
 ## 수용 기준
 
 > **2026-09-03 갱신(M2 마일스톤 종료 처리, `docs/work/task-m2-closure.md`)**: 아래 5개 항목을 근거와
-> 함께 판정했다. 3번은 **부분만 충족**이라 미체크로 남긴다. 4번의 macro 항목은 **A-3 정정**을 반영해
+> 함께 판정했다. 3번은 당시 **부분만 충족**이라 미체크였다. 4번의 macro 항목은 **A-3 정정**을 반영해
 > 판정했다 — stage 4 실측이 작성 시점 가정("macro는 한계")을 반증했다(simple macro는 정확히 잡힘).
+>
+> **2026-09-03 후속 갱신(M2 gate-gaps lane, `docs/work/task-m2-gate-gaps.md`)**: 그 공백을 닫아 3번도
+> 체크했다. 근거는 아래 3번 항목 자체를 교체했다. **주의**: 이 판정 시점에 실측은 darwin/arm64
+> (Apple clangd 17.0.0)만 됐다 — clangd major가 다른 3-OS CI(Ubuntu 23.1.1/macOS 23.1.0/Windows
+> 22.1.7)에서 같은 결과인지가 이 lane의 핵심 위험이었고(clangd 버전에 따라 virtual dispatch 처리가
+> 달라질 수 있다), push 후 실제 CI 로그로 확인이 필요하다. 다르면 이 체크와 `docs.limitations`를
+> 다시 열어야 한다.
 
 - [x] provider JSON 없이 `.c`·`.cpp` fixture에서 검증 clangd가 자동 선택된다. —
       `cli/src/test/clangdIntegration.test.ts`의 두 테스트 전부 `provider` 필드 없이 순수
@@ -43,14 +50,17 @@ clangd를 자동 선택하여, provider 내부 설정을 직접 작성하지 않
 - [x] compile database 유무·경로·staleness와 capability가 doctor 결과에서 구분된다. —
       `cli/src/doctor/checks.ts`의 `compileDatabaseCheck()`가 missing/ambiguous/stale/present 4상태를
       `state`/`path`/`candidatePaths`/`sample` 필드로 구분해 보고한다.
-- [ ] direct, cross-file, method와 overload incoming call이 pinned clangd fixture에서 반복
-      통과한다. — **부분만 충족.** direct·cross-file은 `cli/src/test/clangdIntegration.test.ts`가
-      compile database 있음/없음 양방향으로 반복 증명한다. **method·overload는 repeating fixture가
-      없다** — `docs.limitations`의 virtual dispatch 서술(*"a virtual method Derived::target
-      overriding Base::target..."*)은 stage 4의 **한 번의 수동 probe** 결과이지 반복 실행되는 테스트가
-      아니다(직접 grep 확인: `class`/`virtual`/`::`를 포함하는 `.cpp` 테스트 fixture가 저장소 어디에도
-      없다). `docs.limitations`에 기록하는 것과 이 항목이 요구하는 "반복 통과"는 다른 요구다. 후속
-      코드 lane에서 C++ class/method/overload fixture를 추가해야 닫힌다.
+- [x] direct, cross-file, method와 overload incoming call이 pinned clangd fixture에서 반복
+      통과한다. — direct·cross-file은 `cli/src/test/clangdIntegration.test.ts`의 기존 두 테스트가
+      compile database 있음/없음 양방향으로 반복 증명한다. **method·overload·virtual dispatch는
+      M2 gate-gaps lane stage 1이 추가했다** — 같은 파일의 새 `clangdGatedTest`("C++ with a real
+      compile database: method calls, overload resolution and virtual-dispatch invisibility are all
+      correct")가 한 provider 세션에서: (1) 클래스 메서드 호출(`Base::helper`) 발견 — 기능 증명이자
+      아래 두 negative 단언의 대조군, (2) overload 구분(`overloaded(int)`에만 호출자, `overloaded
+      (double)`에는 없음), (3) virtual dispatch 한계(`Base::target`에는 호출자, `Derived::target`
+      에는 없음 — 한계 자체를 단언, clangd가 나중에 derived를 찾게 되면 이 테스트가 실패해
+      `docs.limitations`를 다시 볼 기회를 준다)를 증명한다. non-vacuity는 assertion 위치를 실제로
+      바꿔 실패를 확인한 뒤 byte-identical 복원으로 확인했다(`docs/work/task-m2-gate-gaps.md`).
 - [x] function pointer, virtual dispatch, macro와 조건부 컴파일 한계가 provider 원본 결과와 함께
       기록된다. — `cli/src/providers/catalog.ts`의 clangd `docs.limitations` 4항목 전부가 실제
       probe로 뒷받침된다: function pointer, virtual dispatch, 조건부 컴파일(`#ifdef`)은 원래 문구

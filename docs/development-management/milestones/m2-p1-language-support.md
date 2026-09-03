@@ -1,8 +1,8 @@
 # M2 Python·Go·C/C++ verified support
 
-- 상태: 종료 처리 완료(`docs/work/task-m2-closure.md`) — gate 1·2 미충족(Go same-file fixture,
-  C++ method/overload 반복 검증 없음). 세 preset(bundled-pyright/gopls/clangd)은 사용자 검증
-  미실행으로 지금은 `experimental`.
+- 상태: gate 1·2 공백 닫힘(`docs/work/task-m2-gate-gaps.md`) — Go same-file, C++ method/overload/
+  virtual dispatch 반복 검증 추가. 3-OS CI 확인 대기 중(아래 gate 1·2 참고). 세 preset
+  (bundled-pyright/gopls/clangd)은 사용자 검증 미실행으로 지금도 `experimental`.
 - 완료 소유: IL-LIM-004, IL-LIM-006, IL-LIM-014
 - 릴리스 성격: 우선 언어 지원 minor release
 
@@ -54,14 +54,20 @@
 > 판정했다. 1·2번은 **열어 둔다** — IL-LIM-004의 Go single-file, IL-LIM-014의 C++ method/overload가
 > repeating fixture로 증명된 적이 없다(각 스토리 문서 참고, 코드 lane이 아닌 이 종료 처리의 권한
 > 밖이라 닫지 않는다). 4번은 **macro 관련 정정**을 반영해 판정했다(아래).
+>
+> **2026-09-03 후속 갱신(M2 gate-gaps lane, `docs/work/task-m2-gate-gaps.md`)**: 1·2번의 공백을
+> 코드로 닫아 체크했다. **주의**: C++ 쪽 실측은 이 판정 시점에 darwin/arm64(Apple clangd 17.0.0)
+> 하나뿐이다 — clangd major가 다른 3-OS CI(Ubuntu 23.1.1/macOS 23.1.0/Windows 22.1.7)에서 같은
+> 결과인지가 이 lane의 핵심 위험이라, push 후 실제 CI 로그로 재확인이 필요하다.
 
-- [ ] IL-LIM-004, IL-LIM-006, IL-LIM-014의 수용 기준이 통과한다. — IL-LIM-006은 6/6(PR #66).
-  IL-LIM-004는 5/6(Go single-file 미충족). IL-LIM-014는 4/5(C++ method/overload 미충족). 각 스토리
-  문서에 항목별 근거·사유가 있다.
-- [ ] Python, Go, C와 C++의 single/cross-file fixture가 선언된 OS/provider matrix에서 반복
-  통과한다. — 위와 같은 근본 원인(Go single-file, C++ method/overload)으로 열어 둔다. 그 외 모든
-  조합(Python single/cross-file, Go cross-file, C/C++ single/cross-file)은 3-OS CI에서 반복
-  통과한다(`go-provider`/`clangd-provider` job, `unit`/`cli-tests-cross-os` job).
+- [x] IL-LIM-004, IL-LIM-006, IL-LIM-014의 수용 기준이 통과한다. — 6/6, 6/6, 5/5. 각 스토리
+  문서에 항목별 근거가 있다.
+- [x] Python, Go, C와 C++의 single/cross-file fixture가 선언된 OS/provider matrix에서 반복
+  통과한다. — Go same-file은 `stateReachability.integration.test.ts`의 새 테스트, C++
+  method/overload/virtual dispatch는 `clangdIntegration.test.ts`의 새 테스트(둘 다
+  `docs/work/task-m2-gate-gaps.md` stage 1·2). 그 외 조합은 기존대로 3-OS CI에서 반복 통과한다
+  (`go-provider`/`clangd-provider` job, `unit`/`cli-tests-cross-os` job). **3-OS CI에서 새 테스트
+  결과가 로컬(darwin, gopls 0.19.1/clangd 17.0.0)과 같은지는 push 후 확인 대기 중.**
 - [x] 검증된 언어는 provider JSON 없이 Auto 또는 explicit preset으로 분석을 시작한다. — 4개 preset
   전부 auto-discovery 실측(IL-LIM-004 수용 기준 5번과 동일 근거, 그 문서의 seam 표시도 함께 적용된다).
 - [x] Python DI/decorator, C function pointer, C++ virtual dispatch와 macro 한계가 결과/문서에

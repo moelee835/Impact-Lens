@@ -494,3 +494,98 @@ goplsGatedTest(
     assert.equal((result.completion as CompletionTuple).indexingStatus, 'working');
   },
 );
+
+// M2 gate-gaps lane (docs/work/task-m2-gate-gaps.md), closing IL-LIM-004 #2: the shipped gopls preset's
+// own fixture (`catalog.ts`'s `target.go`/`caller.go`, used by `realGoplsWorkspace` above and by
+// `doctor gopls --fixture`) is pure cross-file - `target.go` defines `FixtureTarget` with no same-file
+// caller anywhere in that file. Same-file resolution - by far the most common real case, and already
+// fixture-backed for both Python and clangd - has never been proven here by a repeating fixture.
+//
+// Deliberately a SEPARATE workspace, not a reuse or edit of the shipped preset's own fixture files: those
+// are shipped, verified evidence (`doctor gopls --fixture` reads them directly via `preset.fixture`), and
+// changing them would change what that command verifies - commander was explicit about this.
+//
+// Same-file and cross-file share one provider session and one test, so each is the other's control: if
+// the whole pipeline broke (wrong module resolution, provider crash), both queries would fail together,
+// which is what keeps either half from passing on its own for the wrong reason.
+
+const GO_GATE_GAPS_GOMOD = 'module gategaps\n\ngo 1.21\n';
+const GO_SAME_FILE = [
+  'package gategaps',
+  '',
+  'func SameFileTarget() int {',
+  '\treturn 1',
+  '}',
+  '',
+  'func SameFileCaller() int {',
+  '\treturn SameFileTarget()',
+  '}',
+  '',
+].join('\n');
+const GO_CROSS_TARGET = [
+  'package gategaps',
+  '',
+  'func CrossFileTarget() int {',
+  '\treturn 2',
+  '}',
+  '',
+].join('\n');
+const GO_CROSS_CALLER = [
+  'package gategaps',
+  '',
+  'func CrossFileCaller() int {',
+  '\treturn CrossFileTarget()',
+  '}',
+  '',
+].join('\n');
+
+/** A second, independent Go module fixture - not the shipped preset's own. See the block comment above. */
+async function realGoGateGapsWorkspace(t: TestContext): Promise<string> {
+  // realpath'd for the same reason `realGoplsWorkspace` above is - see that function's own comment for
+  // the real bug (silently dropped cross-file symbols under a `/var` vs `/private/var` mismatch) this
+  // guards against.
+  const workspace = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'impact-lens-reachability-gopls-samefile-')));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  await fs.writeFile(path.join(workspace, 'go.mod'), GO_GATE_GAPS_GOMOD);
+  await fs.writeFile(path.join(workspace, 'samefile.go'), GO_SAME_FILE);
+  await fs.writeFile(path.join(workspace, 'crosstarget.go'), GO_CROSS_TARGET);
+  await fs.writeFile(path.join(workspace, 'crosscaller.go'), GO_CROSS_CALLER);
+  return workspace;
+}
+
+goplsGatedTest(
+  'a real gopls session finds both a same-file and a cross-file caller in the same run',
+  { timeout: 30000 },
+  async t => {
+    const workspace = await realGoGateGapsWorkspace(t);
+    const provider = new LspCallHierarchyProvider(workspace, 'samefile.go', undefined, 20000);
+    t.after(() => provider.dispose());
+
+    // Same-file: line 3, column 6 is the first character of "SameFileTarget" ("func " is 5 characters).
+    const sameFileResult = await analyzeImpact(
+      { workspace, file: 'samefile.go', line: 3, column: 6, depth: 5, maxNodes: 50 },
+      provider,
+    );
+    assert.equal(provider.capabilities.selectedBy, 'auto', 'expected auto-discovery, not a test override, to have selected gopls');
+    const sameFileCallers = (sameFileResult.nodes as ReadonlyArray<{ readonly name?: string }>)
+      .map(node => node.name)
+      .filter((name): name is string => name !== undefined);
+    assert.ok(
+      sameFileCallers.includes('SameFileCaller'),
+      `expected SameFileCaller (defined in the same file as the target) among ${JSON.stringify(sameFileCallers)}`,
+    );
+
+    // Cross-file: line 3, column 6 is the first character of "CrossFileTarget".
+    const crossFileResult = await analyzeImpact(
+      { workspace, file: 'crosstarget.go', line: 3, column: 6, depth: 5, maxNodes: 50 },
+      provider,
+    );
+    const crossFileCallers = (crossFileResult.nodes as ReadonlyArray<{ readonly name?: string }>)
+      .map(node => node.name)
+      .filter((name): name is string => name !== undefined);
+    assert.ok(
+      crossFileCallers.includes('CrossFileCaller'),
+      `expected CrossFileCaller (defined in a different file) among ${JSON.stringify(crossFileCallers)}`,
+    );
+  },
+);

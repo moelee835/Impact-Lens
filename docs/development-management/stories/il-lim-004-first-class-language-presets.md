@@ -35,23 +35,25 @@ Python·Java·Go·Rust·C/C++·Swift·Kotlin 프로젝트에서 Plugin을 사용
 ## 수용 기준
 
 > **2026-09-03 갱신(M2 마일스톤 종료 처리, `docs/work/task-m2-closure.md`)**: 아래 6개 항목을
-> 근거와 함께 판정했다. 2번은 **부분만 충족**이라 미체크로 남긴다 — Go의 single-file 케이스가
-> repeating fixture로 증명된 적이 없다(work document 참고, 후속 lane 후보).
+> 근거와 함께 판정했다. 2번은 당시 **부분만 충족**이라 미체크였다 — Go의 single-file 케이스가
+> repeating fixture로 증명된 적이 없었다.
+>
+> **2026-09-03 후속 갱신(M2 gate-gaps lane, `docs/work/task-m2-gate-gaps.md`)**: 그 공백을 닫아 2번도
+> 체크했다. 근거는 아래 2번 항목 자체를 교체했다.
 
 - [x] 우선 대상 언어마다 지원 버전과 설치 조건이 문서화된다. — `cli/src/providers/catalog.ts`의
       `docs.install`/`lastVerified`가 4개 preset(bundled-typescript, gopls, bundled-pyright, clangd)
       전부에 있고, README.md/INSTALL.md/cli/README.md가 언어별 설치 요구를 산문으로도 설명한다.
-- [ ] preset으로 single-file 및 cross-file incoming call fixture가 통과한다. — **부분만 충족.**
-      cross-file은 4개 preset 전부 반복 증명됨(TypeScript는 기존, Python은
-      `cli/src/test/contract.test.ts`의 auto-discovery 테스트, Go는 `catalog.ts`의 gopls
-      fixture(`target.go`/`caller.go`)를 실제로 도는
-      `cli/src/test/stateReachability.integration.test.ts`, C/C++는
-      `cli/src/test/clangdIntegration.test.ts`). single-file은 Python(`cli/src/test/
-      pythonFastapiIntegration.test.ts`의 `normal_helper`/`regular_caller` 대조군, 같은 파일)과
-      C/C++(clangd preset 자신의 single-file fixture, `CLANGD_FIXTURE_C`)에는 있지만 **Go에는
-      없다** — `catalog.ts`의 gopls fixture는 `target.go`에 정의만 두고 같은 파일 안 호출자가
-      없는 순수 cross-file 구성이다(직접 grep으로 재확인: `target.go`/`caller.go`를 참조하는 파일이
-      `catalog.ts` 자신뿐). 후속 코드 lane에서 Go의 same-file 케이스를 추가해야 닫힌다.
+- [x] preset으로 single-file 및 cross-file incoming call fixture가 통과한다. — cross-file은 4개
+      preset 전부 반복 증명됨(TypeScript는 기존, Python은 `cli/src/test/contract.test.ts`의
+      auto-discovery 테스트, Go는 `catalog.ts`의 gopls fixture(`target.go`/`caller.go`)를 실제로
+      도는 `cli/src/test/stateReachability.integration.test.ts`의 기존 테스트, C/C++는
+      `cli/src/test/clangdIntegration.test.ts`). single-file은 Python(`pythonFastapiIntegration.
+      test.ts`의 대조군)과 C/C++(clangd preset 자신의 single-file fixture)에 이미 있었고, **Go는
+      M2 gate-gaps lane stage 2가 별도 통합 테스트로 추가했다** —
+      `cli/src/test/stateReachability.integration.test.ts`의 "a real gopls session finds both a
+      same-file and a cross-file caller in the same run"(shipped preset fixture는 건드리지 않고
+      별도 workspace로 same-file/cross-file 둘 다 한 실행에서 증명, 서로가 서로의 대조군).
 - [x] preset 감지 실패가 실행 후보와 해결 방법을 포함해 보고된다. — `cli/src/providers/resolve.ts`의
       `executableNotFound()`(`provider_executable_not_found`)가 `candidates`(실행 파일 이름 후보)와
       `install`(공식 설치 링크)을 `error.details`에 싣는다. `cli/src/test/doctor.test.ts:117`,
