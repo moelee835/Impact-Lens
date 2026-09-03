@@ -1,8 +1,8 @@
 # M2 — gate 1·2 공백 2건 닫기
 
-- 상태: 정정된 `docs.limitations`/테스트는 3-OS CI로 확인됨(`clangd-provider` 3개 전부 통과) →
-  같은 재실행에서 stray clangd 사전 결함 발견 → commander 결정(세 조건 게이트) 수신, 구현·로컬
-  검증 완료 → 이 게이트 수정판의 3-OS CI 재확인 대기
+- 상태: 정정된 `docs.limitations`/테스트, stray clangd 게이트 수정 **모두 3-OS CI로 확인 완료**
+  (`https://github.com/moelee835/Impact-Lens/actions/runs/33715243243`, 9개 job 전부 green).
+  commander 보고·다음 지시 대기.
 - branch: `feat/m2-gate-gaps`
 - 선행: PR #67(M2 마일스톤 종료 처리 A) merge 완료(squash `4a1de44`) 후 착수.
 - 요구사항 전문(계획 세션 작성, 저장소 밖): `m2-gate-gaps.md`(commander scratchpad)
@@ -356,14 +356,38 @@ GitHub hosted runner 기본 이미지에 clangd가 **미리 설치돼 있다**(�
 - non-vacuity: 위 참고(미관측 버전 강제 후 REQUIRE 유무에 따라 fail/skip 분기 둘 다 실제로 확인).
 - `npm test` 전체 331개, 328 pass·0 fail·3 skip(gopls PATH 문제, 무관).
 
+### 3-OS CI 재확인 — 전부 green, 로그로 직접 대조
+
+`https://github.com/moelee835/Impact-Lens/actions/runs/33715243243`(commit `024ed02`,
+`workflow_dispatch`). 9개 job 전부 성공. 추측하지 않고 **각 job의 로그를 직접 grep해 skip
+사유·버전·pass/skip 여부를 대조**했다:
+
+| job | 결과 | 근거(로그 원문) |
+| --- | --- | --- |
+| `clangd-provider`(ubuntu 23.1.1) | **실행, pass** | `ok 18/19/20`, SKIP 마커 없음 |
+| `clangd-provider`(macos 23.1.0) | **실행, pass** | 동일 |
+| `clangd-provider`(windows 22.1.7) | **실행, pass** | 동일 |
+| `go-provider`(macos) | **skip** | `# SKIP ... a clangd is on PATH (major 21) ...` |
+| `go-provider`(windows) | **skip** | `# SKIP ... a clangd is on PATH (major 20) ...` |
+| `go-provider`(ubuntu) | **skip** | `# SKIP ... no clangd is on PATH ...` |
+| `cli-tests-cross-os`(macos) | **skip** | major 21, 위와 동일 문구 |
+| `cli-tests-cross-os`(windows) | **skip** | major 20, 위와 동일 문구 |
+| `unit`/Node 22(ubuntu) | **skip** | `no clangd is on PATH` — **Ubuntu에 stray clangd가 없다는
+  이전 추정(실패 로그에 안 나타난 것으로 추정)이 이번에 "no clangd is on PATH" 메시지로 직접
+  확인으로 바뀌었다.** |
+
+**derived-override 분기도 22/23에서 여전히 올바른 쪽으로 통과했다**(clangd-provider 3개 다
+`ok 20`, "has never been observed" 실패 없음) — 이전 정정이 이 게이트 변경으로 깨지지 않았다.
+
 ## 남은 작업
 
-- **이 게이트 수정판을 push하고 `workflow_dispatch`로 3-OS CI를 다시 돌려 전부 green인지
-  확인한다** — 특히 `go-provider`(macOS/Windows)와 `cli-tests-cross-os`(macOS/Windows)가 이제
-  skip으로 바뀌는지, `clangd-provider` 3개는 여전히 pass인지.
-- CI 확인 후 commander에게 보고한다. 그다음이 commander가 말한 "stage 3(수용 기준·gate 닫기)" —
-  이미 문서에는 반영해 뒀지만(재판정 절), 이 게이트 수정 자체로 인한 재확인이 필요한지 다시 본다.
+- **commander에게 보고한다** — 이 절 전체(3-OS 재확인 완료, 9/9 green, 로그 대조 표)가 그 근거다.
+- 다음이 commander가 말한 "stage 3(수용 기준·gate 닫기)" — `il-lim-004`/`il-lim-014`/마일스톤
+  gate 1·2는 이미 "재판정" 절에서 이 lane의 근거로 체크돼 있다. stray-clangd 발견·수정 자체가
+  그 문서들의 수용 기준 문구를 바꾸지는 않는다(수용 기준은 clangd-provider가 실제로 검증하는
+  내용에 대한 것이고, 이번 수정은 검증하지 않는 job이 검증한 것처럼 보이던 것을 바로잡은 것) —
+  commander 확인 후 필요하면 반영한다.
 - PR 본문에 **이 발견(문서가 틀렸다는 것 발견·수정 + stray clangd 사전 결함 발견·수정)을 맨
   앞에 쓴다** — "CI 게이트 수정"이 아니라 "clangd 테스트가 의도하지 않은 job에서 미고정 버전으로
   조용히 돌아 왔다는 사전 결함을 발견하고 고쳤다"로(commander 지시).
-- PR은 여전히 올리지 않는다.
+- PR은 여전히 올리지 않는다 — commander 지시 대기.
