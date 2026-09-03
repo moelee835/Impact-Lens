@@ -1,8 +1,11 @@
 # M4 stage 1 — evidence 계약과 false-positive corpus (설계 게이트, 코드 없음)
 
-- 상태: 완료 — Q1·Q3 결론 즉시 보고(지시대로) 후 commander 승인. Q2(두 축 분리, `confirmed` 제거,
+- 상태: 완료, commander 승인. Q1·Q3 결론 즉시 보고 후 승인, Q2(두 축 분리, `confirmed` 제거,
   `single`/`multiple`/edge 없는 `unresolved`)·Q4(false-positive corpus 4건)·Q5(kill switch 검증
-  방법) 마저 정리. `il-lim-001`/`il-lim-002` 스토리 문서에 원문 보존 + 정정 blockquote 반영.
+  방법) 마저 정리해 승인받았다. `il-lim-001`/`il-lim-002` 스토리 문서에 원문 보존 + 정정 blockquote
+  반영. **commander 재검토로 corpus 3번의 false-negative 인식론을 보완**(mount를 못 찾은 것과
+  mount가 없는 것을 구분 — "탐색 범위"를 명시하고 매번 limitation을 내는 것으로 수정)하고 4번에
+  "독립 corroboration을 의도적으로 버린다"는 판단을 명시적으로 기록했다.
 - branch: `docs/m4-stage1-evidence-contract`
 - 마일스톤: [M4 동적 호출·DI·테스트 의미 보완](../development-management/milestones/m4-semantic-augmentation.md)
 - 스토리: IL-LIM-001(동적·런타임 호출), IL-LIM-002(framework DI·라우팅), IL-LIM-010(테스트 탐지)
@@ -287,14 +290,39 @@ ambiguity를 설명하는 limitationDetail을 **함께** 낸다(대체가 아니
 **상황**: `orphan_router = APIRouter(); @orphan_router.get("/x") def handler(): ...`처럼 decorator
 패턴은 route처럼 보이지만, 이 `orphan_router`가 실제 앱에 `include_router()`로 연결된 적이 없다.
 
-**틀릴 수 있는 것**: decorator 패턴(`@x.get(...)`)만 보고 route로 인식하면, 실제로는 절대 호출될
-수 없는 handler에 "이건 route다"라는 존재하지 않는 신뢰를 부여한다 — 정확히 마일스톤 gate가
-금지하는 "path convention만으로 가짜 call edge나 test passed 상태를 만드는" 것.
+**틀릴 수 있는 것(false positive 방향)**: decorator 패턴(`@x.get(...)`)만 보고 route로 인식하면,
+실제로는 절대 호출될 수 없는 handler에 "이건 route다"라는 존재하지 않는 신뢰를 부여한다 — 정확히
+마일스톤 gate가 금지하는 "path convention만으로 가짜 call edge나 test passed 상태를 만드는" 것.
 
-**올바른 동작**: **탐지하지 않는다** — 등록(decorator)뿐 아니라 실제 mount 체인
-(`include_router`/앱 등록)까지 확인된 경우에만 augmented edge를 만든다. corpus fixture는
-mount되지 않은 router와 mount된 router를 나란히 두고, mount 안 된 쪽에는 **edge도 limitation도
-생기지 않아야**(진짜 아무 관계가 없으므로 보고할 것도 없다) 통과다.
+**빠져 있던 것(false negative 방향, commander 지적으로 보완)**: "mount되지 않았다"를 adapter가
+**어떻게 아는가?** adapter가 정적으로 찾은 범위 안에 `include_router` 호출이 없었다는 것이지,
+실제로 mount가 존재하지 않는다는 뜻이 아니다 — 다른 파일, 동적 등록, 또는 분석 workspace 밖에서
+mount됐을 수 있다. **이건 M2가 계속 다룬 "못 찾았다"와 "없다"의 구분이고**, 이걸 corpus 정의에
+안 넣으면 이 adapter도 M2가 고치려던 바로 그 실수(빈 결과를 증명된 부재로 읽음)를 M4 쪽에서
+반복한다.
+
+**탐색 범위를 명시한다**: mount 탐지는 **workspace 전체**를 대상으로 한다(같은 파일만이 아니다) —
+`IL-LIM-002`가 DI target 확인에 이미 쓰기로 한 것과 같은 방법(provider의 definition/reference
+해석, 텍스트 매칭 아님)으로 router 변수가 `include_router(...)`의 인자로 참조되는 지점을 찾는다.
+이 탐색은 **정적**이며, 다음은 범위 밖이다: 코드 실행, workspace 밖 코드(다른 저장소·설치된
+package), 그리고 인자가 함수 호출 결과인 동적 등록(`app.include_router(get_router())`)처럼 값
+자체가 실행 전에는 정해지지 않는 경우.
+
+**올바른 동작**: 이 범위 안에서 mount를 못 찾으면 **edge는 만들지 않는다**(false positive 축은
+유지 — 여기서 바뀌는 건 없다). **다만 반드시 limitation을 낸다** — `dynamic_calls_not_inferred`가
+모든 정상 분석에 무조건 붙는 것과 같은 방식으로, "route decorator는 있지만 이 workspace 범위
+안에서 mount 호출을 찾지 못했다"는 사실을 **매번** 알린다(새 코드 후보:
+`framework_route_mount_unresolved`, `scope: 'semantic'`, `severity: 'warning'` — 특정 관계의
+완전성에 영향을 주는 종류라 `inferred_edges_included`/`compile_database_missing`과 같은
+severity를 쓴다, 모든 분석에 무조건 붙는 `dynamic_calls_not_inferred`의 `info`와는 다르다). 메시지는
+탐색 범위를 명시하고 "mount를 못 찾은 것이 mount가 없다는 증거가 아니다"를 직접 말한다.
+
+**corpus fixture 통과 기준**: **두 개**를 나란히 둔다 — (a) 정말로 어디에도 mount되지 않은
+router, (b) 실제로는 mount돼 있지만 그 mount 호출이 **탐색 범위 밖**(예: 별도 workspace로 취급되는
+디렉터리, 또는 동적 등록)에 있는 router. **둘 다 결과가 같아야 통과다** — edge 없음 +
+`framework_route_mount_unresolved` limitation. adapter가 이 둘을 구별하는 척(예: (a)에는 limitation을
+안 내고 (b)에만 낸다)하면 실패 — **정적 분석은 애초에 이 둘을 구별할 수 없다는 것 자체가 이
+케이스의 핵심**이다.
 
 ### 4. provider가 이미 본 것을 중복으로 추론하는 경우
 
@@ -310,6 +338,14 @@ mount되지 않은 router와 mount된 router를 나란히 두고, mount 안 된 
 rollout 절이 이미 "로컬 debug output에 후보·채택·거부 수만 남긴다"고 정해 뒀으므로, 이 dedupe는
 "거부(reject)"로 그 카운트에만 잡히고 응답에는 나타나지 않는다. corpus fixture 통과 기준:
 provider가 이미 답하는 관계에 대해 `augmentedEdges`에 중복 entry가 **생기지 않아야** 한다.
+
+**명시적으로 버리는 것(commander 지적으로 기록)**: `(source, target)`이 같아도 **"adapter가 이
+관계를 독립적으로도 추론해 냈다"는 사실 자체는 버려진다** — 응답 어디에도 "이 edge는 LSP와
+adapter 둘 다 동의했다"는 신호가 남지 않는다. 이건 의도한 선택이다 — 같은 관계가 다른 신뢰도
+표시로 두 번 나오는 소비자 혼란(위 "틀릴 수 있는 것")을 막는 게 이 milestone의 목표(LSP가 놓친
+것을 채우는 것)에 더 중요하기 때문이다. "두 방법이 서로 동의했다"는 부가 신뢰도 신호는 실제로
+유용할 수 있지만 그 가치보다 중복 노출의 혼란 위험이 크다고 판단해 debug 카운터 이상으로는
+노출하지 않는다 — stage 2에서 이 판단을 다시 열려면 여기를 근거로 삼는다.
 
 ## Q5 — kill switch: "안전하게"를 검증 가능한 문장으로
 
