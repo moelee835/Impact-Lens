@@ -36,3 +36,69 @@ test('sends the whole coverage record to the webview', () => {
     assert.ok(source.includes(field), `the payload should carry ${field}`);
   }
 });
+
+// M4 milestone closure audit gate 5 (docs/work/task-m4-milestone-closure-audit.md,
+// docs/work/task-m4-gate5-test-color.md). Impact Lens does not run tests, and classification is a
+// filename-only heuristic (`cli/src/testFile.ts`'s `isTestFilePath()`) - so borrowing the `testing`
+// palette's pass/fail-meaning tokens (especially `testing.iconPassed`) for a node whose only evidence is
+// its file path asserts a result that was never executed. `direct`/`transitive` already use the neutral
+// `charts` palette, not `testing`, for exactly this reason.
+//
+// Two checks below, each closing a hole the other leaves open - deny-list alone and allow-list alone were
+// both tried and each was defeated:
+//
+// - The allow-list (this test) pins the five known test-classification rules to the exact approved token.
+//   An earlier version of this test was a bare `doesNotMatch(source, /vscode-testing-/)` (deny-list only),
+//   which a reviewer defeated by pointing all five rules at `--vscode-charts-green` (or a raw `#73c991`
+//   hex) instead - still a "passed"-looking green, still wrong, and the deny-list regex never noticed
+//   because that string never appears. Pinning each rule's value closes that hole.
+// - But the allow-list only inspects five known selectors. It says nothing about a SIXTH rule someone adds
+//   later - e.g. `.node.test .node-name { fill: var(--vscode-testing-iconPassed); }` - reintroducing the
+//   banned token under a selector this list doesn't know about. The allow-list would stay green. That is
+//   what the deny-list test below still catches, so both stay - one pins known values, the other guards
+//   against the token coming back anywhere else in the file.
+test('pins the five test-classification style rules to the approved neutral token', () => {
+  const approved = 'var(--vscode-charts-orange, #ea5c00)';
+  const rules = [
+    // .edge-test has no `\s*\}` anchor because its rule has a second declaration
+    // (stroke-dasharray) after the color - the other four are single-declaration rules, where the
+    // anchor happens to also enforce "nothing else in this rule". Mutation-tested
+    // (docs/work/task-m4-gate5-test-color.md, "리뷰어 확인 3번"): capture still stops at the first
+    // `;`, so a wrong value here is caught exactly like the anchored ones - the missing anchor
+    // doesn't weaken the comparison, it just can't also demand this rule have only one declaration.
+    { name: '.edge-test (stroke)', pattern: /\.edge-test\s*\{\s*stroke:\s*([^;]+);/ },
+    { name: '.node.test rect (stroke)', pattern: /\.node\.test rect\s*\{\s*stroke:\s*([^;]+);\s*\}/ },
+    {
+      name: '.node.test .relation-marker (fill)',
+      pattern: /\.node\.test \.relation-marker\s*\{\s*fill:\s*([^;]+);\s*\}/,
+    },
+    {
+      name: '.node.test .node-relation (fill)',
+      pattern: /\.node\.test \.node-relation\s*\{\s*fill:\s*([^;]+);\s*\}/,
+    },
+    { name: '.legend .test::before (background)', pattern: /\.legend \.test::before\s*\{\s*background:\s*([^;]+);\s*\}/ },
+  ];
+  for (const { name, pattern } of rules) {
+    const match = pattern.exec(source);
+    assert.ok(match, `expected to find a ${name} rule in graphPanel.ts`);
+    assert.equal(
+      match[1].trim(),
+      approved,
+      `${name} must use the approved neutral token ${approved} - Impact Lens does not run tests and ` +
+        'classifies "test" purely by file name (isTestFilePath()), so ANY color that reads as a pass/fail ' +
+        'signal (the old testing.iconPassed green, or a substitute green like charts-green or #73c991) ' +
+        'would claim a result that was never executed.',
+    );
+  }
+});
+
+test('never reintroduces the testing pass/fail palette anywhere in the file', () => {
+  assert.doesNotMatch(
+    source,
+    /vscode-testing-/,
+    'a testing-palette token (especially one with pass/fail meaning, like testing.iconPassed) reappeared ' +
+      'somewhere in graphPanel.ts - the allow-list test above only checks the five selectors it already ' +
+      'knows about, so a NEW rule pointing at this token (e.g. on a selector not in that list) would pass ' +
+      'that test while still claiming a result Impact Lens never executed.',
+  );
+});
