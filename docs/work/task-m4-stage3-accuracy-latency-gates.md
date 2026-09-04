@@ -417,6 +417,40 @@ fixture(저장소 밖 scratch, 커밋 안 함). `Depends(get_db)` 참조 지점�
 - 디버그 로그(`process.stderr.write`)는 확인 후 즉시 제거, `git diff`로 코드 변경 없음을 확인(이
   항목은 코드가 아니라 문서만 바뀐다).
 
+### 후속 — stub 기반 coverage 테스트 (gate와 무관, 별개로 추가)
+
+commander가 gate 문구를 다르게 읽을 수 있는 경로("우리 구현이 복수 후보를 올바르게 처리하는가"로
+읽으면 provider stub으로 그 자체를 재현할 수 있다)를 제안했다가, 리뷰어의 원문 재검토("대표
+**fixture**가... **재현한다**"는 실세계 발생을 묻는 문장이지, 구현의 정확성을 묻는 문장이 아니다) 후
+스스로 철회했다 — **위 gate 정정은 그대로 유지한다.**
+
+다만 별개의 근거로 stub 테스트 자체는 추가했다: **`resolutionCandidateCount > 1 ? 'multiple' :
+'single'` 분기가 이 시점까지 테스트 0건이었다.** stage 2가 닫은 결함 다섯 건 중 셋이 정확히 "fixture
+없는 코드 분기"에서 나왔다는 것은 이 저장소 자신의 반복된 실측이라, 같은 모양의 공백을 gate 정정과
+별개로 남겨 두는 건 그 교훈을 다시 무시하는 것이다.
+
+**`CallHierarchyProvider`(`cli/src/types.ts`)는 순수 인터페이스이고 `fastapiDependencyAdapter()`는
+그 input을 받는 평범한 함수라, `impact.test.ts`가 이미 쓰는 `FakeProvider` 패턴처럼 `prepare()`가
+2개 항목(그중 하나는 실제 root와 같은 `symbolId`)을 반환하는 stub을 주입해 이 분기에 직접 닿을 수
+있었다.**
+
+**배치**: 새 파일 `cli/src/test/fastapiDependencyAdapterMultipleCandidate.test.ts`를 만들었다 —
+`pythonFastapiIntegration.test.ts`는 예외 없이 전부 실제 CLI subprocess + 실제 pyright E2E라, 그
+안에 in-memory stub을 섞으면 그 파일 자신의 "전부 실제 provider로 검증한다"는 단일한 성격이 깨진다
+(이 파일에 전례 없는 패턴이라는 지적에 동의). 기존 `mockServer.ts` 류는 LSP wire-protocol 레벨의
+mock이라 이번 것(어댑터 입력 레벨의 stub)과 층이 다르다 — 어느 기존 파일에도 자연스럽게 안 맞아
+별도 파일로 뒀다.
+
+**명시적으로 gate 통과 근거가 아니다**: 이 테스트가 증명하는 건 "이 코드가 복수 후보 입력을 받으면
+`resolution: 'multiple'`을 올바르게 만든다"이지, "실제 FastAPI 코드가 이런 입력을 만들어 낸다"가
+아니다. 위 gate 정정("시도한 두 구성에서 못 찾았다")은 이 테스트와 무관하게 그대로 유지한다 — 둘을
+섞으면 gate를 형식적으로만 통과시킨 것이 된다는 지적에 동의해, 이 절을 gate 정정 절과 분리해서
+적는다.
+
+**non-vacuity**: `resolution: resolutionCandidateCount > 1 ? 'multiple' : 'single'`을 일시적으로
+`'single'` 고정으로 바꿔 재빌드 → "multiple" 테스트만 실패("actual 'single', expected 'multiple'"),
+control(단일 후보) 테스트는 그대로 통과 → 원복 후 재빌드해 둘 다 통과 확인.
+
 ## 남은 단계 (미착수)
 
 - **rollback**: 켠 상태에서 `nodes`/`edges`·completeness 다섯 필드 불변을 회귀 테스트로 고정(지금은
