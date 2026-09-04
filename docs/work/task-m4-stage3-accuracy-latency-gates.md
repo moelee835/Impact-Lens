@@ -310,10 +310,27 @@ bare identifier mount만 안정적으로 잡는다고 결론냈으니, `maxFiles
 - 회귀 테스트로 latency gate를 고정(아래 "latency regression" 참고) — 전체 스위트 재실행 결과는 그
   테스트 추가 커밋에 기록.
 
+### 이 항목이 닫지 않은 것 — 마일스톤 gate 문구와의 차이
+
+마일스톤 종료 gate는 "지원 언어 fixture에서 정해진 false-positive와 **latency budget**을 통과한다"고
+적혀 있다. **이 lane이 만든 건 budget이 아니다** — on/off 비용을 측정한 숫자와, 그 숫자가 갑자기
+무한대로 튀는 회귀(예: `maxFiles` cap이 코드에서 빠지는 사고)를 잡는 **tripwire**(회귀 테스트의 5000ms
+임계값, 실패 메시지에도 그렇게 명시)다. "얼마나 느려지면 이 기능을 켜기에 too slow인가"에 대한 판단
+기준은 아직 없다 — 그건 latency 숫자만으로는 못 정하고, augmentation을 실제로 기본 on으로 켤지
+판단하는 사람이 "그 비용을 사용자가 감수할 만한가"를 정할 때 나오는 값일 가능성이 크다(즉 **지금
+이 lane이 정할 값이 아닐 수 있다**). 그러니 **마일스톤 종료 판정 시 "latency를 쟀다"를 "정해진
+budget을 통과했다"로 세면 안 된다** — 이 gate 항목은 아직 안 닫혔고, 닫히려면 "정해진 budget" 자체가
+필요하다. 정확도 절이 recall을 억지로 안 만든 것과 같은 종류의 기록이다.
+
 ## 남은 단계 (미착수)
 
+- **milestone latency budget gate (아직 안 닫힘)**: 위 "이 항목이 닫지 않은 것" 참고 — 측정값과
+  tripwire는 있지만 "정해진 budget"은 없다. budget을 정할 시점(지금인지, 기본값 on 전환 시점인지)부터
+  판단 필요.
 - **`resolution: 'multiple'` gate 문구**: 실증할 구성을 찾거나, 못 찾았다는 근거와 함께 마일스톤 문서
-  정정(Spring→FastAPI 방식) — **정정이 필요하다는 결론이 나오면 보고**.
+  정정(Spring→FastAPI 방식) — **정정이 필요하다는 결론이 나오면 보고**. 정정 문구는 "존재하지 않는다"와
+  "(시도한 구성에서) 못 찾았다"를 구분해서 쓴다 — pyright로 직접 확인한 건 조건부 재정의 패턴 하나에서
+  후보가 1개라는 것뿐이지, 어떤 구성에서도 여럿이 안 나온다는 전수 증명이 아니다.
 - **rollback**: 켠 상태에서 `nodes`/`edges`·completeness 다섯 필드 불변을 회귀 테스트로 고정(지금은
   구조로만 보장, 테스트로 고정되지 않음).
 - corpus 2(`resolution: 'multiple'`)·4a(dedupe)·중첩 dependency fixture — stage 2가 남긴 항목, 각각
