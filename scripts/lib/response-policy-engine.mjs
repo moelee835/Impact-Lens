@@ -260,7 +260,26 @@ const COMPILE_DATABASE_AMBIGUOUS_MARKERS = [
 // afterward still passes - measured directly (a fixture of exactly this shape produces zero violations
 // both before and after this check existed). Catches the complete-omission case, which is the actual
 // current risk (the docs taught no vocabulary at all before this), not the partial-hedge case.
-const CANDIDATE_CALLER_PATTERN = /\bcandidate callers?\b/i;
+//
+// SECOND KNOWN, ACCEPTED GAP (reviewer found this direction was missing from the list above entirely,
+// not judged safe and skipped - just not looked at, which reads to a future reader as "checked" when it
+// was not, the same undocumented-gap risk this milestone has hit before): the REVERSE miscall, calling a
+// confirmed `data.edges` result a "candidate caller" when `data.augmentedEdges` is empty or absent, has no
+// check either. Left unchecked deliberately, now that it has actually been considered: it is an
+// UNDERclaim (a confirmed relationship described as less certain than it is), the safe direction this
+// file's own asymmetry principle already treats differently elsewhere (see stale_index_caveat's comment
+// above on why UNDERclaiming checks get less priority than OVERclaiming ones) - it cannot make a reader
+// trust an inference as fact, only the opposite.
+//
+// `CANDIDATE_CALLER_PHRASE` (below) is exported specifically so `response-policy-doc-invariants.mjs` can
+// import the exact same string this pattern is built from, rather than hold its own separate literal -
+// reviewer found that the doc-invariant only checked for the phrase's presence in the docs, never that it
+// matches what this pattern actually looks for, so a future edit to only one of the two (regex or literal)
+// would silently stop enforcing anything while the doc-invariant kept passing. One shared source makes
+// that divergence structurally impossible, the same technique FORBIDDEN_PHRASES above already uses for
+// its own doc-invariant coupling.
+export const CANDIDATE_CALLER_PHRASE = 'candidate caller';
+const CANDIDATE_CALLER_PATTERN = new RegExp(`\\b${escapeRegExp(CANDIDATE_CALLER_PHRASE)}s?\\b`, 'i');
 
 const LIMITATION_SURFACE_PATTERNS = {
   no_incoming_callers: [/\bno (?:incoming )?callers?\b/i],

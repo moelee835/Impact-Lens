@@ -7,12 +7,16 @@
 // phrases the M1 response-policy story pins are still present, in the files that are supposed to carry
 // them. It cannot tell whether surrounding prose still makes sense after an edit.
 
-import { FORBIDDEN_PHRASES } from './response-policy-engine.mjs';
+import { FORBIDDEN_PHRASES, CANDIDATE_CALLER_PHRASE } from './response-policy-engine.mjs';
 
 export const INDEX_STATES = Object.freeze(['unknown', 'working', 'ready']);
 
 const CONCLUSION_LAST_MARKER = 'conclusion last';
-const CANDIDATE_CALLER_MARKER = 'candidate caller';
+// Imported, not a separate literal - reviewer found that a standalone copy here could drift from the
+// actual regex evaluateSummary() matches against (CANDIDATE_CALLER_PHRASE's own comment in
+// response-policy-engine.mjs has the full reasoning), the same coupling FORBIDDEN_PHRASES above already
+// relies on.
+const CANDIDATE_CALLER_MARKER = CANDIDATE_CALLER_PHRASE;
 
 function includesCaseInsensitive(haystack, needle) {
   return haystack.toLowerCase().includes(needle.toLowerCase());

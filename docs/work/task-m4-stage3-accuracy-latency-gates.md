@@ -94,6 +94,27 @@ generic 어휘 목록이 아니라 **하나의 필수 고정 문구**("candidate
   복원 → 재실행 32/32.
 - `npm run test:all`(unit + response-policy + plugin-artifact): 전부 pass.
 
+### 리뷰 후속 (merge 전, 같은 commit 계열)
+
+리뷰어가 PR #75 검토 중 두 가지를 더 찾았다:
+
+1. **반대 방향(과소 주장) 미기록** — `data.augmentedEdges`가 비어 있는데 확정 caller를 "candidate
+   caller"라고 낮춰 부르는 경우는 검사도 없고 어디에도 기록이 없었다. 다른 gap들(먼저 나열하고 나중에
+   고백하는 경우 등)은 전부 명시적으로 기록돼 있었는데 이 방향만 없어서, "안전해서 안 본다"가 아니라
+   "그냥 안 본 것"으로 보일 위험이 있었다. **고치지 않고, `CANDIDATE_CALLER_PATTERN` 주석에 다른 gap과
+   같은 자리로 추가**했다 — 과소 주장(안전한 방향)이라 지금 검사하지 않는다는 것을 명시.
+2. **정규식과 문서-검사 문구의 결합이 구조적이지 않았음** — `doc_missing_candidate_caller_vocabulary`는
+   문서가 "candidate caller" 문구를 담고 있는지만 봤고, `CANDIDATE_CALLER_PATTERN` 정규식이 실제로
+   그 문구와 일치하는지는 별개 리터럴("candidate caller")로 따로 유지되고 있었다 — 정규식만 바뀌면
+   문서·invariant는 계속 통과하는데 실질 검사는 무력화되는 경로가 있었다. **비용을 먼저 재 보니 쌌다**
+   (이미 `FORBIDDEN_PHRASES`가 같은 방식으로 결합돼 있어 그대로 따라가면 됐다): `CANDIDATE_CALLER_PHRASE`
+   상수를 `response-policy-engine.mjs`에서 export하고 정규식을 그 상수로부터 생성, `response-policy-
+   doc-invariants.mjs`는 그 상수를 import해서 쓰도록 변경 — 한쪽만 바꾸는 게 구조적으로 불가능해졌다.
+
+**검증**: `npm run test:response-policy` 재실행 — **32/32 그대로**(리팩터링이 매칭 동작을 안 바꿨다는
+것 확인 — `escapeRegExp('candidate caller')`는 특수 정규식 문자가 없어 원래 정규식 리터럴과 동일한
+패턴 문자열을 만든다).
+
 ## 남은 단계 (미착수)
 
 - **정확도 gate**: fixture corpus 기준임을 측정값과 같은 자리에 명시, corpus 편향 명시, stage 2가
