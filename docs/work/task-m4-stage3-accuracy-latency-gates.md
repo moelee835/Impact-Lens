@@ -247,16 +247,27 @@ truncation 발동 확인용).
 
 ### 측정 결과 — adapter가 추가한 비용 (on 중앙값 − off 중앙값)
 
-| workspace 파일 수 | 쿼리: `get_db`(Depends walk만) | 쿼리: `get_items`(mount walk, worst case) |
-|---|---|---|
-| 20 | +4ms | +8ms |
-| 200 (`maxFiles` 상한) | +26ms | **+41ms** |
-| 400 (상한 초과, truncate) | +28ms | +43ms |
+**리뷰 라운드에서 실수 하나를 발견하고 고쳤다**: 처음 표에는 "400개 workspace, `maxFiles: 200`(안 바꿈)"
+행을 "400 (상한 초과, truncate)"라고만 적어서, 마치 **상한을 400으로 올려서 잰 것처럼** 읽혔다. 실제로는
+`walkPythonFiles`가 200에서 멈추므로 그 실험은 **"같은 상한에서 무관한 파일이 더 있어도 비용이 안
+느는가"**를 잰 것이지 **"상한을 올리면 비용이 어떻게 느는가"**는 잰 적이 없었다 — 리뷰어가 이 구분을
+정확히 짚었다. 그래서 `maxFiles`를 실제로 400으로 바꿔 재빌드하고, 400개 workspace를 그 상한에서
+다시 측정한 행을 추가했다(가짜 데이터로 채우지 않고 실측으로 채움 — 아래 표의 마지막 행).
 
-**`maxFiles` 판단에 쓰는 값은 200에서의 +41ms다** — mount가 끝내 발견되지 않는 worst-case 쿼리가
-정확히 현재 상한만큼 전체 walk를 했을 때의 추가 비용. 400에서 43ms로 거의 안 늘어난 것도 확인했다 —
-`walkPythonFiles`가 상한에서 실제로 멈춘다는 것(코드 읽기가 아니라 실측)을 보여준다. 파일당 비용은
-대략 0.2ms/file(200개 기준 41ms ÷ 200) — 상한을 올려도 비용 자체는 계속 저렴하게 유지된다는 뜻이다.
+| workspace 파일 수 | `maxFiles` | 쿼리: `get_db`(Depends walk만) | 쿼리: `get_items`(mount walk, worst case) |
+|---|---|---|---|
+| 20 | 200(기본값) | +4ms | +8ms |
+| 200 | 200(기본값, 정확히 상한과 일치) | +26ms | **+41ms** |
+| 400 | 200(안 바꿈 — 무관한 파일 200개 초과분은 truncate로 안 걸림, "상한을 올렸을 때"의 근거로 인용 금지) | +28ms | +43ms |
+| 400 | **400(실제로 올려서 재측정)** | +48ms | **+75ms** |
+
+**`maxFiles`를 실제로 400으로 올렸을 때 worst-case 비용은 +75ms**(200에서는 +41ms) — 파일당
+약 0.19ms(75ms ÷ 400)로, 200에서 계산한 값(약 0.2ms/file = 41ms ÷ 200)과 거의 같다. **이제 "상한을
+올려도 비용은 계속 저렴하게(파일당 비율이 거의 그대로) 유지된다"는 문장은 실측 근거를 갖는다** —
+전에는 이 문장이 상한을 안 올린 실험(3번째 행)에서 나온 결론이라 근거가 없었다.
+`augmentation_budget_exceeded`가 이 재측정에서는 안 뜨는 것도 확인해(위 "검증" 참고) 400개 전부가
+실제로 walk됐다는 것을 이중 확인했다. 재측정 후 값은 다시 200으로 되돌리고 재빌드해
+`augmentation_budget_exceeded`가 다시 뜨는 것까지 확인(값이 실제로 원복됐다는 non-vacuity 확인).
 
 **on/off 전체 응답 시간(참고용, 위 표와 다른 질문에 답한다)**: off 자체가 20개 440ms → 200개 532ms →
 400개 621ms로 이미 workspace 크기에 비례해 늘어난다(pyright 자체의 indexing 비용, augmentation과
@@ -293,6 +304,22 @@ bare identifier mount만 안정적으로 잡는다고 결론냈으니, `maxFiles
 분포에 대한 근거가 나오면 그때 다시 본다. 값 변경이 아니므로 별도의 사전 승인 절차는 필요 없지만, 이
 판단 자체(과정에서 나온 초안 실수 포함)를 commander에게 보고한다.
 
+### 이 표의 숫자와 회귀 테스트의 숫자는 직접 비교할 수 없다
+
+`pythonFastapiIntegration.test.ts`의 latency 회귀 테스트("latency gate: augmentation adds bounded
+cost...")를 실행하면 위 표의 41ms가 아니라 **한 자릿수~10ms대** 값이 나올 수 있다 — 다른 값을 재는
+게 아니라, **다른 통계·다른 workspace**를 쓰기 때문이다:
+
+- 표는 **중앙값**(9회), 회귀 테스트는 **최소값**(3회, `minTotalMs`) — 스케줄링 노이즈는 항상 시간을
+  더하기만 하므로, on/off 양쪽에 같은 통계(최소값)를 쓰는 게 뺄셈을 공정하게 만든다는 게 테스트 자체
+  주석의 근거다. 중앙값과 최소값은 같은 실행에서도 다른 숫자다.
+- 표는 이 절을 위해 만든 **합성 200개 파일 workspace**, 회귀 테스트는 이 저장소에 이미 있는 **작은
+  fixture corpus**(`orphan_router.py` 등, `maxFiles` 상한에 한참 못 미치는 크기)를 쓴다 —
+  worst-case 파일 walk 자체는 같은 코드 경로지만, 방문하는 파일 수 자체가 다르다.
+
+**둘 다 각자의 목적에는 정당하다**(표는 `maxFiles` 값 판단용 절대 비용, 회귀 테스트는 CI 노이즈를
+견디는 회귀 tripwire)지만, 하나의 "adapter 비용"으로 나란히 놓고 비교하면 안 된다.
+
 ### 구현
 
 - `cli/src/adapters/fastapiDependencyAdapter.ts`의 `isRouterMounted` 문서 주석: "재검토 안 됨" 표현을
@@ -307,6 +334,10 @@ bare identifier mount만 안정적으로 잡는다고 결론냈으니, `maxFiles
 - 400개 workspace에서 `augmentation_budget_exceeded`가 실제로 뜨는 것과, `mountUnresolved` 관련
   `framework_route_mount_unresolved`가 mount 여부와 무관하게 계속 뜨는 것을 실제 CLI 응답으로 확인
   (worst-case 가정이 허구가 아님을 실측 확인).
+- `maxFiles`를 실제로 400으로 올린 재측정: 재빌드 후 같은 400개 workspace에서
+  `augmentation_budget_exceeded`가 **더 이상 안 뜨는 것**을 확인(400개 전부가 실제로 walk됐다는 뜻).
+  측정 후 200으로 되돌리고 재빌드해 `augmentation_budget_exceeded`가 **다시 뜨는 것**까지 확인 —
+  값이 실제로 원복됐다는 것을 코드 diff뿐 아니라 동작으로도 재확인(non-vacuity).
 - 회귀 테스트로 latency gate를 고정(아래 "latency regression" 참고) — 전체 스위트 재실행 결과는 그
   테스트 추가 커밋에 기록.
 

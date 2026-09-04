@@ -244,9 +244,12 @@ function sameFile(a: string, b: string): boolean {
  * unchanged - two separate findings, kept separate on purpose:
  *
  * 1. MEASURED: the cost of this walk at the cap, worst case (mount never found, so every visited file is
- *    read to the end) is ~0.2ms/file locally, ~41ms total at 200 files - cheap enough that latency alone
- *    is not a reason to keep the cap where it is. Raising it stays cheap at any size a real project is
- *    likely to reach.
+ *    read to the end), is ~0.2ms/file locally: ~41ms at `maxFiles: 200`, and ~75ms measured with the cap
+ *    actually raised to 400 (not merely a 400-file workspace under the 200 cap, which measures a
+ *    different thing - a truncated walk stops at 200 regardless of how many more files exist, so that
+ *    experiment alone cannot show what raising the cap itself costs; both were measured, see the work
+ *    document's latency table). Cheap enough, and close enough to linear across the one real data point
+ *    pair collected, that latency alone is not a reason to keep the cap where it is.
  * 2. STRUCTURAL, also not a guess: `maxFiles` only controls whether this walk finishes without
  *    truncating - it has nothing to do with which mount SHAPES the regex above can recognize once a file
  *    is actually visited. A module-attribute (`x.router`) or alias-variable mount is missed by this
