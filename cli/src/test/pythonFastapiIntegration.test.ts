@@ -552,10 +552,15 @@ const AUGMENTATION_LIMITATION_CODES = new Set([
 
 function stripAugmentationVariableFields(response: Record<string, unknown>): Record<string, unknown> {
   const clone = JSON.parse(JSON.stringify(response));
-  // The envelope carries `capabilities`/`limitations`/`timings` at BOTH the root (a summary) and again
-  // nested under `data` (the full record) - found by running this test before writing this function and
-  // reading what it actually failed on, not assumed from `impact.ts`'s return shape alone. Both copies
-  // need the same treatment, or this helper silently only checks half of what the response contains.
+  // The envelope carries `limitations`/`timings` at BOTH the root (a summary) and again nested under
+  // `data` (the full record) - found by running this test before writing this function and reading what
+  // it actually failed on, not assumed from `impact.ts`'s return shape alone. Both copies need the same
+  // treatment, or this helper silently only checks half of what the response contains. `capabilities` is
+  // NOT one of these - the root's `capabilities` mirrors `data.provider` (a different name, not a second
+  // copy under the same key), and `data.provider` is never stripped below because it never differs
+  // between on/off in the first place (index.ts copies `data.provider` verbatim to the root regardless of
+  // augmentation), so `deepEqual` passing on it is a real fact about the response, not a gap in this
+  // helper's coverage.
   delete clone.timings;
   if (Array.isArray(clone.limitations)) clone.limitations = clone.limitations.filter((code: string) => !AUGMENTATION_LIMITATION_CODES.has(code));
 
