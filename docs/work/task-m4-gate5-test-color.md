@@ -91,3 +91,47 @@ commander 권고(주황, blue/purple과 구별되고 pass/fail 의미가 없음)
   것"처럼 안 보이게만 했다. 분류 자체(파일명 휴리스틱)의 정확도는 손대지 않았다.
 - **분류 근거를 사용자에게 보여주는 것**(예: "파일명 규칙으로 분류됨"을 tooltip에 명시) — 더 깊은
   문제이고 `IL-LIM-010`에 속한다고 판단해서 여기서 안 했다. 이 판단 자체를 기록한다.
+
+## 2026-09-04 정정 — 리뷰어가 회귀 테스트를 실행으로 뚫었다
+
+PR #82 리뷰에서 리뷰어가 원래 테스트를 실제로 무력화했다. 원래 코드는 이랬다(원문 그대로 인용, 이후
+줄 번호가 바뀔 수 있어 줄 번호 대신 문구로 인용한다):
+
+> `assert.doesNotMatch(source, /vscode-testing-/, ...)`
+
+다섯 곳을 전부 `--vscode-charts-green`(과 raw hex `#73c991`)으로 바꾸고 재빌드해도 **네 테스트가 전부
+통과했다** — `/vscode-testing-/`는 **금지 목록(deny-list)**이라 그 문자열이 없는 다른 어떤 색으로
+바꿔도 못 잡는다. 그런데 `charts-green`은 시각적으로 원래 문제(초록 = "통과"로 읽히는 test 노드)와
+**같다** — 이 lane이 막으려던 바로 그것이 안 걸린 것이다.
+
+**정정**: 금지 목록을 **허용 목록(allow-list)**으로 뒤집었다 — 다섯 규칙 각각이 정확히
+`var(--vscode-charts-orange, #ea5c00)`를 쓰는지 개별 정규식으로 파싱해 값 자체를 비교한다. 이제
+`charts-green`이든 raw hex든 그 값이 아닌 다른 어떤 것으로 바꿔도 테스트가 실패한다 — 색을 바꾸려면
+테스트도 같이 고쳐야 하고, 그게 목적이다(의도적이고 눈에 보이는 변경만 통과시킨다). 이 극성은 PR #79
+rollback 테스트("바뀌어도 되는 필드만 지우고 나머지 전부 비교")와 같은 원리다.
+
+**non-vacuity(리뷰어가 쓴 방법 그대로 재확인)**: 다섯 곳을 전부 `--vscode-charts-green, #73c991`로
+바꾸고 재빌드 → 새 테스트가 **이번엔 실패**(`actual 'var(--vscode-charts-green, #73c991)' vs expected
+'var(--vscode-charts-orange, #ea5c00)'`) → `cp`로 원본 복구 → `git diff --stat src/graphPanel.ts`
+출력 없음(완전 원복 확인) → 재컴파일 → 4개 전부 통과. 전체 스위트도 재확인: extension 59 pass(신규
+포함, 0 fail)/CLI 360 pass/3 skip(기존과 동일)/0 fail — 이 정정은 `src/`만 건드렸지만, 이 lane의
+관례대로 CLI 스위트도 다시 돌려 무관함을 실측으로 확인했다.
+
+## 알려진 고려사항 — 지금 고치지 않음, 화면 실측이 필요한 영역
+
+리뷰어가 VS Code 소스에서 실제 값을 확인: 이 파일은 이미 `--vscode-editorWarning-foreground`를
+`.node.changed`/`.warning`/`.state.stale`/`.state.analyzing`/`.state.partial`에 쓴다(284/308/310/311행
+부근). 실제 기본값은 dark `#CCA700`, light `#BF8803` — **amber 계열**이다.
+
+이번에 고른 주황(`#ea5c00`)과 hex 값은 다르지만, 둘 다 **warm 계열**이라 1.5~2px 정도의 얇은 stroke로
+그려지면 "주의가 필요한 상태"(changed/stale/warning)와 "test로 분류됨"이 화면에서 뭉뚱그려 보일 약한
+위험이 있다. 이건 gate 5가 막으려던 종류("실행하지 않은 결과를 주장")가 아니라 **다른 두 의미(경고 vs.
+분류)가 서로 혼동될 위험**이라 성격이 다르다. 화면을 실제로 보고 판단해야 하는 영역이라 **지금 색을
+바꾸지 않는다** — 나중에 실제 화면을 보는 사람(commander는 화면을 못 본다고 명시)이 판단할 근거로
+여기 기록만 남긴다.
+
+## 참고 — 검토 중 기각된 우려 하나
+
+commander가 "`.edge-test`가 blue/purple edge와 구별되는가"를 물었으나, 확인 결과 direct/transitive는
+**edge 레벨에 색이 아예 없다**(공통 `.edge`가 중립 회색; blue/purple은 node에만 쓰인다). `.edge-test`가
+색+점선이 붙은 유일한 edge라 비교 대상이 없다 — 질문의 전제 자체가 성립하지 않았다.

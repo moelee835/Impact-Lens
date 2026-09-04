@@ -43,13 +43,39 @@ test('sends the whole coverage record to the webview', () => {
 // palette's pass/fail-meaning tokens (especially `testing.iconPassed`) for a node whose only evidence is
 // its file path asserts a result that was never executed. `direct`/`transitive` already use the neutral
 // `charts` palette, not `testing`, for exactly this reason.
-test('never borrows the testing pass/fail palette for a test-classified node or edge', () => {
-  assert.doesNotMatch(
-    source,
-    /vscode-testing-/,
-    'Impact Lens does not run tests and classifies "test" purely by file name (isTestFilePath()), so a ' +
-      'testing-palette token (especially one with pass/fail meaning, like testing.iconPassed) would claim ' +
-      'a result that was never executed - use a neutral charts-* token instead, the same family already ' +
-      'used for direct/transitive.',
-  );
+//
+// This is an allow-list, not a deny-list, on purpose: an earlier version of this test only asserted
+// `doesNotMatch(source, /vscode-testing-/)`, which a reviewer defeated by pointing all five rules at
+// `--vscode-charts-green` (or a raw `#73c991` hex) instead - still a "passed"-looking green, still wrong,
+// and the deny-list regex never noticed because that string never appears. Pinning each rule to the exact
+// approved token means ANY substitute - a different color token, a raw hex, a new indirection - fails this
+// test and forces whoever changes it to touch the assertion too, the same anti-drift polarity as the
+// rollback field-stripping test in pythonFastapiIntegration.test.ts.
+test('pins the five test-classification style rules to the approved neutral token', () => {
+  const approved = 'var(--vscode-charts-orange, #ea5c00)';
+  const rules = [
+    { name: '.edge-test (stroke)', pattern: /\.edge-test\s*\{\s*stroke:\s*([^;]+);/ },
+    { name: '.node.test rect (stroke)', pattern: /\.node\.test rect\s*\{\s*stroke:\s*([^;]+);\s*\}/ },
+    {
+      name: '.node.test .relation-marker (fill)',
+      pattern: /\.node\.test \.relation-marker\s*\{\s*fill:\s*([^;]+);\s*\}/,
+    },
+    {
+      name: '.node.test .node-relation (fill)',
+      pattern: /\.node\.test \.node-relation\s*\{\s*fill:\s*([^;]+);\s*\}/,
+    },
+    { name: '.legend .test::before (background)', pattern: /\.legend \.test::before\s*\{\s*background:\s*([^;]+);\s*\}/ },
+  ];
+  for (const { name, pattern } of rules) {
+    const match = pattern.exec(source);
+    assert.ok(match, `expected to find a ${name} rule in graphPanel.ts`);
+    assert.equal(
+      match[1].trim(),
+      approved,
+      `${name} must use the approved neutral token ${approved} - Impact Lens does not run tests and ` +
+        'classifies "test" purely by file name (isTestFilePath()), so ANY color that reads as a pass/fail ' +
+        'signal (the old testing.iconPassed green, or a substitute green like charts-green or #73c991) ' +
+        'would claim a result that was never executed.',
+    );
+  }
 });
