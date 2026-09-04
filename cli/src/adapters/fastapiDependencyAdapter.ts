@@ -239,8 +239,32 @@ function sameFile(a: string, b: string): boolean {
  * `IGNORED_DIRECTORIES` pruning - `venv`/`site-packages` etc. do not count against this) exceeds
  * `maxFiles` can NEVER confirm a plain-`APIRouter()` route's mount, at all - every such route's edge is
  * suppressed, unconditionally, for as long as the workspace stays over budget. `maxFiles: 200` was picked
- * back when truncation only meant partial degradation; it has not been re-reviewed against this new,
- * stronger meaning (see the work document's "남은 것" for the stage 3 follow-up this is tracked under).
+ * back when truncation only meant partial degradation; it WAS re-reviewed against this new, stronger
+ * meaning in stage 3 (`docs/work/task-m4-stage3-accuracy-latency-gates.md`, latency section) and kept
+ * unchanged - two separate findings, kept separate on purpose:
+ *
+ * 1. MEASURED: the cost of this walk at the cap, worst case (mount never found, so every visited file is
+ *    read to the end), is ~0.2ms/file locally: ~41ms at `maxFiles: 200`, and ~75ms measured with the cap
+ *    actually raised to 400 (not merely a 400-file workspace under the 200 cap, which measures a
+ *    different thing - a truncated walk stops at 200 regardless of how many more files exist, so that
+ *    experiment alone cannot show what raising the cap itself costs; both were measured, see the work
+ *    document's latency table). Cheap enough, and close enough to linear across the one real data point
+ *    pair collected, that latency alone is not a reason to keep the cap where it is.
+ * 2. STRUCTURAL, also not a guess: `maxFiles` only controls whether this walk finishes without
+ *    truncating - it has nothing to do with which mount SHAPES the regex above can recognize once a file
+ *    is actually visited. A module-attribute (`x.router`) or alias-variable mount is missed by this
+ *    pattern even at infinite budget, in a visited file, on line one. Raising `maxFiles` therefore only
+ *    ever helps a mount this adapter would already have recognized, had truncation not cut its file off.
+ *
+ * What is genuinely NOT known, and was not guessed at to fill the gap: whether real FastAPI workspaces
+ * commonly exceed 200 `.py` files in the first place (if they don't, truncation rarely fires and the cap
+ * is moot), and separately, how common a bare-identifier mount is relative to the shapes this adapter
+ * cannot recognize regardless of `maxFiles` (that second question is the accuracy gate's territory, not
+ * this one's - an early draft of this very comment conflated the two: "raising the cap mostly helps a
+ * shape already well covered" is a claim about real-world shape distribution this lane never measured,
+ * not something this walk's code lets anyone conclude). Absent either measurement, `maxFiles: 200` stays
+ * unchanged - not because it was shown to be right, but because no evidence pushed it in a specific other
+ * direction.
  *
  * Matching only a bare identifier argument (`include_router(name` / `include_router(name,`, never
  * `include_router(name()` or `include_router(get_name())`) IS deliberate: it is exactly what leaves

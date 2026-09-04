@@ -57,6 +57,7 @@ interface AnalyzeResponse {
     readonly limitationDetails: ReadonlyArray<{ readonly code: string; readonly message: string }>;
     readonly coverage: { readonly semantic: { readonly status: string } };
     readonly completion: { readonly semanticScope: string };
+    readonly timings: { readonly totalMs: number };
   };
 }
 
@@ -435,5 +436,45 @@ test(
     const response = analyzeFile('parenthesized_import_target.py', 8, 5, true); // `def parenthesized_target_fn`
     assert.equal(response.ok, true);
     assert.equal(response.data.augmentedEdges.length, 0, JSON.stringify(response.data.augmentedEdges));
+  },
+);
+
+// ---------------------------------------------------------------------------
+// M4 stage 3 latency gate (docs/work/task-m4-stage3-accuracy-latency-gates.md, "단계 3"). Not a tight
+// perf assertion - CI runners are noisy and this corpus is small (well under `maxFiles`), so exact
+// millisecond numbers belong in the work document (measured locally, with its own environment stated),
+// not in a threshold here. What this pins is the shape of a real regression: augmentation adding an
+// unbounded or accidentally-quadratic cost (e.g. a `maxFiles` cap silently dropped, or a loop re-reading
+// every file per match instead of once). `orphan_router.py` is used because it is the one query in this
+// corpus that always pays the FULL `isRouterMounted` file walk - the mount is never found, so
+// `nameAmbiguous` forces every file to be visited (see that function's own doc comment) - the same
+// worst-case path the work document's latency table measured against `maxFiles`.
+// ---------------------------------------------------------------------------
+
+function minTotalMs(file: string, line: number, column: number, augmentationEnabled: boolean, repeats: number): number {
+  const samples: number[] = [];
+  for (let i = 0; i < repeats; i += 1) {
+    samples.push(analyzeFile(file, line, column, augmentationEnabled).data.timings.totalMs);
+  }
+  // min, not mean/median: scheduling noise only ever ADDS time to a single run, never subtracts it, so
+  // the minimum across repeats is the best available estimate of each side's true floor cost - and using
+  // it for both sides keeps the subtraction below a fair comparison, not one cherry-picked to pass.
+  return Math.min(...samples);
+}
+
+test(
+  'latency gate: augmentation adds bounded cost on the worst-case query (route handler whose router is never mounted)',
+  { timeout: 60000 },
+  () => {
+    const off = minTotalMs('orphan_router.py', 13, 5, false, 3);
+    const on = minTotalMs('orphan_router.py', 13, 5, true, 3);
+    const addedMs = on - off;
+    assert.ok(
+      addedMs < 5000,
+      `augmentation added ${addedMs}ms (off=${off}ms, on=${on}ms) on the worst-case mount-walk query - ` +
+        'expected well under 5000ms on this small fixture corpus (local M1 Pro measurement in the work ' +
+        'document put this in the tens of ms; this threshold is deliberately loose to absorb CI noise ' +
+        'and only catch an actual unbounded-cost regression, not normal variance).',
+    );
   },
 );
