@@ -65,6 +65,19 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 > 실측 — `m4-semantic-augmentation.md`의 같은 날짜 정정에 전체 근거). 이 수용 기준에서 "복수
 > 후보" 실증 요구는 제거하고, 단일 후보와 runtime-only binding 구분만 gate 대상으로 남긴다.
 > `resolution: 'multiple'` 값 자체(코드)는 유지한다.
+>
+> **이 정정이 남기는 것과 `m4-semantic-augmentation.md`의 같은 날짜 정정이 남기는 것은 서로 다른
+> 조건이라는 것을 명시한다** — 리뷰어가 짚었다. M4 gate 쪽 정정은 "단일 후보 + ambiguity"를 남기고
+> ambiguity는 mount name-collision fixture(`isRouterMounted()`의 `nameAmbiguous`)로 이미 충족된다.
+> 반면 이 수용 기준이 남기는 "runtime-only binding" 구분은 **다른 개념이다** — stage 1의 기존 정정이
+> "후보 target을 정적으로 단 하나도 나열할 수 없으면 edge를 만들지 않고 limitation만 보고한다"로
+> 이미 정의해 둔 대로 profile, 정적으로 안 풀리는 conditional, programmatic registration, proxy/AOP
+> 같은 경우이고, mount 확인 가능 여부와는 코드 경로도 개념도 다르다. **이 저장소에 이 시나리오를
+> 재현하는 fixture는 없다**(직접 확인:
+> `fastapi-static-v1`에 runtime-only binding 전용 코드 경로나 limitation이 없고,
+> `dynamic_mount_router.py`도 mount 쪽 시나리오이지 DI 후보 열거 불가 시나리오가 아니다). **이
+> PR은 이 fixture 공백을 새로 만들지도, 닫지도 않는다** — mount ambiguity로 대체됐다고 재정의하지
+> 않는다(개념이 다른 둘을 같다고 선언하는 것이 되므로). 아래 "M4 gate C"로 별도 기록.
 
 ## 검증
 

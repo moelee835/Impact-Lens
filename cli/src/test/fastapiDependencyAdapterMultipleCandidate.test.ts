@@ -47,8 +47,15 @@ function item(workspace: string, file: string, name: string, line: number, chara
  * Returns a fixed sequence of `prepare()` results, one per call, in the order the adapter is known to
  * call them for this exact fixture (Depends() reference first, then the enclosing `def`) - traced
  * directly from `fastapiDependencyAdapter()`'s own source, not guessed. A call beyond the scripted
- * sequence throws rather than silently returning `[]`, so a future change to the adapter's call order or
- * count fails this test loudly instead of letting it pass while testing something else.
+ * sequence returns `[]`, the same "unresolved" value a real provider gives for a position it cannot
+ * resolve - a call at an unscripted position was never going to name a real symbol regardless. What
+ * actually protects this test against a future change to the adapter's call order or count is its own
+ * `edges.length`/`resolution`/`source name` assertions below, not this provider: an earlier version of
+ * this comment claimed an unscripted call would throw and "fail loudly", but `resolveEndpoint()` in
+ * fastapiDependencyAdapter.ts wraps every `prepare()` call in try/catch and converts any exception to
+ * `{ items: [] }` - a throw here is caught and silently becomes the same `[]` a plain return would give,
+ * so it defended nothing (found by a reviewer's mutation test: replacing the throw with `return []`
+ * produced a byte-identical failure message on the same broken-code probe below).
  */
 class ScriptedProvider implements CallHierarchyProvider {
   readonly capabilities: ProviderCapabilities = {
@@ -72,7 +79,7 @@ class ScriptedProvider implements CallHierarchyProvider {
 
   async prepare(): Promise<readonly CallHierarchyItem[]> {
     if (this.callIndex >= this.results.length) {
-      throw new Error(`ScriptedProvider.prepare() called ${this.callIndex + 1} times, only ${this.results.length} scripted`);
+      return [];
     }
     const result = this.results[this.callIndex];
     this.callIndex += 1;
