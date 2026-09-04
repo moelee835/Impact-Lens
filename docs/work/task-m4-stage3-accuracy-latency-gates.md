@@ -208,12 +208,160 @@ recall 숫자를 만들지 않았다.
   (거짓 침묵이 아니라) 실제로 뜨는지까지 확인.
 - 전체 스위트: **351 pass, 3 skip(실제 gopls 필요, 기존과 동일), 0 fail.**
 
+## 단계 3 — latency + `maxFiles` (완료, 값 변경 없음)
+
+### 목적과 사용자 가치
+
+augmentation을 켜면 얼마나 느려지는지 모르면 "켜도 되는지" 판단할 수 없다. 이 절은 그 숫자를 만들고,
+`maxFiles: 200`을 latency 근거로 다시 검토한다 — **값을 바꾸는 결정이 아니라, 바꿀지 말지 판단할 근거를
+만드는 것**이다(값을 실제로 바꾸기 전에는 commander에게 먼저 보고하기로 한 규칙 그대로).
+
+### 무엇을 쟀는지 (측정 대상 정의)
+
+세 가지를 구별해서 쟀다:
+
+1. **on/off 전체 응답 시간 차이** (`data.timings.totalMs`, 이미 응답에 있는 필드) — 사용자가 실제로
+   체감하는 값. 하지만 이 값의 대부분은 pyright 자체의 workspace indexing 비용(augmentation과 무관하게
+   workspace 크기에 비례해 늘어난다)이라, 이것만으로는 "adapter가 추가한 비용"을 못 본다.
+2. **adapter가 추가한 비용만** = on 중앙값 − off 중앙값, 같은 workspace·같은 쿼리에서. pyright
+   indexing이라는 공통 비용이 양쪽에 똑같이 걸리므로 뺄셈으로 상쇄된다 — `maxFiles` 판단에 실제로
+   쓰이는 값은 이것이다.
+3. **`isRouterMounted()` 파일 walk 자체의 worst case** — mount가 끝내 발견되지 않는 쿼리(root가 route
+   handler인데 어디에도 mount 안 됨)는 `nameAmbiguous` 판정 때문에 mount 발견 여부와 무관하게 항상
+   `maxFiles` 상한까지 전체 walk를 한다(`fastapiDependencyAdapter.ts`의 `isRouterMounted` 자체 문서
+   주석 참고) — 이게 `maxFiles`를 올렸을 때 실제로 늘어나는 비용의 정체다.
+
+### 측정 환경 (숫자 옆에 적는다: "빠르다"는 측정이 아니다)
+
+**로컬, CI 아님.** Apple M1 Pro(10 core), Darwin 25.5.0 arm64, Node v25.8.1, 2026-09-04. CI runner(특히
+Windows)는 파일 I/O 특성이 달라 절대값이 다를 수 있다 — 여기서 얻은 건 **상대적 비용 구조**(파일당
+비용, workspace 크기에 대한 스케일)이지 "CI에서도 정확히 이 ms가 나온다"가 아니다.
+
+**workspace**: 실제 CLI(`node dist/index.js analyze --stdin`)를 합성 workspace 세 개에 대해 각각
+9회 반복 실행, 중앙값 사용(스크립트는 저장소 밖 scratch 도구, 재현 방법은 이 절에 전문 기록). 각
+workspace: `real_module.py`(root 함수 `get_db`), `consumer.py`(`Depends(get_db)` 진짜 참조 1건),
+`app.py`(mount 안 된 `APIRouter()` route handler `get_items` — worst case용), 나머지는 `~40줄`짜리
+filler 파일(절반은 `import fastapi` 포함, 절반은 미포함 — 두 codepath 모두 실제로 스캔되도록). 크기
+3종: 20개(현재 corpus와 비슷한 규모), 200개(현재 `maxFiles` 상한과 정확히 일치), 400개(상한 초과,
+truncation 발동 확인용).
+
+### 측정 결과 — adapter가 추가한 비용 (on 중앙값 − off 중앙값)
+
+**리뷰 라운드에서 실수 하나를 발견하고 고쳤다**: 처음 표에는 "400개 workspace, `maxFiles: 200`(안 바꿈)"
+행을 "400 (상한 초과, truncate)"라고만 적어서, 마치 **상한을 400으로 올려서 잰 것처럼** 읽혔다. 실제로는
+`walkPythonFiles`가 200에서 멈추므로 그 실험은 **"같은 상한에서 무관한 파일이 더 있어도 비용이 안
+느는가"**를 잰 것이지 **"상한을 올리면 비용이 어떻게 느는가"**는 잰 적이 없었다 — 리뷰어가 이 구분을
+정확히 짚었다. 그래서 `maxFiles`를 실제로 400으로 바꿔 재빌드하고, 400개 workspace를 그 상한에서
+다시 측정한 행을 추가했다(가짜 데이터로 채우지 않고 실측으로 채움 — 아래 표의 마지막 행).
+
+| workspace 파일 수 | `maxFiles` | 쿼리: `get_db`(Depends walk만) | 쿼리: `get_items`(mount walk, worst case) |
+|---|---|---|---|
+| 20 | 200(기본값) | +4ms | +8ms |
+| 200 | 200(기본값, 정확히 상한과 일치) | +26ms | **+41ms** |
+| 400 | 200(안 바꿈 — 무관한 파일 200개 초과분은 truncate로 안 걸림, "상한을 올렸을 때"의 근거로 인용 금지) | +28ms | +43ms |
+| 400 | **400(실제로 올려서 재측정)** | +48ms | **+75ms** |
+
+**`maxFiles`를 실제로 400으로 올렸을 때 worst-case 비용은 +75ms**(200에서는 +41ms) — 파일당
+약 0.19ms(75ms ÷ 400)로, 200에서 계산한 값(약 0.2ms/file = 41ms ÷ 200)과 거의 같다. **이제 "상한을
+올려도 비용은 계속 저렴하게(파일당 비율이 거의 그대로) 유지된다"는 문장은 실측 근거를 갖는다** —
+전에는 이 문장이 상한을 안 올린 실험(3번째 행)에서 나온 결론이라 근거가 없었다.
+`augmentation_budget_exceeded`가 이 재측정에서는 안 뜨는 것도 확인해(위 "검증" 참고) 400개 전부가
+실제로 walk됐다는 것을 이중 확인했다. 재측정 후 값은 다시 200으로 되돌리고 재빌드해
+`augmentation_budget_exceeded`가 다시 뜨는 것까지 확인(값이 실제로 원복됐다는 non-vacuity 확인).
+
+**on/off 전체 응답 시간(참고용, 위 표와 다른 질문에 답한다)**: off 자체가 20개 440ms → 200개 532ms →
+400개 621ms로 이미 workspace 크기에 비례해 늘어난다(pyright 자체의 indexing 비용, augmentation과
+무관 — off인데도 늘어나는 게 그 증거다). 이 숫자를 "augmentation 비용"으로 잘못 읽지 않도록 위 표와
+분리해서 적는다.
+
+### `maxFiles`를 올릴지 판단 — 측정된 것과 안 된 것을 분리한다
+
+이 판단 과정에서 초안 실수가 하나 있었다: 처음 쓴 code comment가 "stage 2 accuracy gate가 이 adapter는
+bare identifier mount만 안정적으로 잡는다고 결론냈으니, `maxFiles`를 올려도 실제 이득은 작을 것"이라고
+적었다 — **이건 틀린 결합이다.** commander가 스스로 같은 실수를 지적하고 정정을 보내왔다: "real FastAPI
+프로젝트가 qualified/alias 형태를 bare-identifier보다 더 흔히 쓴다"는 것은 **측정한 적 없는 추측**이고,
+그 결론 전체가 그 추측 위에 얹혀 있었다. 리뷰어가 이 구분(자체 측정 vs 추론 재진술)을 다음 검토에서
+따로 본다고 등록했다. 정정한 구분은 이렇다:
+
+**측정/구조상 참인 것 (2가지)**:
+1. 위 표의 latency 비용 자체 — 저렴하다.
+2. **`maxFiles`와 정규식의 shape 인식은 완전히 독립된 축이다.** `maxFiles`는 "walk가 truncate 없이
+   끝나는가"만 결정한다 — 방문한 파일 안의 mount 표현이 `x.router`(module-attribute)나 alias 변수
+   형태면, budget이 무한대여도 정규식이 원천적으로 못 잡는다(정확도 gate 절에서 이미 fixture로 확인한
+   사실). 그러므로 `maxFiles`를 올려서 얻는 이득은 **"truncation 때문에 못 봤는데 봤다면 bare
+   identifier라 잡혔을 mount"** 로 정확히 한정된다 — 이보다 넓게 "더 많이 잡는다"고 말할 수 없다.
+
+**측정 안 된 것 (2가지, 추측으로 채우지 않는다)**:
+1. 실제 FastAPI workspace가 `.py` 파일 200개를 흔히 넘는지 — 안 넘으면 애초에 truncation이 실전에서
+   거의 안 일어나 이 논의 자체가 무의미해진다.
+2. 실제 프로젝트에서 bare-identifier mount와 qualified/alias mount의 상대적 빈도 — 이건 정확도 gate가
+   이미 별개로 인정한 "모른다"(50% 방향성 미상)와 같은 질문이고, `maxFiles` 판단에 이 값을 빌려 쓰면
+   안 된다.
+
+**결정: `maxFiles: 200`을 바꾸지 않는다 — "옳다고 확인돼서"가 아니라 "다른 값으로 밀 근거가 없어서"다.**
+`resolution: 'multiple'`·recall과 같은 종류의 판단(단정할 근거가 없으면 단정하지 않는다). latency
+쪽은 명확히 저렴하다고 나왔으니 **latency가 이 값을 못 바꾸는 이유는 아니다** — 실제 project 크기
+분포에 대한 근거가 나오면 그때 다시 본다. 값 변경이 아니므로 별도의 사전 승인 절차는 필요 없지만, 이
+판단 자체(과정에서 나온 초안 실수 포함)를 commander에게 보고한다.
+
+### 이 표의 숫자와 회귀 테스트의 숫자는 직접 비교할 수 없다
+
+`pythonFastapiIntegration.test.ts`의 latency 회귀 테스트("latency gate: augmentation adds bounded
+cost...")를 실행하면 위 표의 41ms가 아니라 **한 자릿수~10ms대** 값이 나올 수 있다 — 다른 값을 재는
+게 아니라, **다른 통계·다른 workspace**를 쓰기 때문이다:
+
+- 표는 **중앙값**(9회), 회귀 테스트는 **최소값**(3회, `minTotalMs`) — 스케줄링 노이즈는 항상 시간을
+  더하기만 하므로, on/off 양쪽에 같은 통계(최소값)를 쓰는 게 뺄셈을 공정하게 만든다는 게 테스트 자체
+  주석의 근거다. 중앙값과 최소값은 같은 실행에서도 다른 숫자다.
+- 표는 이 절을 위해 만든 **합성 200개 파일 workspace**, 회귀 테스트는 이 저장소에 이미 있는 **작은
+  fixture corpus**(`orphan_router.py` 등, `maxFiles` 상한에 한참 못 미치는 크기)를 쓴다 —
+  worst-case 파일 walk 자체는 같은 코드 경로지만, 방문하는 파일 수 자체가 다르다.
+
+**둘 다 각자의 목적에는 정당하다**(표는 `maxFiles` 값 판단용 절대 비용, 회귀 테스트는 CI 노이즈를
+견디는 회귀 tripwire)지만, 하나의 "adapter 비용"으로 나란히 놓고 비교하면 안 된다.
+
+### 구현
+
+- `cli/src/adapters/fastapiDependencyAdapter.ts`의 `isRouterMounted` 문서 주석: "재검토 안 됨" 표현을
+  제거하고 위 두 측정/구조 사실 + 두 미상 사실을 명시(코드가 값 옆에 근거를 직접 담도록).
+- `cli/src/adapters/index.ts`의 `DEFAULT_BUDGET` 옆에 위 문서 주석을 가리키는 짧은 pointer 추가.
+- 값 자체(`maxFiles: 200`, `maxMatchesPerFile: 20`)는 변경 없음.
+
+### 검증
+
+- 벤치마크 재현: scratch 스크립트(저장소 밖)가 위 세 workspace를 생성해 실제 빌드된 CLI로 각 9회
+  반복 실행 — 코드 읽기나 추정이 아니라 직접 실행한 `data.timings.totalMs`에서 중앙값 계산.
+- 400개 workspace에서 `augmentation_budget_exceeded`가 실제로 뜨는 것과, `mountUnresolved` 관련
+  `framework_route_mount_unresolved`가 mount 여부와 무관하게 계속 뜨는 것을 실제 CLI 응답으로 확인
+  (worst-case 가정이 허구가 아님을 실측 확인).
+- `maxFiles`를 실제로 400으로 올린 재측정: 재빌드 후 같은 400개 workspace에서
+  `augmentation_budget_exceeded`가 **더 이상 안 뜨는 것**을 확인(400개 전부가 실제로 walk됐다는 뜻).
+  측정 후 200으로 되돌리고 재빌드해 `augmentation_budget_exceeded`가 **다시 뜨는 것**까지 확인 —
+  값이 실제로 원복됐다는 것을 코드 diff뿐 아니라 동작으로도 재확인(non-vacuity).
+- 회귀 테스트로 latency gate를 고정(아래 "latency regression" 참고) — 전체 스위트 재실행 결과는 그
+  테스트 추가 커밋에 기록.
+
+### 이 항목이 닫지 않은 것 — 마일스톤 gate 문구와의 차이
+
+마일스톤 종료 gate는 "지원 언어 fixture에서 정해진 false-positive와 **latency budget**을 통과한다"고
+적혀 있다. **이 lane이 만든 건 budget이 아니다** — on/off 비용을 측정한 숫자와, 그 숫자가 갑자기
+무한대로 튀는 회귀(예: `maxFiles` cap이 코드에서 빠지는 사고)를 잡는 **tripwire**(회귀 테스트의 5000ms
+임계값, 실패 메시지에도 그렇게 명시)다. "얼마나 느려지면 이 기능을 켜기에 too slow인가"에 대한 판단
+기준은 아직 없다 — 그건 latency 숫자만으로는 못 정하고, augmentation을 실제로 기본 on으로 켤지
+판단하는 사람이 "그 비용을 사용자가 감수할 만한가"를 정할 때 나오는 값일 가능성이 크다(즉 **지금
+이 lane이 정할 값이 아닐 수 있다**). 그러니 **마일스톤 종료 판정 시 "latency를 쟀다"를 "정해진
+budget을 통과했다"로 세면 안 된다** — 이 gate 항목은 아직 안 닫혔고, 닫히려면 "정해진 budget" 자체가
+필요하다. 정확도 절이 recall을 억지로 안 만든 것과 같은 종류의 기록이다.
+
 ## 남은 단계 (미착수)
 
-- **latency**: 무엇을 재는지 먼저 정의. `maxFiles` 값 재검토는 **바꾸기 전에 보고**, 근거를 값 옆에
-  기록.
+- **milestone latency budget gate (아직 안 닫힘)**: 위 "이 항목이 닫지 않은 것" 참고 — 측정값과
+  tripwire는 있지만 "정해진 budget"은 없다. budget을 정할 시점(지금인지, 기본값 on 전환 시점인지)부터
+  판단 필요.
 - **`resolution: 'multiple'` gate 문구**: 실증할 구성을 찾거나, 못 찾았다는 근거와 함께 마일스톤 문서
-  정정(Spring→FastAPI 방식) — **정정이 필요하다는 결론이 나오면 보고**.
+  정정(Spring→FastAPI 방식) — **정정이 필요하다는 결론이 나오면 보고**. 정정 문구는 "존재하지 않는다"와
+  "(시도한 구성에서) 못 찾았다"를 구분해서 쓴다 — pyright로 직접 확인한 건 조건부 재정의 패턴 하나에서
+  후보가 1개라는 것뿐이지, 어떤 구성에서도 여럿이 안 나온다는 전수 증명이 아니다.
 - **rollback**: 켠 상태에서 `nodes`/`edges`·completeness 다섯 필드 불변을 회귀 테스트로 고정(지금은
   구조로만 보장, 테스트로 고정되지 않음).
 - corpus 2(`resolution: 'multiple'`)·4a(dedupe)·중첩 dependency fixture — stage 2가 남긴 항목, 각각

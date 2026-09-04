@@ -11,7 +11,11 @@ export const ADAPTERS: readonly RegisteredAdapter[] = [
 
 /** Same budget for every adapter today - there is only one. A second adapter with different needs is
  * exactly the kind of case that should decide whether this stays shared or becomes per-adapter, not
- * something to guess at with one data point. */
+ * something to guess at with one data point.
+ *
+ * `maxFiles: 200` - re-reviewed in stage 3 (latency measured, kept unchanged); see
+ * `isRouterMounted`'s doc comment in `./fastapiDependencyAdapter.ts` for the measured cost and why
+ * raising it was not taken up. */
 const DEFAULT_BUDGET: AdapterBudget = { maxFiles: 200, maxMatchesPerFile: 20 };
 
 export interface AugmentationResult {
