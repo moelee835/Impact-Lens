@@ -57,6 +57,15 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 > 바로 위 수용 기준을, 이 경우엔 대체가 아니라 유일한 출력으로 적용한다). 자세한 근거는 work
 > document 참고.
 
+> **2026-09-04 추가 정정(M4 stage 3, `docs/work/task-m4-stage3-accuracy-latency-gates.md`
+> "단계 3")**: 위 수용 기준 "단일 후보, **복수 후보**와 runtime-only binding이 확정·후보·미지원
+> 관계로 구분된다"의 "복수 후보"를 FastAPI adapter로 실증하려고 서로 다른 두 구성(조건부 재정의,
+> try/except import fallback)을 직접 시도했으나 pyright의 `prepareCallHierarchy`가 두 경우 모두
+> 정확히 1개 항목만 반환해 만들지 못했다(전수 조사 아님, 시도한 두 구성에서 못 찾았다는 것만
+> 실측 — `m4-semantic-augmentation.md`의 같은 날짜 정정에 전체 근거). 이 수용 기준에서 "복수
+> 후보" 실증 요구는 제거하고, 단일 후보와 runtime-only binding 구분만 gate 대상으로 남긴다.
+> `resolution: 'multiple'` 값 자체(코드)는 유지한다.
+
 ## 검증
 
 - 최소 FastAPI fixture의 route → handler → dependency 관계 통합 테스트

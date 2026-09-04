@@ -208,15 +208,72 @@ recall 숫자를 만들지 않았다.
   (거짓 침묵이 아니라) 실제로 뜨는지까지 확인.
 - 전체 스위트: **351 pass, 3 skip(실제 gopls 필요, 기존과 동일), 0 fail.**
 
+## 단계 3 — `resolution: 'multiple'` gate 문구 (완료, 마일스톤 문서 정정)
+
+### 목적과 사용자 가치
+
+`m4-semantic-augmentation.md`의 2026-09-03 정정이 이 마일스톤의 실제 종료 gate로 "FastAPI import
+alias, sub-dependency와 cross-file dependency/router include의 대표 fixture가 **candidate(단일/복수
+후보)**와 ambiguity를 재현한다"를 적어 뒀다 — "복수 후보"를 실증하는 fixture가 필요하다는 뜻이다.
+stage 2는 시도 한 번(조건부 재정의) 끝에 만들지 못했다고 기록만 하고 stage 3로 미뤘다. 이 gate 문구를
+실제로 만족시킬 수 있는지, 아니면 Spring→FastAPI 때처럼 문서 자체를 정정해야 하는지 결정한다 —
+가짜로 "통과"라고 적으면 이 마일스톤이 이미 두 번 겪은 "shipped 문서가 실제와 다름"의 세 번째 사례가
+된다.
+
+### 조사 — 두 번째 구성을 실제로 시도했다
+
+stage 2가 시도한 것(조건부 재정의: `if cond: def f(): ... else: def f(): ...`)과 **다른** 구성을 새로
+시도했다 — **try/except import fallback**(`try: from module_a import get_db \n except ImportError:
+from module_b import get_db`), 각 module이 서로 다른 실제 `get_db` 함수를 정의하는 throwaway
+fixture(저장소 밖 scratch, 커밋 안 함). `Depends(get_db)` 참조 지점에서 실제 CLI로 직접 쿼리(임시
+`process.stderr` 로그로 `resolveEndpoint()`가 반환하는 `items` 배열을 직접 관찰, 비-vacuity 확인 후
+로그 제거):
+
+- `resolved.items.length === 1`(2개가 아니라 1개) — **`module_b`(except 절, 텍스트상 마지막 binding)만
+  반환된다.** `module_a`를 root로 쿼리하면 `augmentedEdges: []`(안 맞으니 정상), `module_b`를 root로
+  쿼리하면 `resolution: 'single'` edge 1개가 정확히 나온다(직접 실행으로 재확인).
+- 즉 pyright는 이 구성에서도 ambiguity를 노출하지 않는다 — Python의 static name binding이 조건절과
+  무관하게 텍스트상 마지막 대입으로 수렴하는 것과 일치하는 결과다(stage 2의 조건부 재정의와 같은
+  근본 원인으로 보인다: pyright의 binder가 어휘적 위치 하나당 하나의 governing declaration을 갖는
+  모델이라, 같은 참조 지점이 여러 후보로 갈리는 상황 자체가 Python 스코프 규칙상 잘 안 생긴다).
+
+**이건 추측이 아니라 두 번째 실측**이다. 다만 이걸로 "어떤 구성으로도 불가능하다"고 결론 내리지는
+않는다 — commander가 명시적으로 요구한 구분("못 찾았다" vs "존재하지 않는다")을 그대로 지킨다:
+**시도한 두 자연스러운 구성 모두에서 못 찾았다**는 것이 증거이지, 전수 조사는 아니다.
+
+### 결정 — 마일스톤 문서 정정 (Spring→FastAPI와 같은 방식)
+
+**정정이 필요하다는 결론이다.** 현재 gate 문구("candidate(단일/복수 후보)")는 시도 두 번 모두 실패한
+"복수 후보" 실증을 필수 조건처럼 요구한다. Spring→FastAPI 정정과 같은 방식으로 처리한다 — 원문은
+보존하고, 날짜가 있는 정정을 추가하며, **줄 번호가 아니라 원문으로 인용한다**(`IL-LIM-002`의 정정
+자신이 세운 규칙, 정정 삽입이 줄 번호를 밀어 자기 인용이 깨진 적이 있어서). 정정 내용: "복수 후보"
+실증은 **시도했지만 못 찾았다**는 사실과 그 시도 두 건(조건부 재정의, try/except import fallback)을
+명시하고, 이 gate는 **단일 후보**(이미 fixture로 충족됨: `alias_target.py` 등) **와 ambiguity**(이미
+별도로 충족됨: mount name collision fixture들)로 만족된 것으로 대체한다. "복수 후보"를 완전히
+지우지 않고, "시도했지만 pyright가 이 경로에서 노출하지 않았다"는 사실 자체를 gate 옆에 남긴다 —
+`resolution: 'multiple'`이라는 값 자체(코드 분기, `resolutionCandidateCount > 1 ? 'multiple' :
+'single'`)는 그대로 두고, 그걸 트리거하는 실제 fixture가 없다는 것만 정정한다.
+
+### 구현
+
+- `docs/development-management/milestones/m4-semantic-augmentation.md`의 종료 gate 항목에 2026-09-04
+  추가 정정 — "candidate(단일/복수 후보)"의 "복수 후보" 부분에 시도 두 건과 결과를 원문 인용으로 남기고,
+  이 마일스톤의 실제 gate에서 그 요구를 제거한다.
+
+### 검증
+
+- `module_a.py`/`module_b.py`/`consumer.py` throwaway fixture로 두 방향(각각을 root로) 직접 CLI 실행
+  — `module_a` 쿼리는 `augmentedEdges: []`, `module_b` 쿼리는 `resolution: 'single'` edge 1개, 예상과
+  정확히 일치.
+- 디버그 로그(`process.stderr.write`)는 확인 후 즉시 제거, `git diff`로 코드 변경 없음을 확인(이
+  항목은 코드가 아니라 문서만 바뀐다).
+
 ## 남은 단계 (미착수)
 
-- **latency**: 무엇을 재는지 먼저 정의. `maxFiles` 값 재검토는 **바꾸기 전에 보고**, 근거를 값 옆에
-  기록.
-- **`resolution: 'multiple'` gate 문구**: 실증할 구성을 찾거나, 못 찾았다는 근거와 함께 마일스톤 문서
-  정정(Spring→FastAPI 방식) — **정정이 필요하다는 결론이 나오면 보고**.
+- **latency**: PR #77(별도 branch, 리뷰 중)에서 이미 완료 — 이 문서에는 그 PR이 merge되면 함께 반영.
 - **rollback**: 켠 상태에서 `nodes`/`edges`·completeness 다섯 필드 불변을 회귀 테스트로 고정(지금은
   구조로만 보장, 테스트로 고정되지 않음).
 - corpus 2(`resolution: 'multiple'`)·4a(dedupe)·중첩 dependency fixture — stage 2가 남긴 항목, 각각
-  어떻게 할지 이 lane에서 결정.
+  어떻게 할지 이 lane에서 결정. corpus 2는 위 "단계 3"의 정정으로 사실상 처리됨(실증 불가 근거 기록).
 - 이 lane이 하지 않는 것: 기본값 on 전환(결정은 보고만), 사용자 테스트 명세, 새 adapter, corpus 4b(있으면
   좋지만 필수 아님).
