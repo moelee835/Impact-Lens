@@ -1,0 +1,82 @@
+{
+  "file": "23-augmented-edges-correctly-distinguished.json",
+  "name": "data.augmentedEdges entry correctly labeled 'candidate caller', distinct from data.edges' confirmed caller",
+  "description": "M4 stage 3 plugin-doc prerequisite: same response as fixture 22, but the summary follows SKILL.md/cli-contract.md's required vocabulary - names the data.edges result a caller and the data.augmentedEdges result a candidate caller, never conflating the two. Deliberately avoids generic uncertainty vocabulary ('not confirmed', 'unproven', etc.) that a first attempt at this fixture found collides with stale_index_caveat's whole-summary word scan (that check flags 'index...ready' plus any later, unrelated use of its uncertainty word list, even in a different sentence about a different claim - measured directly, not assumed; see response-policy-engine.mjs's CANDIDATE_CALLER_PATTERN comment). Proves the required phrase itself does not trip any existing check. Must-pass fixture.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": { "name": "@impact-lens/cli", "version": "0.8.0" },
+      "node": { "version": "22.0.0", "major": 22, "executable": "node" },
+      "runner": { "source": "checkout" }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "pyright",
+        "requestedLanguageId": "python",
+        "detectedLanguageId": "python",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": { "callHierarchy": true, "diagnostics": true },
+        "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+        "lifecycle": { "stage": "query", "status": "ready" }
+      },
+      "coverage": {
+        "traversal": { "status": "complete", "requestedDepth": 5, "reachedDepth": 1, "maxNodes": 120 },
+        "semantic": { "status": "augmented", "evidenceSources": ["lsp-call-hierarchy", "inferred-fastapi-static-v1"] },
+        "indexing": { "status": "ready", "evidence": { "signal": "work-done-progress", "detail": "indexing" } },
+        "reasons": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "inferred_edges_included"]
+      },
+      "completion": { "requestStatus": "succeeded", "traversalStatus": "exhausted", "semanticScope": "static-plus-inference", "indexingStatus": "ready" },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "rootId": "root111111111111111111",
+      "nodes": [
+        { "id": "root111111111111111111", "name": "get_db" },
+        { "id": "confirmed2222222222222", "name": "regular_caller" }
+      ],
+      "edges": [
+        { "source": "confirmed2222222222222", "target": "root111111111111111111" }
+      ],
+      "augmentedEdges": [
+        {
+          "source": { "kind": "synthetic", "name": "get_items", "kindLabel": "function", "file": "app.py", "range": { "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 1 } } },
+          "target": { "kind": "existing", "id": "root111111111111111111" },
+          "adapterId": "fastapi-static-v1",
+          "evidenceSource": "static-inference",
+          "resolution": "single",
+          "reasonCode": "fastapi-depends",
+          "evidenceRanges": [{ "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 1 } }]
+        }
+      ],
+      "limitationDetails": [
+        { "code": "dynamic_calls_not_inferred", "severity": "info", "scope": "semantic", "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy." },
+        { "code": "unsaved_buffers_unavailable", "severity": "info", "scope": "request", "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk." },
+        { "code": "inferred_edges_included", "severity": "warning", "scope": "semantic", "message": "The graph includes inferred edges. Inferred edges are heuristic and carry their source.", "action": "Review the inferred edges before acting on them." }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "pyright",
+      "requestedLanguageId": "python",
+      "detectedLanguageId": "python",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": { "callHierarchy": true, "diagnostics": true },
+      "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+      "lifecycle": { "stage": "query", "status": "ready" }
+    },
+    "limitations": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "inferred_edges_included"],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from pyright with augmentation enabled; the provider index is ready. get_db has one caller, regular_caller. A FastAPI adapter separately found one candidate caller, get_items, via Depends() inference - the graph includes inferred edges, reviewed before acting on them.",
+  "expect": "pass",
+  "expectedViolations": []
+}

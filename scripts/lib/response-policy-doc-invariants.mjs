@@ -7,11 +7,16 @@
 // phrases the M1 response-policy story pins are still present, in the files that are supposed to carry
 // them. It cannot tell whether surrounding prose still makes sense after an edit.
 
-import { FORBIDDEN_PHRASES } from './response-policy-engine.mjs';
+import { FORBIDDEN_PHRASES, CANDIDATE_CALLER_PHRASE } from './response-policy-engine.mjs';
 
 export const INDEX_STATES = Object.freeze(['unknown', 'working', 'ready']);
 
 const CONCLUSION_LAST_MARKER = 'conclusion last';
+// Imported, not a separate literal - reviewer found that a standalone copy here could drift from the
+// actual regex evaluateSummary() matches against (CANDIDATE_CALLER_PHRASE's own comment in
+// response-policy-engine.mjs has the full reasoning), the same coupling FORBIDDEN_PHRASES above already
+// relies on.
+const CANDIDATE_CALLER_MARKER = CANDIDATE_CALLER_PHRASE;
 
 function includesCaseInsensitive(haystack, needle) {
   return haystack.toLowerCase().includes(needle.toLowerCase());
@@ -48,6 +53,13 @@ export function checkDocInvariants(docs) {
   }
   if (!includesCaseInsensitive(docs.analyzeMd, CONCLUSION_LAST_MARKER)) {
     violations.push({ code: 'doc_missing_summary_order', message: 'analyze.md no longer states that a summary puts the conclusion last.' });
+  }
+
+  if (!includesCaseInsensitive(docs.skillMd, CANDIDATE_CALLER_MARKER)) {
+    violations.push({ code: 'doc_missing_candidate_caller_vocabulary', message: 'SKILL.md no longer teaches "candidate caller" as the required term for a data.augmentedEdges-sourced result.' });
+  }
+  if (!includesCaseInsensitive(docs.cliContractMd, CANDIDATE_CALLER_MARKER)) {
+    violations.push({ code: 'doc_missing_candidate_caller_vocabulary', message: 'cli-contract.md no longer teaches "candidate caller" as the required term for a data.augmentedEdges-sourced result.' });
   }
 
   return violations;
