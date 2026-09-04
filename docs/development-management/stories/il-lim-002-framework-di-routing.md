@@ -175,6 +175,12 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 > 단계는 Java 또는 Kotlin이 먼저 언어 지원을 얻은 뒤(M3 이후)에만 시작할 수 있다 — 그 전까지는
 > "후속"이 아니라 "착수 불가"다. `m4-semantic-augmentation.md`의 종료 gate도 이 사실을 반영해
 > 정정했다.
+>
+> **2026-09-04 추가**: 위 "Java 또는 Kotlin이 먼저 언어 지원을 얻은 뒤(M3 이후)"가 이제 구체적인
+> story를 가리킨다 — Java는 [`IL-LIM-018`](il-lim-018-java-language-support.md)(M3 신규), Kotlin은
+> [`IL-LIM-016`](il-lim-016-kotlin-lsp-support.md)이다. 이 story들이 만드는 것은 언어 지원(provider
+> preset)뿐이다 — Spring adapter 자체(이 5단계)는 여전히 M4, `IL-LIM-002`의 몫으로 남는다(언어
+> 계층과 framework 계층의 분리는 그대로 유지).
 
 1. component/service/repository, constructor injection, `@Bean`, qualifier/primary와 interface 구현 fixture를 만든다.
 2. profile, conditional, collection injection, proxy/AOP와 programmatic registration을 negative/runtime-only로 둔다.

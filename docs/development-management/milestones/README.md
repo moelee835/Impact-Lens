@@ -14,7 +14,7 @@
 | M0 | [Provider 실행 신뢰성](m0-provider-runtime-trust.md) | IL-LIM-003, 017 | IL-LIM-006 1~2단계 | JS/TS Plugin 분석이 배포 환경에서 재현 가능하고 실패 원인이 구분됨 | In progress |
 | M1 | [Provider 플랫폼과 무설정 UX 기반](m1-provider-platform-ux.md) | IL-LIM-005, 009 | IL-LIM-004 1~2단계 | Auto/doctor/custom의 일관된 계약과 과신하지 않는 결과 의미 | Done |
 | M2 | [Python·Go·C/C++ verified support](m2-p1-language-support.md) | IL-LIM-004, 006, 014 | 없음 | 우선 언어를 raw provider JSON 없이 분석하고 준비 문제를 안내 | Done |
-| M3 | [Swift·Kotlin 및 callable 확장](m3-p2-language-callables.md) | IL-LIM-015, 016, 011 | 없음 | toolchain 기반 언어와 검증된 callable syntax 지원 | Planned |
+| M3 | [Swift·Kotlin·Java 및 callable 확장](m3-p2-language-callables.md) | IL-LIM-015, 016, 018, 011 | 없음 | toolchain 기반 언어와 검증된 callable syntax 지원 | Planned |
 | M4 | [동적 호출·DI·테스트 의미 보완](m4-semantic-augmentation.md) | IL-LIM-001, 002, 010 | 없음 | provenance가 있는 동적/framework/test evidence로 주요 미탐 감소 | Planned |
 | M5 | [편집 중 분석과 대규모 workspace](m5-workspace-workflow.md) | IL-LIM-007, 008 | 없음 | 저장 전 변경과 큰 graph에서도 제한이 예측 가능한 workflow | Planned |
 | M6 | [Note 접근성과 언어별 마무리](m6-notes-language-polish.md) | IL-LIM-012, 013 | 없음 | CLI note 접근 전략과 안전한 언어별 source note 문법 | Planned |
@@ -25,7 +25,7 @@
 M0 실행 신뢰성
  └─ M1 provider 플랫폼·UX
      └─ M2 Python·Go·C/C++
-         └─ M3 Swift·Kotlin·callable
+         └─ M3 Swift·Kotlin·Java·callable
              └─ M4 동적·DI·test evidence
                  ├─ M5 편집·대규모 workflow
                  └─ M6 note·언어별 마무리
@@ -41,7 +41,7 @@ augmentation의 공식 release gate는 evidence schema가 모든 검증 언어�
 | Story | 완료 마일스톤 | 선행 단계 | 비고 |
 | --- | --- | --- | --- |
 | IL-LIM-001 | M4 | M0~M2 | 동적 edge는 evidence/provenance 계약 후 추가 |
-| IL-LIM-002 | M4 | M0~M2 | Spring Java/Kotlin을 첫 framework adapter 후보로 사용 |
+| IL-LIM-002 | M4 | M0~M2 | FastAPI가 첫 adapter(2026-09-03 정정, `m4-semantic-augmentation.md` 참고). Spring은 Java/Kotlin 언어 지원(M3, IL-LIM-018/016) 이후로 연기 |
 | IL-LIM-003 | M0 | Done | PR #16 병합과 v0.6.0 release 검증으로 완료 |
 | IL-LIM-004 | M2 | M1 1~2단계 | M1에서 catalog/doctor 기반, M2에서 verified preset으로 완료 |
 | IL-LIM-005 | M1 | M0 | generic LSP lifecycle·transport·compatibility 기반 |
@@ -57,6 +57,7 @@ augmentation의 공식 release gate는 evidence schema가 모든 검증 언어�
 | IL-LIM-015 | M3 | M1 | SourceKit-LSP와 SwiftPM/Xcode 경계 |
 | IL-LIM-016 | M3 | M1 | Kotlin LSP Alpha와 Gradle/Maven readiness |
 | IL-LIM-017 | M0 | 구현 완료 | PR #16·#18 병합, v0.6.0 release와 실제 default-path 검증 완료, 사용자 검증 남음 |
+| IL-LIM-018 | M3 | M1 | jdtls discovery와 JVM readiness — `IL-LIM-016`과 진단 코드 공유 시도(2026-09-04 신규) |
 
 ## 운영 규칙
 

@@ -17,6 +17,12 @@
 > 잘못 적어 뒀다). **Spring은 이 마일스톤에서 만들지 않는다** — Java/Kotlin 언어 지원이 생긴
 > 뒤(M3 이후)로 미룬다. 원문은 보존하고, 아래 해당 항목마다 정정을 남긴다.
 
+> **2026-09-04 추가**: 위 정정의 "그건 M3 이후의 일이다"와 "Java/Kotlin 언어 지원이 생긴 뒤(M3
+> 이후)로 미룬다"가 가리키던 자리가 이제 구체적인 story를 갖는다 — Java는
+> [`IL-LIM-018`](../stories/il-lim-018-java-language-support.md)(M3 신규), Kotlin은 이미 있던
+> [`IL-LIM-016`](../stories/il-lim-016-kotlin-lsp-support.md)이다. "M3 이후"는 여전히 맞는
+> 표현이지만 이제 "M3의 두 특정 story가 닫힌 뒤"로 더 정확히 읽을 수 있다.
+
 ## 목표
 
 LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관련성을 근거 없이 확정하지 않으면서
