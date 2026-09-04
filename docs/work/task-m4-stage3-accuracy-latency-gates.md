@@ -451,15 +451,136 @@ mock이라 이번 것(어댑터 입력 레벨의 stub)과 층이 다르다 — �
 `'single'` 고정으로 바꿔 재빌드 → "multiple" 테스트만 실패("actual 'single', expected 'multiple'"),
 control(단일 후보) 테스트는 그대로 통과 → 원복 후 재빌드해 둘 다 통과 확인.
 
+### 리뷰 후속 (merge 전, PR #79)
+
+리뷰어가 두 가지를 더 찾았다:
+
+1. **두 정정이 남기는 조건이 서로 다른데 같은 것처럼 적혀 있었다**: M4 gate 정정이 남기는 "단일
+   후보 + ambiguity"는 mount name-collision fixture로 이미 충족되지만, `IL-LIM-002`의 수용 기준이
+   남기는 "단일 후보 + **runtime-only binding 구분**"은 **다른 개념**이다 — stage 1이 이미 정의해
+   둔 대로 "DI 후보 target을 정적으로 단 하나도 나열할 수 없는 경우"(profile, programmatic
+   registration, proxy/AOP 등)이지 mount 확인 가능 여부가 아니다. `IL-LIM-002`의 정정 문구가 이
+   구분을 안 밝혀서 마치 이미 충족된 것처럼 읽혔다. **`fastapi-static-v1`에 runtime-only 시나리오를
+   재현하는 fixture가 없다는 것을 직접 확인**(runtime-only 전용 코드 경로·limitation 자체가 없음,
+   `dynamic_mount_router.py`도 mount 쪽이지 DI 열거 불가 시나리오가 아님)하고, `IL-LIM-002`의 정정
+   문구에 이 구분과 "이 PR이 새로 만들지도 닫지도 않는다"를 명시했다. 위 "남은 단계"에 "M4 gate
+   C"로 이름 있는 항목으로 기록.
+2. **`ScriptedProvider`의 throw 방어가 실제로는 아무것도 안 지켰다**: 이전 주석이 "스크립트를 넘는
+   호출은 throw해서 테스트가 시끄럽게 실패한다"고 적었는데, `resolveEndpoint()`(`fastapiDependency
+   Adapter.ts`)가 `provider.prepare()`를 try/catch로 감싸 모든 예외를 `{items: []}`로 바꾼다 —
+   throw든 `return []`든 그 지점 이후로는 완전히 동일하게 처리된다(리뷰어가 mutation으로 확인:
+   throw를 `return []`로 바꿔도 바이트 단위로 같은 실패 메시지). 실질적으로 이 테스트를 지키는 건
+   각 테스트의 `edges.length`/`resolution`/`source.name` 단언이지 provider의 throw가 아니다.
+   `ScriptedProvider.prepare()`의 throw를 제거하고(방어 효과가 없으므로) 주석을 실제 동작에 맞게
+   다시 썼다.
+
+**검증**: `npm run test:all` 재실행 — 전체 스위트 재확인(아래 "전체 검증" 참고), 두 신규 stub 테스트
+그대로 통과.
+
+## 단계 5 — 중첩 dependency(sub-dependency) fixture (완료)
+
+### 목적과 사용자 가치
+
+M4 gate("단계 4"에서 정정)는 "복수 후보" 부분만 고쳤다 — "FastAPI import alias, **sub-dependency(중첩
+dependency)**와 cross-file dependency/router include의 대표 fixture가 candidate(단일 후보)와
+ambiguity를 재현한다"는 요구는 그대로 남아 있다. stage 2가 "별도 코드 경로가 아닐 것"이라고 코드
+구조로 추측만 하고 fixture로 확인하지 않은 채 stage 3로 넘겼다(`docs/work/task-m4-stage2-fastapi-
+adapter.md` "3. 중첩 dependency" 참고) — 이 항목은 선택이 아니라 gate가 여전히 요구하는 것이라 지금
+닫는다.
+
+### 검증(먼저 실측, 그다음 fixture)
+
+3단계 Depends() 체인 fixture(`nested_dependency_config.py`의 `get_config` ← `nested_dependency_db.py`의
+`get_db`(자기 자신도 `Depends(get_config)`를 가짐) ← `nested_dependency_consumer.py`의 `handler`)를
+만들어 **실제 빌드된 CLI로 먼저 직접 실행**: `get_config`를 root로 쿼리하면 **`get_db`가 candidate
+caller로 정확히 1건** 나온다(`handler`가 아니다 — 전이적 체인 전체가 아니라 각 레벨의 직접 참조만
+잡는다는 것도 같이 확인). 코드 변경 없이 stage 2의 추측이 맞다는 것을 실측으로 확인했다.
+
+### 구현
+
+- 신규 fixture 3개: `nested_dependency_config.py`(root, 최내부), `nested_dependency_db.py`(중간,
+  자기 자신도 `Depends(get_config)`를 가짐), `nested_dependency_consumer.py`(최외부).
+- `pythonFastapiIntegration.test.ts`에 테스트 1개 신규 — `get_config`를 root로 쿼리해 candidate가
+  정확히 1건이고 그 source가 `get_db`(handler가 아님)임을 확인.
+
+### 검증
+
+- non-vacuity: `nested_dependency_db.py`의 `Depends(get_config)`를 일시적으로 평범한 함수 호출
+  (`get_config()`)로 바꿔 재빌드 → 새 테스트가 실제로 실패(`0 !== 1`) → 원본으로 복원, 재빌드 →
+  다시 통과 확인.
+- 코드 변경 없음(fixture·테스트만 추가) — stage 2의 "별도 코드 경로가 아니다"라는 판단이 실측으로
+  확인됐다.
+
+## 단계 6 — rollback 회귀 테스트 (완료)
+
+### 목적과 사용자 가치
+
+M4 stage 1의 evidence 계약("Q5 — kill switch")이 요구하는 두 불변식이 **지금까지 코드 구조로만
+보장되고 테스트로 고정되지 않았다** — reviewer가 stage 1을 막았던 지적이 실제로는 아직 안 닫혀
+있었다. 두 불변식은 서로 다른 질문이라 각각 테스트가 필요하다: (1) **OFF 상태** — augmentation을
+전혀 모르는 예전 클라이언트(요청에 `augmentationEnabled` 필드 자체가 없음)도 안전한가, (2) **ON
+상태** — augmentation이 실제로 뭔가를 찾아냈을 때도 `nodes`/`edges`/completeness는 그대로인가(사용자가
+실제로 대부분의 시간을 보내는 상태가 바로 이것이다).
+
+### 구현 — "다 지우고 남은 걸 비교" 방식(하나씩 같음을 주장하는 방식 대신)
+
+`stripAugmentationVariableFields()`: 응답 전체를 깊은 복사한 뒤 **augmentation 때문에 합법적으로
+달라지는 필드만 지우고, 나머지 전체를 `assert.deepEqual`로 비교**한다 — 어떤 필드가 같아야 하는지
+하나하나 나열하는 대신, "이것들만 다르고 나머지는 전부 같다"로 뒤집었다. 이렇게 하면 **내가 이름을
+안 붙인 필드가 나중에 새로 생겨도** 그 필드가 몰래 달라지면 이 테스트가 잡는다 — 나열 방식이었다면
+새 필드는 아예 비교 대상에서 빠졌을 것이다.
+
+**실제로 만들면서 이 방식의 이점을 직접 겪었다**: 처음 구현은 `data.timings`만 지웠는데, 실행해
+보니 실패했다 — 응답 envelope가 `capabilities`/`limitations`/`timings`를 **최상위에도 한 번 더**
+갖고 있다는 것을 그때 알았다(`data.provider`/`data.limitations`/`data.timings`와 별개로). 코드
+읽기나 추정이 아니라 **테스트를 실행해서 실패 메시지로 발견**했다 — 최상위 `timings`도 지우도록
+고쳤다.
+
+### 검증
+
+- **non-vacuity(ON 상태 테스트)**: `impact.ts`의 `augmentedEdges` 계산 직후에 `edges` 배열에 가짜
+  항목을 임시로 push하는 코드를 넣어 재빌드 → ON 상태 테스트가 실제로 실패(`edges: []`가 기대인데
+  가짜 항목이 섞인 배열이 나옴) → 코드 원복, 재빌드 → 통과 확인(`git diff`로 코드가 정확히 원래대로
+  돌아왔음을 확인).
+- OFF 상태 테스트: `augmentationEnabled` 필드를 아예 안 보낸 요청과 명시적 `false`를 보낸 요청을
+  실제 CLI로 각각 실행해 `stripAugmentationVariableFields()`로 비교(둘 다 OFF라 augmentation 관련
+  필드 자체가 다를 이유가 없다) — 통과, 그리고 `augmentedEdges`가 항상 `[]`임을 별도 확인.
+- ON 상태 테스트: 같은 쿼리를 augmentation on/off로 각각 실행 — on 쪽이 실제로 candidate edge를
+  찾았는지부터 확인(여기서 0건이면 비교 자체가 무의미하므로 이 확인이 먼저다), 그다음
+  `stripAugmentationVariableFields()`로 나머지 전체가 동일함을 확인.
+- 전체 스위트 재실행 결과는 이 커밋에 기록(아래 "전체 검증" 참고).
+
 ## 남은 단계 (미착수)
 
-- **rollback**: 켠 상태에서 `nodes`/`edges`·completeness 다섯 필드 불변을 회귀 테스트로 고정(지금은
-  구조로만 보장, 테스트로 고정되지 않음).
 - **milestone latency budget gate (아직 안 닫힘)**: 위 "단계 3"의 "이 항목이 닫지 않은 것" 참고 —
   측정값과 tripwire는 있지만 "정해진 budget"은 없다. budget을 정할 시점(지금인지, 기본값 on 전환
   시점인지)부터 판단 필요.
-- corpus 2(`resolution: 'multiple'`)·4a(dedupe)·중첩 dependency fixture — stage 2가 남긴 항목.
-  corpus 2는 위 "단계 4"의 정정으로 사실상 처리됨(실증 불가 근거 기록). 4a·중첩 dependency는 각각
-  어떻게 할지 이 lane에서 결정 필요.
+- **corpus 4a(같은 세션 dedupe)** — stage 2가 이미 심각도를 "소음(중복 표시, 거짓 주장 아님)"으로
+  판정해 연기 가능으로 남긴 항목. `runAugmentation()`/adapter가 이미 계산된 `edges` 배열을 받지
+  않아 지금 구조로는 dedupe할 방법이 없다(threading 필요, 실제 코드 변경). **정정된 M4 gate 문구
+  어디에도 dedupe 요구가 없다** — stage 3에서 처리하지 않고 이후로 넘긴다.
+- corpus 2(`resolution: 'multiple'`)는 위 "단계 4"의 정정으로, 중첩 dependency fixture는 위 "단계
+  5"로, rollback 회귀 테스트는 위 "단계 6"으로 각각 stage 3 안에서 처리 완료.
+- **M4 gate A — UI 구분 (아직 안 닫힘, 어느 stage에도 안 걸려 있음)**: M4 종료 gate "LSP 확정 edge와
+  추론/framework/runtime evidence가 JSON과 UI에서 구분된다"에서 **JSON 쪽은 됐지만 UI 쪽은 손대지
+  않았다** — `git grep -l augmentedEdges`로 확인: 저장소 루트 `src/`(VS Code Extension)에 `augmentedEdges`가
+  한 번도 안 나온다(`cli/`·`docs/`·`plugins/`·`scripts/`에만 존재). commander가 stage 2 요구사항에서
+  "UI/Extension 표현"을 범위 밖에 뒀지만 어느 stage가 이어받는지는 안 적혀 있었다 — 이 lane도
+  안 이어받는다. **이 lane이 닫지 않는다**는 것만 명시적으로 기록.
+- **M4 gate B — IL-LIM-010(테스트 탐지), story 전체가 미착수**: M4의 완료 소유 story
+  (`IL-LIM-001, IL-LIM-002, IL-LIM-010`) 중 `IL-LIM-010`은 상태가 여전히 `Backlog`다(직접 확인) —
+  stage 1/2/3 어디도 손대지 않았다. 마일스톤 자신의 "단계별 계획" 2번이 "test evidence adapter를
+  kill switch와 함께 구현한다"고 이미 stage 2 범위에 포함시켜 뒀는데 실제로 만들어지지 않았다 —
+  Spring이 "M3 이후"로 막연히 떠 있다가 정정된 것과 같은 형태의 계획 공백. **이 lane이 닫지
+  않는다** — story 하나 분량의 별도 stage가 필요하다는 것만 기록.
+- **M4 gate C — `IL-LIM-002` runtime-only binding 구분, fixture 없음(아직 안 닫힘)**: `IL-LIM-002`의
+  수용 기준 "단일 후보, 복수 후보와 **runtime-only binding**이 확정·후보·미지원 관계로 구분된다"에서
+  "복수 후보"는 위 "단계 4"에서 정정했지만 runtime-only binding 구분은 그대로 남는다 — 이건 mount
+  ambiguity(`isRouterMounted()`의 `nameAmbiguous`)와 **다른 개념**(DI 후보 target을 정적으로 단
+  하나도 나열할 수 없는 경우, 예: profile/programmatic registration/proxy-AOP)이고, 이 시나리오를
+  재현하는 fixture가 이 저장소에 없다(직접 확인: `fastapi-static-v1`에 runtime-only 전용 코드
+  경로·limitation이 없음). **이 lane이 새로 만들지도, 닫지도 않는다** — mount ambiguity fixture로
+  대체됐다고 재정의하지 않는다(개념이 다른 둘을 같다고 선언하는 것이므로). gate A·B와 같은 성격의
+  공백.
 - 이 lane이 하지 않는 것: 기본값 on 전환(결정은 보고만), 사용자 테스트 명세, 새 adapter, corpus 4b(있으면
-  좋지만 필수 아님).
+  좋지만 필수 아님), 위 gate A·B·C.
