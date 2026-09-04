@@ -390,3 +390,50 @@ test(
     );
   },
 );
+
+// ---------------------------------------------------------------------------
+// M4 stage 3 accuracy corpus - known false negatives (docs/work/task-m4-stage3-accuracy-latency-gates.md).
+// Each of these is a genuine caller/mount that this adapter does NOT detect, by construction - an accepted
+// miss, not a bug: the adapter never claims reachability it cannot confirm, so the failure direction here
+// is silence, not a fabricated edge. These are asserted here (not just described in the work document) so
+// the accuracy-gate corpus counts are tied to executable fixtures, and so a future regex widening that
+// starts catching one of these shapes is a visible, deliberate test change instead of a silent drift.
+// ---------------------------------------------------------------------------
+
+test(
+  'accuracy corpus, known false negative: a router mounted only via a module-attribute reference (x.router) is not detected',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('attr_mount_router.py', 15, 5, true); // `def attr_mount_handler`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 0, JSON.stringify(response.data.augmentedEdges));
+    assert.ok(
+      response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+      'expected framework_route_mount_unresolved, not a fabricated edge, for a mount this scan cannot follow',
+    );
+  },
+);
+
+test(
+  'accuracy corpus, known false negative: a router mounted only under a cross-file import alias is not detected',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('alias_mount_router.py', 14, 5, true); // `def alias_mount_handler`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 0, JSON.stringify(response.data.augmentedEdges));
+    assert.ok(
+      response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+      'expected framework_route_mount_unresolved, not a fabricated edge, for a mount this scan cannot follow',
+    );
+  },
+);
+
+test(
+  'accuracy corpus, known false negative: a Depends() alias introduced by a parenthesized multi-line import is not detected',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('parenthesized_import_target.py', 8, 5, true); // `def parenthesized_target_fn`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 0, JSON.stringify(response.data.augmentedEdges));
+  },
+);
