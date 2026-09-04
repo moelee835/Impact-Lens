@@ -467,6 +467,17 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
     // root only through its alias produced zero edges), since a plain definition file has no reason to
     // import its own top-level symbol under another name.
     const localNames = [input.root.name];
+    // Alongside `localNames` (which `findDependsReferences` needs, just to know which names to search
+    // for) - the candidate count `verified.items.length` for each verified alias, checked at exactly the
+    // same import-line position `verified` was already computed from. Closure audit finding
+    // (docs/work/task-m4-milestone-closure-audit.md, gate 4): `verified.items.some(... === rootId)`
+    // below is a MEMBERSHIP check ("is root among the candidates"), not an ambiguity RESOLUTION ("how
+    // many candidates are there") - conflating the two silently discarded this count and always reported
+    // `resolution: 'single'` for a verified alias, even when the import line genuinely resolved to
+    // several candidates including root. Recording the real count here, once, is what lets the literal-
+    // name branch below and this one share the same `resolution: 'multiple'` meaning: "this reference
+    // resolves to more than one real candidate, one of which is root."
+    const aliasCandidateCounts = new Map<string, number>();
     for (const binding of aliasBindingsFor(text, input.root.name)) {
       if (matchesProcessed >= input.budget.maxFiles * input.budget.maxMatchesPerFile) {
         budgetExceeded = true;
@@ -478,6 +489,7 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
       const verified = await resolveEndpoint(input, file, { line: binding.line, character: binding.character });
       if (verified.items.some(item => symbolId(item) === input.rootId)) {
         localNames.push(binding.alias);
+        aliasCandidateCounts.set(binding.alias, verified.items.length);
       }
     }
     const lines = text.split('\n');
@@ -497,8 +509,12 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
       // provider-based check corpus case 1 requires (a same-named symbol resolving to something else must
       // still produce nothing for root).
       const isVerifiedAlias = reference.name !== input.root.name;
-      let resolutionCandidateCount = 1;
-      if (!isVerifiedAlias) {
+      let resolutionCandidateCount: number;
+      if (isVerifiedAlias) {
+        // Always present: `isVerifiedAlias` is true only for a name `findDependsReferences` matched from
+        // `localNames`, and every alias entered there was also given a count in the same loop above.
+        resolutionCandidateCount = aliasCandidateCounts.get(reference.name)!;
+      } else {
         const resolved = await resolveEndpoint(input, file, { line: reference.line, character: reference.character });
         if (resolved.items.length === 0) {
           continue;
@@ -519,6 +535,26 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
       if (enclosingResolved.items.length === 0) {
         continue;
       }
+      if (enclosingResolved.items.length > 1) {
+        // Closure audit finding (docs/work/task-m4-milestone-closure-audit.md, gate 4): unlike the
+        // target side above (which reports `resolution: 'multiple'` when a reference resolves to more
+        // than one real candidate), the SOURCE side has no field that can express "more than one
+        // function could be this edge's caller" - `source` is a single endpoint, not a list. So the
+        // only choice that does not arbitrarily promote one candidate to a confirmed caller is to
+        // produce no edge at all here (M4 stage 1's own rule: if a single caller cannot be confirmed,
+        // do not assert one). No dedicated limitation code exists for this specific case, and one was
+        // deliberately not added in this lane (commander's explicit scope decision: reusing an existing
+        // code that does not actually fit this situation, or inventing a new one, is a separate cost -
+        // V1_WITHHELD_REASON_CODES, the plugin skill docs, cli-contract.md and the response-policy eval
+        // all have to move together for a new code, per this same file's other limitation codes). The
+        // real cost of that: a caller silently dropped here is indistinguishable from a query that
+        // never found a candidate reference at all - the same "empty result, ambiguous cause" problem
+        // `provider_null_incoming_calls` exists to solve for the static traversal, unsolved here. This
+        // adapter already accepts an equivalent silent gap in the other direction for several known
+        // false-negative shapes (module-attribute mount, alias-variable mount - both undetectable, both
+        // silent) - consistent with that choice, but not a good state, and not resolved by this comment.
+        continue;
+      }
       const { id: sourceId, endpoint: sourceEndpoint } = endpointFor(input, enclosingResolved.items[0]);
       const pairKey = `${sourceId}|${input.rootId}`;
       if (seenPairs.has(pairKey)) {
@@ -533,8 +569,10 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
         // More than one real candidate for the same reference (rare - genuine provider-side
         // ambiguity) is reported as `multiple`; the common case, a single resolved symbol, is
         // `single`. Never `confirmed` - this array is by definition what the provider did not
-        // confirm (M4 stage 1 Q2 decision). A verified-alias reference is always `single` - its
-        // ambiguity, if any, was already resolved at the import-line verification step.
+        // confirm (M4 stage 1 Q2 decision). A verified alias's count comes from the same
+        // import-line verification `aliasCandidateCounts` recorded above, not from re-checking here -
+        // there is no separate use-site count to fall back to (see `aliasBindingsFor`'s own doc comment
+        // for why the use site cannot be re-verified the same way).
         resolution: resolutionCandidateCount > 1 ? 'multiple' : 'single',
         reasonCode: 'fastapi-depends',
         evidenceRanges: [externalRange({

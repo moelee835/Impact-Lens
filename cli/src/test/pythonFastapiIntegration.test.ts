@@ -408,6 +408,29 @@ test(
 );
 
 // ---------------------------------------------------------------------------
+// M4 milestone closure audit (docs/work/task-m4-milestone-closure-audit.md, gate 3). The audit found
+// mounted_router.py (definition and include_router() in the SAME file) was the corpus's only genuinely
+// mounted positive fixture - a bare-identifier CROSS-FILE mount had never been proven to actually
+// succeed, only assumed likely from reading isRouterMounted()'s workspace-wide text search. This proves
+// it, on real Python source, not a stub.
+// ---------------------------------------------------------------------------
+
+test(
+  'closure audit gate 3: a bare-identifier router mount succeeds across files (definition and include_router() in different files)',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('crossfile_positive_router.py', 18, 5, true); // `def crossfile_positive_handler`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    assert.equal(response.data.augmentedEdges[0]!.reasonCode, 'fastapi-route-handler');
+    assert.ok(
+      !response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+      `a genuinely mounted, unambiguous cross-file router must not be flagged as mount-unresolved: ${JSON.stringify(response.data.limitationDetails)}`,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
 // M4 stage 3 accuracy corpus - known false negatives (docs/work/task-m4-stage3-accuracy-latency-gates.md).
 // Each of these is a genuine caller/mount that this adapter does NOT detect, by construction - an accepted
 // miss, not a bug: the adapter never claims reachability it cannot confirm, so the failure direction here

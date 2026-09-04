@@ -151,6 +151,77 @@ test(
   },
 );
 
+// ---------------------------------------------------------------------------
+// M4 milestone closure audit (docs/work/task-m4-milestone-closure-audit.md, gate 4) and
+// docs/work/task-m4-gate3-gate4-closure.md. The alias-verification path
+// (`aliasCandidateCounts` in fastapiDependencyAdapter.ts) had the same shape of gap as the
+// literal-name path this file's first test above already covers: `verified.items.some(... ===
+// rootId)` only checked membership, so a verified alias's `resolutionCandidateCount` was hardcoded to 1
+// even when the import line itself resolved to more than one candidate. Two real Python attempts (each a
+// different conditional-redefinition construction, traced in the work document) both made pyright
+// collapse to exactly one candidate at this exact position too - so this test, like the one above,
+// substitutes a scripted provider rather than pretending real source can reach the branch.
+//
+// This IS accepted as gate 4 evidence, unlike the `resolution: 'multiple'` gate wording in stage 3: that
+// gate asked a REPRESENTATIVE FIXTURE to REPRODUCE real-world occurrence, which a stub cannot honestly
+// claim to be. Gate 4 ("모호한 DI/dynamic target은 하나의 확정 caller로 임의 승격되지 않는다") is a
+// claim about THIS CODE'S OWN BEHAVIOR when it sees more than one candidate, not about how often that
+// happens in real FastAPI projects - a stub proving the code does not silently collapse multiple
+// candidates to one is exactly what that sentence asks for.
+// ---------------------------------------------------------------------------
+
+test(
+  'fastapiDependencyAdapter, verified alias whose import line resolves to two provider candidates: resolution is multiple',
+  async t => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'impact-lens-fastapi-alias-multiple-'));
+    t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+
+    await fs.writeFile(path.join(workspace, 'real_module.py'), 'def get_db():\n    return object()\n');
+    await fs.writeFile(
+      path.join(workspace, 'consumer.py'),
+      [
+        'from fastapi import Depends',
+        'from real_module import get_db as db_dep',
+        '',
+        'def handler(db=Depends(db_dep)):',
+        '    return db',
+        '',
+      ].join('\n'),
+    );
+
+    const root = item(workspace, 'real_module.py', 'get_db', 0, 4);
+    const rootId = symbolId(root);
+    const otherCandidate = item(workspace, 'other_module.py', 'get_db', 0, 4);
+    const handler = item(workspace, 'consumer.py', 'handler', 3, 4);
+
+    const provider = new ScriptedProvider([
+      [root, otherCandidate], // prepare() at the import line's "get_db" occurrence (alias verification)
+      [handler], // prepare() at the enclosing `def handler`
+    ]);
+
+    const input: AdapterInput = {
+      workspace,
+      root,
+      rootId,
+      provider,
+      existingNodeIds: new Set([rootId, symbolId(handler)]),
+      budget: { maxFiles: 200, maxMatchesPerFile: 20 },
+    };
+
+    const result = await fastapiDependencyAdapter(input);
+
+    assert.equal(result.edges.length, 1, JSON.stringify(result.edges));
+    const edge = result.edges[0]!;
+    assert.equal(
+      edge.resolution,
+      'multiple',
+      'a verified alias whose import line resolves to two candidates must produce resolution: multiple, not the fixed single it did before the gate 4 fix',
+    );
+    assert.equal(edge.reasonCode, 'fastapi-depends');
+    assert.deepEqual(edge.target, { kind: 'existing', id: rootId });
+  },
+);
+
 test(
   'fastapiDependencyAdapter, Depends() reference resolves to exactly one provider candidate: resolution is single (control)',
   async t => {
@@ -195,5 +266,67 @@ test(
 
     assert.equal(result.edges.length, 1, JSON.stringify(result.edges));
     assert.equal(result.edges[0]!.resolution, 'single');
+  },
+);
+
+// ---------------------------------------------------------------------------
+// M4 gate 4, the SOURCE side (docs/work/task-m4-gate3-gate4-closure.md). Unlike the target side above,
+// `source` is a single endpoint with no field that can express "more than one function could be this
+// edge's caller" - so when resolving the enclosing function's own declaration returns more than one
+// provider candidate, the only choice that does not arbitrarily promote one of them to a confirmed
+// caller is to produce no edge at all. Two real Python attempts (conditional redefinition of the
+// enclosing function, queried at each definition's own position) both left pyright returning exactly one
+// item even here, so - same as the alias-path test above - this is a scripted-provider stub, accepted as
+// gate 4 evidence for the reason recorded next to that test: gate 4 is a claim about this code's own
+// behavior, not about real-world reproduction.
+// ---------------------------------------------------------------------------
+
+test(
+  'fastapiDependencyAdapter, enclosing function resolves to two provider candidates: no edge is created (no arbitrary source promotion)',
+  async t => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'impact-lens-fastapi-source-multiple-'));
+    t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+
+    await fs.writeFile(path.join(workspace, 'real_module.py'), 'def get_db():\n    return object()\n');
+    await fs.writeFile(
+      path.join(workspace, 'consumer.py'),
+      [
+        'from fastapi import Depends',
+        'from real_module import get_db',
+        '',
+        'def handler(db=Depends(get_db)):',
+        '    return db',
+        '',
+      ].join('\n'),
+    );
+
+    const root = item(workspace, 'real_module.py', 'get_db', 0, 4);
+    const rootId = symbolId(root);
+    const handler = item(workspace, 'consumer.py', 'handler', 3, 4);
+    // A second, genuinely different candidate for the ENCLOSING function this time - what the source side
+    // would need to arbitrarily pick between if it promoted `items[0]` unconditionally.
+    const otherHandlerCandidate = item(workspace, 'other_module.py', 'handler', 0, 4);
+
+    const provider = new ScriptedProvider([
+      [root], // prepare() at the `Depends(get_db)` reference - single candidate, matches root
+      [handler, otherHandlerCandidate], // prepare() at the enclosing `def handler` - two candidates
+    ]);
+
+    const input: AdapterInput = {
+      workspace,
+      root,
+      rootId,
+      provider,
+      existingNodeIds: new Set([rootId, symbolId(handler)]),
+      budget: { maxFiles: 200, maxMatchesPerFile: 20 },
+    };
+
+    const result = await fastapiDependencyAdapter(input);
+
+    assert.equal(
+      result.edges.length,
+      0,
+      `two candidates for the enclosing function must not arbitrarily promote items[0] to a confirmed source: ${JSON.stringify(result.edges)}`,
+    );
   },
 );
