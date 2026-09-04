@@ -62,7 +62,7 @@
 | 1 | IL-LIM-001·002·010 수용 기준 통과 | 열림 | 001·010 story 전체가 `Backlog`, 002는 gate C(runtime-only fixture) 공백 + `runtime-observation`/실패 격리 미충족 |
 | 2 | JSON과 UI에서 확정/추론 구분 | 열림 | JSON은 됨(`augmentedEdges` 분리). UI(`src/`)는 `augmentedEdges` 참조 0건 |
 | 3 | alias·sub-dependency·cross-file 대표 fixture가 candidate·ambiguity 재현 | 열림 | alias·sub-dependency는 양성 fixture 있음. **cross-file router-include 양성 fixture 없음** |
-| 4 | 모호한 DI/dynamic target이 임의로 확정 caller 승격 안 됨 | 부분 열림 | `Depends()` 타겟 쪽은 `resolutionCandidateCount`로 구분됨. **enclosing(source) 쪽은 `items[0]`을 무조건 채택, length>1 검사 없음** |
+| 4 | 모호한 DI/dynamic target이 임의로 확정 caller 승격 안 됨 | 부분 열림 | 직접 참조(literal-name) 경로만 `resolutionCandidateCount`로 구분됨. **alias 검증 경로(`resolutionCandidateCount`가 무조건 1로 고정)와 enclosing(source) 경로(`items[0]` 무조건 채택) 둘 다 다중-후보 검사 없음** |
 | 5 | path convention만으로 가짜 test passed 상태를 안 만듦 | 열림 | 모델엔 'passed' 상태 자체가 없어 "안 만든다"는 참이지만, **UI가 test 관련 node/edge에 VS Code의 test-passed 색 토큰을 그대로 씀** — 데이터와 화면이 다른 말을 함 |
 | 6 | augmentation 끄면 안전하게 rollback | **닫힘** | PR #79의 OFF/ON 회귀 테스트 2건, reviewer가 격리 worktree에서 실행 재검증 |
 | 7 | 정해진 false-positive·latency budget 통과 | 열림 | PR #77이 이미 "측정값·tripwire는 있지만 정해진 budget 없음"으로 기록 |
@@ -129,9 +129,28 @@
 
 ### Gate 4 — 임의 승격 금지
 
-- **target(= root, `Depends()`가 가리키는 대상) 쪽**: `resolved.items.length`를
-  `resolutionCandidateCount`로 저장해 `resolution: 'multiple'`/`'single'`을 구분 — 임의 승격 없음
-  (`fastapiDependencyAdapter.ts`).
+**"target 쪽엔 임의 승격이 없다"고 넓게 적으면 안 된다** — target 쪽에도 경로가 둘 있고, 그중
+하나(alias 검증 경로)엔 방어가 없다. 정확한 문장: **직접 참조(literal-name) 경로에는 다중-후보
+방어가 있고, alias 검증 경로와 source(enclosing function) 경로 둘 다에는 없다.**
+
+- **target, 직접 참조(literal-name) 경로**: `resolved.items.length`를 `resolutionCandidateCount`로
+  저장해 `resolution: 'multiple'`/`'single'`을 구분 — 임의 승격 없음(`fastapiDependencyAdapter.ts`
+  502-512행).
+- **target, alias 검증 경로** — 리뷰어 발견, 이 세션이 `fastapiDependencyAdapter.ts:478-481`을
+  직접 읽어 재확인:
+  ```ts
+  const verified = await resolveEndpoint(input, file, { line: binding.line, character: binding.character });
+  if (verified.items.some(item => symbolId(item) === input.rootId)) {
+    localNames.push(binding.alias);
+  }
+  ```
+  `.some()`은 **root가 후보 중에 있는지**만 본다 — `verified.items.length`(후보가 몇 개인지)는
+  안 본다. 이 alias가 검증되면 하류에서 `isVerifiedAlias`가 참이 되어 `resolutionCandidateCount`가
+  **무조건 1로 고정**된다(500행: `let resolutionCandidateCount = 1;`, 501-513행:
+  `if (!isVerifiedAlias) { ... }` 블록 안에서만 재계산되므로 alias 경로는 절대 안 들어감).
+  **import line이 실제로 복수 후보로 resolve되고 그중
+  하나가 root여도, 만들어지는 edge는 무조건 `resolution: 'single'`이다** — source 쪽과 같은 모양의
+  임의 승격이다.
 - **source(= enclosing function, candidate edge의 caller) 쪽**: commander 발견, 이 세션이
   `fastapiDependencyAdapter.ts:514-522`를 직접 읽어 재확인 —
   ```
@@ -186,10 +205,12 @@ tripwire(5000ms)도 있지만, "얼마나 느려지면 too slow인가"에 대한
 **이 lane은 아무것도 고치지 않는다.** 아래는 다음 lane이 우선순위를 정할 때 참고할 분류다.
 
 - **값싼 수정으로 보이는 것** (각각 별도 판단·검증 필요, 지금 손대지 않음):
-  - Gate 4: `enclosingResolved.items.length > 1`일 때 `resolution: 'multiple'`로 표시하거나 edge를
-    안 만들도록 분기 하나 추가. target 쪽에 이미 있는 패턴을 source 쪽에 대칭으로 적용하는 정도로
-    보인다 — 다만 fixture로 이 경로를 실제로 트리거할 수 있는지는 별도 확인이 필요하다(gate 3의
-    "코드상 될 것 같다"와 같은 함정).
+  - Gate 4: 두 지점을 **같이** 봐야 완전하다 — 하나만 고치면 나머지 하나가 여전히 gate를 어긴다.
+    (a) `enclosingResolved.items.length > 1`일 때 `resolution: 'multiple'`로 표시하거나 edge를 안
+    만들도록 분기 추가(직접 참조 경로에 이미 있는 패턴을 source 쪽에 대칭 적용하는 정도로 보인다).
+    (b) alias 검증 경로도 `verified.items.length`를 반영하도록 `resolutionCandidateCount`를 무조건
+    1로 고정하지 않게 고친다. 둘 다 fixture로 이 경로를 실제로 트리거할 수 있는지는 별도 확인이
+    필요하다(gate 3의 "코드상 될 것 같다"와 같은 함정).
   - Gate 1(실패 격리): `runAugmentation()` 호출을 try/catch로 감싸고 실패를 limitation으로
     격리 — 다만 "무엇을 실패로 볼지"(timeout? 특정 에러 타입만? 전체 catch?)는 설계 판단이
     필요하다.
@@ -208,6 +229,28 @@ tripwire(5000ms)도 있지만, "얼마나 느려지면 too slow인가"에 대한
     것까지만 확인됐다 — fixture로 직접 실행해 확인하는 것이 다음 단계다.
 - **정의(무엇이 "정해진"인지)가 필요한 것, 코드 문제 아님**:
   - Gate 7: latency budget 값 자체.
+
+## 패턴 — 주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례 3건
+
+**주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례가 이 마일스톤에서 3건 나왔고, 셋 다
+읽기가 아니라 실행·대조로 발견됐다.** 다음 사람이 이 저장소의 주석을 근거로 삼기 전에 알아야 할
+사실이라 여기 남긴다(이 lane은 이 주석들을 고치지 않는다 — 기록만 한다):
+
+1. **throw 방어 주석**(PR #79, `fastapiDependencyAdapterMultipleCandidate.test.ts`): "스크립트를
+   넘는 호출은 throw해서 테스트가 시끄럽게 실패한다"고 적혀 있었지만, `resolveEndpoint()`가 모든
+   `prepare()` 예외를 `{items: []}`로 바꿔 삼켰다 — throw는 실제로 아무 일도 안 했다. 리뷰어가
+   mutation(throw를 `return []`로 바꿔도 바이트 단위로 같은 실패 메시지)으로 발견.
+2. **`capabilities` 중복 주석**(PR #79, `stripAugmentationVariableFields`): "envelope가
+   `capabilities`/`limitations`/`timings`를 root와 `data` 양쪽에 같은 이름으로 갖는다"고 적혀
+   있었지만, `data.capabilities`는 존재하지 않는다 — data 쪽 대응 필드는 이름이 다른
+   `data.provider`다. 리뷰어가 실제 CLI 응답을 떠서 키를 대조해 발견.
+3. **alias ambiguity 주석**(이번 대조, `fastapiDependencyAdapter.ts:537`): "alias 참조는 항상
+   `single`이다 — ambiguity가 있었다면 import-line 검증 단계에서 이미 해소됐다"고 적혀 있지만,
+   **멤버십 확인(root가 후보 중에 있는가)과 해소(후보가 하나로 좁혀졌는가)는 다른 진술**이다 —
+   위 gate 4 참고. 리뷰어가 코드 대조로 발견, commander가 초기 판정에서 놓침.
+
+**세 번이면 우연이 아니다.** 이 저장소의 주석은 코드가 보장하기를 **의도한 것**을 적는 경향이
+있고, 세 번 다 그 보장이 실제로는 코드에 없었다.
 
 ## 이 lane이 하지 않는 것
 
