@@ -46,6 +46,7 @@ export const VIOLATION_CODES = Object.freeze([
   'missing_high_severity_disclosure',
   'conclusion_before_boundary',
   'failure_reported_as_empty',
+  'augmented_edges_not_distinguished',
 ]);
 
 // A sentence is treated as negating anything it contains once any of these markers appears in it,
@@ -239,6 +240,47 @@ const COMPILE_DATABASE_AMBIGUOUS_MARKERS = [
   /\bmultiple compile[ _-]?database\b/i,
 ];
 
+// M4 stage 3, plugin-doc prerequisite (docs/work/task-m4-stage2-fastapi-adapter.md's "필수 선행" item):
+// `data.augmentedEdges` (a candidate caller, e.g. a FastAPI Depends() inference) and `data.edges` (a
+// confirmed caller, from the Call Hierarchy provider itself) must never be described with the same bare
+// word - calling both "callers" in one summary is exactly the "inference read as confirmed" failure this
+// whole milestone exists to prevent, just relocated from a response field to an agent's prose. This is
+// checked by REQUIRED PRESENCE of the specific taught phrase (SKILL.md/cli-contract.md teach "candidate
+// caller" as the only acceptable way to refer to an augmentedEdges-sourced result), not by a generic
+// uncertainty-word list - deliberately, after measuring the alternative first. A generic list ("not
+// confirmed", "unproven", etc., mirroring INDEX_UNCERTAINTY_PATTERN's approach) was tried against a
+// correct summary that legitimately used "not confirmed" for the candidate-vs-confirmed distinction while
+// separately, correctly stating "the provider index is ready" - stale_index_caveat fired on it anyway,
+// because that check scans the WHOLE summary for "index" and any uncertainty word regardless of
+// which claim each belongs to (see its own KNOWN LIMITATION comment above, gap 3). A specific required
+// phrase does not carry that risk because it is not shared vocabulary with any existing pattern in this
+// file. KNOWN, ACCEPTED GAP (same acceptance reasoning as stale_index_caveat's own documented gaps, not
+// chased further for the same reason): this is presence-only, not sentence-order-aware, so a summary that
+// states an undistinguished "two callers: X and Y" list FIRST and only adds "Y is a candidate caller"
+// afterward still passes - measured directly (a fixture of exactly this shape produces zero violations
+// both before and after this check existed). Catches the complete-omission case, which is the actual
+// current risk (the docs taught no vocabulary at all before this), not the partial-hedge case.
+//
+// SECOND KNOWN, ACCEPTED GAP (reviewer found this direction was missing from the list above entirely,
+// not judged safe and skipped - just not looked at, which reads to a future reader as "checked" when it
+// was not, the same undocumented-gap risk this milestone has hit before): the REVERSE miscall, calling a
+// confirmed `data.edges` result a "candidate caller" when `data.augmentedEdges` is empty or absent, has no
+// check either. Left unchecked deliberately, now that it has actually been considered: it is an
+// UNDERclaim (a confirmed relationship described as less certain than it is), the safe direction this
+// file's own asymmetry principle already treats differently elsewhere (see stale_index_caveat's comment
+// above on why UNDERclaiming checks get less priority than OVERclaiming ones) - it cannot make a reader
+// trust an inference as fact, only the opposite.
+//
+// `CANDIDATE_CALLER_PHRASE` (below) is exported specifically so `response-policy-doc-invariants.mjs` can
+// import the exact same string this pattern is built from, rather than hold its own separate literal -
+// reviewer found that the doc-invariant only checked for the phrase's presence in the docs, never that it
+// matches what this pattern actually looks for, so a future edit to only one of the two (regex or literal)
+// would silently stop enforcing anything while the doc-invariant kept passing. One shared source makes
+// that divergence structurally impossible, the same technique FORBIDDEN_PHRASES above already uses for
+// its own doc-invariant coupling.
+export const CANDIDATE_CALLER_PHRASE = 'candidate caller';
+const CANDIDATE_CALLER_PATTERN = new RegExp(`\\b${escapeRegExp(CANDIDATE_CALLER_PHRASE)}s?\\b`, 'i');
+
 const LIMITATION_SURFACE_PATTERNS = {
   no_incoming_callers: [/\bno (?:incoming )?callers?\b/i],
   index_state_unknown: [INDEX_UNCERTAINTY_PATTERN], // paired with INDEX_WORD_PATTERN, see surfacesLimitation
@@ -402,6 +444,17 @@ export function evaluateSummary(response, summary) {
     violations.push({
       code: 'missing_high_severity_disclosure',
       message: `Summary never surfaces ${unsurfaced.length === 1 ? 'this' : 'these'} ${unsurfaced.map(detail => `${detail.code} (${detail.severity})`).join(', ')} limitationDetails entr${unsurfaced.length === 1 ? 'y' : 'ies'}.`,
+    });
+  }
+
+  // See CANDIDATE_CALLER_PATTERN's comment above for why this is presence-only and what it deliberately
+  // does not catch. Gated strictly on a non-empty `augmentedEdges` array - a summary describing a response
+  // with none has nothing to distinguish.
+  const augmentedEdges = response?.data?.augmentedEdges;
+  if (Array.isArray(augmentedEdges) && augmentedEdges.length > 0 && !CANDIDATE_CALLER_PATTERN.test(summary)) {
+    violations.push({
+      code: 'augmented_edges_not_distinguished',
+      message: 'data.augmentedEdges is non-empty, but the summary never uses the required "candidate caller" phrase to distinguish it from a confirmed caller in data.edges.',
     });
   }
 

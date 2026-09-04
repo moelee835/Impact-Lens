@@ -1,0 +1,71 @@
+{
+  "file": "24-augmentation-on-no-candidates-found.json",
+  "name": "augmentation enabled but data.augmentedEdges is empty - the required phrase does not apply, and its absence is not a violation",
+  "description": "M4 stage 3 plugin-doc prerequisite, opposite direction from fixtures 22/23: augmentationEnabled was true, but the adapter found nothing to add for this query (data.augmentedEdges: []) - the same shape as fastapiDependencyAdapter.ts's own 'augmentation finds nothing extra and does not fabricate an edge' test. There is nothing here to distinguish, so a summary with no 'candidate caller' language anywhere must NOT be flagged - checking this direction is what proves augmented_edges_not_distinguished is gated on non-empty augmentedEdges, not on augmentation having been requested. Must-pass fixture.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": { "name": "@impact-lens/cli", "version": "0.8.0" },
+      "node": { "version": "22.0.0", "major": 22, "executable": "node" },
+      "runner": { "source": "checkout" }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "pyright",
+        "requestedLanguageId": "python",
+        "detectedLanguageId": "python",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": { "callHierarchy": true, "diagnostics": true },
+        "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+        "lifecycle": { "stage": "query", "status": "ready" }
+      },
+      "coverage": {
+        "traversal": { "status": "complete", "requestedDepth": 5, "reachedDepth": 1, "maxNodes": 120 },
+        "semantic": { "status": "static-only", "evidenceSources": ["lsp-call-hierarchy"] },
+        "indexing": { "status": "ready", "evidence": { "signal": "work-done-progress", "detail": "indexing" } },
+        "reasons": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable"]
+      },
+      "completion": { "requestStatus": "succeeded", "traversalStatus": "exhausted", "semanticScope": "provider-static", "indexingStatus": "ready" },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "rootId": "root111111111111111111",
+      "nodes": [
+        { "id": "root111111111111111111", "name": "get_db" },
+        { "id": "confirmed2222222222222", "name": "regular_caller" }
+      ],
+      "edges": [
+        { "source": "confirmed2222222222222", "target": "root111111111111111111" }
+      ],
+      "augmentedEdges": [],
+      "limitationDetails": [
+        { "code": "dynamic_calls_not_inferred", "severity": "info", "scope": "semantic", "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy." },
+        { "code": "unsaved_buffers_unavailable", "severity": "info", "scope": "request", "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk." }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "pyright",
+      "requestedLanguageId": "python",
+      "detectedLanguageId": "python",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": { "callHierarchy": true, "diagnostics": true },
+      "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+      "lifecycle": { "stage": "query", "status": "ready" }
+    },
+    "limitations": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable"],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from pyright with augmentation enabled; the provider index is ready. get_db has one caller, regular_caller. Augmentation was on for this query but found no additional candidates.",
+  "expect": "pass",
+  "expectedViolations": []
+}

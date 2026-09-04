@@ -407,6 +407,59 @@ If no verified auto provider serves the detected language, the request returns
 `provider_required_for_language`. An explicit `languageId` that conflicts with the detected file type returns
 `provider_language_mismatch`; the bundled TypeScript provider is not tried for another language.
 
+## Augmented (candidate) edges
+
+Set request field `augmentationEnabled: true` to turn on framework adapters (currently `fastapi-static-v1`
+for Python) that infer a caller a static Call Hierarchy provider cannot see on its own — a FastAPI route
+handler dispatched by the framework's router, or a function referenced only through `Depends(...)`. Default
+is `false`/absent. `data.edges` and `data.nodes` are byte-identical whether this is on or off; every
+inferred result goes only into a new field, `data.augmentedEdges`:
+
+```json
+{
+  "data": {
+    "edges": [{"source": "6720a1...", "target": "1f3c9b..."}],
+    "augmentedEdges": [
+      {
+        "source": {"kind": "synthetic", "name": "get_items", "kindLabel": "function", "file": "app.py", "range": {"start": {"line": 12, "column": 1}, "end": {"line": 12, "column": 21}}},
+        "target": {"kind": "existing", "id": "1f3c9b..."},
+        "adapterId": "fastapi-static-v1",
+        "evidenceSource": "static-inference",
+        "resolution": "single",
+        "reasonCode": "fastapi-depends",
+        "evidenceRanges": [{"start": {"line": 12, "column": 1}, "end": {"line": 12, "column": 21}}]
+      }
+    ]
+  }
+}
+```
+
+Each `augmentedEdges` entry's `source`/`target` is `{"kind": "existing", "id": "..."}` (a real id already in
+this response's `data.nodes`) or `{"kind": "synthetic", ...}` (self-contained — the adapter found a caller
+outside the traversed graph, so nothing was added to `data.nodes` for it). `resolution` is `single` (one
+real candidate) or `multiple` (more than one; report every one, never pick one as *the* answer).
+`evidenceSource` is always `static-inference` today (`runtime-observation` is reserved for a future runtime
+adapter, not produced yet). There is no `confirmed` value anywhere in this vocabulary — this array is by
+definition what the provider did not confirm.
+
+**A `data.augmentedEdges` entry is a candidate caller, never a caller.** Use that exact phrase. `data.edges`
+holds confirmed callers (the provider's own Call Hierarchy answer); `data.augmentedEdges` holds candidate
+callers (a framework adapter's inference). Calling both "callers" in the same sentence or list — even once
+— erases the distinction this feature exists to preserve, and is exactly the "guessed edge read as a
+confirmed one" failure `augmentedEdges` was designed to prevent.
+
+Two `limitationDetails` codes are specific to this feature:
+
+- `augmentation_budget_exceeded` (`warning`, `scope: semantic`) — an adapter's own exploration budget ran
+  out before it finished; the augmented findings it produced may be incomplete, but the static graph above
+  (`data.edges`/`data.nodes`) is entirely unaffected.
+- `framework_route_mount_unresolved` (`warning`, `scope: semantic`) — a route decorator was found, but no
+  `include_router(...)` call confirming its router is mounted could be found within the analyzed workspace.
+  This is not evidence the route is unreachable — the router may be mounted outside this workspace, through
+  a directory this scan does not reach, or through dynamic registration this scan cannot follow — only that
+  this specific scan could not confirm it. No `augmentedEdges` entry is produced for that route while this
+  is present.
+
 ## Note list
 
 Command:

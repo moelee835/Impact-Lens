@@ -70,6 +70,12 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
   `all callers`; those phrases claim more than static Call Hierarchy evidence establishes.
 - Treat incoming-call results as static evidence from the configured Call Hierarchy provider. Do not claim coverage of reflection, dependency injection, decorators, events, generated code, or runtime-only links.
 
+## Augmented (candidate) edges
+
+- `data.augmentedEdges` appears only when the request set `augmentationEnabled: true` (default `false`/absent — leave it off unless the task specifically needs candidate callers a static Call Hierarchy cannot see, such as FastAPI `Depends()`/route dispatch). `data.edges` and `data.nodes` are never affected by this flag either way.
+- Every `data.augmentedEdges` entry is a **candidate caller** — a framework adapter's inference, never a call the provider itself confirmed. Always use that exact phrase for it. Never call it a bare "caller", and never use the bare word "caller" for a confirmed result (`data.edges`) and a candidate result (`data.augmentedEdges`) in the same sentence or list — that conflation is the exact "inference read as confirmed" mistake this feature exists to prevent, just moved from the response into the summary.
+- Check `limitationDetails` for `augmentation_budget_exceeded` (the adapter's own search stopped early; augmented findings may be incomplete, the static graph above it is unaffected) and `framework_route_mount_unresolved` (a route decorator was found but its router's mount could not be confirmed within the analyzed workspace — this is not evidence the route is unreachable, only that this scan could not confirm it).
+
 ## Select and diagnose providers
 
 - A raw `provider` command is the advanced explicit path. `providerPreset` selects a catalog entry for one
