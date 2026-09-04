@@ -60,6 +60,12 @@ test('sends the whole coverage record to the webview', () => {
 test('pins the five test-classification style rules to the approved neutral token', () => {
   const approved = 'var(--vscode-charts-orange, #ea5c00)';
   const rules = [
+    // .edge-test has no `\s*\}` anchor because its rule has a second declaration
+    // (stroke-dasharray) after the color - the other four are single-declaration rules, where the
+    // anchor happens to also enforce "nothing else in this rule". Mutation-tested
+    // (docs/work/task-m4-gate5-test-color.md, "리뷰어 확인 3번"): capture still stops at the first
+    // `;`, so a wrong value here is caught exactly like the anchored ones - the missing anchor
+    // doesn't weaken the comparison, it just can't also demand this rule have only one declaration.
     { name: '.edge-test (stroke)', pattern: /\.edge-test\s*\{\s*stroke:\s*([^;]+);/ },
     { name: '.node.test rect (stroke)', pattern: /\.node\.test rect\s*\{\s*stroke:\s*([^;]+);\s*\}/ },
     {
