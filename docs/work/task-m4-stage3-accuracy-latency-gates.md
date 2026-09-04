@@ -127,9 +127,13 @@ FastAPI 코드에 대한 값이 아니다 — 이 구분을 숫자 옆에 안 �
 
 ### 측정 — precision (**이 fixture corpus 기준**, 인용 시 이 문장째로)
 
-**이 fixture corpus 19개 쿼리에서 precision은 100%(오탐 0건)다 — 단, 이 값은 이 저장소가 스스로 만든
-fixture corpus를 기준으로 한 것이지 실제 FastAPI 코드베이스에 대한 측정이 아니다.** (`npm test` 내
-`pythonFastapiIntegration.test.ts`, 2026-09-04 기준 실행 결과로 직접 확인.) 근거:
+**이 fixture corpus 중 precision 판정이 가능한 19개 쿼리(candidate edge를 내야 하거나 내면 안 되는
+쿼리)에서 precision은 100%(오탐 0건)다 — 단, 이 값은 이 저장소가 스스로 만든 fixture corpus를 기준으로
+한 것이지 실제 FastAPI 코드베이스에 대한 측정이 아니다.** (`npm test` 내
+`pythonFastapiIntegration.test.ts`, 2026-09-04 기준 실행 결과로 직접 확인.) **19는 corpus 전체 크기가
+아니다** — corpus에는 이 19개 외에 아래 "측정 — 미탐 범위" 절의 미탐(false negative) fixture 4개가 더
+있고, 그것들은 "틀린 답"이 아니라 "애초에 판정할 답이 없는 쿼리"라 이 precision 분모에 들어가지
+않는다(제외가 숨긴 것이 아니라 분모의 정의상 옳다는 뜻). 근거:
 
 - **candidate edge를 내야 하는 쿼리 6개, 전부 정확히 냈다**(진양성, false positive 0): `Depends()`
   직접 import 참조(alias 없음) 2건(`app.py:get_db`, `real_module.py:get_db`), `app = FastAPI()` 위의
