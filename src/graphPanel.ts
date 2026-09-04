@@ -272,7 +272,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     #canvas.dragging { cursor: grabbing; user-select: none; }
     svg { display: block; }
     .edge { fill: none; stroke: var(--vscode-descriptionForeground); stroke-width: 1.2; opacity: .58; marker-end: url(#arrow); }
-    .edge-test { stroke: var(--vscode-testing-iconPassed); stroke-dasharray: 4 3; }
+    .edge-test { stroke: var(--vscode-charts-orange, #ea5c00); stroke-dasharray: 4 3; }
     .edge.selected { stroke: var(--vscode-focusBorder); stroke-width: 3; opacity: 1; }
     .node { cursor: pointer; outline: none; }
     .node rect { fill: var(--vscode-editorWidget-background); stroke: var(--vscode-panel-border); stroke-width: 1.5; rx: 5; }
@@ -280,7 +280,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     .node.root rect { fill: var(--vscode-button-background); stroke: var(--vscode-button-background); }
     .node.direct rect { stroke: var(--vscode-charts-blue, #3794ff); }
     .node.transitive rect { stroke: var(--vscode-charts-purple, #b180d7); }
-    .node.test rect { stroke: var(--vscode-testing-iconPassed, #73c991); }
+    .node.test rect { stroke: var(--vscode-charts-orange, #ea5c00); }
     .node.changed rect { stroke: var(--vscode-editorWarning-foreground); stroke-width: 2; }
     .node.added rect { stroke: var(--vscode-charts-green); stroke-width: 2; }
     .node.diagnostic rect { stroke: var(--vscode-errorForeground); stroke-width: 2; }
@@ -292,19 +292,19 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     .node.root .relation-marker { fill: var(--vscode-button-foreground); }
     .node.direct .relation-marker { fill: var(--vscode-charts-blue, #3794ff); }
     .node.transitive .relation-marker { fill: var(--vscode-charts-purple, #b180d7); }
-    .node.test .relation-marker { fill: var(--vscode-testing-iconPassed, #73c991); }
+    .node.test .relation-marker { fill: var(--vscode-charts-orange, #ea5c00); }
     .node-name { fill: var(--vscode-foreground); font-size: 11px; font-weight: 600; }
     .node.root .node-name { fill: var(--vscode-button-foreground); }
     .node-relation { fill: var(--vscode-descriptionForeground); font-size: 9px; font-weight: 600; }
     .node.direct .node-relation { fill: var(--vscode-charts-blue, #3794ff); }
     .node.transitive .node-relation { fill: var(--vscode-charts-purple, #b180d7); }
-    .node.test .node-relation { fill: var(--vscode-testing-iconPassed, #73c991); }
+    .node.test .node-relation { fill: var(--vscode-charts-orange, #ea5c00); }
     .node-note, .node-location, .node-status { fill: var(--vscode-descriptionForeground); font-size: 9px; }
     .node-note { font-size: 10px; }
     .legend { position: fixed; left: 10px; bottom: 8px; display: flex; gap: 12px; padding: 5px 8px; color: var(--vscode-descriptionForeground); background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 3px; font-size: 10px; }
     .legend span::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--vscode-charts-blue); }
     .legend .transitive::before { background: var(--vscode-charts-purple); }
-    .legend .test::before { background: var(--vscode-testing-iconPassed); }
+    .legend .test::before { background: var(--vscode-charts-orange, #ea5c00); }
     .warning { color: var(--vscode-editorWarning-foreground); }
     .state { padding: 2px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 10px; color: var(--vscode-descriptionForeground); font-size: 10px; }
     .state.stale, .state.analyzing { color: var(--vscode-editorWarning-foreground); }

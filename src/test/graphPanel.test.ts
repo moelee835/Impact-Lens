@@ -36,3 +36,20 @@ test('sends the whole coverage record to the webview', () => {
     assert.ok(source.includes(field), `the payload should carry ${field}`);
   }
 });
+
+// M4 milestone closure audit gate 5 (docs/work/task-m4-milestone-closure-audit.md,
+// docs/work/task-m4-gate5-test-color.md). Impact Lens does not run tests, and classification is a
+// filename-only heuristic (`cli/src/testFile.ts`'s `isTestFilePath()`) - so borrowing the `testing`
+// palette's pass/fail-meaning tokens (especially `testing.iconPassed`) for a node whose only evidence is
+// its file path asserts a result that was never executed. `direct`/`transitive` already use the neutral
+// `charts` palette, not `testing`, for exactly this reason.
+test('never borrows the testing pass/fail palette for a test-classified node or edge', () => {
+  assert.doesNotMatch(
+    source,
+    /vscode-testing-/,
+    'Impact Lens does not run tests and classifies "test" purely by file name (isTestFilePath()), so a ' +
+      'testing-palette token (especially one with pass/fail meaning, like testing.iconPassed) would claim ' +
+      'a result that was never executed - use a neutral charts-* token instead, the same family already ' +
+      'used for direct/transitive.',
+  );
+});
