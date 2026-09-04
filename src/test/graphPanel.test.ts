@@ -44,13 +44,19 @@ test('sends the whole coverage record to the webview', () => {
 // its file path asserts a result that was never executed. `direct`/`transitive` already use the neutral
 // `charts` palette, not `testing`, for exactly this reason.
 //
-// This is an allow-list, not a deny-list, on purpose: an earlier version of this test only asserted
-// `doesNotMatch(source, /vscode-testing-/)`, which a reviewer defeated by pointing all five rules at
-// `--vscode-charts-green` (or a raw `#73c991` hex) instead - still a "passed"-looking green, still wrong,
-// and the deny-list regex never noticed because that string never appears. Pinning each rule to the exact
-// approved token means ANY substitute - a different color token, a raw hex, a new indirection - fails this
-// test and forces whoever changes it to touch the assertion too, the same anti-drift polarity as the
-// rollback field-stripping test in pythonFastapiIntegration.test.ts.
+// Two checks below, each closing a hole the other leaves open - deny-list alone and allow-list alone were
+// both tried and each was defeated:
+//
+// - The allow-list (this test) pins the five known test-classification rules to the exact approved token.
+//   An earlier version of this test was a bare `doesNotMatch(source, /vscode-testing-/)` (deny-list only),
+//   which a reviewer defeated by pointing all five rules at `--vscode-charts-green` (or a raw `#73c991`
+//   hex) instead - still a "passed"-looking green, still wrong, and the deny-list regex never noticed
+//   because that string never appears. Pinning each rule's value closes that hole.
+// - But the allow-list only inspects five known selectors. It says nothing about a SIXTH rule someone adds
+//   later - e.g. `.node.test .node-name { fill: var(--vscode-testing-iconPassed); }` - reintroducing the
+//   banned token under a selector this list doesn't know about. The allow-list would stay green. That is
+//   what the deny-list test below still catches, so both stay - one pins known values, the other guards
+//   against the token coming back anywhere else in the file.
 test('pins the five test-classification style rules to the approved neutral token', () => {
   const approved = 'var(--vscode-charts-orange, #ea5c00)';
   const rules = [
@@ -78,4 +84,15 @@ test('pins the five test-classification style rules to the approved neutral toke
         'would claim a result that was never executed.',
     );
   }
+});
+
+test('never reintroduces the testing pass/fail palette anywhere in the file', () => {
+  assert.doesNotMatch(
+    source,
+    /vscode-testing-/,
+    'a testing-palette token (especially one with pass/fail meaning, like testing.iconPassed) reappeared ' +
+      'somewhere in graphPanel.ts - the allow-list test above only checks the five selectors it already ' +
+      'knows about, so a NEW rule pointing at this token (e.g. on a selector not in that list) would pass ' +
+      'that test while still claiming a result Impact Lens never executed.',
+  );
 });
