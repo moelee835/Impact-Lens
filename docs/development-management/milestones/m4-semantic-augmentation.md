@@ -83,6 +83,21 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
   fixture는 Java/Kotlin 언어 지원이 생긴 뒤 별도 milestone/story의 gate로 이어받는다 —
   `IL-LIM-002`의 stage 5(Spring feasibility spike)가 이미 "정확도·성능이 승인된 경우에만 독립
   구현 Issue로 승격"이라고 조건부로 적어 둔 것과 일치한다.
+
+  > **2026-09-04 추가 정정(M4 stage 3, `docs/work/task-m4-stage3-accuracy-latency-gates.md`
+  > "단계 3")**: 바로 위 문장의 "candidate(**단일/복수 후보**)"가 요구하는 복수 후보 실증을
+  > **서로 다른 두 자연스러운 구성으로 직접 시도했으나 만들지 못했다** — (1) 조건부 재정의
+  > (`if cond: def f(): ... else: def f(): ...`, stage 2), (2) try/except import fallback
+  > (`try: from module_a import get_db` / `except ImportError: from module_b import get_db`,
+  > stage 3, 각 module이 서로 다른 실제 함수를 정의). 둘 다 pyright의 `prepareCallHierarchy`가
+  > 참조 지점에서 **정확히 1개** 항목만 반환했다(조건절과 무관하게 텍스트상 마지막 binding으로
+  > 수렴 — Python 정적 스코프 규칙과 일치하는 결과로 보인다). **"어떤 구성으로도 불가능하다"는
+  > 전수 조사가 아니다** — 시도한 두 구성 모두에서 못 찾았다는 것만 실측했다. 이 마일스톤의 실제
+  > 종료 gate에서 "복수 후보" 요구는 제거한다: **단일 후보**(이미 fixture로 충족:
+  > `alias_target.py` 등)와 **ambiguity**(이미 별도 fixture로 충족: mount name-collision 계열)만
+  > 만족하면 된다. `resolution: 'multiple'`이라는 코드 분기 자체(`resolutionCandidateCount > 1
+  > ? 'multiple' : 'single'`)는 그대로 둔다 — 언젠가 실제로 트리거하는 구성이 발견되면 fixture로
+  > 추가하되, 지금 이 gate를 통과시키는 조건은 아니다.
 - [ ] 모호한 DI/dynamic target은 하나의 확정 caller로 임의 승격되지 않는다.
 - [ ] path convention만으로 가짜 call edge나 test passed 상태를 만들지 않는다.
 - [ ] augmentation을 끄면 기존 LSP-only graph로 안전하게 rollback된다.

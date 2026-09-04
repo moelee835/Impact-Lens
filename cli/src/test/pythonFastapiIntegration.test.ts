@@ -75,6 +75,21 @@ function analyzeFile(file: string, line: number, column: number, augmentationEna
   return JSON.parse(result.stdout);
 }
 
+/** Sends exactly the request object given, with no `augmentationEnabled` default injected - unlike
+ * `analyzeFile()` above, this can omit the field entirely (what a pre-M4 client, which has never heard of
+ * it, would send). Returns the raw parsed JSON envelope untyped, not `AnalyzeResponse` - the rollback
+ * tests below compare the whole envelope against an explicit allow-list of fields expected to differ,
+ * which needs every field the response carries, not just the subset `AnalyzeResponse` declares. */
+function analyzeRaw(request: Record<string, unknown>): Record<string, unknown> {
+  const result = spawnSync(process.execPath, [executable, 'analyze', '--stdin'], {
+    encoding: 'utf8',
+    timeout: 25000,
+    input: JSON.stringify(request),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
 function limitationCodes(response: AnalyzeResponse): readonly string[] {
   return response.data.limitationDetails.map(detail => detail.code);
 }
@@ -440,6 +455,36 @@ test(
 );
 
 // ---------------------------------------------------------------------------
+// M4 stage 3 "단계 5" (docs/work/task-m4-stage3-accuracy-latency-gates.md). The corrected milestone gate
+// (M4 stage 3 "단계 4") still requires a representative fixture reproducing a sub-dependency (nested
+// dependency) - only the "multiple candidate" half of that gate sentence was corrected, not this half.
+// stage 2 believed this already worked without new code (the same Depends() scan is per-file and
+// recursive, and findEnclosingDef finds any enclosing def regardless of depth) but never verified it
+// with a fixture. This does: querying the innermost dependency (`get_config`) must find the MIDDLE
+// function (`get_db`, which has its own `Depends(get_config)`) as the candidate caller, not the outermost
+// consumer (`handler`) - the direct reference at each level, not the whole transitive chain, matching
+// this adapter's own doc comment.
+// ---------------------------------------------------------------------------
+
+test(
+  'sub-dependency (nested dependency): querying the innermost Depends() target finds the middle function, not the outermost consumer',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('nested_dependency_config.py', 11, 5, true); // `def get_config`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    const edge = response.data.augmentedEdges[0]!;
+    assert.equal(edge.reasonCode, 'fastapi-depends');
+    assert.equal(edge.resolution, 'single');
+    assert.equal(
+      edge.source.name,
+      'get_db',
+      `expected the middle function (get_db) as the candidate caller, not the outermost consumer: ${JSON.stringify(edge.source)}`,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
 // M4 stage 3 latency gate (docs/work/task-m4-stage3-accuracy-latency-gates.md, "단계 3"). Not a tight
 // perf assertion - CI runners are noisy and this corpus is small (well under `maxFiles`), so exact
 // millisecond numbers belong in the work document (measured locally, with its own environment stated),
@@ -476,5 +521,103 @@ test(
         'document put this in the tens of ms; this threshold is deliberately loose to absorb CI noise ' +
         'and only catch an actual unbounded-cost regression, not normal variance).',
     );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// M4 stage 3 "단계 6" - rollback (docs/work/task-m4-stage3-accuracy-latency-gates.md). M4 stage 1's own
+// evidence contract (docs/work/task-m4-stage1-evidence-contract.md, "Q5 - kill switch") specifies two
+// SEPARATE invariants, not one - a reviewer finding that blocked stage 1 until both were written down:
+//
+// 1. OFF state must be untouched even for a client that has never heard of `augmentationEnabled` (a
+//    pre-M4 consumer) - not just one that explicitly sends `false`.
+// 2. ON state, when augmentation genuinely finds something, must still leave a specific field set
+//    (`nodes`, `edges`, `completion`'s non-semantic fields, `complete`, `truncated`, `traversalLimits`,
+//    `coverage.traversal`, `coverage.indexing`, `provider`) byte-for-byte identical to the OFF response -
+//    "turn it off and you get the old graph back" says nothing about whether the OLD graph is left alone
+//    while augmentation is ON, which is where users actually spend their time.
+//
+// Until now neither was pinned by a test - both were structural guarantees only (the kill switch's early
+// return in `runAugmentation()`, and augmentedEdges being a wholly separate array `impact.ts` never reads
+// back into `nodes`/`edges`). This closes that gap with an actual regression test for each.
+// ---------------------------------------------------------------------------
+
+/** Fields legitimately expected to change when augmentation runs and finds something - everything else in
+ * the envelope must stay identical to the OFF response. Kept as an explicit allow-list (delete-then-
+ * compare-the-rest), not a hand-picked list of fields to assert equal, so any OTHER field drifting would
+ * fail this test even if nobody remembered to name it here. */
+const AUGMENTATION_LIMITATION_CODES = new Set([
+  'inferred_edges_included', 'observed_edges_included', 'augmentation_budget_exceeded', 'framework_route_mount_unresolved',
+]);
+
+function stripAugmentationVariableFields(response: Record<string, unknown>): Record<string, unknown> {
+  const clone = JSON.parse(JSON.stringify(response));
+  // The envelope carries `limitations`/`timings` at BOTH the root (a summary) and again nested under
+  // `data` (the full record) - found by running this test before writing this function and reading what
+  // it actually failed on, not assumed from `impact.ts`'s return shape alone. Both copies need the same
+  // treatment, or this helper silently only checks half of what the response contains. `capabilities` is
+  // NOT one of these - the root's `capabilities` mirrors `data.provider` (a different name, not a second
+  // copy under the same key), and `data.provider` is never stripped below because it never differs
+  // between on/off in the first place (index.ts copies `data.provider` verbatim to the root regardless of
+  // augmentation), so `deepEqual` passing on it is a real fact about the response, not a gap in this
+  // helper's coverage.
+  delete clone.timings;
+  if (Array.isArray(clone.limitations)) clone.limitations = clone.limitations.filter((code: string) => !AUGMENTATION_LIMITATION_CODES.has(code));
+
+  const data = clone.data as Record<string, unknown>;
+  delete data.augmentedEdges;
+  // Always volatile, unrelated to augmentation - excluded from both sides for the same reason M4 stage 1
+  // excluded them from the kill-switch definition (never decisive, never worth comparing).
+  delete data.analyzedAt;
+  delete data.timings;
+  // Expected to change: the M1-designed signal for exactly this ("static-only"/"provider-static" vs.
+  // "augmented"/"static-plus-inference").
+  const completion = data.completion as Record<string, unknown> | undefined;
+  if (completion) delete completion.semanticScope;
+  const coverage = data.coverage as Record<string, unknown> | undefined;
+  if (coverage) delete coverage.semantic;
+  // `data.limitations` and `coverage.reasons` are the same array (coverage.ts's own invariant) -
+  // augmentation may add these four codes and no others; strip them from both sides rather than asserting
+  // exact membership, since this test's job is the OTHER fields, not re-proving the accuracy-corpus
+  // fixtures.
+  const stripCodes = (codes: unknown): unknown =>
+    Array.isArray(codes) ? codes.filter(code => !AUGMENTATION_LIMITATION_CODES.has(code)) : codes;
+  if (Array.isArray(data.limitations)) data.limitations = stripCodes(data.limitations);
+  if (Array.isArray(data.limitationDetails)) {
+    data.limitationDetails = (data.limitationDetails as Array<{ code: string }>).filter(d => !AUGMENTATION_LIMITATION_CODES.has(d.code));
+  }
+  if (coverage && Array.isArray(coverage.reasons)) coverage.reasons = stripCodes(coverage.reasons);
+  return clone;
+}
+
+test(
+  'rollback, OFF state: a request that omits augmentationEnabled entirely (a pre-M4 client) matches one that sends it explicitly false, byte-for-byte',
+  { timeout: 25000 },
+  () => {
+    const omitted = analyzeRaw({ workspace, file: 'app.py', line: 28, column: 5, depth: 5, maxNodes: 50 }); // `def get_db`
+    const explicitFalse = analyzeRaw({ workspace, file: 'app.py', line: 28, column: 5, depth: 5, maxNodes: 50, augmentationEnabled: false });
+    assert.equal(omitted.ok, true);
+    assert.equal(explicitFalse.ok, true);
+    // Both are OFF, so nothing legitimately differs at all - not even the augmentation-only allow-list the
+    // ON-state test below needs - once the universally-volatile fields (root and nested `timings`,
+    // `data.analyzedAt`) are stripped.
+    assert.deepEqual(stripAugmentationVariableFields(omitted), stripAugmentationVariableFields(explicitFalse));
+    assert.deepEqual((omitted.data as { augmentedEdges: unknown[] }).augmentedEdges, [], 'OFF state must never populate augmentedEdges, with or without the field present in the request');
+  },
+);
+
+test(
+  'rollback, ON state: augmentation finding a real candidate edge leaves nodes/edges/completeness untouched',
+  { timeout: 25000 },
+  () => {
+    const off = analyzeRaw({ workspace, file: 'app.py', line: 28, column: 5, depth: 5, maxNodes: 50, augmentationEnabled: false }); // `def get_db`
+    const on = analyzeRaw({ workspace, file: 'app.py', line: 28, column: 5, depth: 5, maxNodes: 50, augmentationEnabled: true });
+    assert.equal(off.ok, true);
+    assert.equal(on.ok, true);
+    // Non-vacuity for this test itself: if ON found nothing here, the comparison below would trivially
+    // pass regardless of whether the protected fields are actually guarded.
+    const onData = on.data as { augmentedEdges: readonly unknown[] };
+    assert.ok(onData.augmentedEdges.length > 0, 'this fixture must produce a real augmented edge, or this test proves nothing');
+    assert.deepEqual(stripAugmentationVariableFields(off), stripAugmentationVariableFields(on));
   },
 );

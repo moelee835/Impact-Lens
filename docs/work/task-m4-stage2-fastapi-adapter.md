@@ -99,6 +99,36 @@ macos-latest`, 2m23s). 재실행 전 코드 diff가 0이었다는 것과 재실�
 **원인 조사·수정은 하지 않는다** — 범위 밖(commander 지시). 다음에 이 테스트가 실패하면 이 기록을
 참고해 "알려진 flaky"로 넘기기 전에 실제 회귀인지부터 확인한다.
 
+### 별도 관측 — `gopls / windows-latest`의 hang (위 항목과 같은 항목으로 뭉뚱그리지 않는다)
+
+**다른 OS, 다른 증상**: 위 항목은 macOS에서 assertion 실패였다. 이번 것은 **Windows**에서 **hang**
+(12분 무출력 후 취소)이다 — 같은 원인일 수도, 다를 수도 있다. **지금은 모른다.**
+
+**어디서**: PR #79(`feat/m4-stage3-resolution-multiple`)의 `pull_request` CI, run `33829705705`,
+commit `9927593`, 2026-09-04, `gopls / windows-latest` job. 이 commit은 `pythonFastapiIntegration.
+test.ts`의 주석 한 블록만 바꿨다(실행 코드 diff 0) — 직전 커밋 `885246e`에서는 같은 job이 이미
+12/12로 통과했었다.
+
+**증상**: 로그에 `ok 343 - the serverInfo.version byte ceiling never exceeds the schema's codepoint
+maxLength`가 찍힌 뒤 **12분간 아무 출력이 없다가** `The operation was canceled.`로 종료(job 총
+15분 6초). 다음 테스트의 subtest 헤더조차 안 찍혔다 — **assertion 실패가 아니라 어딘가에서 진행이
+멈췄다.**
+
+**다음 테스트가 무엇인지는 특정하지 못했다** — 로컬(TAP reporter)에서 같은 순서를 재현해 봤더니
+343번 다음은 `344 the shipped catalog produces...`부터 `348 the fastapi-static-v1 adapter
+produces...`까지 순수 in-memory 로직(실 프로세스 spawn 없음)이고, **349번이 이 지점 이후 첫
+실제 gopls 프로세스 통합 테스트**다(`stateReachability.integration.test.ts`,
+`'the real shipped gopls preset, reached through ordinary auto-discovery with no test-only
+override, reaches ready'` — 로컬엔 gopls가 없어 SKIP되지만 CI의 `gopls/windows-latest`에서는
+실제로 실행된다). **이건 hang 위치의 후보 하나를 찾은 것이지, 확정한 것이 아니다** — CI 로그가
+344~348의 출력조차 안 보여준 이유(버퍼링 때문에 안 보였을 뿐인지, 그보다 먼저 멈췄는지)를 확인할
+방법이 없었다.
+
+**재실행으로 확인 예정**: commander가 이미 재실행을 걸었다. 재실행이 통과하면 더 파지 않는다
+(commander 지시).
+
+**원인 조사·수정은 하지 않는다** — 지금 할 일이 아니다(commander 지시).
+
 ## 작업 로그
 
 ### 구현 — `fastapi-static-v1` adapter
