@@ -12,6 +12,7 @@ import { FORBIDDEN_PHRASES } from './response-policy-engine.mjs';
 export const INDEX_STATES = Object.freeze(['unknown', 'working', 'ready']);
 
 const CONCLUSION_LAST_MARKER = 'conclusion last';
+const CANDIDATE_CALLER_MARKER = 'candidate caller';
 
 function includesCaseInsensitive(haystack, needle) {
   return haystack.toLowerCase().includes(needle.toLowerCase());
@@ -48,6 +49,13 @@ export function checkDocInvariants(docs) {
   }
   if (!includesCaseInsensitive(docs.analyzeMd, CONCLUSION_LAST_MARKER)) {
     violations.push({ code: 'doc_missing_summary_order', message: 'analyze.md no longer states that a summary puts the conclusion last.' });
+  }
+
+  if (!includesCaseInsensitive(docs.skillMd, CANDIDATE_CALLER_MARKER)) {
+    violations.push({ code: 'doc_missing_candidate_caller_vocabulary', message: 'SKILL.md no longer teaches "candidate caller" as the required term for a data.augmentedEdges-sourced result.' });
+  }
+  if (!includesCaseInsensitive(docs.cliContractMd, CANDIDATE_CALLER_MARKER)) {
+    violations.push({ code: 'doc_missing_candidate_caller_vocabulary', message: 'cli-contract.md no longer teaches "candidate caller" as the required term for a data.augmentedEdges-sourced result.' });
   }
 
   return violations;

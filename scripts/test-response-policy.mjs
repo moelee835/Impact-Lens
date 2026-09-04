@@ -230,6 +230,32 @@ record('deleting the conclusion-last summary order from analyze.md makes the doc
   );
 });
 
+record('deleting the candidate-caller vocabulary rule from SKILL.md makes the doc-invariant check fail (negative direction)', () => {
+  // Two sentences in SKILL.md mention it ("candidate callers" and "candidate caller" both satisfy a
+  // case-insensitive substring search for "candidate caller") - both must go for the marker to actually
+  // disappear, otherwise this mutation would prove nothing (the invariant would still pass on the leftover
+  // "candidate callers" sentence, the same silent-no-op risk this file's other negative-direction tests
+  // guard against by asserting `kept.length < sentences.length` inside removeSentenceContaining itself).
+  const withoutPluralMention = removeSentenceContaining(docText.skillMd, 'candidate callers a static call hierarchy cannot see');
+  const mutated = { ...docText, skillMd: removeSentenceContaining(withoutPluralMention, "a framework adapter's inference, never a call the provider itself confirmed") };
+  assert.ok(!/candidate caller/i.test(mutated.skillMd), 'expected both "candidate caller(s)" mentions to be gone from the mutated SKILL.md');
+  const violations = checkDocInvariants(mutated);
+  assert.ok(
+    violations.some(v => v.code === 'doc_missing_candidate_caller_vocabulary' && v.message.includes('SKILL.md')),
+    'expected doc_missing_candidate_caller_vocabulary after deleting the candidate-caller rule from SKILL.md',
+  );
+});
+
+record('deleting the candidate-caller vocabulary rule from cli-contract.md makes the doc-invariant check fail (negative direction)', () => {
+  const mutated = { ...docText, cliContractMd: removeSentenceContaining(docText.cliContractMd, 'entry is a candidate caller, never a caller') };
+  assert.ok(!/candidate caller/i.test(mutated.cliContractMd), 'expected "candidate caller" to be gone from the mutated cli-contract.md');
+  const violations = checkDocInvariants(mutated);
+  assert.ok(
+    violations.some(v => v.code === 'doc_missing_candidate_caller_vocabulary' && v.message.includes('cli-contract.md')),
+    'expected doc_missing_candidate_caller_vocabulary after deleting the candidate-caller rule from cli-contract.md',
+  );
+});
+
 // ---------------------------------------------------------------------------
 
 if (failures.length > 0) {
