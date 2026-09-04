@@ -535,6 +535,26 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
       if (enclosingResolved.items.length === 0) {
         continue;
       }
+      if (enclosingResolved.items.length > 1) {
+        // Closure audit finding (docs/work/task-m4-milestone-closure-audit.md, gate 4): unlike the
+        // target side above (which reports `resolution: 'multiple'` when a reference resolves to more
+        // than one real candidate), the SOURCE side has no field that can express "more than one
+        // function could be this edge's caller" - `source` is a single endpoint, not a list. So the
+        // only choice that does not arbitrarily promote one candidate to a confirmed caller is to
+        // produce no edge at all here (M4 stage 1's own rule: if a single caller cannot be confirmed,
+        // do not assert one). No dedicated limitation code exists for this specific case, and one was
+        // deliberately not added in this lane (commander's explicit scope decision: reusing an existing
+        // code that does not actually fit this situation, or inventing a new one, is a separate cost -
+        // V1_WITHHELD_REASON_CODES, the plugin skill docs, cli-contract.md and the response-policy eval
+        // all have to move together for a new code, per this same file's other limitation codes). The
+        // real cost of that: a caller silently dropped here is indistinguishable from a query that
+        // never found a candidate reference at all - the same "empty result, ambiguous cause" problem
+        // `provider_null_incoming_calls` exists to solve for the static traversal, unsolved here. This
+        // adapter already accepts an equivalent silent gap in the other direction for several known
+        // false-negative shapes (module-attribute mount, alias-variable mount - both undetectable, both
+        // silent) - consistent with that choice, but not a good state, and not resolved by this comment.
+        continue;
+      }
       const { id: sourceId, endpoint: sourceEndpoint } = endpointFor(input, enclosingResolved.items[0]);
       const pairKey = `${sourceId}|${input.rootId}`;
       if (seenPairs.has(pairKey)) {

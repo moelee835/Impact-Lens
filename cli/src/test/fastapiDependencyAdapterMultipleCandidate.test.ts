@@ -268,3 +268,65 @@ test(
     assert.equal(result.edges[0]!.resolution, 'single');
   },
 );
+
+// ---------------------------------------------------------------------------
+// M4 gate 4, the SOURCE side (docs/work/task-m4-gate3-gate4-closure.md). Unlike the target side above,
+// `source` is a single endpoint with no field that can express "more than one function could be this
+// edge's caller" - so when resolving the enclosing function's own declaration returns more than one
+// provider candidate, the only choice that does not arbitrarily promote one of them to a confirmed
+// caller is to produce no edge at all. Two real Python attempts (conditional redefinition of the
+// enclosing function, queried at each definition's own position) both left pyright returning exactly one
+// item even here, so - same as the alias-path test above - this is a scripted-provider stub, accepted as
+// gate 4 evidence for the reason recorded next to that test: gate 4 is a claim about this code's own
+// behavior, not about real-world reproduction.
+// ---------------------------------------------------------------------------
+
+test(
+  'fastapiDependencyAdapter, enclosing function resolves to two provider candidates: no edge is created (no arbitrary source promotion)',
+  async t => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'impact-lens-fastapi-source-multiple-'));
+    t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+
+    await fs.writeFile(path.join(workspace, 'real_module.py'), 'def get_db():\n    return object()\n');
+    await fs.writeFile(
+      path.join(workspace, 'consumer.py'),
+      [
+        'from fastapi import Depends',
+        'from real_module import get_db',
+        '',
+        'def handler(db=Depends(get_db)):',
+        '    return db',
+        '',
+      ].join('\n'),
+    );
+
+    const root = item(workspace, 'real_module.py', 'get_db', 0, 4);
+    const rootId = symbolId(root);
+    const handler = item(workspace, 'consumer.py', 'handler', 3, 4);
+    // A second, genuinely different candidate for the ENCLOSING function this time - what the source side
+    // would need to arbitrarily pick between if it promoted `items[0]` unconditionally.
+    const otherHandlerCandidate = item(workspace, 'other_module.py', 'handler', 0, 4);
+
+    const provider = new ScriptedProvider([
+      [root], // prepare() at the `Depends(get_db)` reference - single candidate, matches root
+      [handler, otherHandlerCandidate], // prepare() at the enclosing `def handler` - two candidates
+    ]);
+
+    const input: AdapterInput = {
+      workspace,
+      root,
+      rootId,
+      provider,
+      existingNodeIds: new Set([rootId, symbolId(handler)]),
+      budget: { maxFiles: 200, maxMatchesPerFile: 20 },
+    };
+
+    const result = await fastapiDependencyAdapter(input);
+
+    assert.equal(
+      result.edges.length,
+      0,
+      `two candidates for the enclosing function must not arbitrarily promote items[0] to a confirmed source: ${JSON.stringify(result.edges)}`,
+    );
+  },
+);
