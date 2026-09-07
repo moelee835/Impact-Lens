@@ -364,6 +364,19 @@ const MOUNT_UNRESOLVED_GUARD_FIXTURES: ReadonlyArray<{ readonly file: string; re
   { file: 'collision_typed_mounted.py', line: 14, label: 'name collision (type-annotated form on THIS file) - mounted, but ambiguous workspace-wide' },
   { file: 'collision_qualified_unmounted.py', line: 15, label: 'name collision (module-qualified form on the OTHER file) - this router is genuinely unmounted' },
   { file: 'collision_qualified_mounted.py', line: 15, label: 'name collision (module-qualified form on THIS file) - mounted, but ambiguous workspace-wide' },
+  // M4 gate 4 reopening (docs/work/task-m4-gate4-mount-false-positive.md): six adversarial shapes where
+  // `include_router(NAME)` matches textually, but NAME is not bound to the target router at all - not
+  // even to a DIFFERENT genuine APIRouter() (which is what the collision fixtures above test). Each
+  // "*_shadow.py" companion file's NAME is a same-named-but-unrelated identifier that mountPattern alone
+  // could not distinguish from a real mount before importsNameFromModule() was added. Each pair uses a
+  // unique variable name (like crossfile_positive_router.py) so these six shapes are independently
+  // attributable and do not interact with each other or with the collision fixtures above.
+  { file: 'adversary_param_router.py', line: 17, label: 'unrelated identifier shape - a function parameter shares the router\'s name' },
+  { file: 'adversary_loop_router.py', line: 15, label: 'unrelated identifier shape - a for-loop variable shares the router\'s name' },
+  { file: 'adversary_elsewhere_router.py', line: 15, label: 'unrelated identifier shape - the name is imported from a DIFFERENT module entirely' },
+  { file: 'adversary_dictattr_router.py', line: 15, label: 'unrelated identifier shape - a dict-lookup result shares the router\'s name' },
+  { file: 'adversary_factory_router.py', line: 18, label: 'unrelated identifier shape - an unrelated factory\'s return value shares the router\'s name' },
+  { file: 'adversary_typed_router.py', line: 17, label: 'unrelated identifier shape - a non-APIRouter-typed variable shares the router\'s name' },
 ];
 
 for (const fixture of MOUNT_UNRESOLVED_GUARD_FIXTURES) {

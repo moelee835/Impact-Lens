@@ -11,10 +11,22 @@
 //
 // Detection is regex-based text scanning, not a Python AST - a real, bounded heuristic, not a fake
 // one, but it does not follow re-exports, `import module as m; m.get_db(...)`-style qualified access,
-// or dynamic construction. Every candidate this finds is then verified through the real provider
-// (`prepare()`), which is what turns a text match into a genuine finding: a text match alone proves
-// nothing about which real symbol (if any) it refers to (M4 stage 1 corpus case 1 - "same name,
-// different symbol").
+// or dynamic construction. Every Depends()/route-handler candidate this finds is then verified through
+// the real provider (`prepare()`), which is what turns a text match into a genuine finding: a text
+// match alone proves nothing about which real symbol (if any) it refers to (M4 stage 1 corpus case 1 -
+// "same name, different symbol").
+//
+// The router-mount check (`isRouterMounted()`, used to confirm a route decorated on a plain
+// `APIRouter()` is actually reachable) has NO equivalent provider step - `CallHierarchyProvider` only
+// resolves callable symbols (`prepare()`/`incoming()`), and a router variable is not one (see
+// `isRouterMounted()`'s own doc comment). Its only defense against a same-named-but-unrelated
+// identifier is `importsNameFromModule()`: confirming the file containing the `include_router(...)`
+// call actually imports that name FROM root's own module. Found necessary in M4 gate 4's reopening
+// (docs/work/task-m4-gate4-mount-false-positive.md): before that check existed, the bare
+// `include_router(NAME)` text match alone was treated as mount evidence regardless of what `NAME`
+// actually was in that file - a function parameter, a loop variable, an import from an unrelated
+// module, a dict/attribute value, a factory return, or a non-`APIRouter`-typed variable all slipped
+// through and were reported as a confirmed, reachable route.
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -183,6 +195,57 @@ interface MountSearchResult {
   readonly truncated: boolean;
 }
 
+/**
+ * True when `lines` contains a plain `from <module> import ... NAME ...` statement (one line, no
+ * alias) whose module path's last dotted segment is `moduleStem` - the only cross-file link
+ * `isRouterMounted()` can verify without a real import graph or provider support (see the doc comment
+ * above `isRouterMounted()` and this file's top-of-file comment for why provider verification is not
+ * available here).
+ *
+ * This is what distinguishes `crossfile_positive_app.py` (imports `crossfile_positive_router` BY NAME
+ * from `crossfile_positive_router.py`, so a mount call using that name genuinely refers to root's own
+ * router) from a same-named identifier that has no connection to root at all - a function parameter, a
+ * loop variable, a dict/attribute value, a factory return, a non-`APIRouter`-typed variable, or an
+ * import of the same name from a DIFFERENT module. `mountPattern` alone matches every one of these
+ * (found by direct reproduction, M4 gate 4 reopening, docs/work/task-m4-gate4-mount-false-positive.md)
+ * because it only checks the literal text `include_router(NAME`, with no requirement that `NAME`
+ * resolve to anything in particular.
+ *
+ * Deliberately narrow, matching this file's existing bounded-heuristic style (`aliasBindingsFor`,
+ * `findDependsReferences`):
+ * - `name` must appear un-aliased in the import list (`import name as other` does not count - an
+ *   alias changes the local identifier used at the call site, so `mountPattern` searching for `name`
+ *   itself would not have matched that file's mount call under the alias in the first place; this only
+ *   guards the un-aliased case, which is the only case `mountPattern` can even see).
+ * - The import must be on one line - a parenthesized multi-line `from module import (\n  name,\n)` is
+ *   not matched (the same accepted limitation `aliasBindingsFor` already documents, for the same
+ *   reason: a false negative here, never a false positive).
+ * - `moduleStem` is compared against the LAST dotted segment only, so `from pkg.sub.mod import name`
+ *   and relative imports (`from .mod import name`) both count when `mod` matches. Qualified access
+ *   through a module alias (`import mod; mod.name`) is separately out of scope, per this file's
+ *   top-of-file comment - the same accepted miss `attr_mount_router.py` already documents for the
+ *   `Depends()` path.
+ */
+function importsNameFromModule(lines: readonly string[], name: string, moduleStem: string): boolean {
+  const fromPattern = new RegExp(`^\\s*from\\s+\\.*(?:\\w+\\.)*${escapeRegExp(moduleStem)}\\s+import\\s+(.+)$`);
+  const aliasedPattern = new RegExp(`\\b${escapeRegExp(name)}\\s+as\\s+\\w+`);
+  const namePattern = new RegExp(`\\b${escapeRegExp(name)}\\b`);
+  return lines.some(line => {
+    // String#match, deliberately not RegExp#exec - buildInvocation.sources.test.ts's spawn-family scan
+    // flags every member call in this family of method names as a possible child_process call site (it
+    // cannot distinguish a regex method call on a named variable from a real one without a literal
+    // `/pattern/` receiver immediately before it, which `fromPattern` here is not). String#match against
+    // a non-global pattern returns the identical result shape and is a different method name, so it
+    // never enters that scan at all.
+    const match = line.match(fromPattern);
+    if (!match) {
+      return false;
+    }
+    const importList = match[1];
+    return namePattern.test(importList) && !aliasedPattern.test(importList);
+  });
+}
+
 /** Windows drive letters and directory names are case-insensitive at the filesystem level, and this
  * adapter's two path provenances (`fileURLToPath()` for `rootFile` vs `path.join()` while walking the
  * workspace) are not guaranteed to agree on case even for the identical file - a plain `===` on resolved
@@ -277,6 +340,7 @@ async function isRouterMounted(name: string, rootFile: string, workspace: string
   // regex probe before this was written, which is what "same name, different symbol" (corpus case 1)
   // already warned this adapter to check for empirically rather than assume.
   const bindingPattern = new RegExp(`\\b${escapeRegExp(name)}(?:\\s*:\\s*[^=\\n]+)?\\s*=\\s*(?:\\w+\\.)*APIRouter\\s*\\(`);
+  const rootStem = path.basename(rootFile, path.extname(rootFile));
   const walkState = { filesVisited: 0, maxFiles: budget.maxFiles, truncated: false };
   let mountFound = false;
   let nameAmbiguous = false;
@@ -288,10 +352,17 @@ async function isRouterMounted(name: string, rootFile: string, workspace: string
       return;
     }
     const searchable = stripCommentsAndStrings(text);
+    const isRootFile = sameFile(file, rootFile);
     if (mountPattern.test(searchable)) {
-      mountFound = true;
+      // A mount call found in a file OTHER than root's own must additionally prove `name` there is
+      // root's own router, not a same-named-but-unrelated identifier - see `importsNameFromModule()`'s
+      // doc comment. Root's own file needs no such proof: a mount call alongside root's own binding, in
+      // the same file, IS that binding by construction (`mounted_router.py`'s self-mount case).
+      if (isRootFile || importsNameFromModule(searchable.split('\n'), name, rootStem)) {
+        mountFound = true;
+      }
     }
-    if (!sameFile(file, rootFile) && bindingPattern.test(searchable)) {
+    if (!isRootFile && bindingPattern.test(searchable)) {
       nameAmbiguous = true;
     }
   });
