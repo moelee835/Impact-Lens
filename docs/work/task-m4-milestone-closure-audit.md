@@ -68,6 +68,12 @@
 | 7 | 정해진 false-positive·latency budget 통과 | 열림 | PR #77이 이미 "측정값·tripwire는 있지만 정해진 budget 없음"으로 기록 |
 | 8 | user-test 명세 작성 + 결과/보류 사유가 rollout 결정에 연결 | 열림 | `docs/development-management/user-tests/m4-user-test-spec.md` 자체가 아직 없음(직접 확인) |
 
+**이후 갱신(이 표는 대조 시점 스냅샷 — 갱신하지 않고 그대로 둔다):** gate 3·4는 PR #81
+(`docs/work/task-m4-gate3-gate4-closure.md`)이 이 문서가 찾은 공백을 닫았고, 이번엔 M4 stage 3
+사후 감사가 gate 4의 **세 번째 지점**(mount 확인 — 이 문서도 PR #81도 다루지 않은 경로)에서 새
+오탐을 찾아 2026-09-07 재개방했다(`docs/work/task-m4-gate4-mount-false-positive.md`). gate 5는 PR
+#82가 닫았다. gate 6은 이 표 그대로 닫힘 유지. gate 7은 아래 "Gate 7" 절에 정정 추가.
+
 ## Gate별 상세 — 근거와 확인 방법(누가, 실행인지 코드 읽기인지)
 
 ### Gate 1 — IL-LIM-001·002·010 수용 기준
@@ -193,6 +199,13 @@ PR #79(`885246e`, comment fix `9927593`)의 OFF 상태 테스트(요청에 `augm
 PR #77(`8c4c436`)이 이미 기록: on/off 비용은 측정됐고(worst case 200개 파일 기준 +41ms) 회귀
 tripwire(5000ms)도 있지만, "얼마나 느려지면 too slow인가"에 대한 **정해진 budget 자체가 없다** —
 그 판단은 이 lane이 아니라 기본값 on 전환 시점에 나올 값일 수 있다고 이미 명시.
+
+**2026-09-07 추가 — precision "19개 쿼리 오탐 0건"의 의미가 좁아졌다.** M4 stage 3 사후 감사가 찾은
+mount 오탐(gate 4 재개방 원인, `docs/work/task-m4-gate4-mount-false-positive.md`)은 이 19개 판정
+가능 쿼리의 corpus 안에 있는 형태가 아니었다 — **숫자 자체(19개 중 0건)는 다시 세어봐도 정확히
+재현된다.** 다만 그 숫자가 "이 기능이 낼 수 있는 오탐을 전부 헤아렸다"는 뜻은 아니었다는 게
+드러났다: 오탐 경로 하나가 이 ledger(측정 corpus)에 아예 없었다. 숫자를 지우지 않는다 — 측정의
+**의미 범위**가 이 corpus가 실제로 담은 shape으로 한정된다는 것만 명시한다.
 
 ### Gate 8 — user-test 명세
 

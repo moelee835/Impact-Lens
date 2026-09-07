@@ -252,7 +252,10 @@ const COMPILE_DATABASE_AMBIGUOUS_MARKERS = [
 // correct summary that legitimately used "not confirmed" for the candidate-vs-confirmed distinction while
 // separately, correctly stating "the provider index is ready" - stale_index_caveat fired on it anyway,
 // because that check scans the WHOLE summary for "index" and any uncertainty word regardless of
-// which claim each belongs to (see its own KNOWN LIMITATION comment above, gap 3). A specific required
+// which claim each belongs to (see mentionsIndexUncertainty()'s first branch and its "UNSCOPED GAP"
+// comment below - not INDEX_SCOPED_MAY_NOT_UNCERTAINTY's gap 3 above, which is a different, sentence-
+// scoped branch; this cross-reference pointed at the wrong one until 2026-09-07, M4 gate 4 reopening
+// lane finding 4). A specific required
 // phrase does not carry that risk because it is not shared vocabulary with any existing pattern in this
 // file. KNOWN, ACCEPTED GAP (same acceptance reasoning as stale_index_caveat's own documented gaps, not
 // chased further for the same reason): this is presence-only, not sentence-order-aware, so a summary that
@@ -296,6 +299,50 @@ const LIMITATION_SURFACE_PATTERNS = {
   compile_database_missing: COMPILE_DATABASE_MISSING_MARKERS,
   compile_database_stale: COMPILE_DATABASE_STALE_MARKERS,
   compile_database_ambiguous: COMPILE_DATABASE_AMBIGUOUS_MARKERS,
+  // M4 gate 4 reopening (docs/work/task-m4-gate4-mount-false-positive.md, post-hoc audit finding 5): these
+  // two codes (coverage.ts's augmentationBudgetDetails()/mountUnresolvedDetails(), both `severity:
+  // 'warning'`) had no entry here at all, so `surfacesLimitation()` fell through to its default -
+  // literally requiring the underscored code name in prose ("augmentation budget exceeded",
+  // "framework route mount unresolved") - which is not how either code's own recommended wording
+  // (cli-contract.md's "Two limitationDetails codes are specific to this feature" section, SKILL.md's
+  // "Check limitationDetails for...") ever phrases it. A summary that disclosed either code using the
+  // OFFICIAL recommended phrasing was therefore reported as non-disclosed - the more faithfully an agent
+  // followed the docs, the more likely it was to be penalized. Patterns below are drawn from both
+  // coverage.ts's own message/action text and SKILL.md's paraphrase, verified against a fixture using the
+  // SKILL.md wording verbatim (scripts/fixtures/response-policy/25-*, 26-*).
+  //
+  // `framework_route_mount_unresolved`'s patterns deliberately do NOT include a bare `/\binclude_router\(/`
+  // match (an earlier draft had one, removed after commander review measured it directly): every other
+  // pattern here is an ASSERTION shape (states the caveat), but a bare function-name mention matches
+  // ordinary prose that says the opposite thing entirely ("orphan_handler is reachable via
+  // include_router() in main.py" - a wrong, unhedged claim) or mentions the name with no disclosure at
+  // all, and both were measured to produce zero violations with that pattern present. Removing it did not
+  // regress fixture 26 - the other four patterns already cover its wording - and it started catching both
+  // measured false negatives.
+  //
+  // TRAP, DO NOT "FIX" WITHOUT RE-READING mentionsIndexUncertainty()'s comment first: the third pattern
+  // below ("not evidence ... route is unreachable", taken from SKILL.md) collides with the SEPARATE,
+  // already-known stale_index_caveat gap - mentionsIndexUncertainty()'s UNSCOPED first branch, documented
+  // right above that function (not INDEX_SCOPED_MAY_NOT_UNCERTAINTY's numbered gaps further up the file,
+  // which are a different, sentence-scoped branch). A summary using that exact phrase ANYWHERE, combined
+  // with the word "index"
+  // ANYWHERE ELSE in the same summary (even "the provider index is ready", stated correctly), falsely
+  // fires stale_index_caveat under indexingStatus: ready - reproduced directly while building fixture 26,
+  // which deliberately uses coverage.ts's own wording ("does not mean the route is unmounted") instead to
+  // avoid it. The pattern stays (a summary that never also mentions "index" is fine), but a future editor
+  // reading only this list, not fixture 26's description, would not see the trap - this comment is that
+  // record. Do not widen mentionsIndexUncertainty()'s regex to "fix" this from here; that check was
+  // deliberately stopped after five rounds of review (see its own comment) and is out of this list's scope.
+  augmentation_budget_exceeded: [
+    /\b(?:exploration|augmentation) budget\b/i,
+    /\baugment(?:ed|ation)\b[^.!?]{0,80}\b(?:incomplete|exhausted|stopped early)\b/i,
+  ],
+  framework_route_mount_unresolved: [
+    /\brouter'?s? mount\b[^.!?]{0,40}\b(?:could not|couldn'?t|cannot|can'?t|not) be confirmed\b/i,
+    /\bmount (?:is |was )?unresolved\b/i,
+    /\bnot evidence (?:that )?(?:the )?route is unreachable\b/i,
+    /\bdoes not mean the route is unmounted\b/i,
+  ],
 };
 
 function escapeRegExp(text) {
@@ -346,6 +393,39 @@ function matchesAny(patterns, text) {
 const CALLER_EXISTENCE_UNCERTAINTY_PHRASE =
   /\b(?:not evidence|not proof)\b[^.!?]*\bno\s+callers?\s+exists?\b|\bno\s+callers?\s+exists?\b[^.!?]*\b(?:not evidence|not proof)\b/i;
 
+// UNSCOPED GAP in mentionsIndexUncertainty()'s FIRST branch below - a separate, undocumented gap from the
+// three listed in INDEX_SCOPED_MAY_NOT_UNCERTAINTY's own "KNOWN LIMITATION" comment above (which are all
+// about the SECOND, sentence-scoped branch). A cross-reference elsewhere in this file (the
+// augmented_edges_not_distinguished comment, and framework_route_mount_unresolved's LIMITATION_SURFACE_
+// PATTERNS comment) used to point at that sentence-scoped block's "gap 3" for this behavior - wrong file
+// location, corrected 2026-09-07 (M4 gate 4 reopening lane, docs/work/task-m4-gate4-mount-false-
+// positive.md, finding 4).
+//
+// The first branch (`INDEX_WORD_PATTERN.test(...) && INDEX_UNCERTAINTY_PATTERN.test(...)`, both run
+// against the WHOLE summary with no sentence or clause scoping at all) fires whenever "index"/"indexing"
+// appears ANYWHERE in the text and any INDEX_UNCERTAINTY_PATTERN word ("unknown", "not evidence",
+// "unproven", "not confirmed", ...) appears ANYWHERE ELSE - the two need never share a sentence, or even
+// be about the same subject. CALLER_EXISTENCE_UNCERTAINTY_PHRASE above excludes exactly ONE known
+// collision (provider_null_incoming_calls's canonical "not evidence ... no caller exists" wording); it
+// does not close the general architectural gap, which is: this branch cannot tell "the index's own
+// completeness is uncertain" apart from "some OTHER limitation's canonical wording happens to contain an
+// uncertainty word, and the summary separately, correctly states the index is ready". Confirmed again
+// while building framework_route_mount_unresolved's LIMITATION_SURFACE_PATTERNS entry: SKILL.md's own
+// recommended phrase for that code ("not evidence the route is unreachable") falsely fires this branch
+// whenever the same summary also states "the provider index is ready" elsewhere - reproduced directly,
+// not assumed (fixture 26 deliberately uses coverage.ts's different wording, "does not mean the route is
+// unmounted", to avoid it).
+//
+// Root cause this file did not previously name: PR #75 taught agents to write summaries "boundary-first"
+// (BOUNDARY_MARKERS above includes `/\bindex(?:ing)?\b/i`, so a compliant summary's early sentences often
+// name "index"), and separately taught hedging vocabulary for uncertain claims that overlaps
+// INDEX_UNCERTAINTY_PATTERN's word list ("not confirmed", "unproven", ...). Following M4's own taught
+// vocabulary more faithfully makes a summary MORE likely to trip this branch, not less - the two
+// conditions only ever need to appear somewhere in the same summary, never in the same sentence, let alone
+// about the same subject. Not fixed here: mentionsIndexUncertainty()'s five-round history above concluded
+// a regex-based lexical match cannot, in general, attribute a claim to its true subject, and that
+// conclusion applies to this branch too - recorded as a known, accepted gap, not chased with a sixth
+// round.
 function mentionsIndexUncertainty(text) {
   const withoutCallerExistencePhrase = text.replace(CALLER_EXISTENCE_UNCERTAINTY_PHRASE, ' ');
   if (INDEX_WORD_PATTERN.test(withoutCallerExistencePhrase) && INDEX_UNCERTAINTY_PATTERN.test(withoutCallerExistencePhrase)) {

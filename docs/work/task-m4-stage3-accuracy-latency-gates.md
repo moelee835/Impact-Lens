@@ -171,9 +171,32 @@ precision 100%는 "만들어 낸 edge가 전부 옳다"는 것이지 "이 기능
 4. **import 목록 첫 자리가 아닌 alias** — stage 2가 이미 만든 `alias_uncaught_consumer.py`로 기존에
    확인됨(같은 쿼리가 caught/uncaught 두 alias를 동시에 검증).
 
+**2026-09-07 정정 — 5번째 shape 추가 (M4 gate 4 재개방 lane, post-hoc 감사 finding 2).** 이 문서를
+발행한 뒤 사후 감사에서 다섯 번째 미탐 shape이 발견됐다:
+
+5. **여러 줄 `Depends()` 호출** — `findDependsReferences()`(`fastapiDependencyAdapter.ts`)가
+   `lines.forEach`로 줄 단위 매칭이라, 인자가 다음 줄로 넘어가는 `Depends(\n    target\n)` 형태를
+   전혀 못 잡는다. **위 4번(alias의 여러 줄 import) 과는 다른 범주다** — 4번은 import 문 자체가
+   여러 줄인 경우이고, 이번 것은 `Depends()` 호출 자체가 여러 줄인 경우다. 코드 읽기로 확인
+   (`[읽음]`) — `docs/work/task-m4-gate4-mount-false-positive.md`(M4 gate 4 재개방 lane)의 명시적
+   범위 결정에 따라 이 shape은 fixture로 실측 고정하지 않고 발행된 숫자 정정에만 반영했다. 정규식을
+   줄 경계 너머로 넓히는 수정도 하지 않는다 — alias 정규식에서 이미 거부된 것과 같은 트레이드오프
+   (안전한 미탐을 오탐 가능성과 맞바꿈)이기 때문이다.
+
 **즉 이 기능이 신뢰성 있게 발동하는 조건은 사실상 "bare identifier 단일 mount"와 "첫 자리·한 줄
-alias"뿐이다** — 알려진 shape 카테고리 4개 중 절반(2/4: 직접 import, 첫 자리 alias)만 통과한다. 이
-비율(아래 "coverage of known shapes")도 fixture corpus 기준 proxy이지 실제 recall이 아니다.
+alias"뿐이다** — 알려진 shape 카테고리는 이제 5개이고, 그중 2개(직접 import, 첫 자리 alias)만
+통과한다(2/5, 40% — 발행 당시의 2/4·50%에서 정정). 이 비율(아래 "coverage of known shapes")도
+fixture corpus 기준 proxy이지 실제 recall이 아니다.
+
+**2026-09-07 추가 — 워크스페이스 구성에 따라 이미 올바르게 쓰인 mount도 거부될 수 있다.** M4 gate
+4 재개방 lane(`docs/work/task-m4-gate4-mount-false-positive.md`, "남은 한계")에서 commander가 직접
+확인: `isRouterMounted()`의 `nameAmbiguous` 검사는 mount 호출부의 provenance가 이미 증명된 뒤에도
+**워크스페이스 어딘가에 무관한 `router = APIRouter()`가 하나만 있으면** 그 mount를 거부한다.
+`router`는 FastAPI 공식 튜토리얼의 관행적 변수명이라, router 모듈이 둘 이상인 프로젝트에서는 코드를
+정확히 썼어도 이 기능이 발동하지 않을 수 있다. **위 "known shape coverage" 분모에는 넣지 않았다**
+— 그 proxy는 mount를 표현하는 구문 형태를 묻는데, 이건 코드를 어떻게 썼는지가 아니라 워크스페이스
+구성(무관한 동명 모듈의 존재 여부)에 좌우되는, 성격이 다른 질문이기 때문이다(판단 근거는 위 작업
+문서 참고).
 
 ### 측정 — recall (측정 불가, proxy로 무엇을 쓰는지와 그 한계)
 
@@ -181,19 +204,24 @@ alias"뿐이다** — 알려진 shape 카테고리 4개 중 절반(2/4: 직접 i
 같은 판단). 실제 FastAPI 코드베이스에 이 adapter가 놓친 관계가 총 몇 개인지 알 방법이 없다.
 
 **대신 쓰는 proxy: "known shape coverage" = 이미 카탈로그화된 shape 카테고리 중 탐지되는 것의 비율.**
-위에서 확인한 대로 **4개 중 2개(50%)**다(직접 import·첫 자리 alias는 탐지, 모듈 속성·alias 변수
-mount·괄호 여러 줄 import·비-첫자리 alias는 미탐). **이 proxy가 대신하지 못하는 것**: 실제 recall은
-"실제 코드에 존재하는 모든 관계 중 몇 %를 찾는가"인데, 이 proxy는 "우리가 이미 알고 있는 4가지
-shape 중 몇 개를 찾는가"일 뿐이다 — **우리가 아직 카탈로그화하지 못한 shape**(decorator-level
-`dependencies=[Depends(target)]`, router-level `APIRouter(..., dependencies=[...])` 등 stage 2가
-의도적으로 범위 제외한 것들, 또는 아직 발견 못 한 형태)은 이 proxy에 전혀 반영되지 않는다. 억지로
-recall 숫자를 만들지 않았다.
+발행 당시 **4개 중 2개(50%)**로 썼다(직접 import·첫 자리 alias는 탐지, 모듈 속성·alias 변수 mount·
+괄호 여러 줄 import·비-첫자리 alias는 미탐). **2026-09-07 정정: 5개 중 2개(40%)다** — 위 5번(여러
+줄 `Depends()` 호출)이 추가로 카탈로그화됐고, 이 역시 미탐이기 때문이다. **이 proxy가 대신하지
+못하는 것**: 실제 recall은 "실제 코드에 존재하는 모든 관계 중 몇 %를 찾는가"인데, 이 proxy는
+"우리가 이미 알고 있는 shape 중 몇 개를 찾는가"일 뿐이다 — **우리가 아직 카탈로그화하지 못한
+shape**(decorator-level `dependencies=[Depends(target)]`, router-level `APIRouter(...,
+dependencies=[...])` 등 stage 2가 의도적으로 범위 제외한 것들, 또는 아직 발견 못 한 형태)은 이
+proxy에 전혀 반영되지 않는다. 억지로 recall 숫자를 만들지 않았다.
 
-**이 50%가 실제보다 낙관적인지 비관적인지는 우리는 모른다.** 카탈로그화 안 된 shape은 아무도 찔러
-보지 않은 것이므로, 이 adapter가 좁은 정규식 기반이라는 점에서 미탐 쪽(50%가 낙관적)일 가능성이
+**이 비율이 실제보다 낙관적인지 비관적인지는 우리는 모른다.** 카탈로그화 안 된 shape은 아무도 찔러
+보지 않은 것이므로, 이 adapter가 좁은 정규식 기반이라는 점에서 미탐 쪽(비율이 낙관적)일 가능성이
 있다고 볼 수는 있지만, 안 찔러 본 shape이 우연히 탐지될 수도 있어 이는 증명되지 않는다. 따라서
-**"50%는 상한이다" 같은 방향성 주장은 하지 않는다** — 실제 값이 이보다 나은지 나쁜지 모른다는 사실
-자체를 명시할 뿐이다.
+**"이 비율이 상한이다" 같은 방향성 주장은 하지 않는다** — 실제 값이 이보다 나은지 나쁜지 모른다는
+사실 자체를 명시할 뿐이다.
+
+**이 정정 자체가 바로 위 경고("아직 발견 못 한 shape은 이 proxy에 반영 안 된다")가 맞았다는 증거다**
+— 이 문서가 발행된 뒤 M4 stage 3/gate 사후 감사가 다섯 번째 shape을 실제로 찾아냈고, 비율은 그만큼
+떨어졌다. proxy가 "낙관적일 가능성"이라고만 적었던 방향으로, 실제로 한 번 더 이동한 사례다.
 
 ### 검증
 
