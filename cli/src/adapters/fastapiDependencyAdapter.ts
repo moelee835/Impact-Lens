@@ -247,7 +247,13 @@ interface MountSearchResult {
  * into a same-lane false-negative direction change; docs/work/task-m4-gate4-mount-false-positive.md).
  */
 function importsNameFromModule(lines: readonly string[], name: string, moduleStem: string): boolean {
-  const fromPattern = new RegExp(`^\\s*from\\s+\\.*(?:\\w+\\.)*${escapeRegExp(moduleStem)}\\s+import\\s+(.+)$`);
+  // No trailing `$` - `.` excludes `\r`/`\n`, so a CRLF-checked-out file (Windows CI, no .gitattributes
+  // forcing LF here) leaves a trailing `\r` on each split line that `$` cannot match past, silently
+  // failing this whole pattern on every line. Found on Windows CI (`clangd / windows-latest`), not
+  // assumed: `crossfile_positive_app.py`'s CI-checked-out CRLF form reproduced it directly. `(.+)` alone
+  // still stops before any `\r` (the same exclusion), so dropping the anchor loses nothing on LF files
+  // and fixes CRLF ones.
+  const fromPattern = new RegExp(`^\\s*from\\s+\\.*(?:\\w+\\.)*${escapeRegExp(moduleStem)}\\s+import\\s+(.+)`);
   const aliasedPattern = new RegExp(`\\b${escapeRegExp(name)}\\s+as\\s+\\w+`);
   const namePattern = new RegExp(`\\b${escapeRegExp(name)}\\b`);
   return lines.some(line => {

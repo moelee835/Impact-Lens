@@ -302,7 +302,26 @@ fixture는 그대로 통과, 세 가지 오탐 케이스(정반대 주장/무공
 **정정 요청 1건**: `handover-2026-09-04.md`의 "현재도 3개 근방이되 어느 3개인지가 바뀌었습니다"
 표현이 이 lane이 고치려는 것과 같은 종류의 모호함(`c78dc92`의 "4 of 8"이 stale해서 상태가 잘못
 읽힌 것)을 반복한다는 지적 — "근방" 대신 정확한 3-1-4 분해("닫힘 3개 / 재개방·판정대기 1개 / 열림
-4개", 합 8)로 교체했다. 커밋: 아래.
+4개", 합 8)로 교체했다. 커밋: `0fe29b6`.
 
-**CI**: PR 오픈 시점 12개 잡 pending, 0 fail. 완주 확인 후 보고 예정. commander는 "한 줄 정정 + CI
-통과"를 merge 동의 조건으로 명시.
+**CI 완주 — Windows 회귀 1건 발견·수정(`[실행]`).** CI 12개 잡 완주, 9개 pass·3개 fail(전부
+`windows-latest`: `clangd`, `cli:test`, `gopls`). 로그 확인 결과 `clangd`/`gopls` 잡도 같은 CLI
+테스트 스위트를 돌리며, 셋 다 **같은 원인**으로 실패: `closure audit gate 3: a bare-identifier
+router mount succeeds across files` 테스트가 `augmentedEdges.length`에서 `1`을 기대했는데 `0`을
+받음(`crossfile_positive_*` 양성 fixture가 더 이상 통과하지 않음).
+
+원인: `importsNameFromModule()`의 `fromPattern`이 `(.+)$`로 끝나는데, Windows CI는(이 저장소에
+`.gitattributes`가 없어) 체크아웃 시 fixture 파일을 CRLF로 받는다. JS 정규식의 `.`은 `\r`을
+포함하지 않으므로, 줄 끝에 남는 `\r` 때문에 `$`가 절대 매칭되지 않아 이 정규식 전체가 CRLF 파일에서
+항상 실패한다 — `crossfile_positive_app.py`뿐 아니라 이 함수가 검사하는 모든 파일에서. 로컬(LF)
+에서는 재현되지 않아 이전 non-vacuity 검증에서 놓쳤다.
+
+수정: `$` 앵커를 제거(`(.+)`만 남김) — `.`이 이미 `\r`/`\n`을 제외하므로 앵커 없이도 그 지점에서
+멈추고, LF 파일에서의 동작은 그대로다. 격리 검증: Node에서 CRLF 줄을 직접 넣어 앵커 있음/없음 각각
+테스트 → 있음은 실패, 없음은 성공(`crossfile_positive_router` 캡처) 확인. 로컬 CLI 전체 스위트
+재확인(369/366 pass/0 fail/3 skip). **non-vacuity 재확인**: 이 수정 후에도 `isRootFile ||
+importsNameFromModule(...)`을 `isRootFile || true`로 무력화 → 신규 fixture 6개만 정확히 실패,
+나머지 그대로 통과 → 원복 → 전체 그린 재확인 — CRLF 수정이 guard의 실질 동작을 바꾸지 않았음을
+같이 증명했다.
+
+커밋: 아래 push 후 해시 기록. push 후 CI 재확인 예정.
