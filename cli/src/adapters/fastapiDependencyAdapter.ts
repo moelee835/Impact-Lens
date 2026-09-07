@@ -246,7 +246,13 @@ interface MountSearchResult {
  * to `rootFile`, not just the last segment - out of this lane's scope (a false-positive fix must not widen
  * into a same-lane false-negative direction change; docs/work/task-m4-gate4-mount-false-positive.md).
  */
-function importsNameFromModule(lines: readonly string[], name: string, moduleStem: string): boolean {
+// Exported for fastapiDependencyAdapterImportsNameFromModule.test.ts only - a unit test feeding this
+// function CRLF input directly, so the Windows-only `$`-anchor regression (git history: the anchor was
+// added, then found broken on `windows-latest` CI, then removed) has a fast, every-platform regression
+// test instead of depending on Windows CI alone to catch a reintroduction (Windows CI is this repo's
+// slowest, least reliable signal - documented gopls hang history elsewhere in this codebase). Not part of
+// this adapter's public surface otherwise.
+export function importsNameFromModule(lines: readonly string[], name: string, moduleStem: string): boolean {
   // No trailing `$` - `.` excludes `\r`/`\n`, so a CRLF-checked-out file (Windows CI, no .gitattributes
   // forcing LF here) leaves a trailing `\r` on each split line that `$` cannot match past, silently
   // failing this whole pattern on every line. Found on Windows CI (`clangd / windows-latest`), not

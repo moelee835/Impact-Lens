@@ -324,4 +324,41 @@ importsNameFromModule(...)`을 `isRootFile || true`로 무력화 → 신규 fixt
 나머지 그대로 통과 → 원복 → 전체 그린 재확인 — CRLF 수정이 guard의 실질 동작을 바꾸지 않았음을
 같이 증명했다.
 
-커밋: 아래 push 후 해시 기록. push 후 CI 재확인 예정.
+커밋: `8f7ed9b`. push 후 CI 재확인: windows-latest 3개 잡 포함 12/12 pass, 0 fail.
+
+**commander 독립 검증(2026-09-07) — 형제 정규식 훑음(`[실행]`), 그리고 세 가지 추가 요청.**
+
+commander가 이 파일의 정규식 전부(`ROUTE_DECORATOR_PATTERN`부터 `bindingPattern`까지 10개)를 훑어
+`$` 앵커가 `fromPattern`(지금은 제거됨) 한 곳뿐이었음을 확인 — 이 파일의 CRLF 노출은 이걸로 닫힘.
+
+**정정 1 — 이건 CI 문제가 아니라 Windows 사용자 버그였다.** 위 로그와 커밋 메시지가 "Windows CI가
+fixture를 CRLF로 checkout해서"라고만 적었는데, **실제 Windows 개발자의 Python 파일도 CRLF다.**
+즉 앵커가 있던 동안 이 함수는 **실제 Windows 사용자의 진짜 workspace에서도** cross-file mount를
+전부 놓치고 있었을 것이다 — fixture checkout 얘기가 아니라 이 CLI를 Windows에서 쓰는 모든
+사용자에게 해당하는 버그였다. **따라서 `.gitattributes`로 fixture만 LF로 강제하는 건 틀린
+해법이다** — CI는 초록이 되지만 실제 Windows 사용자는 그대로 깨진 채로 남는다. 이미 적용한 수정
+(앵커 제거, 실제 코드가 CRLF를 올바르게 처리하게 만듦)이 옳은 방향이고, `.gitattributes`는 검토도
+안 했다. **이 구분을 기록해 두는 이유**: 다음 사람이 "CI가 fixture 때문에 깨졌다"만 읽고
+`.gitattributes`를 "더 깔끔한 해법"으로 되돌릴 위험이 있기 때문이다 — 이번 lane이 반복해서 잡아온
+"설명이 멈춘 자리에서 다음 사람이 틀리게 채운다" 패턴과 같은 모양이다.
+
+**정정 2 — 신규 fixture 6개의 non-vacuity가 플랫폼 축에서는 공허했다.** `mountFound = isRootFile
+|| importsNameFromModule(...)`인데, `$` 앵커가 있던 동안 Windows에서 `importsNameFromModule()`은
+**항상 false**였다. 6개 adversarial fixture는 전부 mount 호출이 non-root(shadow) 파일에 있으므로,
+Windows에서는 **guard와 무관하게** `isRootFile`이 false이고 `importsNameFromModule()`도 (버그로)
+항상 false라 결과가 우연히 똑같이 "거부"로 나왔다 — **답은 맞았지만 이유가 틀렸다.** 즉 1단계에서
+한 non-vacuity 검증("guard를 `|| true`로 무력화하면 정확히 그 6개만 실패")은 **LF에서만
+증명됐고, CRLF/Windows에서는 아무것도 증명하지 못했다** — 양성 fixture(`crossfile_positive_*`)가
+실패한 게 이걸 드러낸 유일한 계기였다. 음성 fixture만 있었으면 Windows CI도 계속 초록이었을
+것이다. **이 저장소가 이미 기록한 교훈("되돌리기 non-vacuity 검사는 그것이 바꾼 fixture만
+증명한다")의 한 단계 위 버전** — 여기서는 fixture가 아니라 **플랫폼**이 그 축이었다.
+
+**요청 3 — 회귀 테스트 추가, 완료.** `importsNameFromModule()`을 test-only로 export하고
+`cli/src/test/fastapiDependencyAdapterImportsNameFromModule.test.ts` 신규 — CRLF 줄을 직접 먹이는
+단위 테스트 6개(LF 기준 1개, CRLF 양성 3개, CRLF 음성 2개). Windows CI(이 저장소에서 가장 느리고
+가장 불안정한 신호 — `gopls / windows-latest` hang 이력이 이미 문서에 있음)에 의존하지 않고 모든
+플랫폼에서 즉시 실패하게 만든다. **non-vacuity**: `$` 앵커를 되돌려(mutation) 재빌드 → CRLF
+양성 3개 테스트만 정확히 실패(`false !== true`), LF 테스트와 CRLF 음성 2개는 그대로 통과 → 원복 →
+재빌드 → 로컬 전체 스위트 375 테스트(신규 6개 포함) 372 pass/0 fail/3 skip.
+
+커밋: 아래 push 후 해시 기록.
