@@ -1,6 +1,9 @@
 # M4 gate 3·4 종료 처리
 
-- 상태: gate 3·gate 4 모두 완료
+- 상태: gate 3(문구상 유지, 범위는 좁음) 완료 / **gate 4는 이 문서가 다룬 두 지점은 완료, 세 번째
+  지점(mount)이 M4 stage 3 사후 감사에서 발견돼 2026-09-07 재개방 → `docs/work/task-m4-gate4-mount-
+  false-positive.md`에서 해당 지점 수정, 최종 판정은 재검토 대기.** 상세는 아래 "2026-09-07 정정"
+  참고.
 - branch: `feat/m4-gate3-gate4-closure`
 - 선행: PR #80(`docs/m4-milestone-closure-audit`, merge `09e0f50`)이 찾은 gate 3·4의 공백을 닫는다.
 - 이 둘을 같이 묶는 이유: 같은 파일(`fastapiDependencyAdapter.ts`)이고, 둘 다 "fixture 없는 코드
@@ -117,8 +120,9 @@ mount)도 신호 없이 넘긴다 — **일관성은 있지만 좋은 상태는 
   생겨서 `1 !== 0`) → 원복 → 4개 전부 통과.
 - 전체 스위트: 360 pass(신규 2건 포함: alias-multiple, source-multiple)/3 skip(기존과 동일)/0 fail.
 
-**결론: gate 4("모호한 DI/dynamic target은 하나의 확정 caller로 임의 승격되지 않는다")는 두 지점
-모두 방어가 생겨 닫혔다.**
+**결론(2026-09-07 정정 — 아래 "2026-09-07 정정" 절 참고): gate 4는 이 문서가 다룬 두 지점(alias
+검증 경로, source 경로)에 대해서는 방어가 생겼다. 그러나 세 번째 지점(mount 확인)이 이후 발견돼
+gate 4 전체 판정은 이 결론만으로 확정할 수 없다.**
 
 ## 남은 것
 
@@ -127,3 +131,32 @@ mount)도 신호 없이 넘긴다 — **일관성은 있지만 좋은 상태는 
 - source 경로의 "침묵의 대가"(위 참고) — limitation 신호가 필요하다는 결론이면 별도 lane에서
   `V1_WITHHELD_REASON_CODES`/plugin skill/`cli-contract.md`/response-policy eval을 함께 갱신해야
   한다. 이 lane은 그 필요성만 기록하고 만들지 않았다.
+
+## 2026-09-07 정정 — gate 4가 세 번째 지점 때문에 다시 열렸다, gate 3은 문구보다 좁다
+
+**gate 4 재개방.** 이 문서는 "두 지점 모두 방어가 생겨 닫혔다"고 결론지었지만, M4 stage 3 사후 감사
+(post-hoc audit)가 **세 번째 promotion 지점**을 찾았다: 이 문서가 다룬 alias 검증 경로(`:478`)와
+source 경로(`:534` 부근) 둘 다 `Depends()` 쪽이고, **mount 확인 경로(`isRouterMounted()`)는 이
+lane이 아예 살펴보지 않았다.** 사후 감사 finding 1: `include_router(NAME)`이 텍스트로 매칭되기만
+하면 `NAME`이 root의 router와 실제로 관계가 있는지 전혀 확인하지 않은 채 "도달 가능"으로 승격했다
+— gate가 요구하는 "모호한 DI/dynamic target을 임의 승격 안 함"과 정확히 같은 형태의 위반이다. 상세
+경위와 수정은 `docs/work/task-m4-gate4-mount-false-positive.md` 참고(branch
+`fix/m4-gate4-mount-false-positive`).
+
+**그 lane이 이 특정 형태(동명이인 무관 식별자)는 고쳤지만, gate 4를 다시 "닫힘"으로 판정하지는
+않는다.** 같은 수정을 commander가 독립 검증하는 과정에서 **잔여 gap**을 하나 더 찾았다 — mount
+provenance 검사가 마지막 dotted segment만 비교해, 같은 basename을 쓰는 **다른 package**의 무관한
+router도 통과시킨다. 이는 현재 `nameAmbiguous`(이 문서의 alias 경로와 무관한, 더 오래된 로직)가
+**우연히** 막고 있을 뿐 설계된 방어가 아니다 — 예를 들어 그 다른 package의 파일이 `APIRouter()`를
+직접 바인딩하지 않고 다른 곳에서 재-export만 한다면 이 우연한 방어도 뚫린다(이 경로는 실측하지
+않았다 — 실측 안 된 잔여 위험으로만 기록한다). 그러므로 **gate 4는 "완전히 닫혔다"고 확정하지 않고,
+"이 lane이 발견된 특정 형태는 닫았으나 판정 자체는 재검토 대기"로 남긴다.** 최종 판정은 사용자·
+commander의 몫이다.
+
+**gate 3은 문구상 유지되지만, 문구가 원하는 것보다 좁다.** 위 "단계 1"이 확인한 것은 "bare
+identifier가 정확히 import된 정상 경로 하나가 실제로 성공한다"는 것뿐이다. 같은 사후 감사가 이
+경로의 provenance 검사(`importsNameFromModule()`, gate 4 수정의 일부) 자체에 위와 같은 cross-package
+gap이 있다는 걸 보였으므로, gate 3의 "대표 fixture가 candidate·ambiguity를 재현한다"는 요구는 "이
+구현이 흔한 케이스에서 작동한다"는 뜻이지 "이 구현의 mount 확인 경로가 어떤 워크스페이스 구성에서도
+정확하다"는 뜻이 아니다 — gate 문구 자체는 이 구분을 요구하지 않지만, 그 구분이 존재한다는 사실은
+남겨 둔다.
