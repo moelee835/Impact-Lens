@@ -188,7 +188,7 @@ eval fixture 추가.
 - **non-vacuity**: `isRootFile || importsNameFromModule(...)` 조건에 `|| true`를 임시 삽입해 guard를 무력화 → 신규 fixture 6개만 정확히 실패(`pythonFastapiIntegration.test.ts`), 기존 34개는 전부 그대로 통과 → 원복 → 전체 CLI 스위트 369 pass/0 fail/3 skip 재확인.
 - **기존 양성 경로가 왜 통과하는지**: `mounted_router.py`(self-mount, `isRootFile` 분기로 통과 — 새 import 검사를 거치지 않음), `crossfile_positive_*`(교차 파일, `importsNameFromModule()`이 실제로 `from crossfile_positive_router import crossfile_positive_router`를 찾아 통과), `collision_*_mounted.py` 3쌍(mount 호출이 전부 바인딩과 **같은 파일** 안에 있어 self-mount 분기로 통과 — `nameAmbiguous`는 별도로 다른 파일의 진짜 `APIRouter()` 바인딩에 의해 걸림) — 셋 다 코드 읽기로 확인 후 전체 스위트 통과로 재확인. **2026-09-07 정정(commander 독립 검증)**: 바로 위에서 "`nameAmbiguous`는 ... 이번 수정과 무관"이라고 적었는데 **무관하지 않다** — 아래 "남은 한계(commander 독립 검증으로 추가)" 참고. `nameAmbiguous`는 이 fixture 3쌍의 self-mount 판정에는 정말 무관하지만, `importsNameFromModule()`이 여는 별도의 구멍(cross-package 동명 basename)을 **우연히** 막고 있다는 점에서 이 수정 전체와 무관하지 않다.
 - **latency**: 방향 (b)는 파일 워크 구조를 바꾸지 않으므로 재측정을 필수로 보지 않았다(문서 자체가 "(a)를 택하면 필수"라고 명시). 기존 latency gate 테스트(`~3448ms`, 수정 전 `~3461ms`)가 그대로 통과해 회귀 없음을 가볍게 확인.
-- **커밋**: `fix(m4): reject same-named-but-unrelated mount reference in isRouterMounted (gate 4)` — 아래 push 후 해시 기록.
+- **커밋**: `f91f1c1`.
 
 ### 2단계 완료 — limitation 공개 패턴 추가
 
@@ -217,8 +217,7 @@ eval fixture 추가.
    요구하는데, 새로 쓴 주석의 인용이 파일명 리네임(23/24→25/26) 이후 안 갱신된 채로 남아 있었다.
 
 재검증: `node scripts/test-response-policy.mjs` 전체 34개 체크 통과, 위 두 나쁜 요약 모두
-`missing_high_severity_disclosure`로 정확히 잡힘 재확인. 커밋: 아래 push 후 해시 기록(1·2단계와
-별도).
+`missing_high_severity_disclosure`로 정확히 잡힘 재확인. 커밋: `3dd3cc2`(1·2단계와 별도).
 
 ## 남은 한계(commander 독립 검증으로 추가, `f91f1c1` 검증)
 
@@ -290,4 +289,20 @@ alias 변수, 괄호 여러 줄 import, 비-첫자리 alias, 여러 줄 `Depends
   주석 수정은 `node scripts/test-response-policy.mjs`(34개 체크 통과)로, `fastapiDependencyAdapter
   .ts`의 doc comment 추가(한계 1·2 기록)는 `npx tsc -p ./` + CLI 전체 스위트(369 테스트, 366 pass/
   0 fail/3 skip)로 재확인.
-- **커밋**: 아래 push 후 해시 기록.
+- **커밋**: `d061446`.
+
+### PR #84 리뷰 — commander 최종 검증(2026-09-07)
+
+commander가 PR #84 전체를 자신의 harness로 재실행해 요청 4건 모두 실재함을 확인(`[실행]`) — 두
+fixture는 그대로 통과, 세 가지 오탐 케이스(정반대 주장/무공개/전혀 언급 안 함) 전부
+`missing_high_severity_disclosure`로 잡힘. TRAP·UNSCOPED GAP 주석, 교차 참조 정정, fixture 인용
+전부 실재 확인. finding 4 교차 참조를 `augmented_edges_not_distinguished` 자리까지 스스로 더 찾아
+고친 것을 별도로 긍정 평가받음. recall proxy 분모 미포함 판단에 동의 받음.
+
+**정정 요청 1건**: `handover-2026-09-04.md`의 "현재도 3개 근방이되 어느 3개인지가 바뀌었습니다"
+표현이 이 lane이 고치려는 것과 같은 종류의 모호함(`c78dc92`의 "4 of 8"이 stale해서 상태가 잘못
+읽힌 것)을 반복한다는 지적 — "근방" 대신 정확한 3-1-4 분해("닫힘 3개 / 재개방·판정대기 1개 / 열림
+4개", 합 8)로 교체했다. 커밋: 아래.
+
+**CI**: PR 오픈 시점 12개 잡 pending, 0 fail. 완주 확인 후 보고 예정. commander는 "한 줄 정정 + CI
+통과"를 merge 동의 조건으로 명시.
