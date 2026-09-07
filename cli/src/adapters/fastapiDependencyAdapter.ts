@@ -225,6 +225,26 @@ interface MountSearchResult {
  *   through a module alias (`import mod; mod.name`) is separately out of scope, per this file's
  *   top-of-file comment - the same accepted miss `attr_mount_router.py` already documents for the
  *   `Depends()` path.
+ *
+ * KNOWN, ACCEPTED GAP in the last point above (commander review, docs/work/task-m4-gate4-mount-false-
+ * positive.md "남은 한계" section) - not yet closed, not a guess: comparing only the last dotted segment
+ * means a SAME-BASENAME module in a DIFFERENT, unrelated package also satisfies this check. If root is
+ * `pkg_a/users.py` and some other file does `from pkg_b.users import router` (a completely different
+ * `users.py` in a different package), this function returns `true` - confirmed directly, not assumed.
+ * `users.py`/`api.py`/`routes.py` living in more than one package is not a rare FastAPI project shape.
+ *
+ * This gap is currently masked, NOT closed, by `nameAmbiguous` in `isRouterMounted()` below: for
+ * `pkg_b.users` to genuinely exist and export something named the same as root's router, `pkg_b/users.py`
+ * almost always also binds `router = APIRouter()` there - which is exactly what trips `bindingPattern`
+ * and sets `nameAmbiguous`, rejecting the mount anyway. That safety is a coincidence of the two checks'
+ * side effects, not a design relationship: `nameAmbiguous` was written before this function existed, to
+ * catch a different case (two files binding the literal same name). Removing or narrowing
+ * `nameAmbiguous` in a future change (for instance, because this function's import-provenance check makes
+ * it look redundant - it does NOT: this function only proves NAME came from a same-basename module, never
+ * that the basename is unique workspace-wide) would silently reopen this gap. Fixing it properly means
+ * resolving a relative import against the importing file's own location and comparing full resolved paths
+ * to `rootFile`, not just the last segment - out of this lane's scope (a false-positive fix must not widen
+ * into a same-lane false-negative direction change; docs/work/task-m4-gate4-mount-false-positive.md).
  */
 function importsNameFromModule(lines: readonly string[], name: string, moduleStem: string): boolean {
   const fromPattern = new RegExp(`^\\s*from\\s+\\.*(?:\\w+\\.)*${escapeRegExp(moduleStem)}\\s+import\\s+(.+)$`);

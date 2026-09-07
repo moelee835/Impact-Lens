@@ -186,7 +186,7 @@ eval fixture 추가.
 - **방향 결정 (a) vs (b)**: `AdapterInput.provider`의 타입(`CallHierarchyProvider`, `cli/src/types.ts:243`)을 직접 읽어 `prepare()`/`incoming()` 둘 다 호출 가능한 심볼만 다룬다는 것을 확인 — 방향 (a)(provider 재검증)는 기존 인터페이스로 구현 불가능함을 판단이 아니라 타입 선언으로 확인했다(`[읽음]`). 방향 (b)(`importsNameFromModule()` — mount 호출부가 root의 모듈에서 실제로 그 이름을 import하는지 확인)를 세션 scratchpad의 격리 스크립트(`mount-fix-probe.mjs`, 저장소에는 포함 안 함)로 10개 케이스(양성 3 + 음성 7) 전부 검증 후 채택(`[실행]`).
 - **예상 못한 충돌**: `.exec()`를 쓰자 `cli/src/test/buildInvocation.sources.test.ts`의 spawn-family 인벤토리 테스트가 `RegExp.prototype.exec`를 `child_process`류 member call로 오인 — `String.prototype.match()`로 교체해 해결. 이어서 이 사실을 설명하는 주석 자체가 `.exec(`꼴 문자열을 텍스트로 포함해 같은 테스트를 4건 트립시킴(정규식이 주석·코드를 구분하지 않는 순수 텍스트 스캔이기 때문) — 주석 표현을 리터럴 회피 문구로 재작성해 해결. 둘 다 실행으로 발견·확인.
 - **non-vacuity**: `isRootFile || importsNameFromModule(...)` 조건에 `|| true`를 임시 삽입해 guard를 무력화 → 신규 fixture 6개만 정확히 실패(`pythonFastapiIntegration.test.ts`), 기존 34개는 전부 그대로 통과 → 원복 → 전체 CLI 스위트 369 pass/0 fail/3 skip 재확인.
-- **기존 양성 경로가 왜 통과하는지**: `mounted_router.py`(self-mount, `isRootFile` 분기로 통과 — 새 import 검사를 거치지 않음), `crossfile_positive_*`(교차 파일, `importsNameFromModule()`이 실제로 `from crossfile_positive_router import crossfile_positive_router`를 찾아 통과), `collision_*_mounted.py` 3쌍(mount 호출이 전부 바인딩과 **같은 파일** 안에 있어 self-mount 분기로 통과 — `nameAmbiguous`는 별도로 다른 파일의 진짜 `APIRouter()` 바인딩에 의해 걸림, 이번 수정과 무관) — 셋 다 코드 읽기로 확인 후 전체 스위트 통과로 재확인.
+- **기존 양성 경로가 왜 통과하는지**: `mounted_router.py`(self-mount, `isRootFile` 분기로 통과 — 새 import 검사를 거치지 않음), `crossfile_positive_*`(교차 파일, `importsNameFromModule()`이 실제로 `from crossfile_positive_router import crossfile_positive_router`를 찾아 통과), `collision_*_mounted.py` 3쌍(mount 호출이 전부 바인딩과 **같은 파일** 안에 있어 self-mount 분기로 통과 — `nameAmbiguous`는 별도로 다른 파일의 진짜 `APIRouter()` 바인딩에 의해 걸림) — 셋 다 코드 읽기로 확인 후 전체 스위트 통과로 재확인. **2026-09-07 정정(commander 독립 검증)**: 바로 위에서 "`nameAmbiguous`는 ... 이번 수정과 무관"이라고 적었는데 **무관하지 않다** — 아래 "남은 한계(commander 독립 검증으로 추가)" 참고. `nameAmbiguous`는 이 fixture 3쌍의 self-mount 판정에는 정말 무관하지만, `importsNameFromModule()`이 여는 별도의 구멍(cross-package 동명 basename)을 **우연히** 막고 있다는 점에서 이 수정 전체와 무관하지 않다.
 - **latency**: 방향 (b)는 파일 워크 구조를 바꾸지 않으므로 재측정을 필수로 보지 않았다(문서 자체가 "(a)를 택하면 필수"라고 명시). 기존 latency gate 테스트(`~3448ms`, 수정 전 `~3461ms`)가 그대로 통과해 회귀 없음을 가볍게 확인.
 - **커밋**: `fix(m4): reject same-named-but-unrelated mount reference in isRouterMounted (gate 4)` — 아래 push 후 해시 기록.
 
@@ -196,8 +196,98 @@ eval fixture 추가.
 - **패턴 출처**: `coverage.ts`의 `augmentationBudgetDetails()`/`mountUnresolvedDetails()` 실제 message/action 문구와 `SKILL.md`의 "Check limitationDetails for..." 권장 패러프레이즈 둘 다에서 추출.
 - **뜻밖의 상호작용 발견(실행으로)**: `framework_route_mount_unresolved` fixture를 SKILL.md의 정확한 문구("this is not evidence the route is unreachable, only that this scan could not confirm it")로 작성했더니 `stale_index_caveat`가 오탐으로 걸렸다 — 이 문구의 "not evidence"가 이미 알려진 finding 4(gap 3의 scope 없는 첫 분기)와 정확히 충돌한 것이다. 요약 어디든 "index"가 한 번, "not evidence" 등이 다른 곳에 한 번만 있으면 `indexingStatus: ready`에서도 거짓 발동한다는 것을 이 fixture 작성 과정에서 직접 재현했다(`[실행]`). finding 4는 이번 lane에서 정규식을 고치지 않기로 했으므로, fixture 26은 대신 `coverage.ts`의 원문 문구("does not mean the route is unmounted")를 쓰도록 다시 작성해 이 충돌을 우회했다 — fixture description에 이 상호작용을 기록해 다음 사람이 finding 4를 볼 때 이 사례도 참고하게 했다.
 - **non-vacuity**: 추가한 두 항목을 삭제 → `node scripts/test-response-policy.mjs` 재실행 → 정확히 fixture 25·26만 실패(`missing_high_severity_disclosure` 방향), 나머지 32개 체크는 그대로 통과 → 원복 → 전체 34개 체크 통과 재확인.
-- **커밋**: 1단계와 별도 커밋 — 아래 push 후 해시 기록.
+- **커밋**: `7d4d505`.
 
-### 3단계 — 문서 정정 (진행 예정)
+**2026-09-07 정정 — commander 독립 검증(engine 두 버전을 나란히 실행)이 세 가지를 찾음:**
 
-(아직 시작 전 — gate 4/3/7 판정, 발행된 숫자, finding 4 주석 교차 참조를 정정할 차례)
+1. **`/\binclude_router\(/i` 패턴이 공개 검사를 무력화함(`[실행]`, 직접 재현).** 나머지 네 패턴은
+   "mount를 확인 못 했다"는 **주장 형태**인데 이것만 함수 이름 하나였다. `evaluateSummary()`를 직접
+   불러 두 개의 나쁜 요약으로 확인: (a) "orphan_handler is reachable via include_router() in
+   main.py."(mount 미확인인데 **정반대**를 주장) → 위반 0건, (b) 이름만 언급하고 아무 공개도 안 함 →
+   위반 0건. 둘 다 `missing_high_severity_disclosure`가 나와야 하는데 안 나왔다. 패턴 제거 후 재확인:
+   두 나쁜 요약 모두 정확히 `missing_high_severity_disclosure`로 잡히고, fixture 26(coverage.ts 원문
+   문구 사용)은 나머지 네 패턴만으로 그대로 통과 — **제거해도 잃는 게 없다.** 패턴 목록에서 제거함.
+2. **패턴 목록 자체에 finding 4 함정을 명시하는 주석 추가.** 세 번째 패턴("not evidence ... route is
+   unreachable", SKILL.md 원문)이 `stale_index_caveat`의 스코프 없는 첫 분기와 충돌한다는 사실이
+   fixture 26의 description에는 있었지만 패턴 목록 자체에는 없었다 — 패턴만 보고 편집하는 사람은 못
+   본다는 지적을 받아들여 `LIMITATION_SURFACE_PATTERNS` 바로 위에 "TRAP" 주석으로 명시했다. 정규식은
+   손대지 않음(finding 4는 별도, 이미 5라운드 검토 끝에 의도적으로 정지된 상태).
+3. **주석의 fixture 인용 오류 정정**: "scripts/fixtures/response-policy/23-*, 24-*"라고 썼던 것을
+   실제 파일명인 "25-*, 26-*"로 고쳤다 — 이 저장소 자신이 "줄 번호가 아니라 원문으로 인용한다"고
+   요구하는데, 새로 쓴 주석의 인용이 파일명 리네임(23/24→25/26) 이후 안 갱신된 채로 남아 있었다.
+
+재검증: `node scripts/test-response-policy.mjs` 전체 34개 체크 통과, 위 두 나쁜 요약 모두
+`missing_high_severity_disclosure`로 정확히 잡힘 재확인. 커밋: 아래 push 후 해시 기록(1·2단계와
+별도).
+
+## 남은 한계(commander 독립 검증으로 추가, `f91f1c1` 검증)
+
+`importsNameFromModule()`을 격리 스크립트로 뽑아 실행한 결과, 이번 lane의 수정 자체가 완전하지
+않다는 것이 드러났다. 코드는 고치지 않고(commander 지시) 여기에 기록만 한다.
+
+### 한계 1 — 같은 basename, 다른 package는 여전히 통과한다
+
+`importsNameFromModule()`은 **마지막 dotted segment만** 비교한다. root가 `pkg_a/users.py`일 때,
+`pkg_b/users.py`(완전히 무관한 다른 package)를 `from pkg_b.users import router`로 import해
+`include_router(router)`하는 파일도 provenance 검사를 **통과한다**(`[실행]`, commander가 격리
+스크립트로 확인 → 이 세션이 같은 결과를 직접 재현: `importsNameFromModule(['from pkg_b.users import
+router'], 'router', 'users')`가 `true`를 반환). `users.py`/`api.py`/`routes.py`가 여러 package에
+있는 것은 FastAPI 프로젝트에서 드물지 않다. `importsNameFromModule()`의 doc comment에 이 gap을
+명시했다(위 1단계 파일, "KNOWN, ACCEPTED GAP" 문단).
+
+### 한계 2 — `nameAmbiguous`가 이미 provenance 증명된 mount도 미탐으로 만든다
+
+`nameAmbiguous`(기존 로직, 이번 lane에서 안 건드림)는 **다른 아무 파일이나 같은 이름을
+`APIRouter()`에 바인딩하면** mount를 거부한다. `importsNameFromModule()`이 이미 "mount 호출부가
+root의 모듈에서 그 이름을 가져왔다"를 증명한 뒤에도, 워크스페이스 어딘가에 무관한
+`router = APIRouter()`가 하나만 있으면 이 mount는 여전히 미확인 처리된다(`[실행]`, 이 세션이 직접
+재현: `bindingPattern` 정규식이 `router = APIRouter()`에 매칭됨을 확인). `router`는 FastAPI 공식
+튜토리얼이 쓰는 관행적 이름이라(실제 저장소 통계는 아니고 관행 근거), router 모듈이 둘 이상인
+프로젝트는 provenance가 증명돼도 mount 확인에 실패할 수 있다.
+
+### 결합 — 1번은 2번 때문에 우연히 안전하다
+
+**한계 1을 실제로 막고 있는 건 한계 2다.** `pkg_b/users.py`가 워크스페이스에 실재하려면 그 파일이
+진짜 router 모듈이어야 하고(즉 `router = APIRouter()`를 바인딩), 그게 `nameAmbiguous`를 켜서 한계
+1의 오탐을 결과적으로 막는다 — **설계가 아니라 우연한 결합**이다(이 세션이 5개 파일 시나리오를
+논리적으로 추적해 확인: `mountFound=true`(한계 1) && `nameAmbiguous=true`(한계 2) → `found =
+mountFound && !nameAmbiguous` = `false`). `nameAmbiguous`를 "이미 provenance가 있으니 잉여"라고
+보고 없애거나 완화하면 한계 1이 바로 열린다. `importsNameFromModule()`의 doc comment에 이 결합
+관계와 "제대로 고치려면 상대 import를 importing 파일 기준으로 완전히 resolve해서 `rootFile`과
+전체 경로로 비교해야 한다"는 방향을 함께 적었다.
+
+### recall proxy 분모에 넣을지 — 판단: 넣지 않는다
+
+commander가 판단을 요청했다. **한계 2("guard가 이미 증명된 mount를 워크스페이스 구성 때문에
+거부하는 경우")는 `task-m4-stage3-accuracy-latency-gates.md`의 "known shape coverage" proxy
+분모에 넣지 않는 게 맞다고 본다.** 그 proxy는 "mount 참조를 표현하는 **구문 형태**(모듈 속성,
+alias 변수, 괄호 여러 줄 import, 비-첫자리 alias, 여러 줄 `Depends()`) 중 몇 개를 탐지하는가"를
+묻는다 — 전부 "이 코드를 어떻게 썼는가"에 대한 질문이다. 한계 2는 코드를 어떻게 썼는지와
+무관하다: **올바른 구문(bare identifier, 정확히 import됨)을 썼는데도, 워크스페이스에 무관한
+동명 router 모듈이 하나 존재한다는 이유만으로** 거부된다 — 성격이 다른 질문("이 코드가 얼마나
+자주 다른 코드와 충돌하는가")이라 억지로 같은 분모에 넣지 않는다. 대신 "이 기능이 신뢰성 있게
+발동하는 조건" 서술에 별도 항목으로 추가했다(`task-m4-stage3-accuracy-latency-gates.md`).
+
+### 3단계 완료 — 문서 정정
+
+- **`task-m4-stage3-accuracy-latency-gates.md`**: 5번째 known shape(여러 줄 `Depends()`, finding 2)
+  추가, 비율 2/4(50%)→2/5(40%) 정정, 이 정정 자체가 문서 자신의 "아직 발견 못 한 shape은 proxy에
+  반영 안 됨" 경고가 맞았다는 증거임을 기록. 한계 2(워크스페이스 구성 의존 미탐, commander 독립
+  검증)도 "신뢰성 있게 발동하는 조건" 절에 별도 항목으로 추가(분모에는 안 넣음, 판단 근거 명시).
+- **`task-m4-gate3-gate4-closure.md`**: 상태 줄과 결론 문단에 gate 4 재개방·gate 3 범위 협소 정정
+  섹션 추가.
+- **`handover-2026-09-04.md`**: 미탐 비율(2/4·50%→2/5·40%), gate 표(gate 4 재개방·gate 5 닫힘·gate
+  7 ledger 범위 축소), PR #81/#82/#83 행 정정.
+- **`task-m4-milestone-closure-audit.md`**: 판정표는 대조 시점 스냅샷으로 그대로 두고 바로 아래에
+  "이후 갱신" 정정 문단 추가, gate 7 절에 precision 19개 쿼리 ledger 범위 축소 정정 추가.
+- **`response-policy-engine.mjs`(finding 4, 정규식은 안 건드림)**: `mentionsIndexUncertainty()`의
+  scope 없는 첫 분기를 별도 "UNSCOPED GAP" 주석으로 명시(이전에는 이 분기에 대한 설명이 전혀 없었고,
+  다른 두 자리(`augmented_edges_not_distinguished` 주석, finding 5의 `framework_route_mount_
+  unresolved` TRAP 주석)가 잘못 `INDEX_SCOPED_MAY_NOT_UNCERTAINTY`의 "gap 3"(문장 scope 분기 전용)을
+  가리키고 있던 것을 정정 — 세 자리 모두 올바른 위치를 가리키도록 고침). PR #75가 가르친 어휘
+  (`\bindex\b`가 boundary marker, "not confirmed" 등 hedging 어휘)와의 충돌도 근본 원인으로 기록.
+- **검증**: 코드 변경 없는 순수 문서 수정 3건은 검증 대상 아님. `response-policy-engine.mjs`
+  주석 수정은 `node scripts/test-response-policy.mjs`(34개 체크 통과)로, `fastapiDependencyAdapter
+  .ts`의 doc comment 추가(한계 1·2 기록)는 `npx tsc -p ./` + CLI 전체 스위트(369 테스트, 366 pass/
+  0 fail/3 skip)로 재확인.
+- **커밋**: 아래 push 후 해시 기록.
