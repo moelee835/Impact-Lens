@@ -1,9 +1,9 @@
 # M4 gate 3·4 종료 처리
 
-- 상태: gate 3(문구상 유지, 범위는 좁음) 완료 / **gate 4는 이 문서가 다룬 두 지점은 완료, 세 번째
-  지점(mount)이 M4 stage 3 사후 감사에서 발견돼 2026-09-07 재개방 → `docs/work/task-m4-gate4-mount-
-  false-positive.md`에서 해당 지점 수정, 최종 판정은 재검토 대기.** 상세는 아래 "2026-09-07 정정"
-  참고.
+- 상태: gate 3(문구상 유지, 범위는 좁음) 완료 / **gate 4는 이 문서가 다룬 두 지점 완료 → 세 번째
+  지점(mount)이 M4 stage 3 사후 감사에서 발견돼 2026-09-07 재개방(`docs/work/task-m4-gate4-mount-
+  false-positive.md`) → 같은 날 잔여 gap까지 닫아 최종 완료(`docs/work/task-m4-gate4-module-
+  resolution.md`).** 상세는 아래 "2026-09-07 정정" 참고.
 - branch: `feat/m4-gate3-gate4-closure`
 - 선행: PR #80(`docs/m4-milestone-closure-audit`, merge `09e0f50`)이 찾은 gate 3·4의 공백을 닫는다.
 - 이 둘을 같이 묶는 이유: 같은 파일(`fastapiDependencyAdapter.ts`)이고, 둘 다 "fixture 없는 코드
@@ -121,8 +121,8 @@ mount)도 신호 없이 넘긴다 — **일관성은 있지만 좋은 상태는 
 - 전체 스위트: 360 pass(신규 2건 포함: alias-multiple, source-multiple)/3 skip(기존과 동일)/0 fail.
 
 **결론(2026-09-07 정정 — 아래 "2026-09-07 정정" 절 참고): gate 4는 이 문서가 다룬 두 지점(alias
-검증 경로, source 경로)에 대해서는 방어가 생겼다. 그러나 세 번째 지점(mount 확인)이 이후 발견돼
-gate 4 전체 판정은 이 결론만으로 확정할 수 없다.**
+검증 경로, source 경로)에 대해서는 방어가 생겼다. 세 번째 지점(mount 확인)이 이후 발견됐고, 같은
+날 마저 닫혀 gate 4는 최종적으로 닫힘이다(`docs/work/task-m4-gate4-module-resolution.md`).**
 
 ## 남은 것
 
@@ -160,3 +160,19 @@ gap이 있다는 걸 보였으므로, gate 3의 "대표 fixture가 candidate·am
 구현이 흔한 케이스에서 작동한다"는 뜻이지 "이 구현의 mount 확인 경로가 어떤 워크스페이스 구성에서도
 정확하다"는 뜻이 아니다 — gate 문구 자체는 이 구분을 요구하지 않지만, 그 구분이 존재한다는 사실은
 남겨 둔다.
+
+## 2026-09-07 정정 2 — 사용자 결정으로 잔여 gap까지 닫음, gate 4 최종 닫힘
+
+바로 위 절이 "재검토 대기"로 남긴 잔여 gap(cross-package basename 충돌, 그리고 이를 우연히 막던
+`nameAmbiguous`가 self-mount에서는 근거 없이 미탐만 만든다는 것)을 사용자 결정으로 같은 날
+`docs/work/task-m4-gate4-module-resolution.md`에서 닫았다 — 절대 import는 dotted path 전체를
+`rootFile`의 path segment suffix와 비교(마지막 segment만 비교하던 것에서 교체, commander가 flat/
+src/nested layout 6케이스 행렬로 회귀 없음을 검증), 상대 import는 기존처럼 정확히 해석, `nameAmbiguous`
+는 완전히 제거(self-mount는 Python 스코프상 다른 파일과 무관하게 항상 명확하다는 것을 확인 —
+`collision_router_mounted.py`/`collision_typed_mounted.py`/`collision_qualified_mounted.py`의
+기존 "mount-unresolved" 기대값을 "확정 edge"로 반전).
+
+**gate 4를 최종 닫힘으로 판정한다.** 남은 잔여 한계 한 가지(서로 다른 두 최상위 트리가 완전히 같은
+dotted path suffix로 끝나는 경우, 실측 안 된 이론적 위험)는 gate 3이 이미 안고 있는 것과 같은 성격의
+narrower-than-worded 한계로 accepted — PR #84가 찾은 basename-only 충돌보다 훨씬 좁다(그때는
+basename만 같아도 충돌했다).

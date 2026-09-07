@@ -146,10 +146,35 @@ FastAPI 코드에 대한 값이 아니다 — 이 구분을 숫자 옆에 안 �
   호출, docstring 안 언급, 문자열 리터럴 안 언급, 그리고 이름 충돌(bare/타입 주석/모듈 경유 세
   형태 × 각 2방향 = 6건).
 
+**2026-09-07 정정 1(M4 gate 4 mount 오탐 lane, PR #84) — 발견하지 못한 채 넘어간 정정.** PR #84가
+adversarial 미탐-방지 fixture 6개(함수 매개변수/loop 변수/다른 모듈 import/dict·attr 대입/factory
+반환/non-APIRouter 타입 주석 — 전부 candidate edge를 내면 안 되는 진음성 쿼리)를 추가했지만, 이
+문서의 19개 집계는 그때 갱신되지 않았다. **이번(module-resolution) lane에서 재측정하며 처음
+발견했다** — 발행 당시엔 25개(6 TP + 19 TN)여야 했다.
+
+**2026-09-07 정정 2(M4 gate 4 module-resolution follow-up, `docs/work/task-m4-gate4-module-
+resolution.md`) — 이번 lane 자체의 변경.** `nameAmbiguous` 제거로 이름 충돌 self-mount 3건
+(`collision_router_mounted.py`/`collision_typed_mounted.py`/`collision_qualified_mounted.py`)이
+진음성에서 진양성으로 이동했고, 신규 fixture 4개(cross-package 오탐 거부 1건 진음성, 다중 router
+프로젝트 양성 1건 + 상대 import 깊이 2건 = 진양성 3건)가 추가됐다.
+
+**최종 재계산(`npm test`, 2026-09-07 재실행으로 직접 확인): 29개 쿼리(진양성 12 + 진음성 17)에서
+precision 100%(오탐 0건), 변동 없음.**
+
+- **진양성 12개** (기존 6 + PR #84엔 없음 + 이번 lane 6): 기존 6개(`Depends()` 직접 import 2건,
+  `app = FastAPI()` route handler 2건, alias 1건, `mounted_router.py` 1건) + 이름 충돌 self-mount
+  3건(방금 이동) + cross-package 다중 router 프로젝트 양성 1건(`module_resolution_pkg_b`) + 상대
+  import 2건(`module_resolution_relative/routers/users.py`,
+  `module_resolution_relative/routers/nested_users.py`).
+- **진음성 17개** (기존 13 - 이동한 3 + PR #84의 6 + 신규 1): 기존 13개 중 이름 충돌 6건이 3건으로
+  줄고(unmounted 절반만 남음) 나머지 7개(무관한 일반 호출, decoy, 미mount router, 동적 등록,
+  주석·docstring·문자열 리터럴 각 1건)는 그대로, PR #84의 adversarial 6건, 이번 lane의
+  cross-package 오탐 거부 1건(`module_resolution_pkg_a`).
+
 **corpus 편향을 명시한다**: 위 fixture들은 **우리가 실제 버그를 찾은 자리**에서 자랐다 — 이름 충돌,
-주석, alias identity 불일치. 이건 실제 FastAPI 코드베이스의 실패 분포 표본이 아니라, **우리가 이미
-알고 고친 위험을 다시 안 만드는지 확인하는 회귀 corpus**다. "실제 코드에서 100% 정확하다"고 읽으면
-안 된다.
+주석, alias identity 불일치, 이제는 package 경로 불일치까지. 이건 실제 FastAPI 코드베이스의 실패
+분포 표본이 아니라, **우리가 이미 알고 고친 위험을 다시 안 만드는지 확인하는 회귀 corpus**다. "실제
+코드에서 100% 정확하다"고 읽으면 안 된다.
 
 ### 측정 — 미탐 범위(precision과 같은 자리에 둔다: "정확한데 거의 안 도는" 기능을 정확하다고만
 보고하지 않기 위해)
@@ -302,6 +327,20 @@ truncation 발동 확인용).
 400개 621ms로 이미 workspace 크기에 비례해 늘어난다(pyright 자체의 indexing 비용, augmentation과
 무관 — off인데도 늘어나는 게 그 증거다). 이 숫자를 "augmentation 비용"으로 잘못 읽지 않도록 위 표와
 분리해서 적는다.
+
+**2026-09-07 추가 — M4 gate 4 module-resolution follow-up 재측정.** 이 lane은 `isRouterMounted()`의
+파일 워크 구조(어떤 파일을 몇 개 방문하는지)를 바꾸지 않았다 — 이미 `mountPattern`이 매칭된
+후보 줄에 대해서만 경로 비교 방식을 바꿨을 뿐이다(마지막 segment 문자열 비교 → 상대 import는 정확한
+경로 계산, 절대 import는 segment 배열 비교 — 둘 다 `path.dirname()`/배열 slice 수준의 저렴한 연산).
+그래서 파일당 비용 모델(~0.2ms/file) 자체가 바뀔 구조적 이유가 없다고 판단해 **위 200/400개
+synthetic workspace 벤치마크는 다시 돌리지 않았다** — 안 한 것은 안 했다고 적는다.
+
+대신 실제 fixture corpus(`orphan_router.py`, worst-case 쿼리 — mount 미확인이라 전체 walk를 다
+탐)에서 `npm test`가 쓰는 것과 같은 min-of-N 방법으로 직접 재측정: off 473ms, on 481ms, 추가
+비용 **+8ms**(이 lane에서 fixture 9개·subdirectory 5개가 늘어난 뒤 값). 절대값은 corpus 크기·환경
+차이로 이전 측정과 직접 비교 대상이 아니지만(다른 workspace, 다른 시점), **파일 수가 늘었는데도
+비용이 여전히 한 자릿수~두 자릿수 ms 수준**이라는 것은 회귀가 없다는 근거로는 충분하다고 판단했다.
+latency gate 테스트(`< 5000ms` 임계값)도 그대로 통과.
 
 ### `maxFiles`를 올릴지 판단 — 측정된 것과 안 된 것을 분리한다
 

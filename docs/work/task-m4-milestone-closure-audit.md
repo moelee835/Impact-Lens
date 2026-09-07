@@ -69,10 +69,13 @@
 | 8 | user-test 명세 작성 + 결과/보류 사유가 rollout 결정에 연결 | 열림 | `docs/development-management/user-tests/m4-user-test-spec.md` 자체가 아직 없음(직접 확인) |
 
 **이후 갱신(이 표는 대조 시점 스냅샷 — 갱신하지 않고 그대로 둔다):** gate 3·4는 PR #81
-(`docs/work/task-m4-gate3-gate4-closure.md`)이 이 문서가 찾은 공백을 닫았고, 이번엔 M4 stage 3
+(`docs/work/task-m4-gate3-gate4-closure.md`)이 이 문서가 찾은 공백을 닫았고, 이후 M4 stage 3
 사후 감사가 gate 4의 **세 번째 지점**(mount 확인 — 이 문서도 PR #81도 다루지 않은 경로)에서 새
-오탐을 찾아 2026-09-07 재개방했다(`docs/work/task-m4-gate4-mount-false-positive.md`). gate 5는 PR
-#82가 닫았다. gate 6은 이 표 그대로 닫힘 유지. gate 7은 아래 "Gate 7" 절에 정정 추가.
+오탐을 찾아 2026-09-07 재개방했다(`docs/work/task-m4-gate4-mount-false-positive.md`). **같은 날
+사용자 결정으로 잔여 gap(cross-package basename 충돌, self-mount 워크스페이스 충돌)까지 마저
+닫아 gate 4를 최종 닫힘으로 판정했다**(`docs/work/task-m4-gate4-module-resolution.md`). gate 5는
+PR #82가 닫았다. gate 6은 이 표 그대로 닫힘 유지. gate 7은 아래 "Gate 7" 절에 정정 추가.
+**2026-09-07 최종 기준: 8개 중 닫힘 4(rollback·gate 3·gate 4·gate 5), 열림 4(gate 1·2·7·8).**
 
 ## Gate별 상세 — 근거와 확인 방법(누가, 실행인지 코드 읽기인지)
 
@@ -206,6 +209,13 @@ mount 오탐(gate 4 재개방 원인, `docs/work/task-m4-gate4-mount-false-posit
 재현된다.** 다만 그 숫자가 "이 기능이 낼 수 있는 오탐을 전부 헤아렸다"는 뜻은 아니었다는 게
 드러났다: 오탐 경로 하나가 이 ledger(측정 corpus)에 아예 없었다. 숫자를 지우지 않는다 — 측정의
 **의미 범위**가 이 corpus가 실제로 담은 shape으로 한정된다는 것만 명시한다.
+
+**2026-09-07 추가 2 — corpus 크기 자체도 그 뒤 두 번 더 자랐다.** `docs/work/task-m4-gate4-module-
+resolution.md` 재측정: PR #84가 추가한 adversarial fixture 6개가 이 19개 집계에 반영된 적이 없었고
+(발행 시점 25개여야 했다), 이번 lane이 이름 충돌 self-mount 3건의 판정을 뒤집고 cross-package
+fixture 4개를 더해 **현재 29개(진양성 12/진음성 17), precision 100%(오탐 0건) 그대로**다. 위
+"의미 범위가 한정된다"는 지적은 여전히 유효하다 — corpus가 커진 것과 corpus가 실제 코드베이스를
+대표하게 된 것은 다른 이야기다.
 
 ### Gate 8 — user-test 명세
 
