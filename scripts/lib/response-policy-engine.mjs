@@ -296,6 +296,28 @@ const LIMITATION_SURFACE_PATTERNS = {
   compile_database_missing: COMPILE_DATABASE_MISSING_MARKERS,
   compile_database_stale: COMPILE_DATABASE_STALE_MARKERS,
   compile_database_ambiguous: COMPILE_DATABASE_AMBIGUOUS_MARKERS,
+  // M4 gate 4 reopening (docs/work/task-m4-gate4-mount-false-positive.md, post-hoc audit finding 5): these
+  // two codes (coverage.ts's augmentationBudgetDetails()/mountUnresolvedDetails(), both `severity:
+  // 'warning'`) had no entry here at all, so `surfacesLimitation()` fell through to its default -
+  // literally requiring the underscored code name in prose ("augmentation budget exceeded",
+  // "framework route mount unresolved") - which is not how either code's own recommended wording
+  // (cli-contract.md's "Two limitationDetails codes are specific to this feature" section, SKILL.md's
+  // "Check limitationDetails for...") ever phrases it. A summary that disclosed either code using the
+  // OFFICIAL recommended phrasing was therefore reported as non-disclosed - the more faithfully an agent
+  // followed the docs, the more likely it was to be penalized. Patterns below are drawn from both
+  // coverage.ts's own message/action text and SKILL.md's paraphrase, verified against a fixture using the
+  // SKILL.md wording verbatim (scripts/fixtures/response-policy/23-*, 24-*).
+  augmentation_budget_exceeded: [
+    /\b(?:exploration|augmentation) budget\b/i,
+    /\baugment(?:ed|ation)\b[^.!?]{0,80}\b(?:incomplete|exhausted|stopped early)\b/i,
+  ],
+  framework_route_mount_unresolved: [
+    /\binclude_router\(/i,
+    /\brouter'?s? mount\b[^.!?]{0,40}\b(?:could not|couldn'?t|cannot|can'?t|not) be confirmed\b/i,
+    /\bmount (?:is |was )?unresolved\b/i,
+    /\bnot evidence (?:that )?(?:the )?route is unreachable\b/i,
+    /\bdoes not mean the route is unmounted\b/i,
+  ],
 };
 
 function escapeRegExp(text) {

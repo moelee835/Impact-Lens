@@ -1,0 +1,68 @@
+{
+  "file": "26-framework-route-mount-unresolved-correctly-reported.json",
+  "name": "framework_route_mount_unresolved correctly reported using coverage.ts's own recommended wording",
+  "description": "M4 gate 4 reopening (docs/work/task-m4-gate4-mount-false-positive.md, post-hoc audit finding 5): before LIMITATION_SURFACE_PATTERNS gained an entry for this code, surfacesLimitation() fell through to its default - a regex requiring the literal underscored code name ('framework route mount unresolved') in prose. coverage.ts's own message text ('this does not mean the route is unmounted') never says that, so a summary following the docs exactly was reported as missing_high_severity_disclosure. Direct measurement against the pre-fix engine (this exact response/summary pair) reproduced that false positive. Deliberately does NOT use SKILL.md's alternate paraphrase ('this is not evidence the route is unreachable') here - that phrase's 'not evidence' collides with the already-known, separately-tracked stale_index_caveat gap (finding 4, gap 3's unscoped first branch: ANY 'index' mention anywhere in the summary plus ANY 'not evidence'/'unproven'/etc. anywhere else falsely fires, even under indexingStatus: ready) - reproduced directly while building this fixture, not assumed; left as further evidence for finding 4, not fixed here per that finding's own scope (comment/cross-reference only, no regex change). Must-pass fixture.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": { "name": "@impact-lens/cli", "version": "0.8.0" },
+      "node": { "version": "22.0.0", "major": 22, "executable": "node" },
+      "runner": { "source": "checkout" }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "pyright",
+        "requestedLanguageId": "python",
+        "detectedLanguageId": "python",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": { "callHierarchy": true, "diagnostics": true },
+        "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+        "lifecycle": { "stage": "query", "status": "ready" }
+      },
+      "coverage": {
+        "traversal": { "status": "complete", "requestedDepth": 5, "reachedDepth": 0, "maxNodes": 120 },
+        "semantic": { "status": "augmented", "evidenceSources": ["lsp-call-hierarchy", "inferred-fastapi-static-v1"] },
+        "indexing": { "status": "ready", "evidence": { "signal": "work-done-progress", "detail": "indexing" } },
+        "reasons": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "framework_route_mount_unresolved"]
+      },
+      "completion": { "requestStatus": "succeeded", "traversalStatus": "exhausted", "semanticScope": "static-plus-inference", "indexingStatus": "ready" },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "rootId": "root111111111111111111",
+      "nodes": [
+        { "id": "root111111111111111111", "name": "orphan_handler" }
+      ],
+      "augmentedEdges": [],
+      "limitationDetails": [
+        { "code": "dynamic_calls_not_inferred", "severity": "info", "scope": "semantic", "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy." },
+        { "code": "unsaved_buffers_unavailable", "severity": "info", "scope": "request", "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk." },
+        { "code": "framework_route_mount_unresolved", "severity": "warning", "scope": "semantic", "message": "A route decorator was found, but no include_router(...) call referencing this router could be found within the analyzed workspace. This does not mean the route is unmounted - the router may be included from outside this workspace, through a directory this scan does not reach, or through dynamic registration (e.g. include_router(get_router())) that this scan cannot follow.", "action": "If this route should be reachable, confirm how its router is mounted; this warning only reflects what a static scan of this workspace could find." }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "pyright",
+      "requestedLanguageId": "python",
+      "detectedLanguageId": "python",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": { "callHierarchy": true, "diagnostics": true },
+      "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+      "lifecycle": { "stage": "query", "status": "ready" }
+    },
+    "limitations": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "framework_route_mount_unresolved"],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from pyright with augmentation enabled; the provider index is ready. orphan_handler has no incoming callers in the static call graph. A route decorator was found on this handler, but no include_router(...) call referencing its router could be located within the analyzed workspace. This does not mean the route is unmounted - it may be mounted through a directory this scan does not reach, or through dynamic registration this scan cannot follow.",
+  "expect": "pass",
+  "expectedViolations": []
+}
