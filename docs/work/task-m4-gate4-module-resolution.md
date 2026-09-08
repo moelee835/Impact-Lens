@@ -390,3 +390,50 @@ lane은 그 "신뢰성 있게 발동하는" 좁은 통로 자체는 넓혔지만
 가장자리(들여쓴 mount, 괄호 import)를 깎아 recall을 살짝 더 좁혔다. **오탐 감소와 미탐 증가가 같은
 lane 안에서 같이 일어났다** — precision 100%를 지키는 게 이 lane의 유일한 목표였고, recall 저하는
 그 목표의 부산물로 받아들인 것이지 별도로 최적화한 게 아니다.
+
+## 2026-09-08 round 4 — reviewer 독립 재검토, 코드 결함 0건·문서 정확도 3건
+
+reviewer가 round 3(`46f3e5a`/`1efc768`)를 독립적으로 재검토했고, **코드 결함은 나오지 않았다.** 세
+가지 문서 정확도 지적이 나왔고, 그중 세 번째는 상당한 재작업이 필요했다.
+
+**1. 완전성 논증 — reviewer가 stub provider로 non-vacuity까지 확인, 논증을 더 강하게 다시 썼다.**
+mutation 3종(항상 throw / 이름 일치 후 enclosing-def 조회에서 throw / alias 검증 조회에서 throw)
+전부 `edges: []`, 대조군(안 던짐)은 `edges.length === 1` — 실행 확인(`[실행]`, reviewer 보고를
+그대로 받지 않고 이 논증이 코드와 실제로 맞는지 `resolveEndpoint()`/호출부 3곳을 직접 읽어 재확인,
+위 "완전성 논증" 절 참고). 이 발견의 핵심은 "재검증이 항상 성공한다"가 아니라 "재검증 실패(예외
+포함)가 항상 무산 방향으로 접힌다"는 것 — 계약 노트(`./types.ts`)의 문구가 성공 쪽만 말하고 있어서
+"그럼 prepare()가 던지면?"이라는 다음 질문에 답이 없었다. `./types.ts`와
+`fastapiDependencyAdapter.ts` 양쪽 최상단 주석에 이 구분을 추가했다.
+
+**2. "Depends() 경로는 스코프 착각으로 고칠 일이 없었다" — 문구를 좁혔다.** reviewer가 git log를
+대조해 그 경로에 버그 3건(`4a783fb`/`cb8d1de`/`1147f19`)이 실제 있었음을 확인 — `[실행]`, 커밋
+로그를 직접 대조(`git show --stat`). 셋 다 `prepare()`가 옳은 심볼을 이미 찾은 뒤 후보 개수 세기·
+승격 로직의 버그이지, 이 계약 노트가 경고하는 "재검증 없이 새어나간 스코프/alias 착각"이 아니다 —
+그래서 원래 문구는 안 깨졌지만, "버그가 없었다"로 오독될 위험이 있어 "스코프/alias 착각으로 인한
+오탐은 없었다"로 좁히고 세 커밋을 명시했다. `./types.ts`/`fastapiDependencyAdapter.ts`/
+`task-m4-stage3-accuracy-latency-gates.md`(정정 5 앞)에 반영.
+
+**3. precision 분모 — commander가 `crossfile_positive_router.py` 누락을 발견, 포함 기준 자체를
+요청했다.** 34개를 1:1 재대조한 reviewer의 산수는 맞았지만(`[읽음]`, reviewer 보고), commander가
+`CONFIRMED_DESPITE_COLLISION_FIXTURES`/`module_resolution_pkg_b`와 assertion 구조가 같은
+`crossfile_positive_router.py`가 목록에 없음을 직접 확인했다(`[실행]`, commander 보고를 그대로
+쓰지 않고 `:487` 테스트를 직접 읽어 구조 동일성 재확인). "뺀 이유를 한 줄 적자"가 아니라 **기계적
+포함 기준을 정의하라**는 요청 — 5번 바뀐 숫자(19→25→29→31→34)가 전부 "누가 무엇을 세는 걸
+기억했는가"에 달려 있었기 때문이다.
+
+기준을 정의했다: `pythonFastapiIntegration.test.ts`에서 `augmentedEdges.length`를 정확히 0 또는
+1로 단언하는 것이 주된 목적인 모든 test() 블록(배열 순회 포함), `>` 부등호나 `deepEqual`로 다른
+불변 조건(rollback/latency)을 확인하는 테스트는 제외, "known false negative" 명명 테스트는 제외
+(recall 문제이지 precision 문제가 아니므로). 이 기준을 파일 전체(783줄, 전 테스트)에 직접 적용해
+재세었다(`[실행]`) — commander가 지적한 `crossfile_positive_router.py`뿐 아니라, **아무도 지적하지
+않은 두 번째 누락**을 찾았다: `nested_dependency_config.py`의 sub-dependency 회귀 테스트(`:625`,
+M4 stage 3 "단계 5"에서 추가)도 같은 형태의 assertion을 가지는데 목록에 없었다 — 새 fixture를 다른
+단계에서 추가하고 중앙 집계를 안 고치는, 이 문서가 이미 두 번(PR #84, round 1) 기록한 것과 똑같은
+실패가 이 문서 자체 안에서 세 번째로 일어나 있었다.
+
+**최종: 36개(진양성 14 + 진음성 22), precision 100%(오탐 0건) 그대로** — commander가 예상한 35가
+아니다. 전체 재계산과 기준 전문은 `task-m4-stage3-accuracy-latency-gates.md`의 "2026-09-08 정정
+5" 참고. `npm test` 재실행(`[실행]`, 2026-09-08): `pythonFastapiIntegration.test.ts` 45/45 pass.
+
+**코드 변경 없음** — 이번 round는 문서 정확도 수정뿐이다(계약 노트 문구 확장, precision 분모 기준
+정의·재계산). 전체 스위트 재확인 필요.

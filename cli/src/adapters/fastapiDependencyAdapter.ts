@@ -46,6 +46,14 @@
 // exactly the over-fitting IL-LIM-001's own "대안 검토" already rejected (this file's own top-of-file
 // comment on why the SPI stays a plain function type, not a plugin system). A second adapter's author
 // should read this comment before adding a text-match predicate of their own.
+//
+// `./types.ts`'s `FrameworkAdapter` doc comment carries a fuller version of this argument, added after
+// this paragraph (M4 gate 4 module-resolution follow-up round 4) - it explains why a `prepare()` call
+// throwing is not a hole in this protection (re-verification failing, exceptions included, always folds
+// to no-edge, verified directly with stub-provider mutations), and narrows "the Depends() path has not
+// needed a fix for a scope/alias mistake" against three real, unrelated bugs git history actually shows
+// on that path (candidate-counting bugs downstream of a correct `prepare()` result, not this pattern).
+// Read that version, not just this one, before trusting either claim.
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';

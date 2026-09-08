@@ -199,10 +199,69 @@ gate 4의 두 사후 lane(mount 오탐, module-resolution)이 찾은 결함이 �
 새로 만들면 깨진다 — 지금은 adapter가 하나뿐이라 SPI 계약(`./types.ts`)에 규칙으로 올리지 않고
 주석으로만 남겼다(과설계 위험 판단, `IL-LIM-001`의 "대안 검토"와 같은 이유).
 
+**이 논증의 "재검증되므로 안전하다"는 절반만 맞다 — reviewer가 stub provider로 직접 확인한 진짜
+이유는 "재검증이 실패해도(예외 포함) 항상 무산 방향으로 접힌다"이다.** `resolveEndpoint()`는
+`prepare()`가 던지는 예외를 잡아 빈 목록으로 바꾸고, 그 결과를 쓰는 세 호출부 전부 "항목 없음 ->
+continue/skip"이 기본 동작이다. reviewer가 mutation 3종(항상 throw / 이름 일치 후 enclosing-def
+조회에서 throw / alias 검증 조회에서 throw)을 돌려 전부 `edges: []`를 확인했고, 안 던지는 대조군은
+`edges.length === 1`이라 non-vacuity까지 확인했다. **`Depends() 경로는 스코프 착각으로 고칠 일이
+없었다"는 "스코프/alias 착각으로 인한 오탐은 없었다"로 좁혀 읽어야 한다** — reviewer가 git log를
+대조해 이 경로에 버그 3건이 실제 있었음을 확인했다(`4a783fb` alias 검색이 파일 스코프를 놓침,
+`cb8d1de` 후보 수를 세지 않고 `resolution: 'single'`을 하드코딩, `1147f19` enclosing-def에서 후보가
+여럿일 때 `items[0]`을 임의 채택). 셋 다 `prepare()`가 옳은 심볼을 이미 정확히 찾은 뒤 그 결과를
+다루는 로직의 버그이지, 잘못되거나 가려진 심볼이 검증 없이 새어나간 사례가 아니라서 이 구조적
+논증을 깨지 않는다 — 하지만 "고칠 일이 없었다"를 "버그가 없었다"로 오독하면 저 3건을 나중에 발견한
+사람이 이 문서를 거짓으로 읽는다. 두 지적 모두 영어 계약 노트(`./types.ts`의 `FrameworkAdapter` 타입
+주석)에 이미 반영했다.
+
 **corpus 편향을 명시한다**: 위 fixture들은 **우리가 실제 버그를 찾은 자리**에서 자랐다 — 이름 충돌,
 주석, alias identity 불일치, 이제는 package 경로 불일치까지. 이건 실제 FastAPI 코드베이스의 실패
 분포 표본이 아니라, **우리가 이미 알고 고친 위험을 다시 안 만드는지 확인하는 회귀 corpus**다. "실제
 코드에서 100% 정확하다"고 읽으면 안 된다.
+
+## 2026-09-08 정정 5 — precision 분모에 포함 기준이 없었다, 34는 두 번 틀렸다
+
+**reviewer가 34개를 기존 목록과 1:1로 재대조해 산수(TP 12 + TN 22 = 34)는 맞다고 확인했다.** 그런데
+commander가 직접 확인해, `crossfile_positive_router.py`(M4 milestone closure audit이 gate 3용으로
+추가한, 정의 파일과 다른 파일에서 mount되는 유일한 진짜 양성 fixture, `:487` 테스트)가 이 분모 어디에도
+없다는 걸 찾았다 — `CONFIRMED_DESPITE_COLLISION_FIXTURES`/`module_resolution_pkg_b`와 **assertion
+구조가 완전히 같은데도** 위 "진양성 12개" 목록에 없다. commander는 "뺀 이유를 한 줄 적자"보다 더
+필요하다고 판단했다 — **34가 다섯 번 바뀌는 동안(19 → 25 정정 → 29 → 31 → 34) 분모의 포함 기준
+자체가 한 번도 문서화되지 않았고, 그래서 새 fixture를 추가할 때마다 "이 중앙 집계를 갱신하는 걸
+기억했는가"에 숫자가 좌우됐다**(PR #84의 adversarial 6개가 그렇게 빠졌던 것과 같은 실패 형태).
+
+**기준을 다음과 같이 기계적으로 정의한다** (이후 이 corpus를 다시 셀 사람은 이 기준을 코드에 대고
+재현하면 된다, 사람이 "이게 대표적인 사례인가" 판단할 필요가 없다):
+
+> `pythonFastapiIntegration.test.ts`에서 `response.data.augmentedEdges.length`를 **정확히 0 또는
+> 정확히 1로** 단언하는 것이 그 `test()` 블록(배열을 순회하며 생성되는 것 포함)의 주된 검증인 모든
+> 테스트를 센다 — `> 0`처럼 부등호로 단언하거나 두 응답을 `deepEqual`로 비교하는 것은 그 테스트의
+> 목적이 이 fixture 자체의 mount/Depends() 판정이 아니라 다른 불변 조건(rollback, latency)이므로
+> 제외한다. 테스트 이름에 "known false negative"가 포함된 것은 이미 목록화된 미탐이라 판정 대상이
+> 아니므로(정확도의 정의상 recall 문제이지 precision 문제가 아니다) 제외한다.
+
+**이 기준을 파일 전체에 기계적으로 적용해 재세었다(`npm test`, 2026-09-08 재실행으로 직접 확인,
+45 tests 45 pass) — commander가 지적한 `crossfile_positive_router.py`가 들어갈 뿐 아니라, 이 문서
+누구도 언급한 적 없는 두 번째 누락도 나왔다: `nested_dependency_config.py`(M4 stage 3 "단계 5"의
+sub-dependency 회귀 테스트, `:625`)도 `augmentedEdges.length === 1`을 주된 검증으로 단언하는데 위
+목록 어디에도 없다 — 추가된 시점(stage 3 자체 후속 단계)에 이 중앙 집계가 갱신되지 않았다는, 정확히
+같은 실패가 이 문서 안에서 이미 한 번 더 일어나 있었다.**
+
+**최종(2026-09-08, 기준 적용 후 재계산): 36개 쿼리(진양성 14 + 진음성 22), precision 100%(오탐
+0건), 변동 없음.**
+
+- **진양성 14개** = 기존 12(위 "진양성 12개" 항목 그대로) + `crossfile_positive_router.py`(정의
+  파일과 다른 파일에서의 bare-identifier cross-file mount, 유일하게 이 형태를 검증하는 fixture) +
+  `nested_dependency_config.py`(3단계 `Depends()` 체인의 중간 함수를 정확히 candidate caller로
+  찾는지 검증).
+- **진음성 22개**: 변동 없음(위 "진음성 22개" 항목 그대로 — 이 기준으로도 새로 편입되거나 빠지는
+  것이 없음을 파일 전체 재확인으로 검증했다).
+- **제외됨(정의상, 기준의 "known false negative" 절 그대로 적용)**: `attr_mount_router.py`,
+  `alias_mount_router.py`, `parenthesized_import_target.py` — 아래 "측정 — 미탐 범위" 절에서 다룬다.
+- **제외됨(정의상, 기준의 "주된 검증이 아님" 절 그대로 적용)**: latency gate 테스트(`addedMs` 단언),
+  rollback OFF/ON 테스트(`deepEqual`/`> 0` 단언 — ON 테스트는 app.py:get_db를 다시 쿼리하지만
+  "augmentedEdges가 [](OFF)와 다르게 채워졌는가"만 확인하는 게 목적이지, 이 fixture의 mount 판정
+  자체를 다시 재는 게 목적이 아니다).
 
 ### 측정 — 미탐 범위(precision과 같은 자리에 둔다: "정확한데 거의 안 도는" 기능을 정확하다고만
 보고하지 않기 위해)
