@@ -301,3 +301,46 @@ framework adapter가 이 반대 형태(예: target이 synthetic)를 낼 때 처�
    synthetic 분기를 포함한 정상적인 유닛 테스트를 쓸 수 있다.
 3. **두 번째 framework adapter를 붙이는 작업의 필수 선행 항목**으로 취급한다 — 그 시점에 이
    분기가 실제로 도달 가능해지므로, 테스트 없이 넘어가면 안 된다.
+
+## gate 2 판정 — 닫힘(무엇이 검증됐고 무엇은 안 됐는지를 안고)
+
+gate 2 문구: **"추론 관계가 정적 확정 관계와 UI·JSON에서 구분된다."** milestone closure audit이
+이미 확인한 대로 **JSON 쪽은 stage 3에서 이미 닫혀 있었다**(`data.edges`/`data.augmentedEdges`
+분리, `resolution`/`evidenceSource` 필드, "candidate caller" 어휘가 response-policy eval로 고정).
+**UI 쪽이 이 gate가 못 닫힌 유일한 이유**였다(`task-m4-milestone-closure-audit.md`, Gate 2 절 —
+"`git grep -l "augmentedEdges" -- 'src/*'` → 0건"). PR #87~#89가 그 UI 쪽을 닫는다.
+
+**무엇이 검증됐는가**:
+- **JSON**: 변동 없음, 이미 CLI 쪽 corpus·response-policy eval로 검증돼 있던 그대로.
+- **UI, 소스-구조**: `toPayload()`가 `augmentedEdges`/`limitations`를 단순 pass-through로만 넘긴다는
+  것, 후보 스타일링이 판정 색 토큰·`stroke-dasharray`를 안 쓴다는 것, 낱말이
+  `CANDIDATE_CALLER_PHRASE`와 정확히 같다는 것 — **전부 뮤테이션으로 재확인**(각 항목을 실제로
+  틀리게 바꿔 정확히 그 테스트만 실패하는지 확인 후 원복, PR #89).
+- **UI, 순수 로직 실행**: `reviewer`가 `resolveCandidateEdgeEndpoints`/`resolveSyntheticNode`를
+  소스에서 뽑아 직접 실행해 source-existing 분기(이 adapter가 실제로 내는 유일한 형태)의 depth
+  계산·depth 필터 통합이 정상 동작함을 확인.
+- **완전성 논증과의 관계**: 이 lane은 adapter의 `provider`/`idOf` 계약을 좁히거나 확장했을 뿐,
+  adapter 내부에 새로운 재검증-없는 텍스트 매치 경로를 추가하지 않았다 — gate 4의 완전성 논증은
+  그대로 성립한다.
+
+**무엇이 검증 안 됐는가(숨기지 않는다)**:
+- **실제 VS Code webview 렌더** — 이 저장소에 extension-host 실행 harness가 없다(`vsce
+  package`/`ls`로 vsix 내용물은 확인했지만, 그 vsix를 실제로 설치해 그래프를 열어 본 적은 없다).
+- **`#arrow-candidate` marker가 `#arrow`와 실제로 시각적으로 구별되는지** — 텍스트 라벨이 1차
+  신호이고 marker는 보조/미검증으로 코드·PR에 명시했다.
+- **후보 라벨이 여럿일 때 겹치는지** — source 쪽으로 치우친 위치로 완화를 시도했지만 실측 못 함.
+- **off/on 렌더가 실제로 동일한지** — CLI rollback처럼 실행 기반으로 증명한 게 아니라
+  `toPayload()`의 소스-구조(단순 pass-through 하나씩)로만 증명했다. vscode-host harness가 없어
+  실행 기반 비교를 못 했다.
+- **target-synthetic 분기의 테스트** — 위 backlog 절 참고. 이 adapter로는 도달 불가라 지금 당장
+  사용자에게 영향은 없지만, 두 번째 adapter의 선행 조건으로 남는다.
+- **`reasonCode`/`resolution`/`evidenceRanges`가 UI에 안 보인다** — payload에는 그대로 실려 가지만
+  (`git grep`으로 직접 확인, 0건 사용) 클라이언트 스크립트가 아직 안 읽는다. gate 2 문구는 "구분"만
+  요구하지 "세부 근거 표시"까지 요구하지 않는다고 판단해 이번 lane 범위에 안 넣었다 — 다만 이건
+  실제 사용자가 "왜 이게 후보인지" 알 방법이 없다는 뜻이라, 다음 개선 후보로 남긴다.
+
+**판정: 검증된 것과 안 된 것을 위와 같이 밝히고, gate 2를 닫는다.** "UI가 전혀 없다"는 상태에서
+"UI가 있고, 실행 가능한 만큼은 검증됐고, 남은 검증 공백(특히 실제 webview 렌더)이 무엇인지 정확히
+적혀 있다"는 상태로 옮겼다는 게 판정의 근거다 — gate 4처럼 "검증 0건"으로 닫는 게 아니라, 이 gate가
+요구하는 핵심(JSON·UI 양쪽에서 구분됨)이 실제로 성립하고 그 성립 여부를 확인한 방법의 한계까지
+정직하게 기록했다는 게 판정의 근거다.
