@@ -398,9 +398,12 @@ reviewer가 round 3(`46f3e5a`/`1efc768`)를 독립적으로 재검토했고, **�
 
 **1. 완전성 논증 — reviewer가 stub provider로 non-vacuity까지 확인, 논증을 더 강하게 다시 썼다.**
 mutation 3종(항상 throw / 이름 일치 후 enclosing-def 조회에서 throw / alias 검증 조회에서 throw)
-전부 `edges: []`, 대조군(안 던짐)은 `edges.length === 1` — 실행 확인(`[실행]`, reviewer 보고를
-그대로 받지 않고 이 논증이 코드와 실제로 맞는지 `resolveEndpoint()`/호출부 3곳을 직접 읽어 재확인,
-위 "완전성 논증" 절 참고). 이 발견의 핵심은 "재검증이 항상 성공한다"가 아니라 "재검증 실패(예외
+전부 `edges: []`, 대조군(안 던짐)은 `edges.length === 1` — reviewer 보고를 코드 읽기로만 받지 않고,
+`fastapiDependencyAdapterMultipleCandidate.test.ts`의 `ScriptedProvider` 패턴을 그대로 가져와
+throw하는 provider 변형 3종 + 대조군을 직접 만들어 컴파일된 adapter에 대고 실행했다(`[실행]`,
+`/private/tmp/.../scratchpad/verify-exception-fold.js`, repo 밖 임시 스크립트, 커밋 안 함) —
+결과가 reviewer의 보고와 정확히 일치함을 재현으로 확인한 뒤 계약 노트 문구를 썼다. 이 발견의 핵심은
+"재검증이 항상 성공한다"가 아니라 "재검증 실패(예외
 포함)가 항상 무산 방향으로 접힌다"는 것 — 계약 노트(`./types.ts`)의 문구가 성공 쪽만 말하고 있어서
 "그럼 prepare()가 던지면?"이라는 다음 질문에 답이 없었다. `./types.ts`와
 `fastapiDependencyAdapter.ts` 양쪽 최상단 주석에 이 구분을 추가했다.
