@@ -271,3 +271,33 @@ CLI 숫자를 쓰면 안 된다는 걸 코드 주석에 명시했다.
   증명한 게 아니라 "코드 구조상 다른 로직이 없다"만 증명한다** — 차이를 PR 본문에 명시한다.
 - [x] 시각 검증 못 하는 부분은 "코드로 확인했다"를 "동작을 확인했다"로 안 쓴다 — 이 목록 자체와
   PR 본문에 "무엇을 증명했고 무엇은 안 했는지"를 매 항목마다 구분해 적었다.
+
+## Backlog — target-synthetic 분기, 테스트 없음(reviewer 실행 확인, 테스트는 선행 조건 있음)
+
+`resolveCandidateEdgeEndpoints`/`resolveSyntheticNode`의 **target-synthetic 분기**(synthetic이
+`source`가 아니라 `target`인 edge)는 이 FastAPI adapter가 항상 `target: {kind:'existing', id:
+rootId}`만 내므로(두 `edges.push` 호출부 확인, PR #89 본문) **현재 도달 불가**다 — 두 번째
+framework adapter가 이 반대 형태(예: target이 synthetic)를 낼 때 처음 밟힌다.
+
+**reviewer가 소스에서 순수 함수를 텍스트로 추출해 직접 실행**해 정상 동작(anchor depth를 정확히
+이어받음)과 depth 필터 통합(anchor가 필터에서 빠지면 candidate 전체가 렌더 루프에 안 들어감)을
+둘 다 확인했다 — `[실행]`. **다만 이걸 영구 테스트로 그대로 남기지 않는다.**
+
+**이유**: 소스를 텍스트로 뽑아 `eval`하는 방식은 조사 도구로는 유효하지만, `getHtml()` 템플릿
+리터럴 안의 정확한 텍스트 형태(줄바꿈, 공백, 함수 선언 순서)에 의존해 **누가 포매팅만 바꿔도
+깨지는 취약한 테스트**가 된다. 제대로 고정하려면 `resolveCandidateEdgeEndpoints`/
+`resolveSyntheticNode`(그리고 `CANDIDATE_LABEL_TEXT` 등 관련 순수 로직)를 `getHtml()`의 템플릿
+리터럴 밖, 실제 별도 모듈로 먼저 들어내야 한다 — 이건 클라이언트 스크립트 자체의 구조를 바꾸는
+일이라 이 PR(그리고 이 gate 2 lane) 범위 밖이다.
+
+**선행 조건을 명시한다** — 다음에 이 백로그를 집는 사람이 비용을 알고 시작하도록:
+
+1. 클라이언트 스크립트의 순수 로직(`resolveCandidateEdgeEndpoints`, `resolveSyntheticNode`,
+   `relationLabel`, `truncate`, `clamp` 등 - vscode API를 안 쓰는 함수들)을 `getHtml()`의 템플릿
+   리터럴 밖, `.toString()`으로 문자열에 박아 넣는 지금의 `calculateGraphLayout`/
+   `calculateFitZoom` 등과 같은 패턴으로 옮긴다(이 파일이 이미 그 패턴을 쓰고 있다 - 새 메커니즘이
+   아니라 기존 것 확장).
+2. 그렇게 옮긴 뒤에야 `resolveCandidateEdgeEndpoints`를 `node --test`로 직접 `require`해 target-
+   synthetic 분기를 포함한 정상적인 유닛 테스트를 쓸 수 있다.
+3. **두 번째 framework adapter를 붙이는 작업의 필수 선행 항목**으로 취급한다 — 그 시점에 이
+   분기가 실제로 도달 가능해지므로, 테스트 없이 넘어가면 안 된다.
