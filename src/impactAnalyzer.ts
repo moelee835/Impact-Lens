@@ -138,9 +138,20 @@ export class ImpactAnalyzer {
     // report nothing wrong - the static graph still renders normally, so nothing tells the user
     // augmentation never actually searched anything. This is exactly the failure shape this milestone
     // exists to prevent ("an empty result read as an answer") - a silent false negative is worse than a
-    // loud one, so this is skipped explicitly (not merely accepted as a known gap) and recorded as a
-    // limitation, the same way the CLI surfaces `framework_route_mount_unresolved`/
-    // `augmentation_budget_exceeded` instead of a bare empty result.
+    // loud one, so this is skipped explicitly (not merely accepted as a known gap).
+    //
+    // NOT YET SURFACED TO THE USER (commander's finding, checked directly - `git grep
+    // "\.limitations\b" -- src/` outside this file/types.ts/tests returns nothing; `graphPanel.ts`'s
+    // header tooltip reads `coverage.reasons` via `completeness.ts`, never `result.limitations`):
+    // pushing `augmentation_unsupported_workspace` onto `limitations` below records it in the data
+    // model, but nothing in this repo currently reads that field for display, so a user still cannot
+    // see it. This is NOT the same claim the CLI can make for `framework_route_mount_unresolved`/
+    // `augmentation_budget_exceeded` - the CLI's agent-facing JSON is read by an agent and the response-
+    // policy engine enforces disclosure of high-severity codes; nothing analogous exists on this path
+    // yet. Recording this limitation now (rather than skipping it) is still correct - it makes the fact
+    // available to whatever reads `ImpactResult` next - but actually showing it to a VS Code user is
+    // explicitly the UI PR's job (docs/work/task-m4-gate2-shared-adapter.md's UI to-do list), not
+    // something this comment should imply is already done.
     // NOT MEASURED IN THIS ENVIRONMENT (commander's finding, recorded rather than assumed away): the
     // CLI's own latency gate (docs/work/task-m4-stage3-accuracy-latency-gates.md, "+41ms worst case
     // against 200 files") was measured as a separate OS process, against local disk, on that process's
