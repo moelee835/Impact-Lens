@@ -69,6 +69,17 @@ test('idOf(toAdapterItem(item)) equals createSymbolKey() computed directly from 
   // the two-step (vscode item -> toAdapterItem -> idOf) path ever diverged from the direct
   // (vscode item -> createSymbolKey) path symbolKey() takes, every adapter-found candidate caller for an
   // EXISTING node would silently render as a phantom synthetic node instead of linking to the real one.
+  //
+  // reviewer's finding (only half of what "the property that actually matters" needs is actually pinned
+  // here): this test proves the FUNCTION-level half - both paths compute the same key from the same
+  // input object. It does NOT prove the other half - that `vscode.prepareCallHierarchy`, called a second
+  // time from inside the adapter's own `resolveEndpoint()` (via `adapterProviderShim.ts`'s `prepare()`),
+  // returns an item whose `uri`/`kind`/`name`/`detail`/`selectionRange.start` fields are IDENTICAL to the
+  // ones `impactAnalyzer.ts` already used to build `nodes` from the FIRST call. That is a real, separate
+  // assumption about vscode's own query stability across two lookups of the same logical symbol, and
+  // this repository has no real-vscode-host harness to measure it directly - the same shape of assumption
+  // the CLI itself already carries for pyright (a second `prepareCallHierarchy` call on the same position
+  // is trusted to resolve the same symbol), never independently verified there either.
   const item = vscodeLikeItem({ name: 'handler', kind: 12, detail: 'async', uri: 'file:///workspace/app.py', selectionLine: 20, selectionCharacter: 4 });
   const direct = createSymbolKey({
     uri: item.uri.toString(),
