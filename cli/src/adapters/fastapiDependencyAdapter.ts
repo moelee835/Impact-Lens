@@ -19,14 +19,33 @@
 // The router-mount check (`isRouterMounted()`, used to confirm a route decorated on a plain
 // `APIRouter()` is actually reachable) has NO equivalent provider step - `CallHierarchyProvider` only
 // resolves callable symbols (`prepare()`/`incoming()`), and a router variable is not one (see
-// `isRouterMounted()`'s own doc comment). Its only defense against a same-named-but-unrelated
-// identifier is `importsNameFromModule()`: confirming the file containing the `include_router(...)`
-// call actually imports that name FROM root's own module. Found necessary in M4 gate 4's reopening
-// (docs/work/task-m4-gate4-mount-false-positive.md): before that check existed, the bare
-// `include_router(NAME)` text match alone was treated as mount evidence regardless of what `NAME`
-// actually was in that file - a function parameter, a loop variable, an import from an unrelated
-// module, a dict/attribute value, a factory return, or a non-`APIRouter`-typed variable all slipped
-// through and were reported as a confirmed, reachable route.
+// `isRouterMounted()`'s own doc comment).
+//
+// WHERE A SCOPE/ALIAS MISTAKE CAN ACTUALLY REACH A USER - an argument, not an inventory (M4 gate 4
+// module-resolution follow-up, docs/work/task-m4-gate4-module-resolution.md, commander/reviewer round 3).
+// Every OTHER text match this adapter makes (`findDependsReferences()`, `aliasBindingsFor()`,
+// `findEnclosingDef()`) is re-verified through `resolveEndpoint()` -> `input.provider.prepare()` before
+// it becomes an edge (see the call sites at, as of this writing, lines 771/800/816) - a regex
+// that mistakes scope or alias direction there still cannot mislabel a route, because pyright's own
+// symbol resolution is what actually decides the edge, not the regex. `isRouterMounted()` (via
+// `importsNameFromModule()`) and `isDirectFastapiApp()` are the ONLY two predicates in this file with no
+// such re-verification step, for the structural reason above (a router/app variable is not a callable
+// symbol `prepare()` can resolve) - which is exactly why both of M4 gate 4's post-hoc rounds (mount
+// false-positive, module-resolution round 3) found their defects in one of these two functions and
+// nowhere else: a scope- or alias-blind regex is only user-visible where nothing downstream can catch it.
+// `importsNameFromModule()` and `MODULE_LEVEL_LINE_PATTERN` close the mount-import and mount-call-site
+// exposure; `isDirectFastapiApp()` receiving `stripCommentsAndStrings()`'d text (not raw) closes the
+// other. This argument is why the fix belongs at these two functions specifically, not a claim that no
+// fifth defect can exist within them - a regex is still a regex.
+//
+// THIS ARGUMENT BREAKS if a second framework adapter (this file's own SPI already anticipates one - see
+// `./types.ts`) makes an unverified text match of its own without routing it through `prepare()` first;
+// the exposure boundary this comment describes is a property of THIS adapter's current design, not a
+// guarantee the SPI enforces. Recorded here rather than added to `./types.ts` as an SPI requirement: only
+// one adapter exists today, and inventing a contract rule for a shape the SPI has not seen yet risks
+// exactly the over-fitting IL-LIM-001's own "대안 검토" already rejected (this file's own top-of-file
+// comment on why the SPI stays a plain function type, not a plugin system). A second adapter's author
+// should read this comment before adding a text-match predicate of their own.
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -162,9 +181,22 @@ function findRouteDecorator(lines: readonly string[], defLine: number): RouteDec
 /** True when `name` is bound to a `FastAPI()` instance directly in this file - the top-level app object
  * is reachable by definition (nothing needs to `include_router()` it), so no mount check applies. Root
  * file only, not workspace-wide - the same bounded scope `importsFastapi` already uses; an app
- * instantiated elsewhere and merely imported here is a documented limitation, not silently guessed at. */
-function isDirectFastapiApp(name: string, rootText: string): boolean {
-  return new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*FastAPI\\s*\\(`).test(rootText);
+ * instantiated elsewhere and merely imported here is a documented limitation, not silently guessed at.
+ *
+ * `rootText` MUST already be passed through `stripCommentsAndStrings()` by the caller - M4 gate 4
+ * module-resolution follow-up round 3 (docs/work/task-m4-gate4-module-resolution.md, reviewer finding):
+ * this function used to test the raw file text directly, so a comment like `# Example usage elsewhere:
+ * app = FastAPI()` in a file where `app` is actually an `APIRouter()` made this return `true` - and a
+ * `true` here skips `isRouterMounted()` ENTIRELY (see the call site), bypassing every check this lane
+ * built (import provenance, module-level scoping) with a single comment line. `isRouterMounted()` itself
+ * already treats a comment/docstring/string-literal mention as no evidence at all
+ * (`commented_out_router.py`/`docstring_mention_router.py`/`string_literal_router.py` fixtures prove it) -
+ * this function was the one place that principle was not applied. Confirmed directly (reviewer, real
+ * CLI) before this fix: a route decorator on a genuinely unmounted `APIRouter()` produced a confirmed
+ * edge purely because of a comment naming the same variable a `FastAPI()` instance.
+ */
+function isDirectFastapiApp(name: string, strippedRootText: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*FastAPI\\s*\\(`).test(strippedRootText);
 }
 
 /**
@@ -340,20 +372,38 @@ function pathEndsWithSegments(fullPath: string, suffixParts: readonly string[]):
 // test instead of depending on Windows CI alone to catch a reintroduction (Windows CI is this repo's
 // slowest, least reliable signal - documented gopls hang history elsewhere in this codebase). Not part of
 // this adapter's public surface otherwise.
+/**
+ * True when `importList` (the text after `import` on a `from module import ...` line) contains `name`
+ * as its OWN, un-aliased entry - `entry.trim() === name` on each comma-separated item, not a substring
+ * or word-boundary test against the whole list. M4 gate 4 module-resolution follow-up round 3
+ * (docs/work/task-m4-gate4-module-resolution.md, commander/reviewer review): an earlier version tested
+ * whether the word `name` appeared ANYWHERE in the list (`\bname\b`) and separately excluded only the
+ * FORWARD alias direction (`name as other` - our own name being renamed away). That missed the REVERSE
+ * direction entirely - `other_thing as name` imports a completely different symbol and merely renames it
+ * to `name` locally, but the word-anywhere test still matched, and the forward-only alias exclusion never
+ * fired (there is no `name as` in that text, only `as name`). Confirmed directly (reviewer, real CLI):
+ * this produced a confirmed mount edge for a router whose actual export was an unrelated object entirely.
+ * Comparing whole comma-separated entries closes both directions at once - a bare, un-aliased `name` is
+ * still found anywhere in the list (first position or not, matching this function's existing behavior),
+ * but any entry containing `as` in either position is rejected, because the exact string can never equal
+ * `name` once `as` is part of it.
+ */
+function importsBareNameEntry(importList: string, name: string): boolean {
+  return importList.split(',').some(entry => entry.trim() === name);
+}
+
 export function importsNameFromModule(
   lines: readonly string[],
   name: string,
   rootFile: string,
   importingFile: string,
 ): boolean {
-  const aliasedPattern = new RegExp(`\\b${escapeRegExp(name)}\\s+as\\s+\\w+`);
-  const namePattern = new RegExp(`\\b${escapeRegExp(name)}\\b`);
   return lines.some(line => {
     const clause = parseFromImport(line);
     if (!clause || clause.modulePath.length === 0) {
       return false;
     }
-    if (!namePattern.test(clause.importList) || aliasedPattern.test(clause.importList)) {
+    if (!importsBareNameEntry(clause.importList, name)) {
       return false;
     }
     if (clause.dots > 0) {
@@ -647,7 +697,9 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
   const rootDefLine = input.root.selectionRange.start.line;
   const routeDecorator = findRouteDecorator(rootLines, rootDefLine);
   if (routeDecorator) {
-    let mountConfirmed = isDirectFastapiApp(routeDecorator.routerName, rootText);
+    // stripCommentsAndStrings(rootText), NOT raw rootText - see isDirectFastapiApp()'s own doc comment.
+    // rootText itself stays raw for rootLines above (evidence ranges/positions must index the real file).
+    let mountConfirmed = isDirectFastapiApp(routeDecorator.routerName, stripCommentsAndStrings(rootText));
     if (!mountConfirmed) {
       const mountCheck = await isRouterMounted(routeDecorator.routerName, rootFile, input.workspace, input.budget);
       mountConfirmed = mountCheck.found;

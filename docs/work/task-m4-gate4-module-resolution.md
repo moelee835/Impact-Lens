@@ -273,3 +273,69 @@ router` vs 깊이 4단계 root)로 확인.
 **문서 갱신**: `handover-2026-09-04.md`·`task-m4-milestone-closure-audit.md`·`task-m4-gate3-gate4-
 closure.md`를 round 1의 "닫힘 4 / 열림 4"에서 **닫힘 3 / 재개방·수정 중 1(gate 4) / 열림 4**로
 되돌리고, 왜 아직 못 닫는지 명시했다.
+
+### round 3 — commander/reviewer 병렬 검토, 결함 2건 더 발견·수정
+
+`reviewer`(별도 세션)가 round 2 수정을 실제 CLI+pyright로 독립 재검증하는 동시에, 같은 파일에서
+새 결함 2건을 찾았다. 둘 다 이 세션이 재현·수정했다.
+
+**결함 1 — `importsNameFromModule()`의 alias 검사가 역방향을 놓침(`[실행]`).** 기존 검사(`aliasedPattern
+= /\bname\s+as\s+\w+/`, `namePattern = /\bname\b/`)는 `router as X`(정방향 - 우리 이름이 다른
+이름으로 나감)만 걸렀다. `other_thing as router`(역방향 - root 모듈의 **다른 심볼**을 로컬에서
+`router`로 alias)는 `namePattern`이 그 alias 토큰에 매치되고 `aliasedPattern`은 "`router` 다음에
+`as`"만 찾으므로 걸리지 않았다. 재현: `/tmp/reverse-alias-probe`에 실제 target/shadow 파일을 만들어
+빌드된 CLI로 쿼리 → 확정 edge + `framework_route_mount_unresolved` 없음 확인. 상대 import 분기도
+같은 `importsBareNameEntry()` 검사를 공유하므로 같은 형태로 재현(`/tmp` 대신 corpus에 직접 추가한
+fixture로).
+
+수정: import 목록을 콤마로 쪼개 **별칭 없는 정확한 항목**만 인정(`entry.trim() === name`) —
+`importsBareNameEntry()`. 정방향 alias 거부, 역방향 alias 거부(위치 무관), 목록 안 bare name 허용
+(첫 자리든 아니든, 기존 동작과 동일), 공백, 부분문자열 함정(`routerX`) 전부 격리 스크립트로 9케이스
+확인 후 반영.
+
+**결함 2 — `isDirectFastapiApp()`이 원문을 그대로 검사(`[실행]`).** `rootText`를
+`stripCommentsAndStrings()` 없이 그대로 넘겼다. `# app = FastAPI()` 같은 주석 한 줄만으로 실제로는
+`APIRouter()`인 변수가 "FastAPI 앱 자체"로 오인되고, `mountConfirmed = true`가 되어
+`isRouterMounted()` 호출 자체가 스킵된다 — 이 lane이 쌓은 provenance·module-level 검사가 전부 그
+뒤에 있어 comment 한 줄이 전 체인을 우회한다. 재현: `/tmp/directapp-probe`에 실제 fixture를 만들어
+빌드된 CLI로 쿼리 → 확정 edge 확인. `origin/main`에도 있던 기존 결함(이 branch의 회귀 아님)이지만,
+gate 4가 금지하는 형태이고 `isRouterMounted()` 자신이 이미 "주석/docstring/문자열 안 언급은 mount
+증거가 아니다"를 원칙으로 문서화·fixture화(`commented_out_router.py` 등)까지 해 둔 상태라 이번
+lane에서 닫았다.
+
+수정: 호출부에서 `isDirectFastapiApp(routeDecorator.routerName, stripCommentsAndStrings(rootText))`
+로 변경(`rootText` 자체는 `rootLines`/evidence range가 원문 줄 번호를 써야 해서 그대로 두고, 이
+호출 지점에서만 stripped 버전을 넘김).
+
+**fixture 신규 5개**: `adversary_reversealias_target.py`/`adversary_reversealias_shadow.py`(역방향
+alias, 절대 import), `adversary_reversealias_list_shadow.py`(같은 결함, 콤마 목록 안 두 번째 위치 -
+target 쿼리에 동반 존재로만 검증), `module_resolution_relative/routers/reversealias_target.py` +
+`module_resolution_relative/reversealias_shadow.py`(같은 결함, 상대 import), `adversary_commentapp_
+router.py`(comment-bypass).
+
+**non-vacuity**: 두 mutation을 각각 독립적으로 적용해 확인 — (1) `importsBareNameEntry()`를 예전
+word-anywhere + 정방향-alias-전용 로직으로 되돌림 → 정확히 역방향 alias 테스트 2개(절대·상대)만
+실패, 나머지 43개는 그대로 통과 → 원복. (2) `isDirectFastapiApp()` 호출부를 raw `rootText`로 되돌림
+→ 정확히 comment-bypass 테스트 1개만 실패, 나머지 44개는 그대로 통과 → 원복. 두 mutation을 동시에
+적용했을 때도 정확히 그 3개만 실패함을 확인(교차 오염 없음). 전체 스위트 392 tests, 389 pass/0
+fail/3 skip 재확인.
+
+**정확도 corpus 재측정**: 신규 진음성 3개 추가 — 최종 34개(진양성 12/진음성 22), precision 100%
+그대로. `task-m4-stage3-accuracy-latency-gates.md`에 반영.
+
+**구조적 논증 — 열거 대신 이유를 적는다(commander/reviewer 공동 결론).** 이 adapter의 `Depends()`
+경로 텍스트 매치는 전부 `resolveEndpoint()` → `input.provider.prepare()`로 재검증되므로, 정규식이
+스코프·alias를 착각해도 pyright가 걸러내 사용자에게 도달하지 않는다. **재검증이 없는 텍스트 매치는
+`isRouterMounted()`(`importsNameFromModule()` 포함)와 `isDirectFastapiApp()` 둘뿐**이다 — router/app
+변수가 `CallHierarchyProvider`가 다루는 호출 가능 심볼이 아니기 때문에 구조적으로 재검증 경로가
+없다. M4 gate 4의 사후 lane 두 개(mount 오탐, module-resolution)가 찾은 결함 전부가 이 두 함수
+안에만 있었던 건 우연이 아니라 이 경계 때문이다 — "훑어봤는데 더 없더라"보다 강한 논증이라고
+판단해 `fastapiDependencyAdapter.ts` 최상단 주석에 기록했다. **이 논증이 깨지는 조건도 같이
+적었다**: 두 번째 framework adapter가 재검증 없는 텍스트 매치를 새로 만들면 노출 범위가 다시
+넓어진다. adapter SPI 계약(`./types.ts`)에 규칙으로 올릴지 판단을 요청받아, **올리지 않기로
+결정했다** — adapter가 하나뿐인 지금 아직 보지 못한 형태에 대한 계약 규칙을 만드는 것은
+`IL-LIM-001`의 "대안 검토"가 이미 거부한 것과 같은 과설계 위험이라고 판단했다. 대신 코드 주석에
+"두 번째 adapter 저자는 이 주석을 먼저 읽으라"고 남겼다.
+
+**gate 4는 round 3 수정 후에도 계속 열어 둔다** — 스스로 닫힘 선언을 하지 않는다. `reviewer` 재검토와
+사용자 결정을 기다린다.

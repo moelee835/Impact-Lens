@@ -383,6 +383,18 @@ const MOUNT_UNRESOLVED_GUARD_FIXTURES: ReadonlyArray<{ readonly file: string; re
   // here) shadowing the module-level router, on both the self-mount and cross-file paths.
   { file: 'adversary_selfshadow_router.py', line: 17, label: 'nested-scope shadow shape - a function parameter shadows root\'s own module-level router, in the SAME file' },
   { file: 'adversary_crossshadow_router.py', line: 16, label: 'nested-scope shadow shape - a function parameter shadows a genuinely-imported router, in a DIFFERENT file' },
+  // M4 gate 4 module-resolution follow-up, round 3 (docs/work/task-m4-gate4-module-resolution.md,
+  // reviewer finding): a REVERSE alias - `from <root's module> import other_thing as NAME` imports a
+  // completely different, unrelated symbol and merely renames it to root's router's name locally. The
+  // alias check used to only exclude the FORWARD direction (NAME renamed away); it never excluded a
+  // different symbol being renamed IN. Both import branches (absolute, relative) share the same check.
+  { file: 'adversary_reversealias_target.py', line: 18, label: 'reverse alias shape - an unrelated symbol is imported and locally renamed to root\'s router name (absolute import)' },
+  { file: 'module_resolution_relative/routers/reversealias_target.py', line: 17, label: 'reverse alias shape - an unrelated symbol is imported and locally renamed to root\'s router name (relative import)' },
+  // M4 gate 4 module-resolution follow-up, round 3 (reviewer finding): isDirectFastapiApp() tested the
+  // RAW file text (not stripCommentsAndStrings()'d), so a comment mentioning `NAME = FastAPI()` made it
+  // return true and skip isRouterMounted() ENTIRELY - bypassing every check this lane built with one
+  // comment line, even though this router is a plain APIRouter() genuinely never mounted.
+  { file: 'adversary_commentapp_router.py', line: 17, label: 'comment-only FastAPI() mention shape - a comment claims the router variable is a FastAPI() instance, but it is really an APIRouter() that is never mounted' },
 ];
 
 for (const fixture of MOUNT_UNRESOLVED_GUARD_FIXTURES) {
