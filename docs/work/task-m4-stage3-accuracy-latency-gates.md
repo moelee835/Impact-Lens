@@ -146,10 +146,136 @@ FastAPI 코드에 대한 값이 아니다 — 이 구분을 숫자 옆에 안 �
   호출, docstring 안 언급, 문자열 리터럴 안 언급, 그리고 이름 충돌(bare/타입 주석/모듈 경유 세
   형태 × 각 2방향 = 6건).
 
+**2026-09-07 정정 1(M4 gate 4 mount 오탐 lane, PR #84) — 발견하지 못한 채 넘어간 정정.** PR #84가
+adversarial 미탐-방지 fixture 6개(함수 매개변수/loop 변수/다른 모듈 import/dict·attr 대입/factory
+반환/non-APIRouter 타입 주석 — 전부 candidate edge를 내면 안 되는 진음성 쿼리)를 추가했지만, 이
+문서의 19개 집계는 그때 갱신되지 않았다. **이번(module-resolution) lane에서 재측정하며 처음
+발견했다** — 발행 당시엔 25개(6 TP + 19 TN)여야 했다.
+
+**2026-09-07 정정 2(M4 gate 4 module-resolution follow-up, `docs/work/task-m4-gate4-module-
+resolution.md`) — 이번 lane 자체의 변경.** `nameAmbiguous` 제거로 이름 충돌 self-mount 3건
+(`collision_router_mounted.py`/`collision_typed_mounted.py`/`collision_qualified_mounted.py`)이
+진음성에서 진양성으로 이동했고, 신규 fixture 4개(cross-package 오탐 거부 1건 진음성, 다중 router
+프로젝트 양성 1건 + 상대 import 깊이 2건 = 진양성 3건)가 추가됐다.
+
+**2026-09-07 정정 3(같은 lane, round 2 — self-mount shadowing 반례) — commander의 self-mount 근거
+자체에 반례가 있었다.** self-mount 분기가 "같은 파일 안이면 Python 스코프상 자명하다"고 가정했는데,
+안쪽 스코프(함수 매개변수 등)가 module-level 바인딩을 가리는 경우를 빠뜨렸다 — 실행으로 확인(아래
+"작업 로그" 참고), `MODULE_LEVEL_LINE_PATTERN`으로 수정, 신규 fixture 2개(self-mount shadow,
+cross-file shadow) 추가.
+
+**2026-09-07 정정 4(같은 lane, round 3 — commander/reviewer 병렬 검토) — 두 결함 추가 발견·수정.**
+`importsNameFromModule()`의 alias 검사가 **역방향**(root 모듈의 다른 심볼을 로컬에서 `router`로
+alias하는 경우, `from root import other_thing as router`)을 놓쳤다 — reviewer가 실제 CLI+pyright로
+재현. `isDirectFastapiApp()`이 `stripCommentsAndStrings()` 없이 원문을 그대로 검사해, 주석 한 줄
+(`# app = FastAPI()`)만으로 `isRouterMounted()` 전체를 건너뛰었다 — 이것도 reviewer가 실제 CLI로
+재현. 둘 다 수정, 신규 fixture 3개(역방향 alias 절대/상대 import, 주석 안 FastAPI() 언급) 추가.
+
+**최종 재계산(`npm test`, 2026-09-07 재실행으로 직접 확인): 34개 쿼리(진양성 12 + 진음성 22)에서
+precision 100%(오탐 0건), 변동 없음.**
+
+- **진양성 12개** (기존 6 + PR #84엔 없음 + module-resolution round 1의 6, round 2·3은 진양성 추가
+  없음): 기존 6개(`Depends()` 직접 import 2건, `app = FastAPI()` route handler 2건, alias 1건,
+  `mounted_router.py` 1건) + 이름 충돌 self-mount 3건(round 1에서 이동) + cross-package 다중
+  router 프로젝트 양성 1건(`module_resolution_pkg_b`) + 상대 import 2건
+  (`module_resolution_relative/routers/users.py`, `module_resolution_relative/routers/nested_users.py`).
+- **진음성 22개** (기존 13 - 이동한 3 + PR #84의 6 + round 1 신규 1 + round 2 신규 2 + round 3 신규
+  3): 기존 13개 중 이름 충돌 6건이 3건으로 줄고(unmounted 절반만 남음) 나머지 7개(무관한 일반 호출,
+  decoy, 미mount router, 동적 등록, 주석·docstring·문자열 리터럴 각 1건)는 그대로, PR #84의
+  adversarial 6건, round 1의 cross-package 오탐 거부 1건(`module_resolution_pkg_a`), round 2의
+  nested-scope shadow 2건(`adversary_selfshadow_router.py`, `adversary_crossshadow_router.py`),
+  round 3의 역방향 alias 2건(`adversary_reversealias_target.py`,
+  `module_resolution_relative/routers/reversealias_target.py`) + 주석 안 `FastAPI()` 언급 1건
+  (`adversary_commentapp_router.py`).
+
+**round 3이 왜 노출 범위를 벗어나지 않는지 — 열거가 아니라 구조로 설명한다(commander/reviewer
+논증, `fastapiDependencyAdapter.ts` 최상단 주석에도 기록).** 이 adapter의 `Depends()` 경로 텍스트
+매치는 전부 `resolveEndpoint()` → `input.provider.prepare()`로 재검증된다 — 정규식이 스코프·alias
+방향을 착각해도 pyright가 걸러낸다. **재검증이 없는 텍스트 매치는 `isRouterMounted()`
+(`importsNameFromModule()` 포함)와 `isDirectFastapiApp()` 둘뿐**이다 — router/app 변수가
+`CallHierarchyProvider`가 다루는 호출 가능 심볼이 아니기 때문에 구조적으로 재검증 경로가 없다. M4
+gate 4의 두 사후 lane(mount 오탐, module-resolution)이 찾은 결함이 전부 이 두 함수에만 있었던 건
+우연이 아니라 **이 경계 때문**이다. 이 논증은 두 번째 framework adapter가 재검증 없는 텍스트 매치를
+새로 만들면 깨진다 — 지금은 adapter가 하나뿐이라 SPI 계약(`./types.ts`)에 규칙으로 올리지 않고
+주석으로만 남겼다(과설계 위험 판단, `IL-LIM-001`의 "대안 검토"와 같은 이유).
+
+**이 논증의 "재검증되므로 안전하다"는 절반만 맞다 — reviewer가 stub provider로 직접 확인한 진짜
+이유는 "재검증이 실패해도(예외 포함) 항상 무산 방향으로 접힌다"이다.** `resolveEndpoint()`는
+`prepare()`가 던지는 예외를 잡아 빈 목록으로 바꾸고, 그 결과를 쓰는 세 호출부 전부 "항목 없음 ->
+continue/skip"이 기본 동작이다. reviewer가 mutation 3종(항상 throw / 이름 일치 후 enclosing-def
+조회에서 throw / alias 검증 조회에서 throw)을 돌려 전부 `edges: []`를 확인했고, 안 던지는 대조군은
+`edges.length === 1`이라 non-vacuity까지 확인했다. **`Depends() 경로는 스코프 착각으로 고칠 일이
+없었다"는 "스코프/alias 착각으로 인한 오탐은 없었다"로 좁혀 읽어야 한다** — reviewer가 git log를
+대조해 이 경로에 버그 3건이 실제 있었음을 확인했다(`4a783fb` alias 검색이 파일 스코프를 놓침,
+`cb8d1de` 후보 수를 세지 않고 `resolution: 'single'`을 하드코딩, `1147f19` enclosing-def에서 후보가
+여럿일 때 `items[0]`을 임의 채택). 셋 다 `prepare()`가 옳은 심볼을 이미 정확히 찾은 뒤 그 결과를
+다루는 로직의 버그이지, 잘못되거나 가려진 심볼이 검증 없이 새어나간 사례가 아니라서 이 구조적
+논증을 깨지 않는다 — 하지만 "고칠 일이 없었다"를 "버그가 없었다"로 오독하면 저 3건을 나중에 발견한
+사람이 이 문서를 거짓으로 읽는다. 두 지적 모두 영어 계약 노트(`./types.ts`의 `FrameworkAdapter` 타입
+주석)에 이미 반영했다.
+
 **corpus 편향을 명시한다**: 위 fixture들은 **우리가 실제 버그를 찾은 자리**에서 자랐다 — 이름 충돌,
-주석, alias identity 불일치. 이건 실제 FastAPI 코드베이스의 실패 분포 표본이 아니라, **우리가 이미
-알고 고친 위험을 다시 안 만드는지 확인하는 회귀 corpus**다. "실제 코드에서 100% 정확하다"고 읽으면
-안 된다.
+주석, alias identity 불일치, 이제는 package 경로 불일치까지. 이건 실제 FastAPI 코드베이스의 실패
+분포 표본이 아니라, **우리가 이미 알고 고친 위험을 다시 안 만드는지 확인하는 회귀 corpus**다. "실제
+코드에서 100% 정확하다"고 읽으면 안 된다.
+
+## 2026-09-08 정정 5 — precision 분모에 포함 기준이 없었다, 34는 두 번 틀렸다
+
+**reviewer가 34개를 기존 목록과 1:1로 재대조해 산수(TP 12 + TN 22 = 34)는 맞다고 확인했다.** 그런데
+commander가 직접 확인해, `crossfile_positive_router.py`(M4 milestone closure audit이 gate 3용으로
+추가한, 정의 파일과 다른 파일에서 mount되는 유일한 진짜 양성 fixture, `:487` 테스트)가 이 분모 어디에도
+없다는 걸 찾았다 — `CONFIRMED_DESPITE_COLLISION_FIXTURES`/`module_resolution_pkg_b`와 **assertion
+구조가 완전히 같은데도** 위 "진양성 12개" 목록에 없다. commander는 "뺀 이유를 한 줄 적자"보다 더
+필요하다고 판단했다 — **34가 다섯 번 바뀌는 동안(19 → 25 정정 → 29 → 31 → 34) 분모의 포함 기준
+자체가 한 번도 문서화되지 않았고, 그래서 새 fixture를 추가할 때마다 "이 중앙 집계를 갱신하는 걸
+기억했는가"에 숫자가 좌우됐다**(PR #84의 adversarial 6개가 그렇게 빠졌던 것과 같은 실패 형태).
+
+**기준을 다음과 같이 기계적으로 정의한다** (이후 이 corpus를 다시 셀 사람은 이 기준을 코드에 대고
+재현하면 된다, 사람이 "이게 대표적인 사례인가" 판단할 필요가 없다):
+
+> `pythonFastapiIntegration.test.ts`에서 `response.data.augmentedEdges.length`를 **정확히 0 또는
+> 정확히 1로** 단언하는 것이 그 `test()` 블록(배열을 순회하며 생성되는 것 포함)의 주된 검증인 모든
+> 테스트를 센다 — `> 0`처럼 부등호로 단언하거나 두 응답을 `deepEqual`로 비교하는 것은 그 테스트의
+> 목적이 이 fixture 자체의 mount/Depends() 판정이 아니라 다른 불변 조건(rollback, latency)이므로
+> 제외한다. 테스트 이름에 "known false negative"가 포함된 것은 이미 목록화된 미탐이라 판정 대상이
+> 아니므로(정확도의 정의상 recall 문제이지 precision 문제가 아니다) 제외한다.
+
+**이 기준을 파일 전체에 기계적으로 적용해 재세었다(`npm test`, 2026-09-08 재실행으로 직접 확인,
+45 tests 45 pass) — commander가 지적한 `crossfile_positive_router.py`가 들어갈 뿐 아니라, 이 문서
+누구도 언급한 적 없는 두 번째 누락도 나왔다: `nested_dependency_config.py`(M4 stage 3 "단계 5"의
+sub-dependency 회귀 테스트, `:625`)도 `augmentedEdges.length === 1`을 주된 검증으로 단언하는데 위
+목록 어디에도 없다 — 추가된 시점(stage 3 자체 후속 단계)에 이 중앙 집계가 갱신되지 않았다는, 정확히
+같은 실패가 이 문서 안에서 이미 한 번 더 일어나 있었다.**
+
+**최종(2026-09-08, 기준 적용 후 재계산): 36개 쿼리(진양성 14 + 진음성 22), precision 100%(오탐
+0건), 변동 없음.**
+
+- **진양성 14개** = 기존 12(위 "진양성 12개" 항목 그대로) + `crossfile_positive_router.py`(정의
+  파일과 다른 파일에서의 bare-identifier cross-file mount, 유일하게 이 형태를 검증하는 fixture) +
+  `nested_dependency_config.py`(3단계 `Depends()` 체인의 중간 함수를 정확히 candidate caller로
+  찾는지 검증).
+- **진음성 22개**: 변동 없음(위 "진음성 22개" 항목 그대로 — 이 기준으로도 새로 편입되거나 빠지는
+  것이 없음을 파일 전체 재확인으로 검증했다).
+- **제외됨(정의상, 기준의 "known false negative" 절 그대로 적용)**: `attr_mount_router.py`,
+  `alias_mount_router.py`, `parenthesized_import_target.py` — 아래 "측정 — 미탐 범위" 절에서 다룬다.
+- **제외됨(정의상, 기준의 "주된 검증이 아님" 절 그대로 적용)**: latency gate 테스트(`addedMs` 단언),
+  rollback OFF/ON 테스트(`deepEqual`/`> 0` 단언 — ON 테스트는 app.py:get_db를 다시 쿼리하지만
+  "augmentedEdges가 [](OFF)와 다르게 채워졌는가"만 확인하는 게 목적이지, 이 fixture의 mount 판정
+  자체를 다시 재는 게 목적이 아니다).
+
+**commander가 이 36을 독립적으로 재현했다(`[실행]`, 서로 안 보고 같은 기준을 각자 파일에 적용) —
+루프 20개(TN 17 + TP 3) + 개별 단언 16개(TN 5 + TP 11, "known false negative" 3건 제외 전 19) =
+TN 22 + TP 14 = 36, 이 문서의 계산과 정확히 일치.** 숫자가 맞았다는 사실보다 **서로 다른 두 세션이
+같은 기준을 각자 코드에 대고 돌려 같은 숫자에 도달했다는 것 자체**가 이 기준이 "기계적으로
+재현 가능하다"는 것의 실제 증거다.
+
+**이 lane의 교훈(다음에 숫자가 표류하면 쓸 처방)**: 34가 다섯 번 바뀌는 동안 매번 "빠진 것 하나를
+찾아 더한다"로 대응했는데, 그 대응 자체가 다음 누락을 못 막았다 — `crossfile_positive_router.py`를
+찾아 넣었어도 포함 기준을 안 적었으면 `nested_dependency_config.py`는 여전히 못 찾았을 것이다.
+**"뺀/뺐어야 할 이유를 한 줄 적기"가 아니라 "포함 기준 자체를 기계적으로 적고 전체에 재적용하기"가
+맞는 처방이었다는 것을, 그 처방을 실제로 썼더니 아무도 몰랐던 두 번째 누락이 나온 것으로 증명한다**
+— 다음에 이 corpus나 비슷한 성격의 집계 숫자가 다시 흔들리면, 이번처럼 개별 사례를 찾지 말고 먼저
+기준부터 다시 쓸 것.
 
 ### 측정 — 미탐 범위(precision과 같은 자리에 둔다: "정확한데 거의 안 도는" 기능을 정확하다고만
 보고하지 않기 위해)
@@ -188,15 +314,29 @@ alias"뿐이다** — 알려진 shape 카테고리는 이제 5개이고, 그중 
 통과한다(2/5, 40% — 발행 당시의 2/4·50%에서 정정). 이 비율(아래 "coverage of known shapes")도
 fixture corpus 기준 proxy이지 실제 recall이 아니다.
 
-**2026-09-07 추가 — 워크스페이스 구성에 따라 이미 올바르게 쓰인 mount도 거부될 수 있다.** M4 gate
-4 재개방 lane(`docs/work/task-m4-gate4-mount-false-positive.md`, "남은 한계")에서 commander가 직접
-확인: `isRouterMounted()`의 `nameAmbiguous` 검사는 mount 호출부의 provenance가 이미 증명된 뒤에도
-**워크스페이스 어딘가에 무관한 `router = APIRouter()`가 하나만 있으면** 그 mount를 거부한다.
+**2026-09-07 추가, 이후 해결 — 워크스페이스 구성에 따라 이미 올바르게 쓰인 mount가 거부되던 문제.**
+M4 gate 4 재개방 lane(`docs/work/task-m4-gate4-mount-false-positive.md`, "남은 한계")에서 commander가
+직접 확인: `isRouterMounted()`의 `nameAmbiguous` 검사는 mount 호출부의 provenance가 이미 증명된
+뒤에도 워크스페이스 어딘가에 무관한 `router = APIRouter()`가 하나만 있으면 그 mount를 거부했다 —
 `router`는 FastAPI 공식 튜토리얼의 관행적 변수명이라, router 모듈이 둘 이상인 프로젝트에서는 코드를
-정확히 썼어도 이 기능이 발동하지 않을 수 있다. **위 "known shape coverage" 분모에는 넣지 않았다**
-— 그 proxy는 mount를 표현하는 구문 형태를 묻는데, 이건 코드를 어떻게 썼는지가 아니라 워크스페이스
-구성(무관한 동명 모듈의 존재 여부)에 좌우되는, 성격이 다른 질문이기 때문이다(판단 근거는 위 작업
-문서 참고).
+정확히 썼어도 이 기능이 발동하지 않았다. **`docs/work/task-m4-gate4-module-resolution.md`에서
+`nameAmbiguous`를 완전히 제거해 해결됨** — 다중 router 프로젝트도 정상 동작한다.
+
+**2026-09-07 추가 (module-resolution lane, round 2) — 남은 잔여 한계 두 가지, 실측 확인:**
+
+1. **nested scope shadowing.** `include_router(NAME)`이 텍스트로 매칭되는 위치가 module-level이
+   아니라 함수 매개변수·comprehension 변수·중첩 `def` 등 **안쪽 스코프 안**이면, 그 이름이 module-
+   level 바인딩을 가리고 있어도 구분하지 못했다(self-mount·cross-file 양쪽 다) — commander가 반례로
+   확인, 이 세션이 재현. `MODULE_LEVEL_LINE_PATTERN`(들여쓰기 없는 줄만 인정)으로 수정. **부작용
+   (안전한 방향, 한계로 기록)**: 모듈 레벨 `if`/`try` 블록 **안**에 들여써서 쓴 진짜 mount 호출은
+   이제 미탐이 된다(`if condition:\n    app.include_router(router)` 형태 — 같은 줄에 쓴
+   `if condition: app.include_router(router)`는 여전히 잡힌다).
+2. **절대 import suffix 비교의 실제 범위.** `importsNameFromModule()`의 잔여 한계 주석이 처음엔
+   "두 개의 vendored 사본"처럼 좁게 적혀 있었으나, 실제로는 더 넓다 — **segment가 하나뿐인 절대
+   import**(`from users import router`, dot 없이 모듈 이름 하나)는 suffix 비교가 `rootFile`의
+   basename 하나만 비교하는 것으로 퇴화해, **어느 깊이의 동명 파일이든** 매치된다. 이건 흔한 top-
+   level import 형태라 "두 vendored 사본이 우연히 겹치는" 경우보다 훨씬 자주 닿는다 — 여전히 round
+   1(모든 절대 import가 항상 이렇게 퇴화)보다는 좁지만, 서술을 실제 범위로 정정했다.
 
 ### 측정 — recall (측정 불가, proxy로 무엇을 쓰는지와 그 한계)
 
@@ -302,6 +442,20 @@ truncation 발동 확인용).
 400개 621ms로 이미 workspace 크기에 비례해 늘어난다(pyright 자체의 indexing 비용, augmentation과
 무관 — off인데도 늘어나는 게 그 증거다). 이 숫자를 "augmentation 비용"으로 잘못 읽지 않도록 위 표와
 분리해서 적는다.
+
+**2026-09-07 추가 — M4 gate 4 module-resolution follow-up 재측정.** 이 lane은 `isRouterMounted()`의
+파일 워크 구조(어떤 파일을 몇 개 방문하는지)를 바꾸지 않았다 — 이미 `mountPattern`이 매칭된
+후보 줄에 대해서만 경로 비교 방식을 바꿨을 뿐이다(마지막 segment 문자열 비교 → 상대 import는 정확한
+경로 계산, 절대 import는 segment 배열 비교 — 둘 다 `path.dirname()`/배열 slice 수준의 저렴한 연산).
+그래서 파일당 비용 모델(~0.2ms/file) 자체가 바뀔 구조적 이유가 없다고 판단해 **위 200/400개
+synthetic workspace 벤치마크는 다시 돌리지 않았다** — 안 한 것은 안 했다고 적는다.
+
+대신 실제 fixture corpus(`orphan_router.py`, worst-case 쿼리 — mount 미확인이라 전체 walk를 다
+탐)에서 `npm test`가 쓰는 것과 같은 min-of-N 방법으로 직접 재측정: off 473ms, on 481ms, 추가
+비용 **+8ms**(이 lane에서 fixture 9개·subdirectory 5개가 늘어난 뒤 값). 절대값은 corpus 크기·환경
+차이로 이전 측정과 직접 비교 대상이 아니지만(다른 workspace, 다른 시점), **파일 수가 늘었는데도
+비용이 여전히 한 자릿수~두 자릿수 ms 수준**이라는 것은 회귀가 없다는 근거로는 충분하다고 판단했다.
+latency gate 테스트(`< 5000ms` 임계값)도 그대로 통과.
 
 ### `maxFiles`를 올릴지 판단 — 측정된 것과 안 된 것을 분리한다
 

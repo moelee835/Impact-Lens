@@ -19,14 +19,41 @@
 // The router-mount check (`isRouterMounted()`, used to confirm a route decorated on a plain
 // `APIRouter()` is actually reachable) has NO equivalent provider step - `CallHierarchyProvider` only
 // resolves callable symbols (`prepare()`/`incoming()`), and a router variable is not one (see
-// `isRouterMounted()`'s own doc comment). Its only defense against a same-named-but-unrelated
-// identifier is `importsNameFromModule()`: confirming the file containing the `include_router(...)`
-// call actually imports that name FROM root's own module. Found necessary in M4 gate 4's reopening
-// (docs/work/task-m4-gate4-mount-false-positive.md): before that check existed, the bare
-// `include_router(NAME)` text match alone was treated as mount evidence regardless of what `NAME`
-// actually was in that file - a function parameter, a loop variable, an import from an unrelated
-// module, a dict/attribute value, a factory return, or a non-`APIRouter`-typed variable all slipped
-// through and were reported as a confirmed, reachable route.
+// `isRouterMounted()`'s own doc comment).
+//
+// WHERE A SCOPE/ALIAS MISTAKE CAN ACTUALLY REACH A USER - an argument, not an inventory (M4 gate 4
+// module-resolution follow-up, docs/work/task-m4-gate4-module-resolution.md, commander/reviewer round 3).
+// Every OTHER text match this adapter makes (`findDependsReferences()`, `aliasBindingsFor()`,
+// `findEnclosingDef()`) is re-verified through `resolveEndpoint()` -> `input.provider.prepare()` before
+// it becomes an edge (see the call sites at, as of this writing, lines 771/800/816) - a regex
+// that mistakes scope or alias direction there still cannot mislabel a route, because pyright's own
+// symbol resolution is what actually decides the edge, not the regex. `isRouterMounted()` (via
+// `importsNameFromModule()`) and `isDirectFastapiApp()` are the ONLY two predicates in this file with no
+// such re-verification step, for the structural reason above (a router/app variable is not a callable
+// symbol `prepare()` can resolve) - which is exactly why both of M4 gate 4's post-hoc rounds (mount
+// false-positive, module-resolution round 3) found their defects in one of these two functions and
+// nowhere else: a scope- or alias-blind regex is only user-visible where nothing downstream can catch it.
+// `importsNameFromModule()` and `MODULE_LEVEL_LINE_PATTERN` close the mount-import and mount-call-site
+// exposure; `isDirectFastapiApp()` receiving `stripCommentsAndStrings()`'d text (not raw) closes the
+// other. This argument is why the fix belongs at these two functions specifically, not a claim that no
+// fifth defect can exist within them - a regex is still a regex.
+//
+// THIS ARGUMENT BREAKS if a second framework adapter (this file's own SPI already anticipates one - see
+// `./types.ts`) makes an unverified text match of its own without routing it through `prepare()` first;
+// the exposure boundary this comment describes is a property of THIS adapter's current design, not a
+// guarantee the SPI enforces. Recorded here rather than added to `./types.ts` as an SPI requirement: only
+// one adapter exists today, and inventing a contract rule for a shape the SPI has not seen yet risks
+// exactly the over-fitting IL-LIM-001's own "대안 검토" already rejected (this file's own top-of-file
+// comment on why the SPI stays a plain function type, not a plugin system). A second adapter's author
+// should read this comment before adding a text-match predicate of their own.
+//
+// `./types.ts`'s `FrameworkAdapter` doc comment carries a fuller version of this argument, added after
+// this paragraph (M4 gate 4 module-resolution follow-up round 4) - it explains why a `prepare()` call
+// throwing is not a hole in this protection (re-verification failing, exceptions included, always folds
+// to no-edge, verified directly with stub-provider mutations), and narrows "the Depends() path has not
+// needed a fix for a scope/alias mistake" against three real, unrelated bugs git history actually shows
+// on that path (candidate-counting bugs downstream of a correct `prepare()` result, not this pattern).
+// Read that version, not just this one, before trusting either claim.
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -162,9 +189,22 @@ function findRouteDecorator(lines: readonly string[], defLine: number): RouteDec
 /** True when `name` is bound to a `FastAPI()` instance directly in this file - the top-level app object
  * is reachable by definition (nothing needs to `include_router()` it), so no mount check applies. Root
  * file only, not workspace-wide - the same bounded scope `importsFastapi` already uses; an app
- * instantiated elsewhere and merely imported here is a documented limitation, not silently guessed at. */
-function isDirectFastapiApp(name: string, rootText: string): boolean {
-  return new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*FastAPI\\s*\\(`).test(rootText);
+ * instantiated elsewhere and merely imported here is a documented limitation, not silently guessed at.
+ *
+ * `rootText` MUST already be passed through `stripCommentsAndStrings()` by the caller - M4 gate 4
+ * module-resolution follow-up round 3 (docs/work/task-m4-gate4-module-resolution.md, reviewer finding):
+ * this function used to test the raw file text directly, so a comment like `# Example usage elsewhere:
+ * app = FastAPI()` in a file where `app` is actually an `APIRouter()` made this return `true` - and a
+ * `true` here skips `isRouterMounted()` ENTIRELY (see the call site), bypassing every check this lane
+ * built (import provenance, module-level scoping) with a single comment line. `isRouterMounted()` itself
+ * already treats a comment/docstring/string-literal mention as no evidence at all
+ * (`commented_out_router.py`/`docstring_mention_router.py`/`string_literal_router.py` fixtures prove it) -
+ * this function was the one place that principle was not applied. Confirmed directly (reviewer, real
+ * CLI) before this fix: a route decorator on a genuinely unmounted `APIRouter()` produced a confirmed
+ * edge purely because of a comment naming the same variable a `FastAPI()` instance.
+ */
+function isDirectFastapiApp(name: string, strippedRootText: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*FastAPI\\s*\\(`).test(strippedRootText);
 }
 
 /**
@@ -195,9 +235,86 @@ interface MountSearchResult {
   readonly truncated: boolean;
 }
 
+/** One `from <module> import <list>` statement's parsed shape - `dots.length` leading dots (0 = absolute
+ * import) and `modulePath` the dotted segments after them (empty for a bare `from . import x`, which
+ * names no module and is out of scope - see `resolveImportTargetFile()`). */
+interface FromImportClause {
+  readonly dots: number;
+  readonly modulePath: readonly string[];
+  readonly importList: string;
+}
+
+// No trailing `$` on this pattern - `.` excludes `\r`/`\n`, so a CRLF-checked-out file (Windows CI, no
+// .gitattributes forcing LF here) leaves a trailing `\r` on each split line that `$` cannot match past,
+// silently failing the whole pattern on every line (found on Windows CI, `clangd / windows-latest`,
+// M4 gate 4's mount-provenance fix - docs/work/task-m4-gate4-mount-false-positive.md). `(.+)` alone still
+// stops before any `\r` (the same exclusion), so dropping the anchor loses nothing on LF files.
+const FROM_IMPORT_PATTERN = /^\s*from\s+(\.*)((?:\w+(?:\.\w+)*)?)\s+import\s+(.+)/;
+
+function parseFromImport(line: string): FromImportClause | undefined {
+  // String#match, deliberately not RegExp#exec - buildInvocation.sources.test.ts's spawn-family scan
+  // flags every member call in this family of method names as a possible child_process call site (it
+  // cannot distinguish a regex method call on a named variable from a real one without a literal
+  // `/pattern/` receiver immediately before it, which this pattern is not). String#match against a
+  // non-global pattern returns the identical result shape and is a different method name, so it never
+  // enters that scan at all.
+  const match = line.match(FROM_IMPORT_PATTERN);
+  if (!match) {
+    return undefined;
+  }
+  return {
+    dots: match[1].length,
+    modulePath: match[2].length > 0 ? match[2].split('.') : [],
+    importList: match[3],
+  };
+}
+
 /**
- * True when `lines` contains a plain `from <module> import ... NAME ...` statement (one line, no
- * alias) whose module path's last dotted segment is `moduleStem` - the only cross-file link
+ * Resolves a RELATIVE `from` import clause (`clause.dots > 0`) to the exact `.py` file it names, purely
+ * from file positions - no package metadata (`__init__.py`, `setup.py`/`pyproject.toml`) is read, none is
+ * needed. By Python's own rule, `dots === 1` (`from .mod import x`) means "this module's own package",
+ * i.e. `importingFile`'s containing directory; each additional dot goes up one more parent directory from
+ * there. This is exact, not an approximation - both halves (the dot count and `importingFile`'s real path)
+ * are known precisely. `undefined` for `from . import x` / `from .. import x` (dots with no module name):
+ * there is no module file to resolve, only names defined directly in a package's `__init__.py`, which
+ * this adapter's mount search (always a specific `.py` module, never a package) has no use for - already
+ * unreachable before this function existed, since the old stem-only comparison also needed a module name
+ * to compare against.
+ */
+function resolveRelativeImportTargetFile(clause: FromImportClause, importingFile: string): string | undefined {
+  if (clause.modulePath.length === 0) {
+    return undefined;
+  }
+  const moduleFileParts = [...clause.modulePath.slice(0, -1), `${clause.modulePath[clause.modulePath.length - 1]}.py`];
+  let baseDirectory = path.dirname(importingFile);
+  for (let level = 1; level < clause.dots; level += 1) {
+    baseDirectory = path.dirname(baseDirectory);
+  }
+  return path.join(baseDirectory, ...moduleFileParts);
+}
+
+/**
+ * True when `fullPath`'s path SEGMENTS end with exactly `suffixParts`, compared segment-by-segment (never
+ * a raw substring/`.endsWith()` on the joined string) - `my_pkg_a/users.py` must NOT satisfy a suffix of
+ * `pkg_a/users.py` just because one string ends with the other; comparing whole path segments makes that
+ * kind of partial-name collision structurally impossible, confirmed directly against that exact case.
+ * Case-insensitive on `win32`, matching `sameFile()`'s own platform handling below, for the same reason
+ * (Windows path case-insensitivity).
+ */
+function pathEndsWithSegments(fullPath: string, suffixParts: readonly string[]): boolean {
+  const fullSegments = path.resolve(fullPath).split(path.sep);
+  if (suffixParts.length > fullSegments.length) {
+    return false;
+  }
+  const tail = fullSegments.slice(fullSegments.length - suffixParts.length);
+  const segmentsEqual = (a: string, b: string): boolean => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+  return tail.every((segment, index) => segmentsEqual(segment, suffixParts[index]));
+}
+
+/**
+ * True when `lines` contains a plain `from <module> import ... NAME ...` statement (one line, no alias)
+ * that names `rootFile` - exactly, for a relative import (`resolveRelativeImportTargetFile()`), or by
+ * dotted-path-as-directory-suffix, for an absolute one. This is the only cross-file link
  * `isRouterMounted()` can verify without a real import graph or provider support (see the doc comment
  * above `isRouterMounted()` and this file's top-of-file comment for why provider verification is not
  * available here).
@@ -205,46 +322,57 @@ interface MountSearchResult {
  * This is what distinguishes `crossfile_positive_app.py` (imports `crossfile_positive_router` BY NAME
  * from `crossfile_positive_router.py`, so a mount call using that name genuinely refers to root's own
  * router) from a same-named identifier that has no connection to root at all - a function parameter, a
- * loop variable, a dict/attribute value, a factory return, a non-`APIRouter`-typed variable, or an
- * import of the same name from a DIFFERENT module. `mountPattern` alone matches every one of these
- * (found by direct reproduction, M4 gate 4 reopening, docs/work/task-m4-gate4-mount-false-positive.md)
- * because it only checks the literal text `include_router(NAME`, with no requirement that `NAME`
- * resolve to anything in particular.
+ * loop variable, a dict/attribute value, a factory return, a non-`APIRouter`-typed variable, or an import
+ * of the same name from a DIFFERENT module (found by direct reproduction, M4 gate 4 reopening,
+ * docs/work/task-m4-gate4-mount-false-positive.md - `mountPattern` alone matches every one of these,
+ * because it only checks the literal text `include_router(NAME`, with no requirement that `NAME` resolve
+ * to anything).
  *
- * Deliberately narrow, matching this file's existing bounded-heuristic style (`aliasBindingsFor`,
- * `findDependsReferences`):
- * - `name` must appear un-aliased in the import list (`import name as other` does not count - an
- *   alias changes the local identifier used at the call site, so `mountPattern` searching for `name`
- *   itself would not have matched that file's mount call under the alias in the first place; this only
- *   guards the un-aliased case, which is the only case `mountPattern` can even see).
- * - The import must be on one line - a parenthesized multi-line `from module import (\n  name,\n)` is
- *   not matched (the same accepted limitation `aliasBindingsFor` already documents, for the same
- *   reason: a false negative here, never a false positive).
- * - `moduleStem` is compared against the LAST dotted segment only, so `from pkg.sub.mod import name`
- *   and relative imports (`from .mod import name`) both count when `mod` matches. Qualified access
- *   through a module alias (`import mod; mod.name`) is separately out of scope, per this file's
- *   top-of-file comment - the same accepted miss `attr_mount_router.py` already documents for the
+ * M4 gate 4 module-resolution follow-up (docs/work/task-m4-gate4-module-resolution.md), two rounds:
+ *
+ * - Round 1 compared only the module path's LAST dotted segment against `rootFile`'s basename, which
+ *   could not tell `pkg_a/users.py` apart from an unrelated `pkg_b/users.py` - confirmed directly. That
+ *   gap was masked, not closed, by `isRouterMounted()`'s old `nameAmbiguous` check (a real `pkg_b/users.py`
+ *   almost always also binds `router = APIRouter()`, which happened to trip that separate check) - a
+ *   coincidence of two checks' side effects, and the reason a router-per-file FastAPI project (the common
+ *   case - `router` is FastAPI's own tutorial convention) could not use this feature at all: two router
+ *   files sharing that name anywhere in the workspace was enough to make `nameAmbiguous` block every mount.
+ * - Round 2 (commander review) replaced round 1's ABSOLUTE-import handling again: resolving an absolute
+ *   import against `workspace` as an assumed package root broke a `src/` layout (real file at
+ *   `workspace/src/pkg/mod.py`, absolute import `from pkg.mod import x` with no `src` segment - the normal
+ *   shape) that round 1's cruder last-segment comparison had actually gotten right by accident. Measured
+ *   directly against a 6-case matrix (flat/`src`/nested layout x correct/wrong package): round 1 got 3 of
+ *   6 wrong, the `workspace`-as-root approach got 1 of 6 wrong (exactly the `src`-layout regression), and
+ *   comparing the dotted path as a path-segment SUFFIX of `rootFile` (this version) got all 6 right - it
+ *   needs no package-root guess at all, so it has no "resolution failed" case to have a policy for.
+ *
+ * Full resolution (both import forms) removes the need for `isRouterMounted()`'s old `nameAmbiguous` check
+ * entirely - see that function's own doc comment for the self-mount reasoning this uncovered along the way.
+ *
+ * Deliberately narrow otherwise, matching this file's existing bounded-heuristic style
+ * (`aliasBindingsFor`, `findDependsReferences`):
+ * - `name` must appear un-aliased in the import list (`import name as other` does not count - an alias
+ *   changes the local identifier used at the call site, so `mountPattern` searching for `name` itself
+ *   would not have matched that file's mount call under the alias in the first place; this only guards
+ *   the un-aliased case, which is the only case `mountPattern` can even see).
+ * - The import must be on one line - a parenthesized multi-line `from module import (\n  name,\n)` is not
+ *   matched (the same accepted limitation `aliasBindingsFor` already documents, for the same reason: a
+ *   false negative here, never a false positive).
+ * - Qualified access through a module alias (`import mod; mod.name`) is separately out of scope, per this
+ *   file's top-of-file comment - the same accepted miss `attr_mount_router.py` already documents for the
  *   `Depends()` path.
- *
- * KNOWN, ACCEPTED GAP in the last point above (commander review, docs/work/task-m4-gate4-mount-false-
- * positive.md "남은 한계" section) - not yet closed, not a guess: comparing only the last dotted segment
- * means a SAME-BASENAME module in a DIFFERENT, unrelated package also satisfies this check. If root is
- * `pkg_a/users.py` and some other file does `from pkg_b.users import router` (a completely different
- * `users.py` in a different package), this function returns `true` - confirmed directly, not assumed.
- * `users.py`/`api.py`/`routes.py` living in more than one package is not a rare FastAPI project shape.
- *
- * This gap is currently masked, NOT closed, by `nameAmbiguous` in `isRouterMounted()` below: for
- * `pkg_b.users` to genuinely exist and export something named the same as root's router, `pkg_b/users.py`
- * almost always also binds `router = APIRouter()` there - which is exactly what trips `bindingPattern`
- * and sets `nameAmbiguous`, rejecting the mount anyway. That safety is a coincidence of the two checks'
- * side effects, not a design relationship: `nameAmbiguous` was written before this function existed, to
- * catch a different case (two files binding the literal same name). Removing or narrowing
- * `nameAmbiguous` in a future change (for instance, because this function's import-provenance check makes
- * it look redundant - it does NOT: this function only proves NAME came from a same-basename module, never
- * that the basename is unique workspace-wide) would silently reopen this gap. Fixing it properly means
- * resolving a relative import against the importing file's own location and comparing full resolved paths
- * to `rootFile`, not just the last segment - out of this lane's scope (a false-positive fix must not widen
- * into a same-lane false-negative direction change; docs/work/task-m4-gate4-mount-false-positive.md).
+ * - The suffix comparison for absolute imports degenerates as the dotted path gets SHORTER, not just in
+ *   the "two identical nested trees" case an earlier version of this comment led with (confirmed too
+ *   narrow, commander review): a SINGLE-SEGMENT absolute import (`from users import router`, no dots
+ *   in the module path at all) compares a one-element suffix - i.e. `rootFile`'s bare basename - so it
+ *   matches a `users.py` at ANY depth, in any unrelated package, confirmed directly. This is not a rare
+ *   coincidence like two vendored copies of the same nested path; a top-level `from <module> import x`
+ *   is an ordinary, common Python import shape, so this degenerate case is reachable far more easily than
+ *   the deep-path collision case. It is still narrower than what round 1 (last-segment-only, ALL absolute
+ *   imports regardless of dots) left open, and left as an accepted residual limitation for the same reason
+ *   - resolving real package roots is out of scope, per this function's own "no package metadata is read"
+ *   framing - but the scope of what remains open should be read as "any single-segment absolute import",
+ *   not as an exotic vendoring scenario.
  */
 // Exported for fastapiDependencyAdapterImportsNameFromModule.test.ts only - a unit test feeding this
 // function CRLF input directly, so the Windows-only `$`-anchor regression (git history: the anchor was
@@ -252,29 +380,62 @@ interface MountSearchResult {
 // test instead of depending on Windows CI alone to catch a reintroduction (Windows CI is this repo's
 // slowest, least reliable signal - documented gopls hang history elsewhere in this codebase). Not part of
 // this adapter's public surface otherwise.
-export function importsNameFromModule(lines: readonly string[], name: string, moduleStem: string): boolean {
-  // No trailing `$` - `.` excludes `\r`/`\n`, so a CRLF-checked-out file (Windows CI, no .gitattributes
-  // forcing LF here) leaves a trailing `\r` on each split line that `$` cannot match past, silently
-  // failing this whole pattern on every line. Found on Windows CI (`clangd / windows-latest`), not
-  // assumed: `crossfile_positive_app.py`'s CI-checked-out CRLF form reproduced it directly. `(.+)` alone
-  // still stops before any `\r` (the same exclusion), so dropping the anchor loses nothing on LF files
-  // and fixes CRLF ones.
-  const fromPattern = new RegExp(`^\\s*from\\s+\\.*(?:\\w+\\.)*${escapeRegExp(moduleStem)}\\s+import\\s+(.+)`);
-  const aliasedPattern = new RegExp(`\\b${escapeRegExp(name)}\\s+as\\s+\\w+`);
-  const namePattern = new RegExp(`\\b${escapeRegExp(name)}\\b`);
+/**
+ * True when `importList` (the text after `import` on a `from module import ...` line) contains `name`
+ * as its OWN, un-aliased entry - `entry.trim() === name` on each comma-separated item, not a substring
+ * or word-boundary test against the whole list. M4 gate 4 module-resolution follow-up round 3
+ * (docs/work/task-m4-gate4-module-resolution.md, commander/reviewer review): an earlier version tested
+ * whether the word `name` appeared ANYWHERE in the list (`\bname\b`) and separately excluded only the
+ * FORWARD alias direction (`name as other` - our own name being renamed away). That missed the REVERSE
+ * direction entirely - `other_thing as name` imports a completely different symbol and merely renames it
+ * to `name` locally, but the word-anywhere test still matched, and the forward-only alias exclusion never
+ * fired (there is no `name as` in that text, only `as name`). Confirmed directly (reviewer, real CLI):
+ * this produced a confirmed mount edge for a router whose actual export was an unrelated object entirely.
+ * Comparing whole comma-separated entries closes both directions at once - a bare, un-aliased `name` is
+ * still found anywhere in the list (first position or not, matching this function's existing behavior),
+ * but any entry containing `as` in either position is rejected, because the exact string can never equal
+ * `name` once `as` is part of it.
+ *
+ * NEW ACCEPTED FALSE NEGATIVE from this exact-entry comparison (commander review, confirmed directly): a
+ * single-line PARENTHESIZED import - `from module import (name)` - is no longer detected, because the
+ * captured entry is the literal text `(name)`, which cannot string-equal `name`. The previous word-
+ * boundary test (`\bname\b`) matched this shape (parentheses are non-word characters, so they acted as
+ * valid boundaries) - this is a genuinely new narrowing, not a pre-existing gap carried forward. Distinct
+ * from the already-documented multi-line parenthesized import limitation (`aliasBindingsFor()`'s doc
+ * comment) - that one spans multiple lines and was never reachable by this per-line function either way;
+ * this is a single line. Accepted for the same reason every other narrowing in this file is accepted
+ * (false-negative direction, matching the asymmetry principle) - see `docs/work/task-m4-gate4-module-
+ * resolution.md`'s "누적된 좁힘" (cumulative narrowing) list for this fix alongside the other precision-
+ * over-recall trades this lane made, so a future reader can judge the accumulated cost in one place
+ * instead of rediscovering each one independently.
+ */
+function importsBareNameEntry(importList: string, name: string): boolean {
+  return importList.split(',').some(entry => entry.trim() === name);
+}
+
+export function importsNameFromModule(
+  lines: readonly string[],
+  name: string,
+  rootFile: string,
+  importingFile: string,
+): boolean {
   return lines.some(line => {
-    // String#match, deliberately not RegExp#exec - buildInvocation.sources.test.ts's spawn-family scan
-    // flags every member call in this family of method names as a possible child_process call site (it
-    // cannot distinguish a regex method call on a named variable from a real one without a literal
-    // `/pattern/` receiver immediately before it, which `fromPattern` here is not). String#match against
-    // a non-global pattern returns the identical result shape and is a different method name, so it
-    // never enters that scan at all.
-    const match = line.match(fromPattern);
-    if (!match) {
+    const clause = parseFromImport(line);
+    if (!clause || clause.modulePath.length === 0) {
       return false;
     }
-    const importList = match[1];
-    return namePattern.test(importList) && !aliasedPattern.test(importList);
+    if (!importsBareNameEntry(clause.importList, name)) {
+      return false;
+    }
+    if (clause.dots > 0) {
+      const resolved = resolveRelativeImportTargetFile(clause, importingFile);
+      return resolved !== undefined && sameFile(resolved, rootFile);
+    }
+    const moduleFileParts = [
+      ...clause.modulePath.slice(0, -1),
+      `${clause.modulePath[clause.modulePath.length - 1]}.py`,
+    ];
+    return pathEndsWithSegments(rootFile, moduleFileParts);
   });
 }
 
@@ -309,23 +470,60 @@ function sameFile(a: string, b: string): boolean {
  * 1. A bare identifier match inside a comment, docstring or string literal - `stripCommentsAndStrings`
  *    removes these before either pattern below is tested against a file's text, incidentally (not the
  *    reason the patterns are written the way they are).
- * 2. A bare identifier match in a file whose `name` refers to an UNRELATED `APIRouter()` - two files can
- *    each define their own router under the same local name (e.g. both call it `router`), and a text
- *    search that only matches by name cannot tell them apart. If any file OTHER than `rootFile` also
- *    binds `name = APIRouter(...)` - a type-annotated (`name: APIRouter = APIRouter(...)`) or
- *    module-qualified (`name = fastapi.APIRouter(...)`) binding counts too, not just the bare form - the
- *    name is ambiguous workspace-wide and mount can never be confirmed for it (stage 1's "if it cannot be
- *    confirmed, do not assert" - matching the false-negative direction corpus case 3 already requires,
- *    not a new relaxation).
+ * 2. A bare identifier match in a file whose `name` refers to an UNRELATED `APIRouter()` - REMOVED, M4
+ *    gate 4 module-resolution follow-up (docs/work/task-m4-gate4-module-resolution.md), after commander
+ *    review found the reasoning behind it did not survive contact with Python's own scoping rules. This
+ *    used to be `isRouterMounted()`'s `nameAmbiguous`/`bindingPattern`: any file OTHER than `rootFile`
+ *    binding `name = APIRouter(...)` anywhere in the workspace made mount confirmation fail, for BOTH a
+ *    cross-file mount (already made irrelevant by `importsNameFromModule()`'s exact resolution - once a
+ *    specific import statement is confirmed to name `rootFile`, an unrelated file using the same bare name
+ *    elsewhere says nothing about what THAT import statement resolves to) AND a SELF-mount (a binding and
+ *    its `include_router(name)` call in the very same file). The self-mount case is where the removal
+ *    actually changes behavior: `collision_router_mounted.py`/`collision_typed_mounted.py`/
+ *    `collision_qualified_mounted.py` each bind their router and mount it in their OWN file - by Python's
+ *    own name resolution, that binding and that call refer to the same object regardless of what any other
+ *    file in the workspace happens to name its own, unrelated `APIRouter()`. There is no real ambiguity to
+ *    protect against there; the fixtures' original "must produce mount-unresolved" expectation encoded a
+ *    false negative that had no evidence behind it once actually examined (their own `_unmounted` sibling
+ *    fixtures still correctly report unresolved - they have no self-mount OR cross-file mount at all,
+ *    unaffected by this). This was the check making `router` (the common name FastAPI's own tutorial
+ *    uses) collide across ANY two files anywhere in the workspace, self-mount or not - the reason a
+ *    router-per-file FastAPI project (the ordinary case) could not use this feature at all.
+ * 3. A bare identifier match sitting in a NESTED scope that shadows the binding this search actually
+ *    means - `MODULE_LEVEL_LINE_PATTERN` below (M4 gate 4 module-resolution follow-up round 2,
+ *    docs/work/task-m4-gate4-module-resolution.md). Point 2's "self-mount is unambiguous" argument
+ *    assumed a single scope; a second commander round found the counterexample that breaks it:
+ *    ```
+ *    router = APIRouter()
+ *    @router.get("/x")
+ *    def handler() -> str: ...
+ *    def setup(app, router):        # <- parameter SHADOWS the module-level `router`
+ *        app.include_router(router) # <- refers to the parameter, not the module-level binding
+ *    ```
+ *    confirmed directly: querying `handler` produced a confident edge even though the module-level
+ *    router is never actually mounted anywhere. A function parameter, a `for`/comprehension target, or a
+ *    nested `def` binding the same name all reproduce this - the same shape `adversary_param_router.py`
+ *    already tests, just inside root's OWN file instead of an unrelated one, which is exactly why the
+ *    self-mount branch's "no import statement to verify" reasoning missed it: it never claimed to check
+ *    scope, only file identity. Requiring the matched `include_router(...)` line itself to have no
+ *    leading whitespace (Python's own top-level indentation) rejects every nested-scope shadow, on BOTH
+ *    the self-mount and cross-file paths - the cross-file path has the identical exposure (confirming a
+ *    file imports the right name from the right module says nothing about whether the specific
+ *    `include_router(...)` call being credited is the module-level reference or a shadowed one in some
+ *    nested function in that same file). Deliberately false-negative-directed, matching this file's own
+ *    asymmetry principle: a genuine module-level mount written inside an indented `if`/`try` block (rare,
+ *    and indentation-visible only, e.g. `if condition:\n    app.include_router(router)`) is now also
+ *    missed - accepted, not fixed, for the same reason `dynamic_mount_router.py`'s call-expression miss
+ *    is accepted.
  *
- * A third thing this search must NOT do: treat a TRUNCATED walk as having confirmed there is no
- * collision. `mountFound` is a positive claim - a truncated search that never finds it is safely "not
- * found", same as always. `nameAmbiguous` is the opposite, a negative/universal claim ("no OTHER file
- * anywhere binds this name") - a walk that stopped early cannot support it, because the one colliding
- * file could be exactly the one it never reached (found by direct reproduction: a 1-file budget that
- * happened to visit only root's own self-mounting file produced a confident edge while a real competing
- * binding sat unread in a second file). So `found` is `true` only when the walk actually completed
- * (`!truncated`) - a truncated walk is always reported unresolved.
+ * One more thing this search must NOT do: treat a TRUNCATED walk as having confirmed a mount that was only
+ * ever found in a file the walk happened to visit. `mountFound` is a positive claim - a truncated search
+ * that never finds it is safely "not found", same as always, and every confirmed contribution now comes
+ * from an already-visited, already-exactly-matched file (`nameAmbiguous`'s removal above means there is no
+ * longer a negative/universal claim here that truncation could undermine). `found` still requires
+ * `!truncated` anyway, as a general "incomplete work should not report full confidence" default consistent
+ * with how `augmentation_budget_exceeded` already treats an adapter that stopped early elsewhere - not
+ * because a specific correctness gap was found in a truncated positive match itself.
  *
  * The concrete cost of that, spelled out rather than left as "some extra cost" (commander review round
  * 2): this made `maxFiles` (`DEFAULT_BUDGET` in `./index.ts`, 200 as of this writing) mean
@@ -365,17 +563,25 @@ function sameFile(a: string, b: string): boolean {
  * `include_router(name()` or `include_router(get_name())`) IS deliberate: it is exactly what leaves
  * dynamic registration (stage 1's own out-of-scope example) unmatched, with no special-casing needed.
  */
+// A line with no leading whitespace - Python's own top-level indentation, not a claim about syntax
+// validity. See isRouterMounted()'s doc comment (point 2) for why every include_router(...) match this
+// file counts, self-mount or cross-file, is required to sit on one of these lines.
+//
+// SUSPECTED, THEN MEASURED SAFE (commander review): this pattern runs against `stripCommentsAndStrings()`
+// output, which removes triple-quoted blocks LINEBREAKS AND ALL (not line-by-line), raising the question
+// of whether that could shift a real module-level line's indentation or create a false module-level line
+// out of docstring remnants. Checked directly against five shapes (indented mount after an in-function
+// docstring, a genuine module-level mount, an odd number of `"""` inside a docstring, a triple-quote
+// inside a one-line string, code on the same line as a closing `"""`) - none leaked a false positive; the
+// match boundary always stays inside one line, and surrounding newlines and leading whitespace on
+// unrelated lines are preserved. Recorded so a future reader who has the same suspicion does not have to
+// re-derive it - this was checked, not assumed.
+const MODULE_LEVEL_LINE_PATTERN = /^\S/;
+
 async function isRouterMounted(name: string, rootFile: string, workspace: string, budget: AdapterBudget): Promise<MountSearchResult> {
   const mountPattern = new RegExp(`\\binclude_router\\(\\s*${escapeRegExp(name)}\\s*[,)]`);
-  // Allows an optional type annotation (`name: APIRouter = ...`) and an optional module-qualified prefix
-  // before the constructor call (`name = fastapi.APIRouter(...)`) - both found missing in an isolated
-  // regex probe before this was written, which is what "same name, different symbol" (corpus case 1)
-  // already warned this adapter to check for empirically rather than assume.
-  const bindingPattern = new RegExp(`\\b${escapeRegExp(name)}(?:\\s*:\\s*[^=\\n]+)?\\s*=\\s*(?:\\w+\\.)*APIRouter\\s*\\(`);
-  const rootStem = path.basename(rootFile, path.extname(rootFile));
   const walkState = { filesVisited: 0, maxFiles: budget.maxFiles, truncated: false };
   let mountFound = false;
-  let nameAmbiguous = false;
   await walkPythonFiles(workspace, walkState, async file => {
     let text: string;
     try {
@@ -384,22 +590,24 @@ async function isRouterMounted(name: string, rootFile: string, workspace: string
       return;
     }
     const searchable = stripCommentsAndStrings(text);
-    const isRootFile = sameFile(file, rootFile);
-    if (mountPattern.test(searchable)) {
-      // A mount call found in a file OTHER than root's own must additionally prove `name` there is
-      // root's own router, not a same-named-but-unrelated identifier - see `importsNameFromModule()`'s
-      // doc comment. Root's own file needs no such proof: a mount call alongside root's own binding, in
-      // the same file, IS that binding by construction (`mounted_router.py`'s self-mount case).
-      if (isRootFile || importsNameFromModule(searchable.split('\n'), name, rootStem)) {
-        mountFound = true;
-      }
+    const lines = searchable.split('\n');
+    const hasModuleLevelMountCall = lines.some(line => MODULE_LEVEL_LINE_PATTERN.test(line) && mountPattern.test(line));
+    if (!hasModuleLevelMountCall) {
+      return;
     }
-    if (!isRootFile && bindingPattern.test(searchable)) {
-      nameAmbiguous = true;
+    if (sameFile(file, rootFile)) {
+      // A mount call alongside root's own binding, in the same file, IS that binding by construction
+      // (`mounted_router.py`'s self-mount case) - no import statement to verify, and Python's own name
+      // resolution already settles it regardless of what any other file in the workspace names its own,
+      // unrelated `APIRouter()` (see this function's own doc comment, point 2) - AS LONG AS the mount
+      // call itself is not inside a nested scope that shadows the module-level binding (also point 2,
+      // `MODULE_LEVEL_LINE_PATTERN` above).
+      mountFound = true;
+    } else if (importsNameFromModule(lines, name, rootFile, file)) {
+      mountFound = true;
     }
   });
-  // A truncated walk cannot support the negative claim `!nameAmbiguous` makes - see the doc comment above.
-  return { found: mountFound && !nameAmbiguous && !walkState.truncated, truncated: walkState.truncated };
+  return { found: mountFound && !walkState.truncated, truncated: walkState.truncated };
 }
 
 async function walkPythonFiles(
@@ -520,7 +728,9 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
   const rootDefLine = input.root.selectionRange.start.line;
   const routeDecorator = findRouteDecorator(rootLines, rootDefLine);
   if (routeDecorator) {
-    let mountConfirmed = isDirectFastapiApp(routeDecorator.routerName, rootText);
+    // stripCommentsAndStrings(rootText), NOT raw rootText - see isDirectFastapiApp()'s own doc comment.
+    // rootText itself stays raw for rootLines above (evidence ranges/positions must index the real file).
+    let mountConfirmed = isDirectFastapiApp(routeDecorator.routerName, stripCommentsAndStrings(rootText));
     if (!mountConfirmed) {
       const mountCheck = await isRouterMounted(routeDecorator.routerName, rootFile, input.workspace, input.budget);
       mountConfirmed = mountCheck.found;

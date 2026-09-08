@@ -69,10 +69,17 @@
 | 8 | user-test 명세 작성 + 결과/보류 사유가 rollout 결정에 연결 | 열림 | `docs/development-management/user-tests/m4-user-test-spec.md` 자체가 아직 없음(직접 확인) |
 
 **이후 갱신(이 표는 대조 시점 스냅샷 — 갱신하지 않고 그대로 둔다):** gate 3·4는 PR #81
-(`docs/work/task-m4-gate3-gate4-closure.md`)이 이 문서가 찾은 공백을 닫았고, 이번엔 M4 stage 3
+(`docs/work/task-m4-gate3-gate4-closure.md`)이 이 문서가 찾은 공백을 닫았고, 이후 M4 stage 3
 사후 감사가 gate 4의 **세 번째 지점**(mount 확인 — 이 문서도 PR #81도 다루지 않은 경로)에서 새
-오탐을 찾아 2026-09-07 재개방했다(`docs/work/task-m4-gate4-mount-false-positive.md`). gate 5는 PR
-#82가 닫았다. gate 6은 이 표 그대로 닫힘 유지. gate 7은 아래 "Gate 7" 절에 정정 추가.
+오탐을 찾아 2026-09-07 재개방했다(`docs/work/task-m4-gate4-mount-false-positive.md`). 사용자
+결정으로 잔여 gap(cross-package basename 충돌) 수정을 이어갔으나(`docs/work/task-m4-gate4-
+module-resolution.md`), **commander 독립 검증이 그 lane 자체의 self-mount 근거에 또 다른 반례
+(nested scope shadowing)를 찾아 gate 4는 여전히 열려 있었다.** 수정 후 commander/reviewer 병렬
+검토가 세 번째 라운드에서 **역방향 alias**와 **주석 안 `FastAPI()` 언급이 mount 검사 전체를
+건너뛰는 문제**를 추가로 발견·수정 — **gate 4는 계속 열려 있다, reviewer 재검토·사용자 결정 대기.**
+gate 5는 PR #82가 닫았다. gate 6은 이 표 그대로 닫힘 유지. gate 7은 아래 "Gate 7" 절에 정정 추가.
+**2026-09-07 기준: 8개 중 닫힘 3(rollback·gate 3·gate 5), 재개방·수정 중 1(gate 4), 열림 4(gate
+1·2·7·8).**
 
 ## Gate별 상세 — 근거와 확인 방법(누가, 실행인지 코드 읽기인지)
 
@@ -206,6 +213,22 @@ mount 오탐(gate 4 재개방 원인, `docs/work/task-m4-gate4-mount-false-posit
 재현된다.** 다만 그 숫자가 "이 기능이 낼 수 있는 오탐을 전부 헤아렸다"는 뜻은 아니었다는 게
 드러났다: 오탐 경로 하나가 이 ledger(측정 corpus)에 아예 없었다. 숫자를 지우지 않는다 — 측정의
 **의미 범위**가 이 corpus가 실제로 담은 shape으로 한정된다는 것만 명시한다.
+
+**2026-09-07 추가 2 — corpus 크기 자체도 그 뒤 네 번 더 자랐다.** `docs/work/task-m4-gate4-module-
+resolution.md` 재측정: PR #84가 추가한 adversarial fixture 6개가 이 19개 집계에 반영된 적이 없었고
+(발행 시점 25개여야 했다), module-resolution lane이 이름 충돌 self-mount 3건의 판정을 뒤집고
+cross-package fixture 4개를 더했으며(round 1), nested scope shadowing 수정이 fixture 2개(round
+2), 역방향 alias·주석-안-`FastAPI()` 수정이 fixture 3개(round 3, commander/reviewer 병렬 검토)를
+더해 **34개(진양성 12/진음성 22), precision 100%(오탐 0건) 그대로**였다. **2026-09-08 정정 —
+분모에 포함 기준이 없어 34도 틀렸다.** commander가 `crossfile_positive_router.py`(gate 3 재현
+fixture)가 이 집계에 빠져 있음을 지적했고, "뺀 이유를 적자"가 아니라 포함 기준 자체를 기계적으로
+정의하라고 요청했다. 정의한 기준(`pythonFastapiIntegration.test.ts`에서 `augmentedEdges.length`를
+정확히 0 또는 1로 단언하는 것이 주된 목적인 모든 테스트, "known false negative" 명명 테스트 제외 —
+전문은 `docs/work/task-m4-stage3-accuracy-latency-gates.md`의 "2026-09-08 정정 5")를 파일 전체에
+적용해 재세니 `crossfile_positive_router.py` 외에 아무도 지적하지 않은 두 번째 누락
+(`nested_dependency_config.py`의 sub-dependency 회귀 테스트)까지 나와 **현재 36개(진양성 14/진음성
+22), precision 100%(오탐 0건) 그대로**다. 위 "의미 범위가 한정된다"는 지적은 여전히 유효하다 —
+corpus가 커진 것과 corpus가 실제 코드베이스를 대표하게 된 것은 다른 이야기다.
 
 ### Gate 8 — user-test 명세
 

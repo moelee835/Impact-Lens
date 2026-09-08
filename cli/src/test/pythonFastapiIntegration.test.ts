@@ -358,12 +358,13 @@ const MOUNT_UNRESOLVED_GUARD_FIXTURES: ReadonlyArray<{ readonly file: string; re
   { file: 'commented_out_router.py', line: 12, label: 'a commented-out include_router(...) call' },
   { file: 'docstring_mention_router.py', line: 12, label: 'include_router(...) mentioned only in a docstring' },
   { file: 'string_literal_router.py', line: 11, label: 'include_router(...) mentioned only in a string literal' },
+  // The self-mount ("_mounted.py") half of each pair below moved to CONFIRMED_DESPITE_COLLISION_FIXTURES
+  // (M4 gate 4 module-resolution follow-up, docs/work/task-m4-gate4-module-resolution.md) - the unmounted
+  // half stays here because it genuinely has no self-mount and no cross-file mount at all, unaffected by
+  // that change.
   { file: 'collision_router_unmounted.py', line: 15, label: 'name collision (bare form) - this router is genuinely unmounted' },
-  { file: 'collision_router_mounted.py', line: 13, label: 'name collision (bare form) - this router IS mounted, but the name is ambiguous workspace-wide' },
   { file: 'collision_typed_unmounted.py', line: 15, label: 'name collision (type-annotated form on the OTHER file) - this router is genuinely unmounted' },
-  { file: 'collision_typed_mounted.py', line: 14, label: 'name collision (type-annotated form on THIS file) - mounted, but ambiguous workspace-wide' },
   { file: 'collision_qualified_unmounted.py', line: 15, label: 'name collision (module-qualified form on the OTHER file) - this router is genuinely unmounted' },
-  { file: 'collision_qualified_mounted.py', line: 15, label: 'name collision (module-qualified form on THIS file) - mounted, but ambiguous workspace-wide' },
   // M4 gate 4 reopening (docs/work/task-m4-gate4-mount-false-positive.md): six adversarial shapes where
   // `include_router(NAME)` matches textually, but NAME is not bound to the target router at all - not
   // even to a DIFFERENT genuine APIRouter() (which is what the collision fixtures above test). Each
@@ -377,6 +378,23 @@ const MOUNT_UNRESOLVED_GUARD_FIXTURES: ReadonlyArray<{ readonly file: string; re
   { file: 'adversary_dictattr_router.py', line: 15, label: 'unrelated identifier shape - a dict-lookup result shares the router\'s name' },
   { file: 'adversary_factory_router.py', line: 18, label: 'unrelated identifier shape - an unrelated factory\'s return value shares the router\'s name' },
   { file: 'adversary_typed_router.py', line: 17, label: 'unrelated identifier shape - a non-APIRouter-typed variable shares the router\'s name' },
+  // M4 gate 4 module-resolution follow-up, round 2 (docs/work/task-m4-gate4-module-resolution.md):
+  // commander's counterexample to the self-mount reasoning above - a NESTED scope (function parameter
+  // here) shadowing the module-level router, on both the self-mount and cross-file paths.
+  { file: 'adversary_selfshadow_router.py', line: 17, label: 'nested-scope shadow shape - a function parameter shadows root\'s own module-level router, in the SAME file' },
+  { file: 'adversary_crossshadow_router.py', line: 16, label: 'nested-scope shadow shape - a function parameter shadows a genuinely-imported router, in a DIFFERENT file' },
+  // M4 gate 4 module-resolution follow-up, round 3 (docs/work/task-m4-gate4-module-resolution.md,
+  // reviewer finding): a REVERSE alias - `from <root's module> import other_thing as NAME` imports a
+  // completely different, unrelated symbol and merely renames it to root's router's name locally. The
+  // alias check used to only exclude the FORWARD direction (NAME renamed away); it never excluded a
+  // different symbol being renamed IN. Both import branches (absolute, relative) share the same check.
+  { file: 'adversary_reversealias_target.py', line: 18, label: 'reverse alias shape - an unrelated symbol is imported and locally renamed to root\'s router name (absolute import)' },
+  { file: 'module_resolution_relative/routers/reversealias_target.py', line: 17, label: 'reverse alias shape - an unrelated symbol is imported and locally renamed to root\'s router name (relative import)' },
+  // M4 gate 4 module-resolution follow-up, round 3 (reviewer finding): isDirectFastapiApp() tested the
+  // RAW file text (not stripCommentsAndStrings()'d), so a comment mentioning `NAME = FastAPI()` made it
+  // return true and skip isRouterMounted() ENTIRELY - bypassing every check this lane built with one
+  // comment line, even though this router is a plain APIRouter() genuinely never mounted.
+  { file: 'adversary_commentapp_router.py', line: 17, label: 'comment-only FastAPI() mention shape - a comment claims the router variable is a FastAPI() instance, but it is really an APIRouter() that is never mounted' },
 ];
 
 for (const fixture of MOUNT_UNRESOLVED_GUARD_FIXTURES) {
@@ -421,6 +439,44 @@ test(
 );
 
 // ---------------------------------------------------------------------------
+// M4 gate 4 module-resolution follow-up (docs/work/task-m4-gate4-module-resolution.md). These three
+// fixtures self-mount (binding, decorator and `include_router(name)` all in the SAME file) while an
+// UNRELATED file elsewhere in the workspace happens to bind the same bare name to its own `APIRouter()`.
+// Before this lane, isRouterMounted()'s `nameAmbiguous` check treated that workspace-wide collision as
+// reason to withhold confirmation even for a self-mount - a false negative with no real evidence behind
+// it: Python's own name resolution already settles which `router` a same-file `include_router(router)`
+// call refers to, regardless of what any other file names its own, unrelated `APIRouter()`. This is also
+// exactly the check that made `router` (FastAPI's own tutorial convention for the variable name) collide
+// across any two router-per-file modules anywhere in the workspace - the reason an ordinary multi-router
+// FastAPI project could not use this feature at all. Each fixture's own paired "_unmounted.py" sibling
+// (MOUNT_UNRESOLVED_GUARD_FIXTURES above) is unaffected: it has no self-mount and no cross-file mount, so
+// it keeps reporting mount-unresolved on its own merits, not because of this collision.
+// ---------------------------------------------------------------------------
+
+const CONFIRMED_DESPITE_COLLISION_FIXTURES: ReadonlyArray<{ readonly file: string; readonly line: number; readonly label: string }> = [
+  { file: 'collision_router_mounted.py', line: 13, label: 'name collision (bare form) - self-mount is confirmed regardless of the unrelated same-named router elsewhere' },
+  { file: 'collision_typed_mounted.py', line: 14, label: 'name collision (type-annotated form) - self-mount is confirmed regardless of the unrelated same-named router elsewhere' },
+  { file: 'collision_qualified_mounted.py', line: 15, label: 'name collision (module-qualified form) - self-mount is confirmed regardless of the unrelated same-named router elsewhere' },
+];
+
+for (const fixture of CONFIRMED_DESPITE_COLLISION_FIXTURES) {
+  test(
+    `corpus case 3 false-positive guard, augmentation ON: ${fixture.label}`,
+    { timeout: 25000 },
+    () => {
+      const response = analyzeFile(fixture.file, fixture.line, 5, true);
+      assert.equal(response.ok, true);
+      assert.equal(response.data.augmentedEdges.length, 1, `${fixture.label} must produce exactly one edge: ${JSON.stringify(response.data.augmentedEdges)}`);
+      assert.equal(response.data.augmentedEdges[0]!.reasonCode, 'fastapi-route-handler');
+      assert.ok(
+        !response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+        `${fixture.label} must not be flagged as mount-unresolved: ${JSON.stringify(response.data.limitationDetails)}`,
+      );
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // M4 milestone closure audit (docs/work/task-m4-milestone-closure-audit.md, gate 3). The audit found
 // mounted_router.py (definition and include_router() in the SAME file) was the corpus's only genuinely
 // mounted positive fixture - a bare-identifier CROSS-FILE mount had never been proven to actually
@@ -440,6 +496,70 @@ test(
       !response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
       `a genuinely mounted, unambiguous cross-file router must not be flagged as mount-unresolved: ${JSON.stringify(response.data.limitationDetails)}`,
     );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// M4 gate 4 module-resolution follow-up (docs/work/task-m4-gate4-module-resolution.md). Real directory
+// structure (this fixture corpus was flat before this lane), because the thing that changed -
+// `importsNameFromModule()`'s absolute-import path-segment-suffix comparison and its relative-import
+// exact resolution - genuinely depends on real package layout, not just string content a flat file could
+// fake. `module_resolution_pkg_a/users.py` and `module_resolution_pkg_b/users.py` share both a basename
+// ("users") and their router's bare variable name ("router") - the exact cross-package collision the
+// earlier last-dotted-segment comparison could not tell apart, and the exact shape that makes an ordinary
+// multi-router FastAPI project ("router" is FastAPI's own tutorial convention) work or not.
+// ---------------------------------------------------------------------------
+
+test(
+  'module resolution: an absolute import naming a DIFFERENT package with the same basename does not confirm mount (cross-package collision, flat layout)',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('module_resolution_pkg_a/users.py', 15, 5, true); // `def pkg_a_handler`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 0, JSON.stringify(response.data.augmentedEdges));
+    assert.ok(
+      response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+      `pkg_a's router must stay mount-unresolved despite pkg_b's absolute import of an unrelated same-named router: ${JSON.stringify(response.data.limitationDetails)}`,
+    );
+  },
+);
+
+test(
+  'module resolution: an absolute import correctly confirms mount despite an unrelated same-named router elsewhere (multi-router project, flat layout)',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('module_resolution_pkg_b/users.py', 16, 5, true); // `def pkg_b_handler`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    assert.equal(response.data.augmentedEdges[0]!.reasonCode, 'fastapi-route-handler');
+    assert.ok(
+      !response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+      `pkg_b's own genuine mount must be confirmed even though pkg_a has an unrelated router named the same: ${JSON.stringify(response.data.limitationDetails)}`,
+    );
+  },
+);
+
+test(
+  'module resolution: a one-dot relative import into a subpackage confirms mount',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('module_resolution_relative/routers/users.py', 13, 5, true); // `def relative_handler`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    assert.equal(response.data.augmentedEdges[0]!.reasonCode, 'fastapi-route-handler');
+    assert.ok(!response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'));
+  },
+);
+
+test(
+  'module resolution: a two-dot relative import (up one directory, into a sibling subpackage) confirms mount',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('module_resolution_relative/routers/nested_users.py', 13, 5, true); // `def nested_relative_handler`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    assert.equal(response.data.augmentedEdges[0]!.reasonCode, 'fastapi-route-handler');
+    assert.ok(!response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'));
   },
 );
 
@@ -527,9 +647,13 @@ test(
 // not in a threshold here. What this pins is the shape of a real regression: augmentation adding an
 // unbounded or accidentally-quadratic cost (e.g. a `maxFiles` cap silently dropped, or a loop re-reading
 // every file per match instead of once). `orphan_router.py` is used because it is the one query in this
-// corpus that always pays the FULL `isRouterMounted` file walk - the mount is never found, so
-// `nameAmbiguous` forces every file to be visited (see that function's own doc comment) - the same
-// worst-case path the work document's latency table measured against `maxFiles`.
+// corpus that always pays the FULL `isRouterMounted` file walk - `walkPythonFiles()` has no early exit
+// once a mount is found, so a genuinely unmounted router (the mount is never found here) always visits
+// every file up to `maxFiles` - the same worst-case path the work document's latency table measured
+// against `maxFiles`. (M4 gate 4 module-resolution follow-up, docs/work/task-m4-gate4-module-
+// resolution.md: this comment used to attribute the full walk to `nameAmbiguous` forcing completeness -
+// that check is gone now, and the full walk was always a property of `walkPythonFiles()` having no early
+// exit, not of `nameAmbiguous` specifically.)
 // ---------------------------------------------------------------------------
 
 function minTotalMs(file: string, line: number, column: number, augmentationEnabled: boolean, repeats: number): number {
