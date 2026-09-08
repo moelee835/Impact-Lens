@@ -164,19 +164,40 @@ resolution.md`) — 이번 lane 자체의 변경.** `nameAmbiguous` 제거로 �
 "작업 로그" 참고), `MODULE_LEVEL_LINE_PATTERN`으로 수정, 신규 fixture 2개(self-mount shadow,
 cross-file shadow) 추가.
 
-**최종 재계산(`npm test`, 2026-09-07 재실행으로 직접 확인): 31개 쿼리(진양성 12 + 진음성 19)에서
+**2026-09-07 정정 4(같은 lane, round 3 — commander/reviewer 병렬 검토) — 두 결함 추가 발견·수정.**
+`importsNameFromModule()`의 alias 검사가 **역방향**(root 모듈의 다른 심볼을 로컬에서 `router`로
+alias하는 경우, `from root import other_thing as router`)을 놓쳤다 — reviewer가 실제 CLI+pyright로
+재현. `isDirectFastapiApp()`이 `stripCommentsAndStrings()` 없이 원문을 그대로 검사해, 주석 한 줄
+(`# app = FastAPI()`)만으로 `isRouterMounted()` 전체를 건너뛰었다 — 이것도 reviewer가 실제 CLI로
+재현. 둘 다 수정, 신규 fixture 3개(역방향 alias 절대/상대 import, 주석 안 FastAPI() 언급) 추가.
+
+**최종 재계산(`npm test`, 2026-09-07 재실행으로 직접 확인): 34개 쿼리(진양성 12 + 진음성 22)에서
 precision 100%(오탐 0건), 변동 없음.**
 
-- **진양성 12개** (기존 6 + PR #84엔 없음 + module-resolution round 1의 6): 기존 6개(`Depends()`
-  직접 import 2건, `app = FastAPI()` route handler 2건, alias 1건, `mounted_router.py` 1건) + 이름
-  충돌 self-mount 3건(round 1에서 이동) + cross-package 다중 router 프로젝트 양성 1건
-  (`module_resolution_pkg_b`) + 상대 import 2건(`module_resolution_relative/routers/users.py`,
-  `module_resolution_relative/routers/nested_users.py`).
-- **진음성 19개** (기존 13 - 이동한 3 + PR #84의 6 + round 1 신규 1 + round 2 신규 2): 기존 13개 중
-  이름 충돌 6건이 3건으로 줄고(unmounted 절반만 남음) 나머지 7개(무관한 일반 호출, decoy, 미mount
-  router, 동적 등록, 주석·docstring·문자열 리터럴 각 1건)는 그대로, PR #84의 adversarial 6건, round
-  1의 cross-package 오탐 거부 1건(`module_resolution_pkg_a`), round 2의 nested-scope shadow
-  2건(`adversary_selfshadow_router.py`, `adversary_crossshadow_router.py`).
+- **진양성 12개** (기존 6 + PR #84엔 없음 + module-resolution round 1의 6, round 2·3은 진양성 추가
+  없음): 기존 6개(`Depends()` 직접 import 2건, `app = FastAPI()` route handler 2건, alias 1건,
+  `mounted_router.py` 1건) + 이름 충돌 self-mount 3건(round 1에서 이동) + cross-package 다중
+  router 프로젝트 양성 1건(`module_resolution_pkg_b`) + 상대 import 2건
+  (`module_resolution_relative/routers/users.py`, `module_resolution_relative/routers/nested_users.py`).
+- **진음성 22개** (기존 13 - 이동한 3 + PR #84의 6 + round 1 신규 1 + round 2 신규 2 + round 3 신규
+  3): 기존 13개 중 이름 충돌 6건이 3건으로 줄고(unmounted 절반만 남음) 나머지 7개(무관한 일반 호출,
+  decoy, 미mount router, 동적 등록, 주석·docstring·문자열 리터럴 각 1건)는 그대로, PR #84의
+  adversarial 6건, round 1의 cross-package 오탐 거부 1건(`module_resolution_pkg_a`), round 2의
+  nested-scope shadow 2건(`adversary_selfshadow_router.py`, `adversary_crossshadow_router.py`),
+  round 3의 역방향 alias 2건(`adversary_reversealias_target.py`,
+  `module_resolution_relative/routers/reversealias_target.py`) + 주석 안 `FastAPI()` 언급 1건
+  (`adversary_commentapp_router.py`).
+
+**round 3이 왜 노출 범위를 벗어나지 않는지 — 열거가 아니라 구조로 설명한다(commander/reviewer
+논증, `fastapiDependencyAdapter.ts` 최상단 주석에도 기록).** 이 adapter의 `Depends()` 경로 텍스트
+매치는 전부 `resolveEndpoint()` → `input.provider.prepare()`로 재검증된다 — 정규식이 스코프·alias
+방향을 착각해도 pyright가 걸러낸다. **재검증이 없는 텍스트 매치는 `isRouterMounted()`
+(`importsNameFromModule()` 포함)와 `isDirectFastapiApp()` 둘뿐**이다 — router/app 변수가
+`CallHierarchyProvider`가 다루는 호출 가능 심볼이 아니기 때문에 구조적으로 재검증 경로가 없다. M4
+gate 4의 두 사후 lane(mount 오탐, module-resolution)이 찾은 결함이 전부 이 두 함수에만 있었던 건
+우연이 아니라 **이 경계 때문**이다. 이 논증은 두 번째 framework adapter가 재검증 없는 텍스트 매치를
+새로 만들면 깨진다 — 지금은 adapter가 하나뿐이라 SPI 계약(`./types.ts`)에 규칙으로 올리지 않고
+주석으로만 남겼다(과설계 위험 판단, `IL-LIM-001`의 "대안 검토"와 같은 이유).
 
 **corpus 편향을 명시한다**: 위 fixture들은 **우리가 실제 버그를 찾은 자리**에서 자랐다 — 이름 충돌,
 주석, alias identity 불일치, 이제는 package 경로 불일치까지. 이건 실제 FastAPI 코드베이스의 실패

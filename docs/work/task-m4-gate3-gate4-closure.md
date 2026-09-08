@@ -184,3 +184,29 @@ src/nested layout 6케이스 행렬로 회귀 없음을 검증), 상대 import�
 "segment 하나뿐인 절대 import는 basename 비교로 퇴화")는 gate 3이 이미 안고 있는 것과 같은 성격의
 narrower-than-worded 한계로 받아들일 후보이지만, **gate 4 전체의 최종 판정은 self-mount shadowing
 수정이 검증된 뒤로 미룬다.**
+
+## 2026-09-07 정정 3 — commander/reviewer 병렬 검토, round 3: 결함 2건 더 발견·수정
+
+round 2 수정을 commander와 `reviewer`(별도 세션)가 병렬로 독립 검토했다. `reviewer`가 실제
+CLI+pyright로 두 결함을 재현했다:
+
+1. **역방향 alias**: `importsNameFromModule()`의 alias 검사가 `router as X`(정방향, 우리 이름이
+   다른 이름으로 나감)만 걸렀고 `other_thing as router`(역방향, root 모듈의 다른 심볼을 로컬에서
+   우리 이름으로 alias)를 놓쳤다 — 무관한 객체가 확정 edge로 mount됐다. 상대·절대 import 양쪽이
+   같은 검사를 공유해 둘 다 영향받았다. 수정: import 목록을 콤마로 쪼개 별칭 없는 정확한 항목만
+   인정(`entry.trim() === name`) — 9케이스 행렬(commander)로 검증.
+2. **`isDirectFastapiApp`이 원문을 그대로 검사**: `stripCommentsAndStrings()`를 거치지 않아, 주석
+   한 줄(`# app = FastAPI()`)만으로 `isRouterMounted()` 전체를 건너뛰었다 — 이 lane이 쌓은 모든
+   검사(provenance, module-level scoping)를 comment 하나가 우회했다. `origin/main`에도 있던 기존
+   결함(이 branch의 회귀 아님)이지만 gate 4가 금지하는 형태라 이번 lane에서 닫았다. 수정:
+   `stripCommentsAndStrings(rootText)`를 넘기도록 변경.
+
+**이 셋(round 2 self-mount shadow, round 3 역방향 alias, round 3 comment-bypass)의 뿌리가
+같다** — provider 재검증이 없는 텍스트 매치(`isRouterMounted()`/`importsNameFromModule()`,
+`isDirectFastapiApp()`)에서만 스코프·alias 착각이 사용자에게 도달한다. `Depends()` 경로의 텍스트
+매치는 전부 `prepare()`로 재검증돼 같은 종류의 실수가 사용자에게 안 드러난다. 이 구조적 논증은
+`fastapiDependencyAdapter.ts` 최상단 주석에 기록했다(두 번째 adapter가 재검증 없는 텍스트 매치를
+새로 만들면 이 논증이 깨진다는 조건도 같이).
+
+**gate 4는 여전히 열려 있다** — round 3 수정 후에도 스스로 닫힘 선언을 하지 않는다. `reviewer` 재검토와
+사용자 결정을 기다린다.
