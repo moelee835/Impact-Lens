@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { idOf, toAdapterItem } from './adapterItemConversion';
+import { createAdapterProvider } from './adapterProviderShim';
 import { traverseIncoming } from './callGraph';
 import { vscodeCoverage, vscodeProviderMetadata } from './coverage';
 import { EMPTY_IMPACT_DELTA } from './impactDelta';
@@ -6,6 +8,16 @@ import { NoteStore } from './noteStore';
 import { createSymbolKey } from './symbolIdentity';
 import { classifyImpactRelation } from './testFile';
 import { ImpactDiagnostic, ImpactEdge, ImpactNode, ImpactResult } from './types';
+// This relative path depends on `src/` and `out/` being siblings ONE level under the repo root, both
+// today (`tsconfig.json`'s `rootDir: "src"`/`outDir: "out"`) - `src/foo.ts`'s `../cli/dist/...` compiles
+// unchanged into `out/foo.js`'s `require("../cli/dist/...")`, and that resolves correctly only because
+// both directories sit at the same depth. Confirmed directly before relying on it (M4 gate 2 shared-
+// adapter lane, docs/work/task-m4-gate2-shared-adapter.md): importing from `cli/src/...` under a
+// TypeScript project reference type-checked fine but broke at runtime with `Cannot find module`, exactly
+// this kind of path assumption failing silently until executed. If `outDir` (or `rootDir`) is ever
+// nested deeper, this import (and adapterItemConversion.ts's/adapterProviderShim.ts's own `cli/dist/types`
+// type-only imports) needs updating alongside it - nothing enforces that automatically.
+import { runAugmentation } from '../cli/dist/shared/adapters';
 
 interface CallEntry {
   readonly item: vscode.CallHierarchyItem;
@@ -104,6 +116,27 @@ export class ImpactAnalyzer {
       callSiteRanges: rangesByEdge.get(edgeKey(edge.source, edge.target)) ?? [],
     }));
 
+    // M4 gate 2 shared-adapter lane (docs/work/task-m4-gate2-shared-adapter.md). Shipped disabled by
+    // default (the CLI's own kill-switch default, M4 stage 2) - `runAugmentation()` itself already
+    // returns an empty result unconditionally when `enabled` is false, so this setting is the only new
+    // surface, not a second place the default could drift from the CLI's. No workspace folder (a
+    // single-file window) means no directory the adapter could search for a cross-file mount, so
+    // augmentation is skipped entirely rather than guessing a scope - the same "if the boundary is
+    // unknown, do not claim a result" reasoning M4 stage 1 already applies to the static traversal.
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(rootItem.uri);
+    const augmentedEdges = workspaceFolder
+      ? (await runAugmentation(
+        configuration.get<boolean>('augmentationEnabled', false),
+        languageId,
+        workspaceFolder.uri.fsPath,
+        toAdapterItem(rootItem),
+        symbolKey(rootItem),
+        createAdapterProvider(),
+        new Set(nodes.map(node => node.id)),
+        idOf,
+      )).edges
+      : [];
+
     const coverage = vscodeCoverage(
       traversal.limits,
       maxDepth,
@@ -125,6 +158,7 @@ export class ImpactAnalyzer {
       analyzedAt: Date.now(),
       analysisState: 'current',
       delta: EMPTY_IMPACT_DELTA,
+      augmentedEdges,
     };
   }
 

@@ -155,6 +155,11 @@
           "default": true,
           "description": "Show function notes and Impact Lens actions above functions."
         },
+        "impactLens.augmentationEnabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Show framework-specific candidate callers a static Call Hierarchy cannot see on its own (for example, FastAPI `Depends()` references and route-mount entrypoints) alongside confirmed callers. Shipped off by default, matching the Agent CLI's own default - candidates are a lower-confidence signal than a confirmed relationship, never merged into it."
+        },
         "impactLens.provider.detailLevel": {
           "type": "string",
           "enum": [
