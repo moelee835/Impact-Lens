@@ -74,6 +74,27 @@ assert.equal(
   `.d.ts/.map are compile-time-only, must never ship in the vsix:\n${declarationOrMap.join('\n')}`,
 );
 
+// commander's finding: every assertion above only checks "new things must not leak in" - none of them
+// would catch this lane's `.vscodeignore` negation rule (`!cli/dist/shared/**/*.js`) accidentally
+// breaking an EXISTING inclusion instead, e.g. by matching more broadly than intended and shadowing the
+// `out/**` files package.json's own "main" needs. `package.json`'s "main" field is the actual contract
+// VS Code reads to find the extension's entrypoint - assert it by reading that field, not by hardcoding
+// the path a second time and letting the two silently drift apart.
+const packageJson = JSON.parse(await fs.readFile(path.join(repository, 'package.json'), 'utf8'));
+assert.ok(
+  posixFiles.includes(packageJson.main.replace(/^\.\//, '')),
+  `package.json's "main" (${packageJson.main}) must be present in the packaged vsix - got none. This is ` +
+  `the extension's real entrypoint; without it VS Code cannot activate the extension at all, regardless ` +
+  `of anything else in this file list:\n${posixFiles.join('\n')}`,
+);
+const outJsCount = posixFiles.filter(f => f.startsWith('out/') && f.endsWith('.js')).length;
+assert.ok(
+  outJsCount >= 20,
+  `expected at least 20 compiled out/**/*.js files (a rough floor - this repo's compiled extension has ` +
+  `far more than that today), got ${outJsCount} - a partial out/** inclusion would still pass every ` +
+  `other check in this file if it happened to keep extension.js itself`,
+);
+
 console.log(`vsce ls: ${posixFiles.length} files total, ${sharedJs.length} under cli/dist/shared/**/*.js, none forbidden.`);
 
 // 2. Size tripwire - `vsce ls` reports paths only, not bytes, so this needs a real package.
