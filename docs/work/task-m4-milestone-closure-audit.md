@@ -79,17 +79,21 @@ module-resolution.md`), **commander 독립 검증이 그 lane 자체의 self-mou
 건너뛰는 문제**를 추가로 발견·수정(PR #85 merge, `fe5b0d0`) — 그 시점엔 **gate 4는 계속 열려
 있었다, reviewer 재검토·사용자 결정 대기.**
 
-**2026-09-08 추가 — gate 4 마지막 잔여 수정, 닫힘 판정.** PR #85 merge 뒤 reviewer가 완전성 논증을
-stub-provider mutation으로 재검증하는 과정에서 마지막 잔여(segment 하나짜리 절대 import가 depth
-무관 basename 매치로 퇴화)를 지적했고, 사용자가 "한 라운드 더"를 결정했다
+**2026-09-08 추가 — gate 4 주된 잔여 수정, 닫힘 판정, 판정문 정정.** PR #85 merge 뒤 reviewer가
+완전성 논증을 stub-provider mutation으로 재검증하는 과정에서 주된 잔여(segment 하나짜리 절대
+import가 depth 무관 basename 매치로 퇴화)를 지적했고, 사용자가 "한 라운드 더"를 결정했다
 (`docs/work/task-m4-gate4-single-segment-import.md`). 이 lane이 그 잔여를 닫았고, commander의
-명시적 지시("이번엔 판정까지 하세요")에 따라 이 세션이 gate 4의 세 조건(알려진 오탐 경로 0, 미탐
-목록 최신, 완전성 논증 유지)을 확인해 **닫힘으로 판정**했다 — 이번에도 `reviewer` 독립 재검토를
-거친 뒤에만 최종으로 취급한다(round 1의 성급한 닫힘 선언·번복 이력 때문).
+명시적 지시("이번엔 판정까지 하세요")에 따라 이 세션이 **"알려진 오탐 경로 0"으로 닫힘 판정**했다.
+**곧바로 commander가 직접 측정해 정정을 요구했다** — 다중 segment 절대 import가 여전히 같은
+dotted-path suffix로 끝나는 두 파일(vendored 사본 등)을 못 가르는 잔여가 살아 있었고, 그 함수
+자신의 doc comment가 이미 그 시나리오를 언급하고 있었는데 판정문이 이를 반영하지 못했다. 재현
+확인 후(`[실행]`, 유닛 테스트로 고정) **판정문을 "수용된 잔여 1건을 안고 gate 4를 닫는다"로
+정정**했다 — 근거는 위 문서의 "gate 4 판정" 절.
 
 gate 5는 PR #82가 닫았다. gate 6은 이 표 그대로 닫힘 유지. gate 7은 아래 "Gate 7" 절에 정정 추가.
-**2026-09-08 기준: 8개 중 닫힘 4(rollback·gate 3·gate 4·gate 5), 열림 4(gate 1·2·7·8).** gate 4는
-이 세션의 판정이며 `reviewer` 재검토·PR 병합 전까지는 잠정이다.
+**2026-09-08 기준: 8개 중 닫힘 4(rollback·gate 3·gate 4·gate 5, gate 4는 수용된 잔여 1건을 안고
+닫힘), 열림 4(gate 1·2·7·8).** gate 4는 이 세션의 판정이며 `reviewer` 재검토·PR 병합 전까지는
+잠정이다.
 
 ## Gate별 상세 — 근거와 확인 방법(누가, 실행인지 코드 읽기인지)
 

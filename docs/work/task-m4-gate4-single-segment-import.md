@@ -1,4 +1,8 @@
-# M4 gate 4 — 마지막 잔여 오탐: segment 하나짜리 절대 import (branch `fix/m4-gate4-single-segment-import`)
+# M4 gate 4 — 주된 잔여 오탐: segment 하나짜리 절대 import (branch `fix/m4-gate4-single-segment-import`)
+
+**2026-09-08 정정**: 제목과 본문 일부가 원래 이걸 gate 4의 "마지막"/"유일하게 남은" 오탐 경로로
+적었으나 틀렸다 — commander가 다중 segment 절대 import의 vendored-tree 충돌 잔여를 별도로 지적했다
+(아래 "gate 4 판정" 절 참고). 이 문서가 다루는 것은 그 두 개 중 **더 흔하고 먼저 닫은 쪽**이다.
 
 ## 목적과 사용자 가치
 
@@ -143,16 +147,35 @@ workspace root로 간주, segment 하나짜리 import에 한해), **(B) 그 base
 - 미탐 목록: `task-m4-stage3-accuracy-latency-gates.md`의 "측정 — 미탐 범위"에 6번째 shape로
   추가, known-shape-coverage 비율을 5개 중 2개(40%) → 6개 중 2개(약 33%)로 갱신.
 
-## gate 4 판정 — 닫힘
+## gate 4 판정 — 닫힘 (수용된 잔여 1건을 안고)
+
+**2026-09-08 정정 — 최초 판정문의 조건 (1) "알려진 오탐 경로가 0"은 사실이 아니었다.** commander가
+직접 측정해 지적했다: 다중 segment 절대 import는 여전히 같은 dotted-path suffix로 끝나는 두 파일
+(예: vendored 사본 - `root=/w/vendor/pkg_a/users.py`와 `root=/w/pkg_a/users.py`가 동일한
+`from pkg_a.users import router`에 둘 다 매치)을 구분하지 못한다 — `pathEndsWithSegments()`가
+suffix 비교라 애초에 이 케이스를 못 가른다. **이 함수 자신의 doc comment(`:368` 부근)가 이미
+"vendored copies of the same nested path"라는 정확히 이 시나리오를 언급하고 있었는데, 판정문은
+그걸 "닫힌 것 외엔 없다"로 잘못 적었다.** `[실행]`으로 직접 재현해 확인(위 유닛 테스트
+"KNOWN, ACCEPTED RESIDUAL FALSE POSITIVE"로 고정). 아래는 이 사실을 반영해 다시 쓴 판정이다 —
+원래 조건 (1)의 문구는 위 이력을 남기기 위해 그대로 두지 않고 아래로 교체한다(검증 조건 자체가
+틀렸던 것이지 다른 두 조건이나 최종 판정 자체가 뒤집힌 게 아니라서, 절 전체를 신구 병렬로 남기기
+보다 정정된 형태로 갱신하는 쪽을 택했다 — round 1의 self-mount shadowing처럼 판정 자체가 뒤집힌
+경우와는 다르다).
 
 commander가 요구한 세 조건을 각각 확인한다:
 
-1. **알려진 오탐 경로가 0이어야 한다.** 이번 lane이 gate 4의 마지막으로 알려진 오탐 경로(segment
-   하나짜리 절대 import의 depth-무관 매치)를 닫았다. `fastapiDependencyAdapter.ts`/`types.ts`
-   전체에서 "residual"/미해결 오탐을 가리키는 다른 언급이 남아 있는지 직접 grep으로 확인
-   (`[실행]`) — 방금 닫은 것 외에는 없다. 문서화된 나머지 한계(모듈 속성 mount, alias 변수 mount,
-   괄호/여러 줄 import, qualified access, 동적 구성 등)는 전부 **미탐**(엣지를 못 만듦) 방향이지
-   **오탐**(틀린 엣지를 만듦) 방향이 아니다 — gate 4는 오탐 gate이므로 이 구분이 판정의 핵심이다.
+1. **알려진 오탐 경로가 0이어야 한다 — 정정: 0이 아니라 1건, 수용 가능한 잔여로 남는다.** 이번
+   lane이 gate 4의 **주된** 오탐 경로(segment 하나짜리 절대 import의 depth-무관 매치)를 닫았다.
+   하지만 **다중 segment 절대 import의 vendored-tree 충돌은 여전히 열려 있다** —
+   `importsNameFromModule()`의 doc comment에 "KNOWN, ACCEPTED RESIDUAL FALSE POSITIVE"로
+   명시하고 유닛 테스트로 고정했다. 이 잔여를 **수용하는 이유**: (a) 두 개의 서로 다른 디렉터리
+   트리가 정확히 같은 다중-segment suffix로 끝나야 하는 병리적 배치가 필요해, single-segment
+   케이스(어느 워크스페이스에나 흔한 top-level import 형태)보다 훨씬 좁다. (b) 유일하게 검토한
+   수정안(dotted path 전체를 workspace root 기준으로 정확히 해석)은 PR #85가 이미 측정해 기각한
+   설계와 같다 — `src/` layout 프로젝트의 정상적인 절대 import를 깨뜨린다(이 함수 doc comment의
+   "round 2" 대목). 이번 lane에서 더 나은 수정안을 새로 만들지 않았으므로, 고치지 않고 **명시적으로
+   수용한 채** 남긴다. 문서화된 나머지 한계(모듈 속성 mount, alias 변수 mount, 괄호/여러 줄 import,
+   qualified access, 동적 구성 등)는 전부 **미탐**(엣지를 못 만듦) 방향이라 이 잔여와 성격이 다르다.
 2. **미탐 목록이 최신이어야 한다.** 이번 lane이 새로 만든 미탐(src layout 최상위 모듈)을 숨기지
    않고 6번째 known shape로 카탈로그화했다(위 참고). "정확한데 거의 안 도는" 위험은 gate 4 판정과
    분리해 별도로 남아 있다 — known shape coverage가 33%(6개 중 2개)까지 낮아졌다는 사실은 이
@@ -160,9 +183,12 @@ commander가 요구한 세 조건을 각각 확인한다:
 3. **완전성 논증이 여전히 성립해야 한다.** 이번 수정은 `importsNameFromModule()` 내부의 비교
    로직만 바꿨다 — 이 함수는 이미 "재검증 없는 두 함수" 중 하나로 식별돼 있었고, 이 수정이 그
    경계를 넓히거나 새로운 재검증-없는 경로를 만들지 않는다(같은 함수 안에서 판정 기준만 더
-   엄격해졌을 뿐). 완전성 논증은 그대로 성립한다.
+   엄격해졌을 뿐). 위 1번의 수용된 잔여도 마찬가지로 이 함수 내부에 머문다 — 완전성 논증은
+   그대로 성립한다.
 
-**세 조건 모두 충족 — gate 4를 닫는다.** commander의 사전 승인(2026-09-08, "한 라운드 더" 지시)에
-따라 이 lane 완료 후 판정까지 이 문서가 직접 수행했다. `reviewer`의 독립 재검토는 여전히 남아 있다
-— 이 판정은 PR을 통해 검토받고, PR #85 때와 마찬가지로 `reviewer` 동의 없이 최종 확정 취급하지
-않는다.
+**판정: 수용된 잔여 1건(다중 segment vendored-tree 충돌)을 안고 gate 4를 닫는다.** "오탐 경로가
+0"이라서가 아니라 "남은 오탐 경로가 무엇인지 알고, 왜 지금 고치지 않는지 근거가 있고, 그 경계가
+좁다"는 게 닫힘의 근거다 — 이 마일스톤이 반복해서 지켜 온 "쟀다 ≠ 통과했다" 구분과 같은 맥락이다.
+commander의 사전 승인(2026-09-08, "한 라운드 더" 지시 및 이 정정 요청)에 따라 이 lane 완료 후
+판정까지 이 문서가 직접 수행했다. `reviewer`의 독립 재검토는 여전히 남아 있다 — 이 판정은 PR을
+통해 검토받고, PR #85 때와 마찬가지로 `reviewer` 동의 없이 최종 확정 취급하지 않는다.

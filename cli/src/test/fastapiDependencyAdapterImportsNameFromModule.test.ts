@@ -227,3 +227,24 @@ test('KNOWN, ACCEPTED false negative (M4 gate 4 single-segment-import follow-up)
     false,
   );
 });
+
+// ---------------------------------------------------------------------------
+// KNOWN, ACCEPTED RESIDUAL FALSE POSITIVE (commander review - NOT closed by the single-segment guard
+// above, which only fires when the dotted path has exactly one segment). A MULTI-segment absolute import
+// still confirms EITHER of two files whose paths happen to end in the same dotted-path suffix ("two
+// vendored copies of the same nested path" - a vendored/duplicated package layout, not an ordinary one).
+// This is a genuine false positive, not a false negative - deliberately NOT pinned in
+// pythonFastapiIntegration.test.ts (the precision-denominator corpus), since asserting it as "expected"
+// there would count a real false positive toward that corpus's "precision 100%" claim, making the claim
+// false. Pinned here only, as executable evidence of an accepted (not fixed) limitation, tracked in
+// docs/work/task-m4-gate4-single-segment-import.md's "gate 4 판정" - gate 4 was closed CARRYING this
+// residual, not on a false claim that no false-positive paths remained.
+// ---------------------------------------------------------------------------
+
+test('KNOWN, ACCEPTED RESIDUAL FALSE POSITIVE: a multi-segment absolute import confirms EITHER of two files ending in the same dotted-path suffix (vendored/duplicated package layout)', () => {
+  const lines = ['from pkg_a.users import router'];
+  const nestedVendoredCopy = importsNameFromModule(lines, 'router', '/ws/vendor/pkg_a/users.py', '/ws/main.py', WS);
+  const realTopLevelCopy = importsNameFromModule(lines, 'router', '/ws/pkg_a/users.py', '/ws/main.py', WS);
+  assert.equal(nestedVendoredCopy, true, 'documents the current (accepted, not desired) behavior - see the doc comment above for why this is not fixed');
+  assert.equal(realTopLevelCopy, true, 'the same import statement also confirms the other file - at most one of these two can be correct');
+});

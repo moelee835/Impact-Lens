@@ -396,8 +396,27 @@ function pathEndsWithSegments(fullPath: string, suffixParts: readonly string[]):
  *   exact single-segment degeneracy the same way it masked round 1's now-fixed multi-segment gap - not
  *   because `nameAmbiguous` was checking import provenance (it never did), but because the two failure
  *   conditions frequently co-occurred in practice. With `nameAmbiguous` gone, this residual had nothing
- *   left masking it - the single-segment absolute-import case is the last of gate 4's known false-positive
- *   paths this project has found and closed.
+ *   left masking it.
+ *
+ * - KNOWN, ACCEPTED RESIDUAL FALSE POSITIVE (commander review, confirmed directly - NOT closed by this
+ *   guard, which only applies when `moduleFileParts.length === 1`): a MULTI-segment absolute import still
+ *   confirms EITHER of two files whose paths happen to end in the same dotted-path suffix - e.g.
+ *   `root=/w/vendor/pkg_a/users.py` and `root=/w/pkg_a/users.py` both satisfy `from pkg_a.users import
+ *   router` under `pathEndsWithSegments()`, so the same import statement would wrongly confirm whichever
+ *   one of the two this function is asked about. This is exactly the "two vendored copies of the same
+ *   nested path" scenario named a few lines above as a contrast to the (now-closed) single-segment case -
+ *   narrower because it requires two real directory trees ending in the identical multi-segment suffix
+ *   (a vendored/duplicated package layout, not an ordinary one), but still a live false-positive path, not
+ *   a false negative. Accepted rather than fixed: the only fix considered (resolving the full dotted path
+ *   from `workspace` as an exact package root) is the design PR #85 already measured and rejected for
+ *   breaking a `src/`-layout project's ordinary absolute imports (this file's own git history, the
+ *   "round 2" note a few lines above `pathEndsWithSegments()`'s own doc comment) - closing this residual
+ *   would need something narrower than either design tried so far, which this lane did not attempt. Not
+ *   pinned in `pythonFastapiIntegration.test.ts` (the precision-denominator corpus) on purpose - a test
+ *   asserting this behavior as "expected" would count a real false positive toward "precision 100%",
+ *   which would make that claim false; pinned only as a unit test against `importsNameFromModule()`
+ *   directly (`fastapiDependencyAdapterImportsNameFromModule.test.ts`), which is out of that corpus's
+ *   scope.
  */
 // Exported for fastapiDependencyAdapterImportsNameFromModule.test.ts only - a unit test feeding this
 // function CRLF input directly, so the Windows-only `$`-anchor regression (git history: the anchor was

@@ -211,10 +211,10 @@ CLI+pyright로 두 결함을 재현했다:
 **gate 4는 여전히 열려 있다** — round 3 수정 후에도 스스로 닫힘 선언을 하지 않는다. `reviewer` 재검토와
 사용자 결정을 기다린다.
 
-## 2026-09-08 추가 — 마지막 잔여(segment 하나짜리 절대 import) 수정, 닫힘 판정
+## 2026-09-08 추가 — 주된 잔여(segment 하나짜리 절대 import) 수정, 닫힘 판정, 판정문 정정
 
 PR #85(round 3 포함)가 merge된 뒤, `reviewer`의 완전성 논증 재검증 과정에서 `importsNameFromModule()`
-의 절대 import 경로 중 segment 하나짜리인 경우가 여전히 depth 무관 basename 매치로 퇴화하던 마지막
+의 절대 import 경로 중 segment 하나짜리인 경우가 여전히 depth 무관 basename 매치로 퇴화하던 주된
 잔여가 지적됐다(`docs/work/task-m4-gate4-single-segment-import.md`). 사용자가 "한 라운드 더"를
 결정해 이 lane이 그 잔여를 닫았다 — `rootFile`이 workspace root 바로 아래 있어야 한다는 depth
 요구를 segment-하나 case에 추가(대안인 workspace 전체 basename uniqueness는 양방향으로 틀려
@@ -222,7 +222,15 @@ PR #85(round 3 포함)가 merge된 뒤, `reviewer`의 완전성 논증 재검증
 
 이 수정은 `importsNameFromModule()` **내부의 비교 로직만** 바꿨다 — 위 완전성 논증이 의존하는
 "재검증 없는 두 함수" 경계 자체는 그대로다(새 재검증-없는 경로를 만들지 않았다). commander의
-명시적 지시("이번엔 판정까지 하세요")에 따라 이 세션이 gate 4의 닫힘 조건 셋(알려진 오탐 경로 0,
-미탐 목록 최신, 완전성 논증 유지)을 확인해 **gate 4를 닫힘으로 판정한다.** `reviewer`의 독립
-재검토는 여전히 남아 있다 — round 1의 성급한 닫힘 선언·번복 이력이 있으므로, 이 판정은 PR 병합
-전까지 잠정으로 취급한다.
+명시적 지시("이번엔 판정까지 하세요")에 따라 이 세션이 처음에 **"알려진 오탐 경로 0"으로 gate 4를
+닫힘 판정했으나, 그 조건이 사실이 아니었다.** commander가 직접 측정해 지적했다: 다중 segment
+절대 import는 여전히 같은 dotted-path suffix로 끝나는 두 파일(vendored 사본 등)을 구분하지
+못한다 — `pathEndsWithSegments()`가 애초에 이 케이스를 못 가르는 suffix 비교이고, 이 함수 자신의
+doc comment가 이미 "vendored copies of the same nested path"로 이 시나리오를 언급하고 있었는데
+판정문은 그걸 반영하지 못했다. 재현해 확인한 뒤(`[실행]`, 유닛 테스트 "KNOWN, ACCEPTED RESIDUAL
+FALSE POSITIVE"로 고정) **판정문을 정정한다: gate 4는 "오탐 경로 0"이 아니라 "수용된 잔여 1건
+(다중 segment vendored-tree 충돌)을 안고" 닫는다** — 그 잔여를 지금 고치지 않는 근거(병리적
+배치가 필요해 좁음, 유일한 수정안은 PR #85가 이미 기각한 설계와 같음)는
+`docs/work/task-m4-gate4-single-segment-import.md`의 "gate 4 판정" 절 참고. `reviewer`의 독립
+재검토는 여전히 남아 있다 — round 1의 성급한 닫힘 선언·번복 이력이 있으므로, 이 판정(정정판
+포함)은 PR 병합 전까지 잠정으로 취급한다.
