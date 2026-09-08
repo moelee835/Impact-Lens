@@ -1,8 +1,10 @@
 # M4 gate 4 — 주된 잔여 오탐: segment 하나짜리 절대 import (branch `fix/m4-gate4-single-segment-import`)
 
-**2026-09-08 정정**: 제목과 본문 일부가 원래 이걸 gate 4의 "마지막"/"유일하게 남은" 오탐 경로로
-적었으나 틀렸다 — commander가 다중 segment 절대 import의 vendored-tree 충돌 잔여를 별도로 지적했다
-(아래 "gate 4 판정" 절 참고). 이 문서가 다루는 것은 그 두 개 중 **더 흔하고 먼저 닫은 쪽**이다.
+**2026-09-08 정정 이력**: 제목과 "목적과 사용자 가치" 절이 원래 이걸 gate 4의 "마지막"/"유일하게
+남은" 오탐 경로, 닫으면 "알려진 오탐 경로 0개"가 된다고 적었으나 틀렸다 — commander가 다중 segment
+절대 import의 vendored-tree 충돌 잔여를 별도로 지적했고(아래 "gate 4 판정" 절), 본문을 그 자리에서
+고쳤다(상단 노트만 달고 본문을 안 고쳐 두 문장이 정정 후에도 남아 있었던 걸 commander가 다시 지적해
+바로잡음 — 인용 시 상단 노트가 따라오지 않는다는 이 저장소의 반복된 교훈과 같은 이유).
 
 ## 목적과 사용자 가치
 
@@ -14,15 +16,16 @@ Lens가 그 mount 확인 대상을 **경로 깊이와 무관하게** 아무 `use
 않게 하는 것").
 
 **이 작업 완료 후 가능해지는 것**: 이 잔여를 닫으면 gate 4("모호한 DI/dynamic target을 임의 승격하지
-않는다")가 요구하는 조건 — **알려진 오탐 경로 0개** — 을 실제로 만족한다. gate 4는 이 augmentation
-기능의 기본값을 켜도 되는지 판단하는 근거 중 하나이므로, 살아 있는 오탐 경로를 남긴 채로는 그 판단의
-토대 자체가 성립하지 않는다.
+않는다")가 **수용된 잔여 1건(다중 segment vendored-tree 충돌, 아래 "gate 4 판정" 참고)을 안고 닫힐
+수 있는 상태**가 된다. gate 4는 이 augmentation 기능의 기본값을 켜도 되는지 판단하는 근거 중
+하나이므로, 이 lane이 다루는 흔한 잔여를 남긴 채로는 그 판단의 토대 자체가 성립하지 않는다.
 
 **지금 이 작업을 하는 이유**: PR #85(`fix/m4-gate4-module-resolution`)가 mount import provenance를
 정확한 경로 해석으로 바꾸면서 cross-package basename 충돌, self-mount shadowing, 역방향 alias, 주석
 우회를 전부 닫았지만, 그 함수(`importsNameFromModule()`) 자신의 doc comment가 이미 명시했듯
-**segment 하나짜리 절대 import는 여전히 basename 비교로 퇴화**한다 — 유일하게 남은, 알려진 오탐
-경로다. 사용자가 "한 라운드 더" 진행해 gate 4를 완전히 닫기로 결정했다.
+**segment 하나짜리 절대 import는 여전히 basename 비교로 퇴화**한다 — 다중 segment 절대 import의
+vendored-tree 충돌과 함께 gate 4에 남아 있던 두 오탐 경로 중, **더 흔하고 먼저 닫는 쪽**이다.
+사용자가 "한 라운드 더" 진행해 gate 4를 완전히 닫기로 결정했다.
 
 ## 배경
 

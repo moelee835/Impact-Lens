@@ -359,14 +359,21 @@ M4 gate 4 재개방 lane(`docs/work/task-m4-gate4-mount-false-positive.md`, "남
    level import 형태라 "두 vendored 사본이 우연히 겹치는" 경우보다 훨씬 자주 닿는다 — 여전히 round
    1(모든 절대 import가 항상 이렇게 퇴화)보다는 좁지만, 서술을 실제 범위로 정정했다.
 
-**2026-09-08 추가 — 위 2번(segment 하나짜리 절대 import 오탐)을 닫았다, gate 4의 마지막 알려진 오탐
-경로였다.** `docs/work/task-m4-gate4-single-segment-import.md`: segment 하나짜리 절대 import는
-이제 `rootFile`이 workspace root 바로 아래 있어야만 인정한다(`sameFile(path.dirname(rootFile),
-workspace)`) — cheaper한 대안(workspace 전체에서 basename이 유일할 때만 인정)은 직접 측정해
-기각했다(양방향으로 틀림: 충돌 대상이 없으면 틀린 깊이를 통과시키고, 충돌이 있으면 맞는 깊이까지
-막음 - 그 문서의 "대안 검토" 참고). 대가로 **새 미탐**이 생겼다: `src/`처럼 workspace 바로 아래가
-아닌 곳의 정당한 최상위 모듈(single-segment import로 참조되는 경우)이 이제 미탐이다 — 아래 "known
-shape coverage" 목록에 6번으로 추가했다.
+**2026-09-08 추가 — 위 2번(segment 하나짜리 절대 import 오탐)을 닫았다.** `docs/work/task-m4-gate4-
+single-segment-import.md`: segment 하나짜리 절대 import는 이제 `rootFile`이 workspace root 바로
+아래 있어야만 인정한다(`sameFile(path.dirname(rootFile), workspace)`) — cheaper한 대안(workspace
+전체에서 basename이 유일할 때만 인정)은 직접 측정해 기각했다(양방향으로 틀림: 충돌 대상이 없으면
+틀린 깊이를 통과시키고, 충돌이 있으면 맞는 깊이까지 막음 - 그 문서의 "대안 검토" 참고). 대가로
+**새 미탐**이 생겼다: `src/`처럼 workspace 바로 아래가 아닌 곳의 정당한 최상위 모듈(single-segment
+import로 참조되는 경우)이 이제 미탐이다 — 아래 "known shape coverage" 목록에 6번으로 추가했다.
+
+**정정 — 이건 gate 4의 마지막 알려진 오탐 경로가 아니었다.** commander가 직접 측정해 지적했다:
+**다중** segment 절대 import는 여전히 같은 dotted-path suffix로 끝나는 두 파일(vendored 사본 등)을
+구분하지 못한다 — 위 2번 항목 바로 위(`from pkg_a.users import router`가 `/w/vendor/pkg_a/users.py`
+와 `/w/pkg_a/users.py` 양쪽 모두를 확정)가 그 정확한 예시였는데, "닫았다" 서술이 이를 놓쳤다.
+이 잔여는 gate 4를 다시 열 정도는 아니라고 판단해(병리적 배치 필요, 유일한 수정안은 이미 기각된
+설계와 동일 - `docs/work/task-m4-gate4-single-segment-import.md`의 "gate 4 판정" 참고) **수용된
+잔여로 남기고 gate 4는 그걸 안고 닫는다.** "0"이라는 표현은 이 문서를 포함해 어디에도 쓰지 않는다.
 
 ### 측정 — recall (측정 불가, proxy로 무엇을 쓰는지와 그 한계)
 
