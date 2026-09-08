@@ -111,6 +111,49 @@ require 경로까지 dist로 바꿔 주지 않는다** — 당연한 TypeScript 
    디렉터리가 files에 있는가" 가드 테스트가 이걸 실측으로 확인해 준다 — 실제로 처음엔 누락돼 그
    테스트가 실패했다, `[실행]`).
 
+## vsix 내용물 검사 — 실측 결과
+
+commander가 지적한 대로 이 저장소에는 vsix를 실제로 패키징·검사하는 장치가 이전에 없었다
+(`@vscode/vsce`는 devDependency로만 있고 쓰는 곳이 없었다, 재확인). `scripts/test-vsix-contents.mjs`
+를 새로 만들어 `vsce ls`(파일 목록, 빠름)와 `vsce package`(실제 크기 tripwire) 둘 다로 확인한다.
+
+**디버깅 과정에서 발견한 함정(다음 세션을 위해 기록)**: 이 세션의 scratchpad 경로
+(`/private/tmp/claude-503/-Users-woony6-dev-Impact-Lens/.../scratchpad/wt-gate2-shared-adapter`)에서
+`vsce ls`/`vsce package`를 돌리면 **아무 에러 없이 빈 파일 목록**을 낸다 — 처음엔 이걸 내
+`.vscodeignore` 수정이 뭔가 잘못됐다는 신호로 오인했다. 직접 격리해 본 결과(`[실행]`): `.vscodeignore`
+를 원본으로 되돌려도, `cli/dist`·`cli/node_modules`를 지워도 재현됐고, **짧은 경로(`/tmp/...`)에 새로
+clone해서 돌리면 그제서야 정상 동작했다** — vsce(또는 그 내부 glob 라이브러리)가 이 특정 깊고 특이한
+문자가 섞인 scratchpad 경로에서 파일 목록을 조용히 빈 배열로 반환하는 것으로 보인다(원인을 vsce
+소스까지 추적하지는 않았다 — 재현 조건만 특정했다). **이 저장소의 실제 CI 체크아웃 경로(예:
+`/home/runner/work/...`)는 이 문제에 해당하지 않을 것으로 판단한다**(짧고 평범한 경로) — 다만 이후
+세션이 로컬 scratchpad에서 vsix 검사가 "통과했다"고 잘못 판단하지 않도록, 이 함정을 스크립트 자신의
+주석에도 남기지 않고 여기 작업 문서에만 남긴다(스크립트 자체는 이 경로 문제와 무관하게 정확하다 —
+문제는 실행 환경이었지 검사 로직이 아니었다).
+
+**실측(`[실행]`, `/tmp`의 짧은 경로에 신선한 clone, `cli:build` + `compile` 순서로 실행)**:
+
+```
+vsce ls: 33 files total, 4 under cli/dist/shared/**/*.js, none forbidden.
+vsce package: 1.12MB (< 5MB tripwire).
+```
+
+`cli/dist/shared/`(`impactHelpers.js`, `adapters/{fastapiDependencyAdapter,index,types}.js`) 4개
+파일 전부 포함, `cli/node_modules`·`cli/src`·`cli/dist/index.js`를 포함한 다른 `cli/dist/**`·
+`.d.ts`·`.map` **전부 미포함**을 확인했다. 크기는 1.12MB로 5MB tripwire 대비 여유롭다(현재 vsix에
+`typescript-language-server`/`pyright`가 안 섞여 있다는 실측 증거).
+
+**이 검사가 증명하지 않는 것(숨기지 않는다)**: VS Code가 이 vsix를 실제로 로드하고 활성화하는지,
+FastAPI-augmented 쿼리가 설치된 확장에서 실제로 동작하는지는 여전히 증명 못 한다 — 이 저장소에
+extension-host 실행 harness가 없다. `test:vsix-contents`는 **내용물이 의도대로인가**만 증명한다.
+
+**빌드 순서**: `npm run compile`이 `cli:build`를 먼저 실행하도록 바꿨다(`compile`/`test` 스크립트
+둘 다). `unit-tests.yml`의 `unit` job이 `npm test`(root) → `npm run cli:test` 순서였는데,
+`npm test`가 이제 내부적으로 `cli:build`를 먼저 하므로 **CI에서도 순서 문제가 생기지 않는다**(직접
+확인 필요 — 로컬에서 `rm -rf out cli/dist && npm test`로 처음부터 재확인, `[실행]`). `plugin-
+artifact-e2e.yml`에 `test:vsix-contents` 스텝을 3-OS 매트릭스 그대로 추가했다(Windows에서 path
+separator 처리가 조용히 깨진 전례가 이 저장소에 있어서 — 이 스크립트는 이미 `path.sep`로
+POSIX 정규화하지만, CI에서 직접 확인하지 않고 "될 것 같다"로 넘기지 않는다).
+
 ## 결정 — `AdapterInput`에 `idOf` 추가
 
 **결론: `AdapterInput`에 `readonly idOf: (item: CallHierarchyItem) => string`을 추가한다.**
