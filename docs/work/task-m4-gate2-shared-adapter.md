@@ -187,3 +187,73 @@ adapter 시그니처에 필드 하나 추가라 CLI 테스트 스위트가 그 �
 `CallHierarchyProvider`(6개 멤버 전부 구현)를 넘기고 있어 구조적 타이핑상 `Pick<...,
 'prepare'>`를 그대로 만족한다 — CLI 쪽 변경 없음. Extension shim은 `prepare` 하나만 구현하면
 된다(`vscode.prepareCallHierarchy`를 감싸는 것).
+
+**추가 발견(wiring 구현 중) — `runAugmentation()` 자신의 provider 파라미터도 좁혀야 했다.** 이
+함수는 `provider`를 `AdapterInput`에 그대로 전달만 하고 스스로 호출하지 않는데, 바깥 시그니처가
+여전히 `CallHierarchyProvider` 전체를 요구해서, `prepare`만 구현한 Extension shim이 컴파일 자체가
+안 됐다. 같은 이유로 같은 타입으로 좁혔다(PR #87에 추가 커밋, merge 완료).
+
+## Extension wiring — CLI에는 없던 문제 둘 (commander 발견, 직접 확인 후 반영)
+
+**1. virtual workspace에서 조용히 아무것도 안 나온다.** `[실행]` 확인: `package.json`에
+`browser`/`extensionKind`/`capabilities.virtualWorkspaces` 선언이 전혀 없다 — 즉 VS Code는 이
+Extension을 virtual workspace 지원으로 간주한다. 그런데 `walkPythonFiles()`(adapter)는
+`fs.readdir()` 실패를 전부 `catch { return; }`로 삼킨다 — `vscode-vfs://` 같은 가상 파일시스템
+워크스페이스에서 `workspaceFolder.uri.fsPath`는 로컬에 존재하지 않는 경로라 `readdir`이 실패하고,
+augmentation은 **정적 그래프는 정상 렌더되는 채로 조용히 0건**을 낸다 — "빈 결과가 답으로 읽힌다"는
+이 마일스톤이 막으려는 바로 그 형태다.
+
+**선택한 처리**: `workspaceFolder.uri.scheme !== 'file'`이면 augmentation을 건너뛰고,
+`augmentationEnabled`가 켜져 있을 때만 `limitations`에 `augmentation_unsupported_workspace`를
+남긴다(꺼져 있으면 아무 일도 안 일어나므로 알릴 게 없다). **대안(package.json에
+`capabilities.virtualWorkspaces: {supported: false}` 선언)은 기각했다** — 정적 그래프 자체는
+virtual workspace에서도 정상 동작하므로(vscode의 TextDocument/CallHierarchy API로 이미 추상화돼
+있음), 확장 전체를 "virtual workspace 미지원"으로 선언하면 실제로 동작하는 부분까지 거짓으로
+막는다. augmentation만 국소적으로 건너뛰는 게 실제 경계와 일치한다.
+
+**정정(commander 지적, `[실행]` 확인) — 이건 아직 사용자에게 안 보인다.** `git grep`으로
+`result.limitations`를 읽는 곳이 `types.ts`/`impactAnalyzer.ts`/테스트 밖에 있는지 확인했더니
+**없었다** — `graphPanel.ts`의 헤더 tooltip은 `coverage.reasons`만 읽는다(`completeness.ts`
+경유). `limitations`에 `augmentation_unsupported_workspace`를 넣는 건 **데이터 모델에 기록하는
+것**이지, CLI가 `framework_route_mount_unresolved`를 agent에게 공개 강제하는 것과 같은 뜻의
+"surface"가 아니다 — 원래 코드 주석이 "CLI가 surface하는 것과 같은 방식"이라고 적어 이 lane이
+이미 여러 번 잡은 "주석이 코드보다 강하게 주장한다" 패턴을 그대로 반복했다. 주석을 고쳤다 —
+"모델에는 기록되지만 아직 UI에 표시되지 않는다, 표시는 UI PR 소관"으로.
+
+**2. CLI의 latency 측정(+41ms)이 이 환경으로 이전되지 않는다.** CLI 측정은 별도 프로세스·로컬
+디스크·그 프로세스의 캐시 상태 기준이다. Extension은 extension host 프로세스 안에서(다른 확장
+작업과 경쟁), 그래프 갱신마다 돌고, Remote-SSH/Container/WSL이면 `walkPythonFiles`가 읽는 파일
+전부가 네트워크 왕복이다. **이 환경에서 별도로 측정하지 않았다** — CLI 숫자를 "괜찮다"의 근거로
+쓰지 않는다, `augmentationEnabled` 기본값이 false라 급하진 않지만 기본값 on 전환 판단의 근거로
+CLI 숫자를 쓰면 안 된다는 걸 코드 주석에 명시했다.
+
+**검증**: 확장 65/65(변동 없음), CLI 402/399/0/3(변동 없음). 이 두 항목은 **동작을 바꾸지 않는
+안전장치 추가**이므로 CLI 쪽 어떤 스위트에도 영향이 없다.
+
+## UI PR 할 일 목록 (문장 속에 묻지 않고 항목으로 — commander 지적)
+
+이 lane 안에서 "정정 노트만 달고 본문은 안 고친" 일이 이미 세 번 있었다. 같은 실수를 목록
+형태로 막는다 — UI PR을 열기 전에 이 목록을 다시 읽고 전부 체크한다:
+
+- [ ] **`augmentation_unsupported_workspace`를 실제로 사용자에게 보여준다** — `result.limitations`를
+  읽어 헤더 tooltip/summary 어딘가에 표시(예: `coverage.reasons`가 verbose 모드에서 나오는 자리와
+  같은 위치, 단 `coverage`에는 안 섞는다 - 정적 순회 완전성과 augmentation 한계는 다른 개념).
+  **이게 없으면 wiring PR의 "동작을 남긴다"는 주장이 여전히 공허하다.**
+- [ ] `GraphPayload`에 `augmentedEdges` 추가, client 스크립트에서 렌더링.
+- [ ] 합성 endpoint를 웹뷰 렌더링 배열에만 pseudo-node로 추가 — **`result.nodes`/`edges`(rollback
+  계약 대상)는 절대 안 건드린다**는 걸 코드 주석으로도 남긴다.
+- [ ] 합성 pseudo-node의 depth는 "항상 렌더"가 아니라 **연결된 기존 노드의 depth를 따른다**
+  (commander 의견 — depth 슬라이더의 의미를 지킨다. 다르게 갈 경우 근거를 적는다).
+- [ ] 후보 edge용 두 번째 marker(닫힌 윤곽선 삼각형) 신설 — 기존 `#arrow`(열린 셰브론)와 구분,
+  점선 금지.
+- [ ] 낱말은 `candidate`/`candidate caller` — `scripts/lib/response-policy-engine.mjs`의
+  `CANDIDATE_CALLER_PHRASE`와 같은 문자열(다른 module 체계라 직접 import는 못 하지만, 같은
+  리터럴 문자열을 쓴다는 걸 주석으로 남긴다).
+- [ ] 판정을 주장하는 색 토큰 금지(`--vscode-testing-*` 계열) — `graphPanel.test.ts`의 기존
+  allow-list+deny-list 패턴을 새 규칙에도 그대로 적용.
+- [ ] 개수를 확정 호출자 수에 합치지 않는다.
+- [ ] **augmentation off/on 렌더 무변화 회귀 테스트** — CLI rollback과 같은 폴라리티(달라져도
+  되는 필드만 지우고 나머지 전부 비교), 문자열 포함 검사가 아니다.
+- [ ] 시각 검증 못 하는 부분은 "코드로 확인했다"를 "동작을 확인했다"로 안 쓴다 — 무엇을
+  증명했고 무엇은 안 했는지 PR 본문에 명시(vsix 검사 스크립트의 "What this proves / does NOT
+  prove"와 같은 방식).

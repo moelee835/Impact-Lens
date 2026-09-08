@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
 import { NoteSource } from './noteModel';
+// Type-only (erased at compile time, no require() emitted - see adapterProviderShim.ts's own note on
+// this). Not duplicated the way the response-schema vocabulary above is: `AugmentedEdge` IS the CLI's
+// adapter-output contract passed through unchanged (M4 gate 2 shared-adapter lane,
+// docs/work/task-m4-gate2-shared-adapter.md), not a value this file computes its own version of.
+import type { AugmentedEdge } from '../cli/dist/types';
 
 export type ImpactRelation = 'root' | 'direct' | 'transitive' | 'test';
 export type ImpactAnalysisState = 'current' | 'stale' | 'analyzing' | 'partial' | 'failed';
@@ -134,6 +139,14 @@ export interface ImpactResult {
   analysisState: ImpactAnalysisState;
   delta: ImpactDelta;
   changedAt?: number;
+  /** Candidate callers the FastAPI adapter found that a static Call Hierarchy cannot see on its own
+   * (`Depends()` references, route-mount entrypoints) - never merged into `nodes`/`edges`, which stay a
+   * pure claim about what the language service itself confirmed (M4 stage 1's own rollback contract,
+   * unaffected by this lane). Empty when augmentation is off (the default) or found nothing. `graphPanel.ts`
+   * is responsible for rendering these as visually distinct from `edges` - a confirmed vs. candidate
+   * relationship is a difference in evidence strength, not a fourth `ImpactRelation` kind (M4 gate 2 UI
+   * design decision, docs/work/task-m4-gate2-shared-adapter.md). */
+  readonly augmentedEdges: readonly AugmentedEdge[];
 }
 
 export interface TraversalEntry<T> {
