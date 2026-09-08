@@ -564,6 +564,65 @@ test(
 );
 
 // ---------------------------------------------------------------------------
+// M4 gate 4 single-segment-import follow-up (docs/work/task-m4-gate4-single-segment-import.md). A
+// single-segment absolute import (`from users import router`, no dots at all) has no second path segment
+// to anchor the suffix comparison above - it degenerates to a bare-basename match at ANY depth, the last
+// known false-positive path in this adapter. Closed by requiring the imported file sit directly under the
+// workspace root for this one case (a single-segment import only plausibly resolves to a genuine top-level
+// module) - at the cost of a new, accepted false negative for a nested project layout's own top-level
+// modules (e.g. `src/`), pinned separately below.
+// ---------------------------------------------------------------------------
+
+test(
+  'single-segment absolute import: a NESTED router with no colliding basename anywhere is still rejected (the primary bug this design closes)',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('module_resolution_singleseg_nested/deeply/nested/singleseg_users.py', 15, 5, true); // `def singleseg_nested_handler`
+    assert.equal(response.ok, true);
+    assert.equal(
+      response.data.augmentedEdges.length,
+      0,
+      `a single-segment absolute import must not confirm a nested file regardless of depth, even with nothing else to collide with: ${JSON.stringify(response.data.augmentedEdges)}`,
+    );
+    assert.ok(
+      response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+      `expected framework_route_mount_unresolved: ${JSON.stringify(response.data.limitationDetails)}`,
+    );
+  },
+);
+
+test(
+  'single-segment absolute import: a router directly under the workspace root (flat layout) still confirms mount',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('singleseg_flat_users.py', 13, 5, true); // `def singleseg_flat_handler`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    assert.equal(response.data.augmentedEdges[0]!.reasonCode, 'fastapi-route-handler');
+    assert.ok(!response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'));
+  },
+);
+
+// Title deliberately matches the "accuracy corpus, known false negative: ..." convention below (exact
+// substring, not "KNOWN, ACCEPTED false negative" as this lane's unit-test file titles it) - the
+// precision-denominator inclusion criterion (docs/work/task-m4-stage3-accuracy-latency-gates.md,
+// "2026-09-08 정정 5") excludes a test by matching this literal phrase in its name, so a differently
+// worded title here would silently re-enter the denominator instead of being excluded by definition.
+test(
+  'accuracy corpus, known false negative: a single-segment absolute import naming a nested project layout\'s own top-level module (e.g. src/) is not detected',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('module_resolution_singleseg_src_known_false_negative/src/singleseg_src_users.py', 15, 5, true); // `def singleseg_src_handler`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 0, JSON.stringify(response.data.augmentedEdges));
+    assert.ok(
+      response.data.limitationDetails.some(entry => entry.code === 'framework_route_mount_unresolved'),
+      `expected framework_route_mount_unresolved (accepted miss, not a fabricated edge): ${JSON.stringify(response.data.limitationDetails)}`,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
 // M4 stage 3 accuracy corpus - known false negatives (docs/work/task-m4-stage3-accuracy-latency-gates.md).
 // Each of these is a genuine caller/mount that this adapter does NOT detect, by construction - an accepted
 // miss, not a bug: the adapter never claims reachability it cannot confirm, so the failure direction here

@@ -361,18 +361,43 @@ function pathEndsWithSegments(fullPath: string, suffixParts: readonly string[]):
  * - Qualified access through a module alias (`import mod; mod.name`) is separately out of scope, per this
  *   file's top-of-file comment - the same accepted miss `attr_mount_router.py` already documents for the
  *   `Depends()` path.
- * - The suffix comparison for absolute imports degenerates as the dotted path gets SHORTER, not just in
- *   the "two identical nested trees" case an earlier version of this comment led with (confirmed too
- *   narrow, commander review): a SINGLE-SEGMENT absolute import (`from users import router`, no dots
- *   in the module path at all) compares a one-element suffix - i.e. `rootFile`'s bare basename - so it
- *   matches a `users.py` at ANY depth, in any unrelated package, confirmed directly. This is not a rare
- *   coincidence like two vendored copies of the same nested path; a top-level `from <module> import x`
- *   is an ordinary, common Python import shape, so this degenerate case is reachable far more easily than
- *   the deep-path collision case. It is still narrower than what round 1 (last-segment-only, ALL absolute
- *   imports regardless of dots) left open, and left as an accepted residual limitation for the same reason
- *   - resolving real package roots is out of scope, per this function's own "no package metadata is read"
- *   framing - but the scope of what remains open should be read as "any single-segment absolute import",
- *   not as an exotic vendoring scenario.
+ * - A SINGLE-SEGMENT absolute import (`from users import router`, no dots in the module path at all)
+ *   would otherwise compare a one-element suffix - i.e. just `rootFile`'s bare basename - which matches a
+ *   `users.py` at ANY depth, in any unrelated package (confirmed directly before this guard existed). A
+ *   top-level `from <module> import x` is an ordinary, common Python import shape, so this degenerate case
+ *   is reachable far more easily than a deep-path collision - not a rare coincidence like two vendored
+ *   copies of the same nested path. M4 gate 4 single-segment-import follow-up
+ *   (docs/work/task-m4-gate4-single-segment-import.md): closed by additionally requiring `rootFile` sit
+ *   DIRECTLY under `workspace` for this one-segment case only (`sameFile(path.dirname(rootFile),
+ *   workspace)`) - a single-segment import only plausibly resolves to a file reachable as a top-level
+ *   module from the assumed package root, and `workspace` is the only root this function has without
+ *   reading package metadata. Two round-1/round-2 candidates were measured and rejected before this one:
+ *   accepting whenever `rootFile`'s basename is the workspace's only file with that name (cheap - the
+ *   workspace walk this runs inside already visits every file) answers "does this collide with a
+ *   DIFFERENT file", not "is this file at the right depth", so it is wrong in BOTH directions - it still
+ *   confirms a nested file with no colliding basename anywhere (the actual common shape of this bug,
+ *   nothing to collide with), and it wrongly WITHHOLDS a correct flat-layout match merely because an
+ *   unrelated same-named file happens to exist somewhere deeper in the workspace. Measured directly
+ *   against a 5-case matrix (see the work document) before rejecting it - left here because it looks
+ *   enough like the removed `nameAmbiguous` check (this file's own git history) to be re-proposed.
+ *
+ * - NEW ACCEPTED FALSE NEGATIVE from the depth requirement above: a single-segment absolute import naming
+ *   a genuinely top-level module of a nested project layout (a `src/` layout's `src/users.py`, imported
+ *   as `from users import x` because `src` is on `sys.path`) is no longer confirmed, because `src/users.py`
+ *   does not sit directly under `workspace` - this function has no way to know `src` is a package root
+ *   without reading project metadata, which stays out of scope. Narrower than losing ALL single-segment
+ *   imports (multi-project-root layouts are the exception, not the common case) and in the same
+ *   precision-over-recall direction as every other narrowing in this file.
+ *
+ * - This single-segment guard is what fully exposes gate 4's now-removed `nameAmbiguous` check as
+ *   something that was never actually protecting against this class of bug on purpose: before
+ *   `nameAmbiguous` was removed (round 1/2 above), a same-named router binding colliding somewhere else in
+ *   the workspace would often coincidentally trip it and block confirmation anyway, PARTIALLY masking this
+ *   exact single-segment degeneracy the same way it masked round 1's now-fixed multi-segment gap - not
+ *   because `nameAmbiguous` was checking import provenance (it never did), but because the two failure
+ *   conditions frequently co-occurred in practice. With `nameAmbiguous` gone, this residual had nothing
+ *   left masking it - the single-segment absolute-import case is the last of gate 4's known false-positive
+ *   paths this project has found and closed.
  */
 // Exported for fastapiDependencyAdapterImportsNameFromModule.test.ts only - a unit test feeding this
 // function CRLF input directly, so the Windows-only `$`-anchor regression (git history: the anchor was
@@ -418,6 +443,7 @@ export function importsNameFromModule(
   name: string,
   rootFile: string,
   importingFile: string,
+  workspace: string,
 ): boolean {
   return lines.some(line => {
     const clause = parseFromImport(line);
@@ -435,6 +461,12 @@ export function importsNameFromModule(
       ...clause.modulePath.slice(0, -1),
       `${clause.modulePath[clause.modulePath.length - 1]}.py`,
     ];
+    if (moduleFileParts.length === 1 && !sameFile(path.dirname(rootFile), workspace)) {
+      // Single-segment absolute import: the suffix comparison below would otherwise degenerate to a
+      // bare-basename match at any depth - see this function's own doc comment, the single-segment
+      // bullet, for why this depth check is required instead of a cheaper uniqueness check.
+      return false;
+    }
     return pathEndsWithSegments(rootFile, moduleFileParts);
   });
 }
@@ -603,7 +635,7 @@ async function isRouterMounted(name: string, rootFile: string, workspace: string
       // call itself is not inside a nested scope that shadows the module-level binding (also point 2,
       // `MODULE_LEVEL_LINE_PATTERN` above).
       mountFound = true;
-    } else if (importsNameFromModule(lines, name, rootFile, file)) {
+    } else if (importsNameFromModule(lines, name, rootFile, file, workspace)) {
       mountFound = true;
     }
   });

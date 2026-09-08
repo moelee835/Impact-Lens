@@ -210,3 +210,19 @@ CLI+pyright로 두 결함을 재현했다:
 
 **gate 4는 여전히 열려 있다** — round 3 수정 후에도 스스로 닫힘 선언을 하지 않는다. `reviewer` 재검토와
 사용자 결정을 기다린다.
+
+## 2026-09-08 추가 — 마지막 잔여(segment 하나짜리 절대 import) 수정, 닫힘 판정
+
+PR #85(round 3 포함)가 merge된 뒤, `reviewer`의 완전성 논증 재검증 과정에서 `importsNameFromModule()`
+의 절대 import 경로 중 segment 하나짜리인 경우가 여전히 depth 무관 basename 매치로 퇴화하던 마지막
+잔여가 지적됐다(`docs/work/task-m4-gate4-single-segment-import.md`). 사용자가 "한 라운드 더"를
+결정해 이 lane이 그 잔여를 닫았다 — `rootFile`이 workspace root 바로 아래 있어야 한다는 depth
+요구를 segment-하나 case에 추가(대안인 workspace 전체 basename uniqueness는 양방향으로 틀려
+직접 측정 후 기각).
+
+이 수정은 `importsNameFromModule()` **내부의 비교 로직만** 바꿨다 — 위 완전성 논증이 의존하는
+"재검증 없는 두 함수" 경계 자체는 그대로다(새 재검증-없는 경로를 만들지 않았다). commander의
+명시적 지시("이번엔 판정까지 하세요")에 따라 이 세션이 gate 4의 닫힘 조건 셋(알려진 오탐 경로 0,
+미탐 목록 최신, 완전성 논증 유지)을 확인해 **gate 4를 닫힘으로 판정한다.** `reviewer`의 독립
+재검토는 여전히 남아 있다 — round 1의 성급한 닫힘 선언·번복 이력이 있으므로, 이 판정은 PR 병합
+전까지 잠정으로 취급한다.

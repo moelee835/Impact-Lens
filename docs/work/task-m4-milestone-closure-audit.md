@@ -76,10 +76,20 @@
 module-resolution.md`), **commander 독립 검증이 그 lane 자체의 self-mount 근거에 또 다른 반례
 (nested scope shadowing)를 찾아 gate 4는 여전히 열려 있었다.** 수정 후 commander/reviewer 병렬
 검토가 세 번째 라운드에서 **역방향 alias**와 **주석 안 `FastAPI()` 언급이 mount 검사 전체를
-건너뛰는 문제**를 추가로 발견·수정 — **gate 4는 계속 열려 있다, reviewer 재검토·사용자 결정 대기.**
+건너뛰는 문제**를 추가로 발견·수정(PR #85 merge, `fe5b0d0`) — 그 시점엔 **gate 4는 계속 열려
+있었다, reviewer 재검토·사용자 결정 대기.**
+
+**2026-09-08 추가 — gate 4 마지막 잔여 수정, 닫힘 판정.** PR #85 merge 뒤 reviewer가 완전성 논증을
+stub-provider mutation으로 재검증하는 과정에서 마지막 잔여(segment 하나짜리 절대 import가 depth
+무관 basename 매치로 퇴화)를 지적했고, 사용자가 "한 라운드 더"를 결정했다
+(`docs/work/task-m4-gate4-single-segment-import.md`). 이 lane이 그 잔여를 닫았고, commander의
+명시적 지시("이번엔 판정까지 하세요")에 따라 이 세션이 gate 4의 세 조건(알려진 오탐 경로 0, 미탐
+목록 최신, 완전성 논증 유지)을 확인해 **닫힘으로 판정**했다 — 이번에도 `reviewer` 독립 재검토를
+거친 뒤에만 최종으로 취급한다(round 1의 성급한 닫힘 선언·번복 이력 때문).
+
 gate 5는 PR #82가 닫았다. gate 6은 이 표 그대로 닫힘 유지. gate 7은 아래 "Gate 7" 절에 정정 추가.
-**2026-09-07 기준: 8개 중 닫힘 3(rollback·gate 3·gate 5), 재개방·수정 중 1(gate 4), 열림 4(gate
-1·2·7·8).**
+**2026-09-08 기준: 8개 중 닫힘 4(rollback·gate 3·gate 4·gate 5), 열림 4(gate 1·2·7·8).** gate 4는
+이 세션의 판정이며 `reviewer` 재검토·PR 병합 전까지는 잠정이다.
 
 ## Gate별 상세 — 근거와 확인 방법(누가, 실행인지 코드 읽기인지)
 
@@ -226,9 +236,11 @@ fixture)가 이 집계에 빠져 있음을 지적했고, "뺀 이유를 적자"�
 정확히 0 또는 1로 단언하는 것이 주된 목적인 모든 테스트, "known false negative" 명명 테스트 제외 —
 전문은 `docs/work/task-m4-stage3-accuracy-latency-gates.md`의 "2026-09-08 정정 5")를 파일 전체에
 적용해 재세니 `crossfile_positive_router.py` 외에 아무도 지적하지 않은 두 번째 누락
-(`nested_dependency_config.py`의 sub-dependency 회귀 테스트)까지 나와 **현재 36개(진양성 14/진음성
-22), precision 100%(오탐 0건) 그대로**다. 위 "의미 범위가 한정된다"는 지적은 여전히 유효하다 —
-corpus가 커진 것과 corpus가 실제 코드베이스를 대표하게 된 것은 다른 이야기다.
+(`nested_dependency_config.py`의 sub-dependency 회귀 테스트)까지 나와 **36개(진양성 14/진음성
+22), precision 100%(오탐 0건) 그대로**였다. **2026-09-08 추가 3 — gate 4 마지막 잔여 수정으로
+fixture 2개가 같은 기준에 편입돼 현재 38개(진양성 15/진음성 23), precision 100% 그대로**다(정정
+6, `task-m4-stage3-accuracy-latency-gates.md`). 위 "의미 범위가 한정된다"는 지적은 여전히
+유효하다 — corpus가 커진 것과 corpus가 실제 코드베이스를 대표하게 된 것은 다른 이야기다.
 
 ### Gate 8 — user-test 명세
 
