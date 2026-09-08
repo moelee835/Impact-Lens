@@ -277,6 +277,27 @@ TN 22 + TP 14 = 36, 이 문서의 계산과 정확히 일치.** 숫자가 맞았
 — 다음에 이 corpus나 비슷한 성격의 집계 숫자가 다시 흔들리면, 이번처럼 개별 사례를 찾지 말고 먼저
 기준부터 다시 쓸 것.
 
+## 2026-09-08 정정 6 — single-segment-import lane, 정의된 기준 그대로 재적용
+
+새 기준을 다시 정의하지 않는다 — 정정 5의 기준(`augmentedEdges.length`를 정확히 0 또는 1로 단언하는
+것이 주된 목적인 모든 테스트, "known false negative" 명명 테스트 제외)을 이번 lane이 추가한 3개
+테스트에 그대로 적용한다:
+
+- `single-segment absolute import: a NESTED router with no colliding basename anywhere is still
+  rejected...` — `augmentedEdges.length === 0`이 주된 검증, 이름에 "known false negative" 없음 →
+  **진음성 편입**.
+- `single-segment absolute import: a router directly under the workspace root (flat layout) still
+  confirms mount` — `augmentedEdges.length === 1`이 주된 검증 → **진양성 편입**.
+- `accuracy corpus, known false negative: a single-segment absolute import naming a nested project
+  layout's own top-level module...` — 이름에 "known false negative"가 정확히 포함되도록 **의도적으로
+  이 문구를 그대로 써서** 지었다(단위 테스트 파일의 "KNOWN, ACCEPTED false negative" 문구를 그대로
+  가져다 썼으면 쉼표 때문에 이 기준의 문자열 매치를 안 타서 잘못 편입될 뻔했다 — 작성 중 직접 확인,
+  제목을 고쳐 반영) → **기준대로 제외**.
+
+**최종: 38개(진양성 15 + 진음성 23), precision 100%(오탐 0건) 그대로.** `npm test` 재실행으로 직접
+확인 — 전체 스위트 401 tests, 398 pass/0 fail/3 skip(이전 395/392/0/3에서 +6: 이 3개 통합 테스트 +
+`fastapiDependencyAdapterImportsNameFromModule.test.ts`의 새 유닛 테스트 3개).
+
 ### 측정 — 미탐 범위(precision과 같은 자리에 둔다: "정확한데 거의 안 도는" 기능을 정확하다고만
 보고하지 않기 위해)
 
@@ -338,6 +359,22 @@ M4 gate 4 재개방 lane(`docs/work/task-m4-gate4-mount-false-positive.md`, "남
    level import 형태라 "두 vendored 사본이 우연히 겹치는" 경우보다 훨씬 자주 닿는다 — 여전히 round
    1(모든 절대 import가 항상 이렇게 퇴화)보다는 좁지만, 서술을 실제 범위로 정정했다.
 
+**2026-09-08 추가 — 위 2번(segment 하나짜리 절대 import 오탐)을 닫았다.** `docs/work/task-m4-gate4-
+single-segment-import.md`: segment 하나짜리 절대 import는 이제 `rootFile`이 workspace root 바로
+아래 있어야만 인정한다(`sameFile(path.dirname(rootFile), workspace)`) — cheaper한 대안(workspace
+전체에서 basename이 유일할 때만 인정)은 직접 측정해 기각했다(양방향으로 틀림: 충돌 대상이 없으면
+틀린 깊이를 통과시키고, 충돌이 있으면 맞는 깊이까지 막음 - 그 문서의 "대안 검토" 참고). 대가로
+**새 미탐**이 생겼다: `src/`처럼 workspace 바로 아래가 아닌 곳의 정당한 최상위 모듈(single-segment
+import로 참조되는 경우)이 이제 미탐이다 — 아래 "known shape coverage" 목록에 6번으로 추가했다.
+
+**정정 — 이건 gate 4의 마지막 알려진 오탐 경로가 아니었다.** commander가 직접 측정해 지적했다:
+**다중** segment 절대 import는 여전히 같은 dotted-path suffix로 끝나는 두 파일(vendored 사본 등)을
+구분하지 못한다 — 위 2번 항목 바로 위(`from pkg_a.users import router`가 `/w/vendor/pkg_a/users.py`
+와 `/w/pkg_a/users.py` 양쪽 모두를 확정)가 그 정확한 예시였는데, "닫았다" 서술이 이를 놓쳤다.
+이 잔여는 gate 4를 다시 열 정도는 아니라고 판단해(병리적 배치 필요, 유일한 수정안은 이미 기각된
+설계와 동일 - `docs/work/task-m4-gate4-single-segment-import.md`의 "gate 4 판정" 참고) **수용된
+잔여로 남기고 gate 4는 그걸 안고 닫는다.** "0"이라는 표현은 이 문서를 포함해 어디에도 쓰지 않는다.
+
 ### 측정 — recall (측정 불가, proxy로 무엇을 쓰는지와 그 한계)
 
 **recall은 ground truth 없이 못 잰다 — 못 재면 못 잰다고 쓴다** (`resolution: 'multiple'` gate 항목과
@@ -346,7 +383,10 @@ M4 gate 4 재개방 lane(`docs/work/task-m4-gate4-mount-false-positive.md`, "남
 **대신 쓰는 proxy: "known shape coverage" = 이미 카탈로그화된 shape 카테고리 중 탐지되는 것의 비율.**
 발행 당시 **4개 중 2개(50%)**로 썼다(직접 import·첫 자리 alias는 탐지, 모듈 속성·alias 변수 mount·
 괄호 여러 줄 import·비-첫자리 alias는 미탐). **2026-09-07 정정: 5개 중 2개(40%)다** — 위 5번(여러
-줄 `Depends()` 호출)이 추가로 카탈로그화됐고, 이 역시 미탐이기 때문이다. **이 proxy가 대신하지
+줄 `Depends()` 호출)이 추가로 카탈로그화됐고, 이 역시 미탐이기 때문이다. **2026-09-08 추가: 6개 중
+2개(약 33%)다** — 6번(segment 하나짜리 절대 import가 가리키는, workspace root 바로 아래가 아닌
+곳의 최상위 모듈 - 예: `src/` layout)이 single-segment-import lane에서 새로 카탈로그화됐다(오탐을
+닫으면서 생긴 대가, 위 참고). **이 proxy가 대신하지
 못하는 것**: 실제 recall은 "실제 코드에 존재하는 모든 관계 중 몇 %를 찾는가"인데, 이 proxy는
 "우리가 이미 알고 있는 shape 중 몇 개를 찾는가"일 뿐이다 — **우리가 아직 카탈로그화하지 못한
 shape**(decorator-level `dependencies=[Depends(target)]`, router-level `APIRouter(...,
