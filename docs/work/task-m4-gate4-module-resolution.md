@@ -339,3 +339,54 @@ fail/3 skip 재확인.
 
 **gate 4는 round 3 수정 후에도 계속 열어 둔다** — 스스로 닫힘 선언을 하지 않는다. `reviewer` 재검토와
 사용자 결정을 기다린다.
+
+### round 3 마무리 — commander 재검증에서 나온 작은 항목 둘
+
+commander가 `46f3e5a`/`1efc768`를 검증하며 `importsBareNameEntry()`를 경계 8형태로 재확인(전부
+정확)하고, 이 세션이 걱정했던 것과 다른 걱정 하나를 스스로 실행해 확인해 줬다 —
+`MODULE_LEVEL_LINE_PATTERN`이 `stripCommentsAndStrings()`가 삼중따옴표 블록을 줄바꿈째 제거한
+텍스트 위에서 돌아 들여쓰기 판정이 어긋날 수 있는지. 5가지 형태(함수 안 docstring 뒤 들여쓴
+mount, 모듈 레벨 mount, docstring 안 홀수 개 `"""`, 한 줄 문자열 안 삼중따옴표, 닫는 `"""` 뒤 같은
+줄 코드)로 직접 재서 **오탐 방향으로 새는 형태를 못 찾았다** — `importsBareNameEntry()`의 doc
+comment 옆, `MODULE_LEVEL_LINE_PATTERN` 선언부에 "의심했지만 실행해서 확인한 항목"으로 기록했다.
+
+**신규로 좁아진 것 1건 발견**: `from pkg.users import (router)`(한 줄짜리 괄호 import)가 이제
+미탐이다 — 이전 `namePattern`(`\bname\b`)은 괄호를 비-단어 문자로 보고 매치했지만, 새 정확-일치
+비교(`entry.trim() === name`)는 "(router)" !== "router"라 거부한다. `/tmp`에 실제 fixture를 만들어
+직접 재현 확인(`[실행]`) — 이 lane이 만든 새 narrowing이지, 기존에 이미 있던 한계가 아니다.
+`aliasBindingsFor()`의 기존 "여러 줄 괄호 import" 한계와는 다른 형태(이건 한 줄)라 별도로 기록했다.
+유닛 테스트로 고정(`fastapiDependencyAdapterImportsNameFromModule.test.ts`).
+
+**adapter 계약 문서 위치 이동**: `fastapiDependencyAdapter.ts` 최상단의 구조적 논증을
+`adapters/types.ts`의 `FrameworkAdapter` 타입 doc comment로 옮겨 적었다(런타임 강제 아님, 문서화만)
+— commander 지적대로 두 번째 adapter 저자는 `fastapiDependencyAdapter.ts`를 안 열고 SPI 타입만
+본다.
+
+## 누적된 좁힘 — 이번 lane이 정확도를 위해 포기한 것 전부 (commander 요청, 한곳에 모음)
+
+이 lane의 네 번(round 0=PR #84, round 1~3) 수정은 전부 **정확도를 넓히는 동시에 recall을 깎는**
+방향이다. 개별 항목은 각 함수의 doc comment에 있지만, 다음 사람이 "정확한데 거의 안 도는" 상태로
+넘어갔는지 판단하려면 누적 목록이 필요하다:
+
+1. **(round 0, PR #84) 동명이인 무관 식별자 거부** — 함수 매개변수·loop 변수·dict/attr 대입·factory
+   반환·non-router 타입·다른 모듈 import로 얻은 이름은 root의 모듈에서 실제로 온 게 아니면 거부.
+2. **(round 1) 정확한 모듈 비교** — 상대 import는 정확한 경로, 절대 import는 dotted path 전체를
+   `rootFile` 경로의 segment suffix와 비교. (잔여: segment 하나뿐인 절대 import는 여전히 basename
+   비교로 퇴화 — 이건 narrowing이 아니라 이 접근법 자체의 잔여 한계, 별도로 문서화됨.)
+3. **(round 2) module-level 줄만 인정** — `include_router(NAME)`이 들여쓰기 없는 줄에 있어야 self-
+   mount·cross-file 양쪽 다 신뢰. **부작용**: 모듈 레벨 `if`/`try` 블록 **안에 들여써서** 쓴 진짜
+   mount 호출이 이제 미탐.
+4. **(round 3) alias 양방향 정확-일치** — import 목록의 각 항목이 별칭 없이 정확히 target 이름과
+   같아야 인정. **부작용**: 한 줄짜리 괄호 import(`from x import (name)`)가 이제 미탐.
+
+**narrowing이 아닌 것도 명시한다**: `isDirectFastapiApp()`에 comment/string-stripped 텍스트를 넘긴
+것(round 3)은 recall을 깎지 않는다 — 주석 안의 가짜 매치만 제거하고, 실제 코드 안의 진짜 매치는
+그대로 인정되기 때문이다. 순수하게 정밀도만 올라간 유일한 수정이다.
+
+**이 넷(1~4)이 겹치면 실제로 무슨 일이 생기는가**: 이미 stage 3 문서가 "이 기능이 신뢰성 있게
+발동하는 조건은 사실상 bare identifier 단일 mount와 첫 자리·한 줄 alias뿐"이라고 적어 뒀다 — 이
+lane은 그 "신뢰성 있게 발동하는" 좁은 통로 자체는 넓혔지만(다중 router 프로젝트, cross-package
+구분, self-mount shadowing 등 **오탐 후보였던 것들을 정확히 걸러내는 방향**), 동시에 그 통로의
+가장자리(들여쓴 mount, 괄호 import)를 깎아 recall을 살짝 더 좁혔다. **오탐 감소와 미탐 증가가 같은
+lane 안에서 같이 일어났다** — precision 100%를 지키는 게 이 lane의 유일한 목표였고, recall 저하는
+그 목표의 부산물로 받아들인 것이지 별도로 최적화한 게 아니다.

@@ -140,3 +140,32 @@ test('finds the import when it is not the only line, mixed LF/CRLF', () => {
   const lines = 'from fastapi import FastAPI\r\nfrom .users import router\r\napp = FastAPI()\r\n'.split('\n');
   assert.equal(importsNameFromModule(lines, 'router', '/ws/pkg_a/users.py', '/ws/pkg_a/main.py'), true);
 });
+
+test('reverse alias is rejected - importing an unrelated symbol and renaming it locally to the target name (round 3, reviewer finding)', () => {
+  assert.equal(
+    importsNameFromModule(['from adversary_reversealias_target import other_thing as router'], 'router', '/ws/adversary_reversealias_target.py', '/ws/main.py'),
+    false,
+  );
+  assert.equal(
+    importsNameFromModule(['from .target import other_thing as router'], 'router', '/ws/pkg_a/target.py', '/ws/pkg_a/main.py'),
+    false,
+  );
+});
+
+test('reverse alias is rejected regardless of position in a comma-separated list', () => {
+  assert.equal(
+    importsNameFromModule(['from target import router as decoy_router, other_thing as router'], 'router', '/ws/target.py', '/ws/main.py'),
+    false,
+  );
+});
+
+test('KNOWN, ACCEPTED false negative (round 3, commander finding): a single-line parenthesized import is not detected', () => {
+  // The previous word-boundary comparison matched this shape (parentheses are non-word characters, valid
+  // boundaries for `\bname\b`) - the exact-entry comparison this function now uses cannot, since the
+  // captured entry is the literal text "(router)", which never string-equals "router". A new, deliberate
+  // narrowing (see importsBareNameEntry()'s own doc comment and the work document's "누적된 좁힘" list).
+  assert.equal(
+    importsNameFromModule(['from pkg.users import (router)'], 'router', '/ws/pkg/users.py', '/ws/main.py'),
+    false,
+  );
+});

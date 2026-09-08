@@ -387,6 +387,19 @@ function pathEndsWithSegments(fullPath: string, suffixParts: readonly string[]):
  * still found anywhere in the list (first position or not, matching this function's existing behavior),
  * but any entry containing `as` in either position is rejected, because the exact string can never equal
  * `name` once `as` is part of it.
+ *
+ * NEW ACCEPTED FALSE NEGATIVE from this exact-entry comparison (commander review, confirmed directly): a
+ * single-line PARENTHESIZED import - `from module import (name)` - is no longer detected, because the
+ * captured entry is the literal text `(name)`, which cannot string-equal `name`. The previous word-
+ * boundary test (`\bname\b`) matched this shape (parentheses are non-word characters, so they acted as
+ * valid boundaries) - this is a genuinely new narrowing, not a pre-existing gap carried forward. Distinct
+ * from the already-documented multi-line parenthesized import limitation (`aliasBindingsFor()`'s doc
+ * comment) - that one spans multiple lines and was never reachable by this per-line function either way;
+ * this is a single line. Accepted for the same reason every other narrowing in this file is accepted
+ * (false-negative direction, matching the asymmetry principle) - see `docs/work/task-m4-gate4-module-
+ * resolution.md`'s "누적된 좁힘" (cumulative narrowing) list for this fix alongside the other precision-
+ * over-recall trades this lane made, so a future reader can judge the accumulated cost in one place
+ * instead of rediscovering each one independently.
  */
 function importsBareNameEntry(importList: string, name: string): boolean {
   return importList.split(',').some(entry => entry.trim() === name);
@@ -545,6 +558,16 @@ function sameFile(a: string, b: string): boolean {
 // A line with no leading whitespace - Python's own top-level indentation, not a claim about syntax
 // validity. See isRouterMounted()'s doc comment (point 2) for why every include_router(...) match this
 // file counts, self-mount or cross-file, is required to sit on one of these lines.
+//
+// SUSPECTED, THEN MEASURED SAFE (commander review): this pattern runs against `stripCommentsAndStrings()`
+// output, which removes triple-quoted blocks LINEBREAKS AND ALL (not line-by-line), raising the question
+// of whether that could shift a real module-level line's indentation or create a false module-level line
+// out of docstring remnants. Checked directly against five shapes (indented mount after an in-function
+// docstring, a genuine module-level mount, an odd number of `"""` inside a docstring, a triple-quote
+// inside a one-line string, code on the same line as a closing `"""`) - none leaked a false positive; the
+// match boundary always stays inside one line, and surrounding newlines and leading whitespace on
+// unrelated lines are preserved. Recorded so a future reader who has the same suspicion does not have to
+// re-derive it - this was checked, not assumed.
 const MODULE_LEVEL_LINE_PATTERN = /^\S/;
 
 async function isRouterMounted(name: string, rootFile: string, workspace: string, budget: AdapterBudget): Promise<MountSearchResult> {
