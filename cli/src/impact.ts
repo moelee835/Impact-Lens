@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -6,7 +5,8 @@ import { classifyRelation } from './testFile';
 import { projectCompletion } from './coverage';
 import { inspectCompileDatabase } from './providers/compileDatabase';
 import { C_FAMILY_LANGUAGE_IDS } from './providers/resolve';
-import { runAugmentation } from './adapters';
+import { runAugmentation } from './shared/adapters';
+import { externalRange, isOutside, relativeFile, symbolId, symbolKindName, uriFile } from './shared/impactHelpers';
 import {
   AnalysisObservations,
   AnalyzeRequest,
@@ -101,6 +101,7 @@ export async function analyzeImpact(
     symbolId(root),
     provider,
     new Set(nodes.map(node => node.id)),
+    symbolId,
   );
   const augmentedEdges = [...augmentation.edges].sort((left, right) =>
     JSON.stringify(left).localeCompare(JSON.stringify(right)));
@@ -252,24 +253,6 @@ function matchesExpected(item: CallHierarchyItem, expected: AnalyzeRequest['expe
     && (expected.kind === undefined || expected.kind === item.kind || expected.kind === symbolKindName(item.kind));
 }
 
-export function symbolId(item: CallHierarchyItem): string {
-  return createHash('sha256').update(JSON.stringify([
-    item.uri,
-    item.kind,
-    item.name,
-    item.detail ?? '',
-    item.selectionRange.start.line,
-    item.selectionRange.start.character,
-  ])).digest('hex').slice(0, 24);
-}
-
-export function symbolKindName(kind: number): string {
-  const names: Record<number, string> = {
-    5: 'class', 6: 'method', 9: 'constructor', 11: 'interface', 12: 'function',
-  };
-  return names[kind] ?? `symbol-${kind}`;
-}
-
 export function resolveWorkspaceFile(workspace: string, file: string): string {
   const resolved = path.resolve(workspace, file);
   if (isOutside(workspace, resolved)) {
@@ -310,31 +293,8 @@ export async function canonicalWorkspace(workspace: string): Promise<string> {
   }
 }
 
-export function relativeFile(workspace: string, file: string): string {
-  if (isOutside(workspace, file)) {
-    return file;
-  }
-  return path.relative(workspace, file).split(path.sep).join('/');
-}
-
-export function isOutside(workspace: string, file: string): boolean {
-  const relative = path.relative(path.resolve(workspace), path.resolve(file));
-  return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
-}
-
-export function uriFile(uri: string): string {
-  return uri.startsWith('file:') ? fileURLToPath(uri) : uri;
-}
-
 function itemUri(item: CallHierarchyItem): string {
   return item.uri || pathToFileURL('').toString();
-}
-
-export function externalRange(range: LspRange): { start: { line: number; column: number }; end: { line: number; column: number } } {
-  return {
-    start: { line: range.start.line + 1, column: range.start.character + 1 },
-    end: { line: range.end.line + 1, column: range.end.character + 1 },
-  };
 }
 
 function groupDiagnostics(diagnostics: readonly ProviderDiagnostic[]): Map<string, ProviderDiagnostic[]> {

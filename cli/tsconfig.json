@@ -9,7 +9,18 @@
     "sourceMap": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    // M4 gate 2 shared-adapter lane (docs/work/task-m4-gate2-shared-adapter.md): the VS Code extension
+    // imports `dist/shared/**` directly (a plain relative `require()`/`import`, not a TypeScript project
+    // reference - project references were tried first and rejected, see the work document's "공유
+    // 메커니즘" section: importing from `../cli/src/...` type-checks fine under a reference but resolves
+    // to a `.ts` path at runtime with no compiled `.js` there, a real `Cannot find module` reproduced
+    // directly before this line existed; importing from `../cli/dist/...` instead needs nothing but a
+    // `.d.ts` sitting next to each `.js`, which is what this flag alone provides - no `composite`, no
+    // `references`, no `.tsbuildinfo`). Lands under `dist/`, already fully gitignored, and is not listed
+    // in `package.json`'s "files" (npm-publish allow-list, `.js` only), so this has no effect on what the
+    // CLI itself ships via its own standalone packaging.
+    "declaration": true
   },
   "include": ["src/**/*.ts"]
 }

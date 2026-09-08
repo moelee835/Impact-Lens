@@ -1,7 +1,7 @@
 // M4 stage 2 - the whole "registry" is this one array. See `./types.ts` for why this is deliberately
 // not a bigger plugin-loading abstraction.
 
-import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../types';
+import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../../types';
 import { fastapiDependencyAdapter } from './fastapiDependencyAdapter';
 import { AdapterBudget, RegisteredAdapter } from './types';
 
@@ -39,6 +39,10 @@ export async function runAugmentation(
   rootId: string,
   provider: CallHierarchyProvider,
   existingNodeIds: ReadonlySet<string>,
+  // The host's own symbol-id scheme (M4 gate 2 shared-adapter lane, docs/work/task-m4-gate2-shared-
+  // adapter.md, see AdapterInput.idOf's own doc comment for why an adapter cannot compute this itself).
+  // The CLI passes its own `symbolId` here; a second host (the VS Code extension) passes its own.
+  idOf: (item: CallHierarchyItem) => string,
 ): Promise<AugmentationResult> {
   if (!enabled) {
     return { edges: [], budgetExceededAdapterIds: [], mountUnresolvedAdapterIds: [] };
@@ -56,6 +60,7 @@ export async function runAugmentation(
       rootId,
       provider,
       existingNodeIds,
+      idOf,
       budget: DEFAULT_BUDGET,
     });
     edges.push(...result.edges);

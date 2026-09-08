@@ -14,6 +14,13 @@ pnpm-lock.yaml
 pnpm-workspace.yaml
 src/**
 cli/**
+# M4 gate 2 shared-adapter lane (docs/work/task-m4-gate2-shared-adapter.md): re-include ONLY the
+# FastAPI adapter's compiled output that out/extension.js requires() at runtime - never cli/dist/index.js
+# or any other cli/dist/** path, never cli/node_modules/** (pyright, typescript-language-server would
+# balloon the vsix), never .d.ts/.js.map (compile-time-only, already excluded by the **/*.map rule below
+# for maps; .d.ts has no separate rule because it is simply never re-included by this one). Verified by
+# `scripts/test-vsix-contents.mjs`, not assumed from reading this file.
+!cli/dist/shared/**/*.js
 plugins/**
 out/test/**
 tsconfig.json

@@ -7,7 +7,7 @@
 // adapter can be added by appending to the `ADAPTERS` array in `./index.ts`; nothing about this shape
 // needs to change for that.
 
-import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../types';
+import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../../types';
 
 /**
  * An adapter's own exploration limits, entirely separate from the static traversal's depth/node
@@ -28,13 +28,34 @@ export interface AdapterInput {
   readonly root: CallHierarchyItem;
   readonly rootId: string;
   /** Shared with the static traversal only for querying (`prepare`) - never for writing. An adapter
-   * must not call anything that would add entries to the traversal's own `nodes`/`edges`. */
-  readonly provider: CallHierarchyProvider;
+   * must not call anything that would add entries to the traversal's own `nodes`/`edges`. Narrowed to
+   * `prepare` alone (M4 gate 2 shared-adapter lane, docs/work/task-m4-gate2-shared-adapter.md): every
+   * adapter call into the provider goes through `resolveEndpoint()`, which only ever calls `prepare()`
+   * (confirmed directly against all three call sites in `fastapiDependencyAdapter.ts` before narrowing
+   * this type) - the full `CallHierarchyProvider` interface has five other members
+   * (`incoming`/`collectDiagnostics`/`dispose`/`capabilities`/`analysisObservations?`) an adapter has no
+   * business touching. Narrowing the type turns "adapter는 순회를 건드리지 않는다" from a comment into
+   * something the compiler enforces, and shrinks what a second host (a VS Code extension shim wrapping
+   * `vscode.prepareCallHierarchy`, for example) needs to implement to satisfy this contract - a plain
+   * `CallHierarchyProvider` still satisfies `Pick<CallHierarchyProvider, 'prepare'>` structurally, so the
+   * CLI's own call site needed no change. */
+  readonly provider: Pick<CallHierarchyProvider, 'prepare'>;
   /** Ids already present in `data.nodes` for this specific execution. An adapter may only emit an
    * `{ kind: 'existing', id }` endpoint for an id confirmed to be in this set - traversal's depth/node
    * budget can leave an otherwise-expected node absent, so "usually in the graph" is never a
    * substitute for checking this set (M4 stage 1's dangling-id decision). */
   readonly existingNodeIds: ReadonlySet<string>;
+  /**
+   * Computes the same id scheme the host used to build `rootId`/`existingNodeIds`/`data.nodes` -
+   * required because the CLI's own `symbolId()` (sha256 of six fields) and the VS Code extension's own
+   * `createSymbolKey()` (the same six fields, `#`-joined) agree on WHICH fields identify a symbol but
+   * produce different literal strings (M4 gate 2 shared-adapter lane, confirmed by reading both
+   * functions side by side) - an adapter that computed its own id internally, as this one used to,
+   * would silently mismatch every host except the one it was written against. Every adapter MUST use
+   * this function for every id it emits or compares against `rootId`/`existingNodeIds`; never invent or
+   * import a host-specific id function directly, even the CLI's own.
+   */
+  readonly idOf: (item: CallHierarchyItem) => string;
   readonly budget: AdapterBudget;
 }
 

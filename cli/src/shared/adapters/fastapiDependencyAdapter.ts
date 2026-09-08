@@ -25,7 +25,9 @@
 // module-resolution follow-up, docs/work/task-m4-gate4-module-resolution.md, commander/reviewer round 3).
 // Every OTHER text match this adapter makes (`findDependsReferences()`, `aliasBindingsFor()`,
 // `findEnclosingDef()`) is re-verified through `resolveEndpoint()` -> `input.provider.prepare()` before
-// it becomes an edge (see the call sites at, as of this writing, lines 771/800/816) - a regex
+// it becomes an edge (every `resolveEndpoint(input, ...)` call site in this file, not cited by line
+// number here on purpose - a correction insert once already shifted these exact numbers past the code
+// they pointed at, M4 gate 4 module-resolution follow-up) - a regex
 // that mistakes scope or alias direction there still cannot mislabel a route, because pyright's own
 // symbol resolution is what actually decides the edge, not the regex. `isRouterMounted()` (via
 // `importsNameFromModule()`) and `isDirectFastapiApp()` are the ONLY two predicates in this file with no
@@ -57,8 +59,8 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { externalRange, relativeFile, symbolId, symbolKindName, uriFile } from '../impact';
-import { AugmentedEdge, CallHierarchyItem, LspPosition } from '../types';
+import { externalRange, relativeFile, symbolKindName, uriFile } from '../impactHelpers';
+import { AugmentedEdge, CallHierarchyItem, LspPosition } from '../../types';
 import { AdapterBudget, AdapterInput, AdapterResult } from './types';
 
 const IGNORED_DIRECTORIES = new Set([
@@ -708,7 +710,7 @@ async function resolveEndpoint(
 }
 
 function endpointFor(input: AdapterInput, item: CallHierarchyItem): { readonly id: string; readonly endpoint: AugmentedEdge['source'] } {
-  const id = symbolId(item);
+  const id = input.idOf(item);
   if (input.existingNodeIds.has(id)) {
     return { id, endpoint: { kind: 'existing', id } };
   }
@@ -851,7 +853,7 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
       // Verify before trusting - see aliasBindingsFor's doc comment for why this specific position (not
       // the alias's own use site) is what a text match alone cannot substitute for.
       const verified = await resolveEndpoint(input, file, { line: binding.line, character: binding.character });
-      if (verified.items.some(item => symbolId(item) === input.rootId)) {
+      if (verified.items.some(item => input.idOf(item) === input.rootId)) {
         localNames.push(binding.alias);
         aliasCandidateCounts.set(binding.alias, verified.items.length);
       }
@@ -883,7 +885,7 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
         if (resolved.items.length === 0) {
           continue;
         }
-        const matchesRoot = resolved.items.some(item => symbolId(item) === input.rootId);
+        const matchesRoot = resolved.items.some(item => input.idOf(item) === input.rootId);
         if (!matchesRoot) {
           // A same-named symbol that resolved to something other than root (corpus case 1) - correctly
           // produces nothing for root, since this reference is not actually about root.
