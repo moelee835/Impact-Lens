@@ -235,25 +235,39 @@ CLI 숫자를 쓰면 안 된다는 걸 코드 주석에 명시했다.
 이 lane 안에서 "정정 노트만 달고 본문은 안 고친" 일이 이미 세 번 있었다. 같은 실수를 목록
 형태로 막는다 — UI PR을 열기 전에 이 목록을 다시 읽고 전부 체크한다:
 
-- [ ] **`augmentation_unsupported_workspace`를 실제로 사용자에게 보여준다** — `result.limitations`를
-  읽어 헤더 tooltip/summary 어딘가에 표시(예: `coverage.reasons`가 verbose 모드에서 나오는 자리와
-  같은 위치, 단 `coverage`에는 안 섞는다 - 정적 순회 완전성과 augmentation 한계는 다른 개념).
-  **이게 없으면 wiring PR의 "동작을 남긴다"는 주장이 여전히 공허하다.**
-- [ ] `GraphPayload`에 `augmentedEdges` 추가, client 스크립트에서 렌더링.
-- [ ] 합성 endpoint를 웹뷰 렌더링 배열에만 pseudo-node로 추가 — **`result.nodes`/`edges`(rollback
-  계약 대상)는 절대 안 건드린다**는 걸 코드 주석으로도 남긴다.
-- [ ] 합성 pseudo-node의 depth는 "항상 렌더"가 아니라 **연결된 기존 노드의 depth를 따른다**
-  (commander 의견 — depth 슬라이더의 의미를 지킨다. 다르게 갈 경우 근거를 적는다).
-- [ ] 후보 edge용 두 번째 marker(닫힌 윤곽선 삼각형) 신설 — 기존 `#arrow`(열린 셰브론)와 구분,
-  점선 금지.
-- [ ] 낱말은 `candidate`/`candidate caller` — `scripts/lib/response-policy-engine.mjs`의
-  `CANDIDATE_CALLER_PHRASE`와 같은 문자열(다른 module 체계라 직접 import는 못 하지만, 같은
-  리터럴 문자열을 쓴다는 걸 주석으로 남긴다).
-- [ ] 판정을 주장하는 색 토큰 금지(`--vscode-testing-*` 계열) — `graphPanel.test.ts`의 기존
-  allow-list+deny-list 패턴을 새 규칙에도 그대로 적용.
-- [ ] 개수를 확정 호출자 수에 합치지 않는다.
-- [ ] **augmentation off/on 렌더 무변화 회귀 테스트** — CLI rollback과 같은 폴라리티(달라져도
-  되는 필드만 지우고 나머지 전부 비교), 문자열 포함 검사가 아니다.
-- [ ] 시각 검증 못 하는 부분은 "코드로 확인했다"를 "동작을 확인했다"로 안 쓴다 — 무엇을
-  증명했고 무엇은 안 했는지 PR 본문에 명시(vsix 검사 스크립트의 "What this proves / does NOT
-  prove"와 같은 방식).
+- [x] **`augmentation_unsupported_workspace`를 실제로 사용자에게 보여준다** — 헤더 tooltip(항상
+  표시, `coverage`의 `reasons:` 줄과 별도인 `augmentation:` 줄)과 verbose 모드 summary 둘 다에
+  추가했다. `coverage.reasons`에는 안 섞었다 — `impactAnalyzer.ts`가 이미 두 배열을 안 섞은 이유를
+  주석에 남겼고, UI에서도 같은 구분을 지켰다.
+- [x] `GraphPayload`에 `augmentedEdges`/`limitations` 추가, client 스크립트에서 렌더링.
+- [x] 합성 endpoint를 웹뷰 렌더링 배열(`syntheticNodesById`)에만 pseudo-node로 추가 —
+  `result.nodes`/`edges`는 건드리지 않는다는 것을 `render()` 함수 상단 주석에 명시했다. 확정 노드
+  렌더 루프는 재사용하지 않고 **별도의 작은 렌더 블록**을 새로 만들었다(합성 노드는 note/
+  diagnostics/reviewed/클릭-열기 등 backing `ImpactNode`가 없어서, 기존 루프를 재사용하면 그
+  전부를 예외 처리해야 했다 — 별도 블록이 더 단순하고 확정 경로를 안 건드린다).
+- [x] 합성 pseudo-node의 depth는 "항상 렌더"가 아니라 **연결된 기존(anchor) 노드의 depth + 1**을
+  따른다 — `resolveSyntheticNode()`. 이 adapter가 내는 모든 edge의 target이 항상
+  `{kind:'existing', id: rootId}`임을 직접 확인해(두 `edges.push` 호출부) 일반형으로 구현하되 이
+  특수화를 주석에 남겼다.
+- [x] 후보 edge용 두 번째 marker(`#arrow-candidate`, 닫힌 윤곽선 삼각형 + 기존보다 큼) 신설 —
+  방향 신호를 지키면서 구분 가능성을 높이는 절충. 점선은 안 썼다. **시각적으로 실제 구분되는지는
+  검증 못 했다** — 텍스트 라벨이 1차 신호이고 이건 보조/미검증이라는 걸 CSS 주석·PR 본문에
+  명시한다.
+- [x] 낱말은 `candidate caller` — `response-policy-engine.mjs`의 `CANDIDATE_CALLER_PHRASE`와
+  정확히 같은 리터럴. 구조적 assertion(아래)으로 표류를 막는다.
+- [x] 판정을 주장하는 색 토큰 금지 — `.edge.edge-candidate`는 `stroke`를 안 건드리고(neutral 유지),
+  `graphPanel.test.ts`의 기존 allow-list+deny-list 패턴을 새 규칙에도 적용한 테스트 2개 추가,
+  **뮤테이션으로 양쪽 다 직접 재확인**(`[실행]` — `vscode-testing-iconPassed`를 실제로 넣어 보고
+  정확히 그 테스트만 실패, 원복 후 재확인).
+- [x] 개수는 후보 **관계(edge)** 수로만 세고(`candidateEdges.length`), 확정 호출자 수에 합치지
+  않는다 — 범례에 별도 항목("Candidate (N)")으로 표시.
+- [x] **off/on 렌더 무변화 검증 — 단, CLI와 같은 실행 기반 폴라리티가 아니라 소스-구조 검증이다.**
+  `graphPanel.ts`가 `import * as vscode`를 쓰기 때문에(`adapterProviderShim.ts`와 같은 제약)
+  `toPayload()`를 plain `node --test`로 직접 실행할 방법이 없다 — CLI의 rollback 테스트처럼 실제
+  두 응답을 만들어 `deepEqual`할 vscode-host harness가 이 저장소에 없다. 대신
+  `toPayload()`의 소스를 읽어 `augmentedEdges`/`limitations`가 **단순 pass-through 대입 하나씩만**
+  있고 함수 안 다른 어디서도 그 이름이 안 나온다는 걸 구조적으로 확인했다(뮤테이션으로 재확인 —
+  가짜 조건부 참조를 넣으면 정확히 그 테스트만 실패). **이건 "off/on 렌더가 실제로 같다"를 실행으로
+  증명한 게 아니라 "코드 구조상 다른 로직이 없다"만 증명한다** — 차이를 PR 본문에 명시한다.
+- [x] 시각 검증 못 하는 부분은 "코드로 확인했다"를 "동작을 확인했다"로 안 쓴다 — 이 목록 자체와
+  PR 본문에 "무엇을 증명했고 무엇은 안 했는지"를 매 항목마다 구분해 적었다.
