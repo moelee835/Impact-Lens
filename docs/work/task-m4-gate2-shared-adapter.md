@@ -187,3 +187,37 @@ adapter 시그니처에 필드 하나 추가라 CLI 테스트 스위트가 그 �
 `CallHierarchyProvider`(6개 멤버 전부 구현)를 넘기고 있어 구조적 타이핑상 `Pick<...,
 'prepare'>`를 그대로 만족한다 — CLI 쪽 변경 없음. Extension shim은 `prepare` 하나만 구현하면
 된다(`vscode.prepareCallHierarchy`를 감싸는 것).
+
+**추가 발견(wiring 구현 중) — `runAugmentation()` 자신의 provider 파라미터도 좁혀야 했다.** 이
+함수는 `provider`를 `AdapterInput`에 그대로 전달만 하고 스스로 호출하지 않는데, 바깥 시그니처가
+여전히 `CallHierarchyProvider` 전체를 요구해서, `prepare`만 구현한 Extension shim이 컴파일 자체가
+안 됐다. 같은 이유로 같은 타입으로 좁혔다(PR #87에 추가 커밋, merge 완료).
+
+## Extension wiring — CLI에는 없던 문제 둘 (commander 발견, 직접 확인 후 반영)
+
+**1. virtual workspace에서 조용히 아무것도 안 나온다.** `[실행]` 확인: `package.json`에
+`browser`/`extensionKind`/`capabilities.virtualWorkspaces` 선언이 전혀 없다 — 즉 VS Code는 이
+Extension을 virtual workspace 지원으로 간주한다. 그런데 `walkPythonFiles()`(adapter)는
+`fs.readdir()` 실패를 전부 `catch { return; }`로 삼킨다 — `vscode-vfs://` 같은 가상 파일시스템
+워크스페이스에서 `workspaceFolder.uri.fsPath`는 로컬에 존재하지 않는 경로라 `readdir`이 실패하고,
+augmentation은 **정적 그래프는 정상 렌더되는 채로 조용히 0건**을 낸다 — "빈 결과가 답으로 읽힌다"는
+이 마일스톤이 막으려는 바로 그 형태다.
+
+**선택한 처리**: `workspaceFolder.uri.scheme !== 'file'`이면 augmentation을 건너뛰고,
+`augmentationEnabled`가 켜져 있을 때만 `limitations`에 `augmentation_unsupported_workspace`를
+남긴다(꺼져 있으면 아무 일도 안 일어나므로 알릴 게 없다). **대안(package.json에
+`capabilities.virtualWorkspaces: {supported: false}` 선언)은 기각했다** — 정적 그래프 자체는
+virtual workspace에서도 정상 동작하므로(vscode의 TextDocument/CallHierarchy API로 이미 추상화돼
+있음), 확장 전체를 "virtual workspace 미지원"으로 선언하면 실제로 동작하는 부분까지 거짓으로
+막는다. augmentation만 국소적으로 건너뛰는 게 실제 경계와 일치한다.
+
+**2. CLI의 latency 측정(+41ms)이 이 환경으로 이전되지 않는다.** CLI 측정은 별도 프로세스·로컬
+디스크·그 프로세스의 캐시 상태 기준이다. Extension은 extension host 프로세스 안에서(다른 확장
+작업과 경쟁), 그래프 갱신마다 돌고, Remote-SSH/Container/WSL이면 `walkPythonFiles`가 읽는 파일
+전부가 네트워크 왕복이다. **이 환경에서 별도로 측정하지 않았다** — CLI 숫자를 "괜찮다"의 근거로
+쓰지 않는다, `augmentationEnabled` 기본값이 false라 급하진 않지만 기본값 on 전환 판단의 근거로
+CLI 숫자를 쓰면 안 된다는 걸 코드 주석에 명시했다.
+
+**검증**: 확장 65/65(변동 없음), CLI 402/399/0/3(변동 없음). 이 두 항목은 **동작을 바꾸지 않는
+안전장치 추가**이므로 CLI 쪽 어떤 스위트에도 영향이 없다 — 새 스위트/새 테스트는 UI PR에서
+`limitations`에 이 코드가 실제로 나타나는지까지 고정한다(이번 PR은 wiring만, UI는 별도 PR).

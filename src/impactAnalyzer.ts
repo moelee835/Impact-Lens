@@ -123,10 +123,43 @@ export class ImpactAnalyzer {
     // single-file window) means no directory the adapter could search for a cross-file mount, so
     // augmentation is skipped entirely rather than guessing a scope - the same "if the boundary is
     // unknown, do not claim a result" reasoning M4 stage 1 already applies to the static traversal.
+    //
+    // `augmentationEnabled` is checked BEFORE the workspace-scheme check below, not after, so the new
+    // limitation code only ever appears when it would actually matter to the user - reporting "cannot
+    // augment" for a feature nobody turned on would be noise, not a limitation.
+    const augmentationEnabled = configuration.get<boolean>('augmentationEnabled', false);
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(rootItem.uri);
-    const augmentedEdges = workspaceFolder
+    // commander's finding, confirmed directly (package.json has no `browser`/`extensionKind`/
+    // `capabilities.virtualWorkspaces` entry at all, so VS Code treats this extension as virtual-
+    // workspace-capable by default; the adapter's own `walkPythonFiles()` catches ANY `fs.readdir()`
+    // failure - including the ENOENT a virtual-filesystem URI's `.fsPath` would produce - and silently
+    // returns zero files, `fastapiDependencyAdapter.ts`): a `vscode-vfs://`-scheme workspace (GitHub
+    // Repositories, and similar virtual filesystems) would make augmentation run, find nothing, and
+    // report nothing wrong - the static graph still renders normally, so nothing tells the user
+    // augmentation never actually searched anything. This is exactly the failure shape this milestone
+    // exists to prevent ("an empty result read as an answer") - a silent false negative is worse than a
+    // loud one, so this is skipped explicitly (not merely accepted as a known gap) and recorded as a
+    // limitation, the same way the CLI surfaces `framework_route_mount_unresolved`/
+    // `augmentation_budget_exceeded` instead of a bare empty result.
+    // NOT MEASURED IN THIS ENVIRONMENT (commander's finding, recorded rather than assumed away): the
+    // CLI's own latency gate (docs/work/task-m4-stage3-accuracy-latency-gates.md, "+41ms worst case
+    // against 200 files") was measured as a separate OS process, against local disk, on that process's
+    // own cache state. None of that transfers here - this runs inside the extension host process
+    // (competing with every other extension's own work), on every graph refresh (not once per CLI
+    // invocation), and if the workspace is a Remote-SSH/Container/WSL folder, every file `walkPythonFiles`
+    // reads is a network round trip the CLI's own benchmark never paid. "Measured acceptable in the CLI"
+    // must not be read as "measured acceptable here" - it has not been measured in this environment at
+    // all. Not urgent to fix (`augmentationEnabled` defaults to false), but a real gap that must be closed
+    // with an actual measurement in this environment before any default-on decision, not carried forward
+    // on the CLI's numbers.
+    const isLocalFileWorkspace = workspaceFolder?.uri.scheme === 'file';
+    const augmentationLimitations: string[] = [];
+    if (augmentationEnabled && workspaceFolder && !isLocalFileWorkspace) {
+      augmentationLimitations.push('augmentation_unsupported_workspace');
+    }
+    const augmentedEdges = workspaceFolder && isLocalFileWorkspace
       ? (await runAugmentation(
-        configuration.get<boolean>('augmentationEnabled', false),
+        augmentationEnabled,
         languageId,
         workspaceFolder.uri.fsPath,
         toAdapterItem(rootItem),
@@ -154,7 +187,13 @@ export class ImpactAnalyzer {
       maxNodes,
       provider: vscodeProviderMetadata(languageId),
       coverage,
-      limitations: coverage.reasons,
+      // Augmentation limitations are appended, never merged into `coverage.reasons` itself - `coverage`
+      // is about what the STATIC traversal could confirm (M4 stage 1's own "budget/limits leak"
+      // decision, unaffected by augmentation either way); augmentation's own limitations are a separate
+      // concern that happens to share this one array with it today, the same way the CLI's
+      // `limitations`/`limitationDetails` carry both static and augmentation-sourced codes side by side
+      // without conflating their meaning.
+      limitations: [...coverage.reasons, ...augmentationLimitations],
       analyzedAt: Date.now(),
       analysisState: 'current',
       delta: EMPTY_IMPACT_DELTA,
