@@ -91,9 +91,18 @@ dotted-path suffix로 끝나는 두 파일(vendored 사본 등)을 못 가르는
 정정**했다 — 근거는 위 문서의 "gate 4 판정" 절.
 
 gate 5는 PR #82가 닫았다. gate 6은 이 표 그대로 닫힘 유지. gate 7은 아래 "Gate 7" 절에 정정 추가.
-**2026-09-08 기준: 8개 중 닫힘 4(rollback·gate 3·gate 4·gate 5, gate 4는 수용된 잔여 1건을 안고
-닫힘), 열림 4(gate 1·2·7·8).** gate 4는 이 세션의 판정이며 `reviewer` 재검토·PR 병합 전까지는
-잠정이다.
+
+**2026-09-08 추가 — gate 2(JSON과 UI 구분) 판정.** JSON 쪽은 stage 3에서 이미 닫혀 있었다
+(`data.edges`/`data.augmentedEdges` 분리, response-policy eval). UI 쪽(이 gate가 못 닫힌 유일한
+이유, 아래 "Gate 2" 절)을 PR #87(adapter 공유 추출) → #88(wiring) → #89(실제 렌더링)로 닫았다.
+`reviewer`가 새 CSS 규칙의 뮤테이션 재현과 클라이언트 스크립트 순수 함수의 직접 실행까지 독립
+확인했다. 근거·검증 범위(무엇이 검증됐고 무엇은 안 됐는지)는 `docs/work/task-m4-gate2-shared-
+adapter.md`의 "gate 2 판정" 절 — 실제 VS Code webview 렌더, marker 시각 구별, 라벨 겹침, 실행
+기반 off/on 비교는 이 저장소에 vscode-host harness가 없어 미검증으로 명시했다.
+
+**2026-09-08 기준: 8개 중 닫힘 5(rollback·gate 2·gate 3·gate 4·gate 5, gate 4는 수용된 잔여 1건을
+안고 닫힘, gate 2는 위 미검증 범위를 안고 닫힘), 열림 3(gate 1·7·8).** gate 2·4 둘 다 PR 병합과
+`reviewer` 재검토를 거쳐야 최종이다.
 
 ## Gate별 상세 — 근거와 확인 방법(누가, 실행인지 코드 읽기인지)
 

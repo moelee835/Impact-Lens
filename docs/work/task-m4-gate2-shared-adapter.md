@@ -235,25 +235,112 @@ CLI 숫자를 쓰면 안 된다는 걸 코드 주석에 명시했다.
 이 lane 안에서 "정정 노트만 달고 본문은 안 고친" 일이 이미 세 번 있었다. 같은 실수를 목록
 형태로 막는다 — UI PR을 열기 전에 이 목록을 다시 읽고 전부 체크한다:
 
-- [ ] **`augmentation_unsupported_workspace`를 실제로 사용자에게 보여준다** — `result.limitations`를
-  읽어 헤더 tooltip/summary 어딘가에 표시(예: `coverage.reasons`가 verbose 모드에서 나오는 자리와
-  같은 위치, 단 `coverage`에는 안 섞는다 - 정적 순회 완전성과 augmentation 한계는 다른 개념).
-  **이게 없으면 wiring PR의 "동작을 남긴다"는 주장이 여전히 공허하다.**
-- [ ] `GraphPayload`에 `augmentedEdges` 추가, client 스크립트에서 렌더링.
-- [ ] 합성 endpoint를 웹뷰 렌더링 배열에만 pseudo-node로 추가 — **`result.nodes`/`edges`(rollback
-  계약 대상)는 절대 안 건드린다**는 걸 코드 주석으로도 남긴다.
-- [ ] 합성 pseudo-node의 depth는 "항상 렌더"가 아니라 **연결된 기존 노드의 depth를 따른다**
-  (commander 의견 — depth 슬라이더의 의미를 지킨다. 다르게 갈 경우 근거를 적는다).
-- [ ] 후보 edge용 두 번째 marker(닫힌 윤곽선 삼각형) 신설 — 기존 `#arrow`(열린 셰브론)와 구분,
-  점선 금지.
-- [ ] 낱말은 `candidate`/`candidate caller` — `scripts/lib/response-policy-engine.mjs`의
-  `CANDIDATE_CALLER_PHRASE`와 같은 문자열(다른 module 체계라 직접 import는 못 하지만, 같은
-  리터럴 문자열을 쓴다는 걸 주석으로 남긴다).
-- [ ] 판정을 주장하는 색 토큰 금지(`--vscode-testing-*` 계열) — `graphPanel.test.ts`의 기존
-  allow-list+deny-list 패턴을 새 규칙에도 그대로 적용.
-- [ ] 개수를 확정 호출자 수에 합치지 않는다.
-- [ ] **augmentation off/on 렌더 무변화 회귀 테스트** — CLI rollback과 같은 폴라리티(달라져도
-  되는 필드만 지우고 나머지 전부 비교), 문자열 포함 검사가 아니다.
-- [ ] 시각 검증 못 하는 부분은 "코드로 확인했다"를 "동작을 확인했다"로 안 쓴다 — 무엇을
-  증명했고 무엇은 안 했는지 PR 본문에 명시(vsix 검사 스크립트의 "What this proves / does NOT
-  prove"와 같은 방식).
+- [x] **`augmentation_unsupported_workspace`를 실제로 사용자에게 보여준다** — 헤더 tooltip(항상
+  표시, `coverage`의 `reasons:` 줄과 별도인 `augmentation:` 줄)과 verbose 모드 summary 둘 다에
+  추가했다. `coverage.reasons`에는 안 섞었다 — `impactAnalyzer.ts`가 이미 두 배열을 안 섞은 이유를
+  주석에 남겼고, UI에서도 같은 구분을 지켰다.
+- [x] `GraphPayload`에 `augmentedEdges`/`limitations` 추가, client 스크립트에서 렌더링.
+- [x] 합성 endpoint를 웹뷰 렌더링 배열(`syntheticNodesById`)에만 pseudo-node로 추가 —
+  `result.nodes`/`edges`는 건드리지 않는다는 것을 `render()` 함수 상단 주석에 명시했다. 확정 노드
+  렌더 루프는 재사용하지 않고 **별도의 작은 렌더 블록**을 새로 만들었다(합성 노드는 note/
+  diagnostics/reviewed/클릭-열기 등 backing `ImpactNode`가 없어서, 기존 루프를 재사용하면 그
+  전부를 예외 처리해야 했다 — 별도 블록이 더 단순하고 확정 경로를 안 건드린다).
+- [x] 합성 pseudo-node의 depth는 "항상 렌더"가 아니라 **연결된 기존(anchor) 노드의 depth + 1**을
+  따른다 — `resolveSyntheticNode()`. 이 adapter가 내는 모든 edge의 target이 항상
+  `{kind:'existing', id: rootId}`임을 직접 확인해(두 `edges.push` 호출부) 일반형으로 구현하되 이
+  특수화를 주석에 남겼다.
+- [x] 후보 edge용 두 번째 marker(`#arrow-candidate`, 닫힌 윤곽선 삼각형 + 기존보다 큼) 신설 —
+  방향 신호를 지키면서 구분 가능성을 높이는 절충. 점선은 안 썼다. **시각적으로 실제 구분되는지는
+  검증 못 했다** — 텍스트 라벨이 1차 신호이고 이건 보조/미검증이라는 걸 CSS 주석·PR 본문에
+  명시한다.
+- [x] 낱말은 `candidate caller` — `response-policy-engine.mjs`의 `CANDIDATE_CALLER_PHRASE`와
+  정확히 같은 리터럴. 구조적 assertion(아래)으로 표류를 막는다.
+- [x] 판정을 주장하는 색 토큰 금지 — `.edge.edge-candidate`는 `stroke`를 안 건드리고(neutral 유지),
+  `graphPanel.test.ts`의 기존 allow-list+deny-list 패턴을 새 규칙에도 적용한 테스트 2개 추가,
+  **뮤테이션으로 양쪽 다 직접 재확인**(`[실행]` — `vscode-testing-iconPassed`를 실제로 넣어 보고
+  정확히 그 테스트만 실패, 원복 후 재확인).
+- [x] 개수는 후보 **관계(edge)** 수로만 세고(`candidateEdges.length`), 확정 호출자 수에 합치지
+  않는다 — 범례에 별도 항목("Candidate (N)")으로 표시.
+- [x] **off/on 렌더 무변화 검증 — 단, CLI와 같은 실행 기반 폴라리티가 아니라 소스-구조 검증이다.**
+  `graphPanel.ts`가 `import * as vscode`를 쓰기 때문에(`adapterProviderShim.ts`와 같은 제약)
+  `toPayload()`를 plain `node --test`로 직접 실행할 방법이 없다 — CLI의 rollback 테스트처럼 실제
+  두 응답을 만들어 `deepEqual`할 vscode-host harness가 이 저장소에 없다. 대신
+  `toPayload()`의 소스를 읽어 `augmentedEdges`/`limitations`가 **단순 pass-through 대입 하나씩만**
+  있고 함수 안 다른 어디서도 그 이름이 안 나온다는 걸 구조적으로 확인했다(뮤테이션으로 재확인 —
+  가짜 조건부 참조를 넣으면 정확히 그 테스트만 실패). **이건 "off/on 렌더가 실제로 같다"를 실행으로
+  증명한 게 아니라 "코드 구조상 다른 로직이 없다"만 증명한다** — 차이를 PR 본문에 명시한다.
+- [x] 시각 검증 못 하는 부분은 "코드로 확인했다"를 "동작을 확인했다"로 안 쓴다 — 이 목록 자체와
+  PR 본문에 "무엇을 증명했고 무엇은 안 했는지"를 매 항목마다 구분해 적었다.
+
+## Backlog — target-synthetic 분기, 테스트 없음(reviewer 실행 확인, 테스트는 선행 조건 있음)
+
+`resolveCandidateEdgeEndpoints`/`resolveSyntheticNode`의 **target-synthetic 분기**(synthetic이
+`source`가 아니라 `target`인 edge)는 이 FastAPI adapter가 항상 `target: {kind:'existing', id:
+rootId}`만 내므로(두 `edges.push` 호출부 확인, PR #89 본문) **현재 도달 불가**다 — 두 번째
+framework adapter가 이 반대 형태(예: target이 synthetic)를 낼 때 처음 밟힌다.
+
+**reviewer가 소스에서 순수 함수를 텍스트로 추출해 직접 실행**해 정상 동작(anchor depth를 정확히
+이어받음)과 depth 필터 통합(anchor가 필터에서 빠지면 candidate 전체가 렌더 루프에 안 들어감)을
+둘 다 확인했다 — `[실행]`. **다만 이걸 영구 테스트로 그대로 남기지 않는다.**
+
+**이유**: 소스를 텍스트로 뽑아 `eval`하는 방식은 조사 도구로는 유효하지만, `getHtml()` 템플릿
+리터럴 안의 정확한 텍스트 형태(줄바꿈, 공백, 함수 선언 순서)에 의존해 **누가 포매팅만 바꿔도
+깨지는 취약한 테스트**가 된다. 제대로 고정하려면 `resolveCandidateEdgeEndpoints`/
+`resolveSyntheticNode`(그리고 `CANDIDATE_LABEL_TEXT` 등 관련 순수 로직)를 `getHtml()`의 템플릿
+리터럴 밖, 실제 별도 모듈로 먼저 들어내야 한다 — 이건 클라이언트 스크립트 자체의 구조를 바꾸는
+일이라 이 PR(그리고 이 gate 2 lane) 범위 밖이다.
+
+**선행 조건을 명시한다** — 다음에 이 백로그를 집는 사람이 비용을 알고 시작하도록:
+
+1. 클라이언트 스크립트의 순수 로직(`resolveCandidateEdgeEndpoints`, `resolveSyntheticNode`,
+   `relationLabel`, `truncate`, `clamp` 등 - vscode API를 안 쓰는 함수들)을 `getHtml()`의 템플릿
+   리터럴 밖, `.toString()`으로 문자열에 박아 넣는 지금의 `calculateGraphLayout`/
+   `calculateFitZoom` 등과 같은 패턴으로 옮긴다(이 파일이 이미 그 패턴을 쓰고 있다 - 새 메커니즘이
+   아니라 기존 것 확장).
+2. 그렇게 옮긴 뒤에야 `resolveCandidateEdgeEndpoints`를 `node --test`로 직접 `require`해 target-
+   synthetic 분기를 포함한 정상적인 유닛 테스트를 쓸 수 있다.
+3. **두 번째 framework adapter를 붙이는 작업의 필수 선행 항목**으로 취급한다 — 그 시점에 이
+   분기가 실제로 도달 가능해지므로, 테스트 없이 넘어가면 안 된다.
+
+## gate 2 판정 — 닫힘(무엇이 검증됐고 무엇은 안 됐는지를 안고)
+
+gate 2 문구: **"추론 관계가 정적 확정 관계와 UI·JSON에서 구분된다."** milestone closure audit이
+이미 확인한 대로 **JSON 쪽은 stage 3에서 이미 닫혀 있었다**(`data.edges`/`data.augmentedEdges`
+분리, `resolution`/`evidenceSource` 필드, "candidate caller" 어휘가 response-policy eval로 고정).
+**UI 쪽이 이 gate가 못 닫힌 유일한 이유**였다(`task-m4-milestone-closure-audit.md`, Gate 2 절 —
+"`git grep -l "augmentedEdges" -- 'src/*'` → 0건"). PR #87~#89가 그 UI 쪽을 닫는다.
+
+**무엇이 검증됐는가**:
+- **JSON**: 변동 없음, 이미 CLI 쪽 corpus·response-policy eval로 검증돼 있던 그대로.
+- **UI, 소스-구조**: `toPayload()`가 `augmentedEdges`/`limitations`를 단순 pass-through로만 넘긴다는
+  것, 후보 스타일링이 판정 색 토큰·`stroke-dasharray`를 안 쓴다는 것, 낱말이
+  `CANDIDATE_CALLER_PHRASE`와 정확히 같다는 것 — **전부 뮤테이션으로 재확인**(각 항목을 실제로
+  틀리게 바꿔 정확히 그 테스트만 실패하는지 확인 후 원복, PR #89).
+- **UI, 순수 로직 실행**: `reviewer`가 `resolveCandidateEdgeEndpoints`/`resolveSyntheticNode`를
+  소스에서 뽑아 직접 실행해 source-existing 분기(이 adapter가 실제로 내는 유일한 형태)의 depth
+  계산·depth 필터 통합이 정상 동작함을 확인.
+- **완전성 논증과의 관계**: 이 lane은 adapter의 `provider`/`idOf` 계약을 좁히거나 확장했을 뿐,
+  adapter 내부에 새로운 재검증-없는 텍스트 매치 경로를 추가하지 않았다 — gate 4의 완전성 논증은
+  그대로 성립한다.
+
+**무엇이 검증 안 됐는가(숨기지 않는다)**:
+- **실제 VS Code webview 렌더** — 이 저장소에 extension-host 실행 harness가 없다(`vsce
+  package`/`ls`로 vsix 내용물은 확인했지만, 그 vsix를 실제로 설치해 그래프를 열어 본 적은 없다).
+- **`#arrow-candidate` marker가 `#arrow`와 실제로 시각적으로 구별되는지** — 텍스트 라벨이 1차
+  신호이고 marker는 보조/미검증으로 코드·PR에 명시했다.
+- **후보 라벨이 여럿일 때 겹치는지** — source 쪽으로 치우친 위치로 완화를 시도했지만 실측 못 함.
+- **off/on 렌더가 실제로 동일한지** — CLI rollback처럼 실행 기반으로 증명한 게 아니라
+  `toPayload()`의 소스-구조(단순 pass-through 하나씩)로만 증명했다. vscode-host harness가 없어
+  실행 기반 비교를 못 했다.
+- **target-synthetic 분기의 테스트** — 위 backlog 절 참고. 이 adapter로는 도달 불가라 지금 당장
+  사용자에게 영향은 없지만, 두 번째 adapter의 선행 조건으로 남는다.
+- **`reasonCode`/`resolution`/`evidenceRanges`가 UI에 안 보인다** — payload에는 그대로 실려 가지만
+  (`git grep`으로 직접 확인, 0건 사용) 클라이언트 스크립트가 아직 안 읽는다. gate 2 문구는 "구분"만
+  요구하지 "세부 근거 표시"까지 요구하지 않는다고 판단해 이번 lane 범위에 안 넣었다 — 다만 이건
+  실제 사용자가 "왜 이게 후보인지" 알 방법이 없다는 뜻이라, 다음 개선 후보로 남긴다.
+
+**판정: 검증된 것과 안 된 것을 위와 같이 밝히고, gate 2를 닫는다.** "UI가 전혀 없다"는 상태에서
+"UI가 있고, 실행 가능한 만큼은 검증됐고, 남은 검증 공백(특히 실제 webview 렌더)이 무엇인지 정확히
+적혀 있다"는 상태로 옮겼다는 게 판정의 근거다 — gate 4처럼 "검증 0건"으로 닫는 게 아니라, 이 gate가
+요구하는 핵심(JSON·UI 양쪽에서 구분됨)이 실제로 성립하고 그 성립 여부를 확인한 방법의 한계까지
+정직하게 기록했다는 게 판정의 근거다.

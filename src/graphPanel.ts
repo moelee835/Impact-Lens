@@ -14,6 +14,12 @@ import {
   summarizeCompleteness,
 } from './completeness';
 import { ImpactResult } from './types';
+// M4 gate 2 UI lane (docs/work/task-m4-gate2-shared-adapter.md). `AugmentedEdge` (and everything inside
+// it - `AugmentedEndpoint`, `SourceRange`) is already plain, JSON-safe data (strings/numbers only, no
+// `vscode.Uri`/`vscode.Range`) - unlike `ImpactNode`/`ImpactEdge` above, it needs NO conversion before
+// `JSON.stringify(payload)` below, so `toPayload()` passes `result.augmentedEdges` straight through.
+// Type-only import (erased at compile time, no require() emitted).
+import type { AugmentedEdge } from '../cli/dist/types';
 
 interface GraphPayload {
   readonly rootId: string;
@@ -99,6 +105,18 @@ interface GraphPayload {
     diagnostics: readonly { severity: string; message: string; line: number }[];
   }[];
   readonly edges: readonly { source: string; target: string }[];
+  /** Candidate callers a static Call Hierarchy cannot see on its own - never merged into `edges` above
+   * (M4 stage 1's rollback contract, `ImpactResult.augmentedEdges`'s own doc comment). Passed through
+   * unconverted (see the `AugmentedEdge` import's own comment). Empty array, not omitted, when
+   * augmentation is off or found nothing - the client script's own "any candidates at all?" checks read
+   * `.length`, never `in`/`?.`. */
+  readonly augmentedEdges: readonly AugmentedEdge[];
+  /** `ImpactResult.limitations` (static-coverage reasons AND augmentation limitations, appended - see
+   * that field's own doc comment for why they share one array without being merged in meaning). Passed
+   * through raw, unlike `coverage`/`completeness` above which are pre-summarized by `completeness.ts` -
+   * augmentation-sourced codes have no summarizer of their own yet, so the client renders the augmentation
+   * subset directly (`AUGMENTATION_LIMITATION_CODES` in the client script below). */
+  readonly limitations: readonly string[];
 }
 
 export class GraphPanel implements vscode.Disposable {
@@ -242,6 +260,8 @@ function toPayload(result: ImpactResult, canGoBack: boolean): GraphPayload {
       diagnostics: node.diagnostics,
     })),
     edges: result.edges.map(edge => ({ source: edge.source, target: edge.target })),
+    augmentedEdges: result.augmentedEdges,
+    limitations: result.limitations,
   };
 }
 
@@ -274,6 +294,20 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     .edge { fill: none; stroke: var(--vscode-descriptionForeground); stroke-width: 1.2; opacity: .58; marker-end: url(#arrow); }
     .edge-test { stroke: var(--vscode-charts-orange, #ea5c00); stroke-dasharray: 4 3; }
     .edge.selected { stroke: var(--vscode-focusBorder); stroke-width: 3; opacity: 1; }
+    /* M4 gate 2 UI lane (docs/work/task-m4-gate2-shared-adapter.md). '.edge-candidate' keeps '.edge's
+       own neutral stroke/opacity (NOT a color from any palette - a candidate is a difference in evidence
+       strength, not a fourth relation kind, and no color here should read as a verdict, the reasoning
+       'graphPanel.test.ts's gate-5 tests already enforce for '.node.test'). Only 'marker-end' changes,
+       to the second marker defined below - deliberately NOT 'stroke-dasharray' (already three meanings
+       in this file: '.edge-test', '.node.related', '.state.partial'). The text label
+       ('.edge-candidate-label') is the PRIMARY signal ('response-policy-engine.mjs's
+       'CANDIDATE_CALLER_PHRASE' - see the client script below); the marker shape is a secondary,
+       reinforcing cue whose actual legibility at this size has NOT been visually verified (no
+       real-browser/webview test harness in this repository - recorded here, not assumed). */
+    .edge.edge-candidate { marker-end: url(#arrow-candidate); }
+    .edge-candidate-label { fill: var(--vscode-descriptionForeground); font-size: 9px; font-weight: 600; pointer-events: none; }
+    .edge-candidate-label.selected { font-weight: 700; }
+    .node.candidate { opacity: .85; }
     .node { cursor: pointer; outline: none; }
     .node rect { fill: var(--vscode-editorWidget-background); stroke: var(--vscode-panel-border); stroke-width: 1.5; rx: 5; }
     .node:hover rect, .node:focus rect { stroke: var(--vscode-focusBorder); }
@@ -305,6 +339,10 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     .legend span::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--vscode-charts-blue); }
     .legend .transitive::before { background: var(--vscode-charts-purple); }
     .legend .test::before { background: var(--vscode-charts-orange, #ea5c00); }
+    /* Neutral gray, not a palette color - a candidate relationship is a difference in evidence strength,
+       not a fourth relation kind, so its legend dot must not read as one more category alongside
+       direct/transitive/test's colored ones. */
+    .legend .candidate::before { background: var(--vscode-descriptionForeground); }
     .warning { color: var(--vscode-editorWarning-foreground); }
     .state { padding: 2px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 10px; color: var(--vscode-descriptionForeground); font-size: 10px; }
     .state.stale, .state.analyzing { color: var(--vscode-editorWarning-foreground); }
@@ -328,7 +366,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     <button id="clear-changes">Clear live changes</button>
   </header>
   <main id="canvas" aria-live="polite"></main>
-  <div class="legend"><span id="legend-direct">Direct</span><span class="transitive" id="legend-transitive">Transitive</span><span class="test" id="legend-test">Test</span></div>
+  <div class="legend"><span id="legend-direct">Direct</span><span class="transitive" id="legend-transitive">Transitive</span><span class="test" id="legend-test">Test</span><span class="candidate" id="legend-candidate">Candidate</span></div>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const graph = ${serialized};
@@ -357,6 +395,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     const legendDirect = document.getElementById('legend-direct');
     const legendTransitive = document.getElementById('legend-transitive');
     const legendTest = document.getElementById('legend-test');
+    const legendCandidate = document.getElementById('legend-candidate');
 
     title.textContent = 'Root: ' + graph.rootName;
     const diagnosticCount = graph.nodes.reduce((sum, node) => sum + node.diagnostics.length, 0);
@@ -372,10 +411,19 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       if (graph.completeness.action && segments[index] === graph.completeness.action) continue;
       details.push(segments[index]);
     }
+    // M4 gate 2 UI lane (docs/work/task-m4-gate2-shared-adapter.md). commander's finding: pushing a code
+    // onto result.limitations records it in the data model, it does not by itself show it to a user -
+    // this is what actually surfaces augmentation_unsupported_workspace (the ONLY augmentation-sourced
+    // code today). Kept as its OWN line, never joined into the coverage.reasons line above - coverage is
+    // about what the static traversal could confirm (unaffected by augmentation either way,
+    // impactAnalyzer.ts's own comment on why they only share one array without sharing meaning).
+    const AUGMENTATION_LIMITATION_CODES = ['augmentation_unsupported_workspace'];
+    const augmentationLimitations = graph.limitations.filter(code => AUGMENTATION_LIMITATION_CODES.includes(code));
     if (graph.detailLevel === 'verbose') {
       details.push('provider ' + graph.completeness.providerLabel);
       details.push('lifecycle ' + graph.provider.lifecycle.stage + '/' + graph.provider.lifecycle.status);
       if (graph.coverage.reasons.length) details.push(graph.coverage.reasons.join(', '));
+      if (augmentationLimitations.length) details.push('augmentation: ' + augmentationLimitations.join(', '));
     }
     if (graph.completeness.action) details.push(graph.completeness.action);
     summary.textContent = details.join(' · ');
@@ -403,6 +451,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
         + ' from ' + (graph.coverage.semantic.evidenceSources.join(', ') || 'none'),
       'indexing: ' + graph.coverage.indexing.status,
       'reasons: ' + (graph.coverage.reasons.join(', ') || 'none'),
+      'augmentation: ' + (augmentationLimitations.join(', ') || 'none'),
     ].join('\n');
 
     for (let depth = 1; depth <= 20; depth += 1) addOption(analysisDepth, depth, depth === graph.coverage.traversal.requestedDepth);
@@ -474,7 +523,33 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       const nodes = graph.nodes.filter(node => node.depth <= visibleDepth);
       const ids = new Set(nodes.map(node => node.id));
       const edges = graph.edges.filter(edge => ids.has(edge.source) && ids.has(edge.target));
-      currentLayout = calculateGraphLayout(nodes, layoutConfig);
+      // M4 gate 2 UI lane (docs/work/task-m4-gate2-shared-adapter.md). 'augmentedEdges' never touches
+      // 'graph.nodes'/'graph.edges' themselves (M4 stage 1's rollback contract - 'ImpactResult.
+      // augmentedEdges's own doc comment) - synthetic endpoints exist ONLY in this render-local
+      // 'syntheticNodes' array, never written back into 'graph'. 'calculateGraphLayout()' only reads
+      // '{id, depth}' (graphLayout.ts), so passing synthetic entries into the SAME call below needs no
+      // change to that function at all.
+      //
+      // Depth for a synthetic endpoint follows whichever endpoint of its edge IS in 'graph.nodes'
+      // ("connected node's depth + 1"), not "always render" - a synthetic node whose anchor is not
+      // currently visible (depth-filtered out by 'visibleDepth' above) is skipped the same way, keeping
+      // the depth slider's meaning intact for candidates too. Every augmented edge this adapter produces
+      // in fact has 'target: {kind:'existing', id: rootId}' (confirmed directly against both 'edges.push'
+      // call sites in 'fastapiDependencyAdapter.ts', root is always depth 0), so 'depth + 1' collapses to
+      // 1 in practice today - written generically (whichever side is 'existing') rather than hardcoded to
+      // root, since nothing in the 'AugmentedEdge' type itself guarantees a future adapter keeps that
+      // shape. If the SAME synthetic endpoint is reachable from more than one anchor (two different
+      // existing nodes both citing it), the first depth computed wins - a real simplification, not
+      // expected to matter for this adapter's own edge shapes today.
+      const nodeById = new Map(nodes.map(node => [node.id, node]));
+      const syntheticNodesById = new Map();
+      const candidateEdges = [];
+      for (const augmented of graph.augmentedEdges) {
+        const resolved = resolveCandidateEdgeEndpoints(augmented, nodeById, syntheticNodesById);
+        if (resolved) candidateEdges.push(resolved);
+      }
+      const syntheticNodes = [...syntheticNodesById.values()];
+      currentLayout = calculateGraphLayout([...nodes, ...syntheticNodes], layoutConfig);
       const surface = calculateViewportSurface(
         currentLayout.width,
         currentLayout.height,
@@ -490,7 +565,15 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       svg.setAttribute('height', String(surface.height));
       svg.setAttribute('role', 'img');
       svg.setAttribute('aria-label', 'Incoming call impact graph. Single click selects; double click opens code.');
-      svg.innerHTML = '<defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7" fill="none" stroke="currentColor"></path></marker></defs>';
+      // M4 gate 2 UI lane. '#arrow-candidate' is deliberately larger AND closed (a hollow triangle, not
+      // an open chevron like '#arrow') - two changes together, not one, since a size-only or shape-only
+      // change alone was judged unlikely to read as different at this scale. NOT visually verified (no
+      // real-browser/webview harness here) - the text label on each candidate edge is the signal this
+      // design actually depends on; this marker is a secondary, unverified reinforcement only.
+      svg.innerHTML = '<defs>'
+        + '<marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7" fill="none" stroke="currentColor"></path></marker>'
+        + '<marker id="arrow-candidate" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="none" stroke="currentColor"></path></marker>'
+        + '</defs>';
       const content = document.createElementNS(ns, 'g');
       content.setAttribute('transform', 'translate(' + surface.offsetX + ',' + surface.offsetY + ') scale(' + zoom + ')');
       svg.appendChild(content);
@@ -508,6 +591,66 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
         path.dataset.source = edge.source;
         path.dataset.target = edge.target;
         content.appendChild(path);
+      }
+
+      // M4 gate 2 UI lane. Deliberately NOT folded into the confirmed-edge loop above, and the path here
+      // still carries the plain '.edge' class (plus '.edge-candidate') with the SAME 'dataset.source'/
+      // 'dataset.target' convention - so 'applySelection()'s existing '.edge' selector, 'related' set
+      // computation, and depth-based visibility (a candidate edge whose endpoint position is missing is
+      // skipped the same way) all already apply with NO changes to that function. Only the label
+      // ('.edge-candidate-label', not '.edge') needs its own small loop in 'applySelection()' below, since
+      // text is not what '.edge'-targeted CSS/selectors are for.
+      for (const candidate of candidateEdges) {
+        const source = currentLayout.positions[candidate.source];
+        const target = currentLayout.positions[candidate.target];
+        if (!source || !target) continue;
+        const path = document.createElementNS(ns, 'path');
+        const midX = (source.x + target.x) / 2;
+        const halfWidth = layoutConfig.nodeWidth / 2;
+        path.setAttribute('d', 'M' + (source.x + halfWidth) + ',' + source.y + ' C' + midX + ',' + source.y + ' ' + midX + ',' + target.y + ' ' + (target.x - halfWidth) + ',' + target.y);
+        path.setAttribute('class', 'edge edge-candidate');
+        path.dataset.source = candidate.source;
+        path.dataset.target = candidate.target;
+        content.appendChild(path);
+        // Positioned toward the SOURCE end (25% along, not the exact midpoint) - candidate edges
+        // converging on the same target from different sources share 'midX' (the midpoint formula above
+        // is symmetric in x), but their sources usually differ in y, so a source-biased position is less
+        // likely to collide when several candidates point at one target. NOT visually verified for a
+        // graph with many simultaneous candidates - a real crowding case may still need a different
+        // placement or a dedicated legend-only treatment instead of a per-edge label.
+        const labelX = source.x + halfWidth + (midX - (source.x + halfWidth)) * 0.5;
+        const labelY = source.y + (target.y - source.y) * 0.25;
+        const label = addText(content, CANDIDATE_LABEL_TEXT, labelX, labelY, 'edge-candidate-label');
+        label.dataset.source = candidate.source;
+        label.dataset.target = candidate.target;
+      }
+
+      for (const syntheticNode of syntheticNodes) {
+        const position = currentLayout.positions[syntheticNode.id];
+        if (!position) continue;
+        const group = document.createElementNS(ns, 'g');
+        // M4 gate 2 UI lane. Deliberately its OWN small rendering block, not a reuse of the confirmed-
+        // node loop below with special-casing bolted on: a synthetic endpoint has no backing ImpactNode
+        // (M4 stage 1's rollback contract - result.nodes/edges never gain an entry for it), so it has no
+        // note, no diagnostics, no reviewed/changed state, and no real click-to-open target the existing
+        // 'onOpenNode' message handler could resolve (it looks up 'result.nodes.find(...)', which would
+        // never find a synthetic id) - reusing that loop would mean stripping most of what it does rather
+        // than reusing it. 'cursor: default' (no '.node { cursor: pointer }' override) and no 'tabindex'/
+        // click listeners are intentional: this element is informational only, not interactive - adding
+        // real navigation for it was out of this lane's scope, not an oversight.
+        group.setAttribute('class', 'node candidate');
+        group.dataset.id = syntheticNode.id;
+        group.setAttribute('transform', 'translate(' + (position.x - (layoutConfig.nodeWidth / 2)) + ',' + (position.y - (layoutConfig.nodeHeight / 2)) + ')');
+        group.setAttribute('aria-label', syntheticNode.name + '. Candidate caller, not confirmed by static analysis.');
+        const rect = document.createElementNS(ns, 'rect');
+        rect.setAttribute('width', String(layoutConfig.nodeWidth));
+        rect.setAttribute('height', String(layoutConfig.nodeHeight));
+        group.appendChild(rect);
+        const textCenter = layoutConfig.nodeWidth / 2;
+        addText(group, truncate(syntheticNode.name, 26), textCenter, 18, 'node-name');
+        addText(group, CANDIDATE_LABEL_TEXT, textCenter, 33, 'node-relation');
+        addText(group, truncate(syntheticNode.path + ':' + syntheticNode.line, 36), textCenter, 66, 'node-location');
+        content.appendChild(group);
       }
 
       for (const node of nodes) {
@@ -583,6 +726,10 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       legendDirect.textContent = 'Direct (' + directCount + ')';
       legendTransitive.textContent = 'Transitive (' + transitiveCount + ')';
       legendTest.textContent = 'Test (' + testCount + ')';
+      // Count of rendered candidate RELATIONSHIPS (edges), not a node count - candidate is a property of
+      // an edge, not a node kind (see the CSS comment above '.node.candidate' and 'types.ts's own
+      // ImpactResult.augmentedEdges doc comment for why this is not a fourth relation).
+      legendCandidate.textContent = 'Candidate (' + candidateEdges.length + ')';
       requestAnimationFrame(() => {
         if (fitOnNextRender) {
           fitOnNextRender = false;
@@ -609,6 +756,14 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       for (const node of canvas.querySelectorAll('.node')) {
         node.classList.toggle('selected', node.dataset.id === selected);
         node.classList.toggle('related', !!selected && node.dataset.id !== selected && related.has(node.dataset.id));
+      }
+      // M4 gate 2 UI lane. A candidate edge's label is a plain '<text>', not '.edge' (so it is never
+      // matched by '.edge'-targeted CSS/selectors meant for the path's own stroke), so it needs this one
+      // extra loop to follow the same selection state the '.edge' loop above already computed for its
+      // matching path - everything else in this function (the '.edge'/'related'/'.node' handling) is
+      // unchanged.
+      for (const label of canvas.querySelectorAll('.edge-candidate-label')) {
+        label.classList.toggle('selected', !!selected && (label.dataset.source === selected || label.dataset.target === selected));
       }
       setRoot.disabled = !selected || selected === graph.rootId;
     }
@@ -680,6 +835,10 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       text.setAttribute('class', className);
       text.textContent = value;
       parent.appendChild(text);
+      // Returning the element is additive - every pre-existing call site here already ignored the return
+      // value (a plain statement), so this cannot change their behavior. M4 gate 2 UI lane needs it to
+      // attach 'dataset.source'/'dataset.target' to a candidate edge's own label afterward.
+      return text;
     }
     function truncate(value, maximum) { return value.length > maximum ? value.slice(0, maximum - 1) + '…' : value; }
     function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }
@@ -688,6 +847,49 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       if (node.relation === 'test') return node.depth === 1 ? 'Test · direct caller' : 'Test · ' + node.depth + ' hops';
       if (node.relation === 'direct') return 'Direct caller';
       return 'Transitive · ' + node.depth + ' hops';
+    }
+    // M4 gate 2 UI lane (docs/work/task-m4-gate2-shared-adapter.md). The literal string, not a paraphrase
+    // - 'scripts/lib/response-policy-engine.mjs's own \'CANDIDATE_CALLER_PHRASE\' ('candidate caller') is
+    // what the CLI's response-policy engine and its doc-invariant already share as one source specifically
+    // to prevent this exact kind of drift; this file cannot import that constant directly (a plain .mjs
+    // script, a different module system from this file's compiled output), so a graphPanel.test.ts
+    // structural assertion reads response-policy-engine.mjs's source text and checks this literal still
+    // matches it, the same way that test file already checks CSS tokens against a known-good value.
+    var CANDIDATE_LABEL_TEXT = 'candidate caller';
+    // Resolves one AugmentedEdge's source/target into plain ids the layout/render loops above can use -
+    // an 'existing' endpoint's id must already be in 'nodeById' (the depth-filtered node set) or the
+    // whole edge is skipped, same reasoning as the confirmed-edge loop's own 'if (!source || !target)
+    // continue'. A 'synthetic' endpoint gets (or reuses) a pseudo-node via 'resolveSyntheticNode' below.
+    function resolveCandidateEdgeEndpoints(augmented, nodeById, syntheticNodesById) {
+      if (augmented.source.kind === 'existing' && !nodeById.has(augmented.source.id)) return undefined;
+      if (augmented.target.kind === 'existing' && !nodeById.has(augmented.target.id)) return undefined;
+      var anchor = augmented.source.kind === 'existing' ? nodeById.get(augmented.source.id)
+        : augmented.target.kind === 'existing' ? nodeById.get(augmented.target.id) : undefined;
+      var sourceId = augmented.source.kind === 'existing' ? augmented.source.id
+        : resolveSyntheticNode(augmented.source, anchor, syntheticNodesById);
+      var targetId = augmented.target.kind === 'existing' ? augmented.target.id
+        : resolveSyntheticNode(augmented.target, anchor, syntheticNodesById);
+      if (!sourceId || !targetId) return undefined;
+      return { source: sourceId, target: targetId };
+    }
+    // 'anchor' is the edge's OTHER endpoint (already confirmed 'existing' by the caller) - this is what
+    // "depth + 1, not always render" (docs/work/task-m4-gate2-shared-adapter.md's UI to-do list) means in
+    // code: without an anchor there is no depth to place a synthetic pseudo-node at, so it is skipped
+    // (returns undefined) rather than guessed - no adapter produces an edge with no 'existing' endpoint
+    // at all today, so this is a defensive case, not one exercised by the current adapter.
+    function resolveSyntheticNode(endpoint, anchor, syntheticNodesById) {
+      if (!anchor) return undefined;
+      var key = endpoint.file + '#' + endpoint.range.start.line + ':' + endpoint.range.start.column + '#' + endpoint.name;
+      if (!syntheticNodesById.has(key)) {
+        syntheticNodesById.set(key, {
+          id: 'candidate:' + key,
+          depth: anchor.depth + 1,
+          name: endpoint.name,
+          path: endpoint.file,
+          line: endpoint.range.start.line,
+        });
+      }
+      return syntheticNodesById.get(key).id;
     }
     render();
   </script>
