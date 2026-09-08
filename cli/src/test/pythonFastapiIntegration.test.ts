@@ -378,6 +378,11 @@ const MOUNT_UNRESOLVED_GUARD_FIXTURES: ReadonlyArray<{ readonly file: string; re
   { file: 'adversary_dictattr_router.py', line: 15, label: 'unrelated identifier shape - a dict-lookup result shares the router\'s name' },
   { file: 'adversary_factory_router.py', line: 18, label: 'unrelated identifier shape - an unrelated factory\'s return value shares the router\'s name' },
   { file: 'adversary_typed_router.py', line: 17, label: 'unrelated identifier shape - a non-APIRouter-typed variable shares the router\'s name' },
+  // M4 gate 4 module-resolution follow-up, round 2 (docs/work/task-m4-gate4-module-resolution.md):
+  // commander's counterexample to the self-mount reasoning above - a NESTED scope (function parameter
+  // here) shadowing the module-level router, on both the self-mount and cross-file paths.
+  { file: 'adversary_selfshadow_router.py', line: 17, label: 'nested-scope shadow shape - a function parameter shadows root\'s own module-level router, in the SAME file' },
+  { file: 'adversary_crossshadow_router.py', line: 16, label: 'nested-scope shadow shape - a function parameter shadows a genuinely-imported router, in a DIFFERENT file' },
 ];
 
 for (const fixture of MOUNT_UNRESOLVED_GUARD_FIXTURES) {

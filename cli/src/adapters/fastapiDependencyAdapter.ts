@@ -321,11 +321,18 @@ function pathEndsWithSegments(fullPath: string, suffixParts: readonly string[]):
  * - Qualified access through a module alias (`import mod; mod.name`) is separately out of scope, per this
  *   file's top-of-file comment - the same accepted miss `attr_mount_router.py` already documents for the
  *   `Depends()` path.
- * - The suffix comparison for absolute imports can still coincide if two DIFFERENT top-level trees in the
- *   same workspace both happen to end in the identical dotted path (e.g. two vendored copies of the same
- *   package name) - a narrower, much rarer version of the collision round 1 closed for the common case,
- *   left as an accepted residual limitation rather than resolving real package roots (out of scope, see
- *   this function's own "no package metadata is read" framing).
+ * - The suffix comparison for absolute imports degenerates as the dotted path gets SHORTER, not just in
+ *   the "two identical nested trees" case an earlier version of this comment led with (confirmed too
+ *   narrow, commander review): a SINGLE-SEGMENT absolute import (`from users import router`, no dots
+ *   in the module path at all) compares a one-element suffix - i.e. `rootFile`'s bare basename - so it
+ *   matches a `users.py` at ANY depth, in any unrelated package, confirmed directly. This is not a rare
+ *   coincidence like two vendored copies of the same nested path; a top-level `from <module> import x`
+ *   is an ordinary, common Python import shape, so this degenerate case is reachable far more easily than
+ *   the deep-path collision case. It is still narrower than what round 1 (last-segment-only, ALL absolute
+ *   imports regardless of dots) left open, and left as an accepted residual limitation for the same reason
+ *   - resolving real package roots is out of scope, per this function's own "no package metadata is read"
+ *   framing - but the scope of what remains open should be read as "any single-segment absolute import",
+ *   not as an exotic vendoring scenario.
  */
 // Exported for fastapiDependencyAdapterImportsNameFromModule.test.ts only - a unit test feeding this
 // function CRLF input directly, so the Windows-only `$`-anchor regression (git history: the anchor was
@@ -411,8 +418,34 @@ function sameFile(a: string, b: string): boolean {
  *    unaffected by this). This was the check making `router` (the common name FastAPI's own tutorial
  *    uses) collide across ANY two files anywhere in the workspace, self-mount or not - the reason a
  *    router-per-file FastAPI project (the ordinary case) could not use this feature at all.
+ * 3. A bare identifier match sitting in a NESTED scope that shadows the binding this search actually
+ *    means - `MODULE_LEVEL_LINE_PATTERN` below (M4 gate 4 module-resolution follow-up round 2,
+ *    docs/work/task-m4-gate4-module-resolution.md). Point 2's "self-mount is unambiguous" argument
+ *    assumed a single scope; a second commander round found the counterexample that breaks it:
+ *    ```
+ *    router = APIRouter()
+ *    @router.get("/x")
+ *    def handler() -> str: ...
+ *    def setup(app, router):        # <- parameter SHADOWS the module-level `router`
+ *        app.include_router(router) # <- refers to the parameter, not the module-level binding
+ *    ```
+ *    confirmed directly: querying `handler` produced a confident edge even though the module-level
+ *    router is never actually mounted anywhere. A function parameter, a `for`/comprehension target, or a
+ *    nested `def` binding the same name all reproduce this - the same shape `adversary_param_router.py`
+ *    already tests, just inside root's OWN file instead of an unrelated one, which is exactly why the
+ *    self-mount branch's "no import statement to verify" reasoning missed it: it never claimed to check
+ *    scope, only file identity. Requiring the matched `include_router(...)` line itself to have no
+ *    leading whitespace (Python's own top-level indentation) rejects every nested-scope shadow, on BOTH
+ *    the self-mount and cross-file paths - the cross-file path has the identical exposure (confirming a
+ *    file imports the right name from the right module says nothing about whether the specific
+ *    `include_router(...)` call being credited is the module-level reference or a shadowed one in some
+ *    nested function in that same file). Deliberately false-negative-directed, matching this file's own
+ *    asymmetry principle: a genuine module-level mount written inside an indented `if`/`try` block (rare,
+ *    and indentation-visible only, e.g. `if condition:\n    app.include_router(router)`) is now also
+ *    missed - accepted, not fixed, for the same reason `dynamic_mount_router.py`'s call-expression miss
+ *    is accepted.
  *
- * A third thing this search must NOT do: treat a TRUNCATED walk as having confirmed a mount that was only
+ * One more thing this search must NOT do: treat a TRUNCATED walk as having confirmed a mount that was only
  * ever found in a file the walk happened to visit. `mountFound` is a positive claim - a truncated search
  * that never finds it is safely "not found", same as always, and every confirmed contribution now comes
  * from an already-visited, already-exactly-matched file (`nameAmbiguous`'s removal above means there is no
@@ -459,6 +492,11 @@ function sameFile(a: string, b: string): boolean {
  * `include_router(name()` or `include_router(get_name())`) IS deliberate: it is exactly what leaves
  * dynamic registration (stage 1's own out-of-scope example) unmatched, with no special-casing needed.
  */
+// A line with no leading whitespace - Python's own top-level indentation, not a claim about syntax
+// validity. See isRouterMounted()'s doc comment (point 2) for why every include_router(...) match this
+// file counts, self-mount or cross-file, is required to sit on one of these lines.
+const MODULE_LEVEL_LINE_PATTERN = /^\S/;
+
 async function isRouterMounted(name: string, rootFile: string, workspace: string, budget: AdapterBudget): Promise<MountSearchResult> {
   const mountPattern = new RegExp(`\\binclude_router\\(\\s*${escapeRegExp(name)}\\s*[,)]`);
   const walkState = { filesVisited: 0, maxFiles: budget.maxFiles, truncated: false };
@@ -471,16 +509,20 @@ async function isRouterMounted(name: string, rootFile: string, workspace: string
       return;
     }
     const searchable = stripCommentsAndStrings(text);
-    if (!mountPattern.test(searchable)) {
+    const lines = searchable.split('\n');
+    const hasModuleLevelMountCall = lines.some(line => MODULE_LEVEL_LINE_PATTERN.test(line) && mountPattern.test(line));
+    if (!hasModuleLevelMountCall) {
       return;
     }
     if (sameFile(file, rootFile)) {
       // A mount call alongside root's own binding, in the same file, IS that binding by construction
       // (`mounted_router.py`'s self-mount case) - no import statement to verify, and Python's own name
       // resolution already settles it regardless of what any other file in the workspace names its own,
-      // unrelated `APIRouter()` (see this function's own doc comment, point 2).
+      // unrelated `APIRouter()` (see this function's own doc comment, point 2) - AS LONG AS the mount
+      // call itself is not inside a nested scope that shadows the module-level binding (also point 2,
+      // `MODULE_LEVEL_LINE_PATTERN` above).
       mountFound = true;
-    } else if (importsNameFromModule(searchable.split('\n'), name, rootFile, file)) {
+    } else if (importsNameFromModule(lines, name, rootFile, file)) {
       mountFound = true;
     }
   });

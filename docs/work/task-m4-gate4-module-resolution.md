@@ -217,30 +217,59 @@ CRLF 유닛 테스트.
 - **response-policy eval**: 이번 lane은 `response-policy-engine.mjs`를 안 건드려 재실행 불필요(코드
   변경 없음).
 
-### gate 4 최종 판정 — 닫힘으로 판단한다
+### gate 4 판정 — round 1: "닫힘"으로 결론 → round 2: commander 반례로 되돌림
 
-**세 번째 promotion 지점(mount 확인)에 대해 알려진 오탐 경로가 모두 닫혔다고 판단한다:**
+**round 1에서 다음과 같이 결론지었었다(이제 틀린 것으로 확인됨, 기록으로 남긴다):** 세 번째
+promotion 지점(mount 확인)에 대해 알려진 오탐 경로가 모두 닫혔다고 보고, gate 4를 닫힘으로
+판정했다. 남은 것은 절대 import suffix 비교의 "서로 다른 두 최상위 트리가 우연히 완전히 같은
+dotted path suffix로 끝나는 경우"뿐이라고 보고, gate 3과 같은 성격의 narrower-than-worded 한계로
+accepted 처리했다.
 
-1. 동명이인 무관 식별자(함수 매개변수·loop 변수·dict/attr·factory·non-router 타입·다른 모듈
-   import) — PR #84에서 닫힘, 이번 lane에서 회귀 없음 재확인.
-2. cross-package 동일 basename 충돌(상대·절대 import 둘 다) — 이번 lane에서 닫힘, 6케이스 행렬 +
-   실제 fixture로 확인.
-3. self-mount + 워크스페이스 무관 동명 충돌 — 이번 lane에서 근거 없는 오판이었음을 확인하고 정정.
+**round 2 — commander가 self-mount 근거 자체에 반례를 냈다, 실행으로 확인.** "self-mount는 같은
+파일 안이라 Python 스코프상 자명하다"는 주장이 **단일 스코프를 가정**하고 있었다 — 안쪽 스코프
+(함수 매개변수, comprehension 변수, 중첩 `def`)가 module-level 바인딩을 가리는 경우를 빠뜨렸다.
+직접 재현(`[실행]`):
 
-**남은, 의도적으로 받아들인 잔여 한계 한 가지**: 절대 import의 suffix 비교가 **서로 다른 두
-최상위 트리가 우연히 완전히 같은 dotted path suffix로 끝나는 경우**(예: 두 개의 vendored 사본)
-여전히 구분 못 한다 — `importsNameFromModule()`의 doc comment에 명시. 이건 PR #84가 찾은 것보다
-**훨씬 좁은** 잔여 위험이고(그때는 마지막 segment만 같아도 충돌, 지금은 전체 dotted path가
-우연히 같아야 함), 이 파일의 기존 다른 accepted-miss 항목들(모듈 속성 mount, alias 변수 mount
-등)과 같은 성격의 "실측된, 문서화된, false-negative 방향" 한계라고 판단한다 — gate 3도 같은 종류의
-narrower-than-worded 한계를 안고 "문구상 유지"로 판정됐다.
+```python
+router = APIRouter()
 
-**결론: gate 4("모호한 DI/dynamic target을 임의로 확정 caller 승격 안 됨")를 닫힘으로 판정한다.**
-반론 여지: 위 잔여 suffix-collision 한계를 "임의 승격"의 새로운 형태로 더 엄격하게 읽으면 다르게
-판단할 수 있다 — 다만 그 형태가 실제로 트리거되려면 워크스페이스 안에 완전히 같은 dotted path를
-가진 서로 다른 두 트리가 있어야 하고, 이는 실측되지 않은 가정이다(PR #84의 cross-package 충돌은
-**basename**만 같으면 됐다는 점에서 질적으로 다르다).
+@router.get("/x")
+def handler() -> str: ...
+
+def setup(app, router):          # 매개변수가 module-level router를 가림
+    app.include_router(router)   # module-level router가 아니라 매개변수를 가리킴
+```
+
+이 파일을 실제 fixture로 만들어 쿼리하면(수정 전) `augmentedEdges` 1건과 확정 edge가 나왔다 —
+module-level router는 한 번도 mount된 적이 없는데도 "도달 가능"이 확정으로 나간 것이다.
+`adversary_param_router.py`(PR #84)와 정확히 같은 형태가, **root 파일 자기 자신 안에** 있는
+버전이다. **이 근거는 commander가 준 것이었고, 이전 세션이 "반례를 못 찾았다"고 보고한 것은
+정직한 결과였다 — 전제 자체가 틀려 있었다.**
+
+**수정**: `MODULE_LEVEL_LINE_PATTERN`(`/^\S/` — 들여쓰기 없는 줄만 인정) 추가, `include_router(NAME)`
+매칭 줄 자체가 module-level일 때만 self-mount·cross-file 양쪽 다 신뢰하도록 변경. cross-file
+경로도 같은 노출이 있다는 지적을 확인·반영했다 — provenance(import)가 진짜여도 실제로 credit되는
+`include_router(...)` 호출이 그 파일의 안쪽 스코프에 있을 수 있기 때문이다.
+
+**검증**: 기존 양성 fixture(`mounted_router.py`, `collision_*_mounted.py` 3종, `crossfile_positive_*`,
+`module_resolution_*` 전체) 전부 module-level이라 실행으로 재확인 — 회귀 없음(전체 스위트
+386→389 tests, 계속 pass). 신규 fixture 2개(`adversary_selfshadow_router.py`,
+`adversary_crossshadow_router.py`) 추가 — mutation으로 non-vacuity 확인(module-level 요구를
+제거하면 정확히 이 2개만 실패). **부작용(안전한 방향, 한계로 기록)**: 모듈 레벨 `if`/`try` **블록
+안에 들여써서** 쓴 진짜 mount 호출은 이제 미탐이 된다.
+
+**잔여 한계 서술도 정정**: `importsNameFromModule()`의 절대 import suffix 비교 잔여 위험을 "두
+vendored 사본"으로 좁게 적었던 것을 "segment 하나뿐인 절대 import는 basename 비교로 퇴화해 어느
+깊이의 동명 파일이든 맞는다"는 실제 범위로 고쳤다 — commander가 직접 반례(`from users import
+router` vs 깊이 4단계 root)로 확인.
+
+**gate 4 최종 판정: 아직 닫지 않는다.** gate 문구("모호한 DI/dynamic target을 임의로 확정 caller
+승격 안 됨")가 정확히 금지하는 형태(root의 router를 가리키지도 않는 증거로 도달성을 확정)가 이번에
+또 나왔다 — PR #81이 한 실수(근거는 실재했지만 경로 범위가 좁았음)와 같은 부류다. 이번 수정
+(module-level 요구)으로 발견된 형태는 닫았지만, **같은 판단 오류가 반복된 이력(round 1도 "닫혔다"고
+결론지었다가 틀렸음)을 고려해 이번에도 스스로 닫힘 선언을 하지 않는다** — reviewer의 독립 검토
+결과와 사용자 결정을 기다린다.
 
 **문서 갱신**: `handover-2026-09-04.md`·`task-m4-milestone-closure-audit.md`·`task-m4-gate3-gate4-
-closure.md`의 gate 개수를 **닫힘 4 / 열림 4**로 갱신(rollback, alias·sub-dep·cross-file fixture,
-test-passed 색, 임의 승격 안 됨).
+closure.md`를 round 1의 "닫힘 4 / 열림 4"에서 **닫힘 3 / 재개방·수정 중 1(gate 4) / 열림 4**로
+되돌리고, 왜 아직 못 닫는지 명시했다.
