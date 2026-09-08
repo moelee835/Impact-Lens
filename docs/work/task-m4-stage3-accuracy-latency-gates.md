@@ -158,18 +158,25 @@ resolution.md`) — 이번 lane 자체의 변경.** `nameAmbiguous` 제거로 �
 진음성에서 진양성으로 이동했고, 신규 fixture 4개(cross-package 오탐 거부 1건 진음성, 다중 router
 프로젝트 양성 1건 + 상대 import 깊이 2건 = 진양성 3건)가 추가됐다.
 
-**최종 재계산(`npm test`, 2026-09-07 재실행으로 직접 확인): 29개 쿼리(진양성 12 + 진음성 17)에서
+**2026-09-07 정정 3(같은 lane, round 2 — self-mount shadowing 반례) — commander의 self-mount 근거
+자체에 반례가 있었다.** self-mount 분기가 "같은 파일 안이면 Python 스코프상 자명하다"고 가정했는데,
+안쪽 스코프(함수 매개변수 등)가 module-level 바인딩을 가리는 경우를 빠뜨렸다 — 실행으로 확인(아래
+"작업 로그" 참고), `MODULE_LEVEL_LINE_PATTERN`으로 수정, 신규 fixture 2개(self-mount shadow,
+cross-file shadow) 추가.
+
+**최종 재계산(`npm test`, 2026-09-07 재실행으로 직접 확인): 31개 쿼리(진양성 12 + 진음성 19)에서
 precision 100%(오탐 0건), 변동 없음.**
 
-- **진양성 12개** (기존 6 + PR #84엔 없음 + 이번 lane 6): 기존 6개(`Depends()` 직접 import 2건,
-  `app = FastAPI()` route handler 2건, alias 1건, `mounted_router.py` 1건) + 이름 충돌 self-mount
-  3건(방금 이동) + cross-package 다중 router 프로젝트 양성 1건(`module_resolution_pkg_b`) + 상대
-  import 2건(`module_resolution_relative/routers/users.py`,
+- **진양성 12개** (기존 6 + PR #84엔 없음 + module-resolution round 1의 6): 기존 6개(`Depends()`
+  직접 import 2건, `app = FastAPI()` route handler 2건, alias 1건, `mounted_router.py` 1건) + 이름
+  충돌 self-mount 3건(round 1에서 이동) + cross-package 다중 router 프로젝트 양성 1건
+  (`module_resolution_pkg_b`) + 상대 import 2건(`module_resolution_relative/routers/users.py`,
   `module_resolution_relative/routers/nested_users.py`).
-- **진음성 17개** (기존 13 - 이동한 3 + PR #84의 6 + 신규 1): 기존 13개 중 이름 충돌 6건이 3건으로
-  줄고(unmounted 절반만 남음) 나머지 7개(무관한 일반 호출, decoy, 미mount router, 동적 등록,
-  주석·docstring·문자열 리터럴 각 1건)는 그대로, PR #84의 adversarial 6건, 이번 lane의
-  cross-package 오탐 거부 1건(`module_resolution_pkg_a`).
+- **진음성 19개** (기존 13 - 이동한 3 + PR #84의 6 + round 1 신규 1 + round 2 신규 2): 기존 13개 중
+  이름 충돌 6건이 3건으로 줄고(unmounted 절반만 남음) 나머지 7개(무관한 일반 호출, decoy, 미mount
+  router, 동적 등록, 주석·docstring·문자열 리터럴 각 1건)는 그대로, PR #84의 adversarial 6건, round
+  1의 cross-package 오탐 거부 1건(`module_resolution_pkg_a`), round 2의 nested-scope shadow
+  2건(`adversary_selfshadow_router.py`, `adversary_crossshadow_router.py`).
 
 **corpus 편향을 명시한다**: 위 fixture들은 **우리가 실제 버그를 찾은 자리**에서 자랐다 — 이름 충돌,
 주석, alias identity 불일치, 이제는 package 경로 불일치까지. 이건 실제 FastAPI 코드베이스의 실패
@@ -213,15 +220,29 @@ alias"뿐이다** — 알려진 shape 카테고리는 이제 5개이고, 그중 
 통과한다(2/5, 40% — 발행 당시의 2/4·50%에서 정정). 이 비율(아래 "coverage of known shapes")도
 fixture corpus 기준 proxy이지 실제 recall이 아니다.
 
-**2026-09-07 추가 — 워크스페이스 구성에 따라 이미 올바르게 쓰인 mount도 거부될 수 있다.** M4 gate
-4 재개방 lane(`docs/work/task-m4-gate4-mount-false-positive.md`, "남은 한계")에서 commander가 직접
-확인: `isRouterMounted()`의 `nameAmbiguous` 검사는 mount 호출부의 provenance가 이미 증명된 뒤에도
-**워크스페이스 어딘가에 무관한 `router = APIRouter()`가 하나만 있으면** 그 mount를 거부한다.
+**2026-09-07 추가, 이후 해결 — 워크스페이스 구성에 따라 이미 올바르게 쓰인 mount가 거부되던 문제.**
+M4 gate 4 재개방 lane(`docs/work/task-m4-gate4-mount-false-positive.md`, "남은 한계")에서 commander가
+직접 확인: `isRouterMounted()`의 `nameAmbiguous` 검사는 mount 호출부의 provenance가 이미 증명된
+뒤에도 워크스페이스 어딘가에 무관한 `router = APIRouter()`가 하나만 있으면 그 mount를 거부했다 —
 `router`는 FastAPI 공식 튜토리얼의 관행적 변수명이라, router 모듈이 둘 이상인 프로젝트에서는 코드를
-정확히 썼어도 이 기능이 발동하지 않을 수 있다. **위 "known shape coverage" 분모에는 넣지 않았다**
-— 그 proxy는 mount를 표현하는 구문 형태를 묻는데, 이건 코드를 어떻게 썼는지가 아니라 워크스페이스
-구성(무관한 동명 모듈의 존재 여부)에 좌우되는, 성격이 다른 질문이기 때문이다(판단 근거는 위 작업
-문서 참고).
+정확히 썼어도 이 기능이 발동하지 않았다. **`docs/work/task-m4-gate4-module-resolution.md`에서
+`nameAmbiguous`를 완전히 제거해 해결됨** — 다중 router 프로젝트도 정상 동작한다.
+
+**2026-09-07 추가 (module-resolution lane, round 2) — 남은 잔여 한계 두 가지, 실측 확인:**
+
+1. **nested scope shadowing.** `include_router(NAME)`이 텍스트로 매칭되는 위치가 module-level이
+   아니라 함수 매개변수·comprehension 변수·중첩 `def` 등 **안쪽 스코프 안**이면, 그 이름이 module-
+   level 바인딩을 가리고 있어도 구분하지 못했다(self-mount·cross-file 양쪽 다) — commander가 반례로
+   확인, 이 세션이 재현. `MODULE_LEVEL_LINE_PATTERN`(들여쓰기 없는 줄만 인정)으로 수정. **부작용
+   (안전한 방향, 한계로 기록)**: 모듈 레벨 `if`/`try` 블록 **안**에 들여써서 쓴 진짜 mount 호출은
+   이제 미탐이 된다(`if condition:\n    app.include_router(router)` 형태 — 같은 줄에 쓴
+   `if condition: app.include_router(router)`는 여전히 잡힌다).
+2. **절대 import suffix 비교의 실제 범위.** `importsNameFromModule()`의 잔여 한계 주석이 처음엔
+   "두 개의 vendored 사본"처럼 좁게 적혀 있었으나, 실제로는 더 넓다 — **segment가 하나뿐인 절대
+   import**(`from users import router`, dot 없이 모듈 이름 하나)는 suffix 비교가 `rootFile`의
+   basename 하나만 비교하는 것으로 퇴화해, **어느 깊이의 동명 파일이든** 매치된다. 이건 흔한 top-
+   level import 형태라 "두 vendored 사본이 우연히 겹치는" 경우보다 훨씬 자주 닿는다 — 여전히 round
+   1(모든 절대 import가 항상 이렇게 퇴화)보다는 좁지만, 서술을 실제 범위로 정정했다.
 
 ### 측정 — recall (측정 불가, proxy로 무엇을 쓰는지와 그 한계)
 

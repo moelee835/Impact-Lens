@@ -2,8 +2,9 @@
 
 - 상태: gate 3(문구상 유지, 범위는 좁음) 완료 / **gate 4는 이 문서가 다룬 두 지점 완료 → 세 번째
   지점(mount)이 M4 stage 3 사후 감사에서 발견돼 2026-09-07 재개방(`docs/work/task-m4-gate4-mount-
-  false-positive.md`) → 같은 날 잔여 gap까지 닫아 최종 완료(`docs/work/task-m4-gate4-module-
-  resolution.md`).** 상세는 아래 "2026-09-07 정정" 참고.
+  false-positive.md`) → `docs/work/task-m4-gate4-module-resolution.md`에서 수정 진행 중, **아직 안
+  닫힘**(commander 독립 검증이 self-mount 근거의 반례를 또 찾음 — nested scope shadowing).** 상세는
+  아래 "2026-09-07 정정" 참고.
 - branch: `feat/m4-gate3-gate4-closure`
 - 선행: PR #80(`docs/m4-milestone-closure-audit`, merge `09e0f50`)이 찾은 gate 3·4의 공백을 닫는다.
 - 이 둘을 같이 묶는 이유: 같은 파일(`fastapiDependencyAdapter.ts`)이고, 둘 다 "fixture 없는 코드
@@ -161,18 +162,25 @@ gap이 있다는 걸 보였으므로, gate 3의 "대표 fixture가 candidate·am
 정확하다"는 뜻이 아니다 — gate 문구 자체는 이 구분을 요구하지 않지만, 그 구분이 존재한다는 사실은
 남겨 둔다.
 
-## 2026-09-07 정정 2 — 사용자 결정으로 잔여 gap까지 닫음, gate 4 최종 닫힘
+## 2026-09-07 정정 2 — 사용자 결정으로 잔여 gap 수정을 이어감, 그러나 gate 4는 아직 못 닫음
 
 바로 위 절이 "재검토 대기"로 남긴 잔여 gap(cross-package basename 충돌, 그리고 이를 우연히 막던
-`nameAmbiguous`가 self-mount에서는 근거 없이 미탐만 만든다는 것)을 사용자 결정으로 같은 날
-`docs/work/task-m4-gate4-module-resolution.md`에서 닫았다 — 절대 import는 dotted path 전체를
+`nameAmbiguous`가 self-mount에서는 근거 없이 미탐만 만든다는 것)을 사용자 결정으로
+`docs/work/task-m4-gate4-module-resolution.md`에서 수정했다 — 절대 import는 dotted path 전체를
 `rootFile`의 path segment suffix와 비교(마지막 segment만 비교하던 것에서 교체, commander가 flat/
 src/nested layout 6케이스 행렬로 회귀 없음을 검증), 상대 import는 기존처럼 정확히 해석, `nameAmbiguous`
 는 완전히 제거(self-mount는 Python 스코프상 다른 파일과 무관하게 항상 명확하다는 것을 확인 —
 `collision_router_mounted.py`/`collision_typed_mounted.py`/`collision_qualified_mounted.py`의
 기존 "mount-unresolved" 기대값을 "확정 edge"로 반전).
 
-**gate 4를 최종 닫힘으로 판정한다.** 남은 잔여 한계 한 가지(서로 다른 두 최상위 트리가 완전히 같은
-dotted path suffix로 끝나는 경우, 실측 안 된 이론적 위험)는 gate 3이 이미 안고 있는 것과 같은 성격의
-narrower-than-worded 한계로 accepted — PR #84가 찾은 basename-only 충돌보다 훨씬 좁다(그때는
-basename만 같아도 충돌했다).
+**한 차례 "gate 4를 최종 닫힘으로 판정한다"고 적었으나, commander 독립 검증이 그 self-mount 근거
+자체에 반례를 찾아 되돌렸다.** self-mount 분기의 "같은 파일이면 Python 스코프상 자명하다"는 주장이
+**단일 스코프를 가정**했는데, 함수 매개변수 등 안쪽 스코프가 module-level 바인딩을 가리는 경우
+(`adversary_param_router.py`와 같은 형태가 root 파일 자기 자신 안에 있는 경우)를 놓쳤다 — 직접
+재현 확인. gate 문구("모호한 DI/dynamic target을 임의 승격 안 함")가 정확히 금지하는 형태라 gate
+4를 다시 닫지 않는다. 상세 수정은 같은 작업 문서 참고 — **gate 4는 여전히 재개방·수정 중.**
+
+남은 잔여 한계(절대 import suffix 비교, 서술을 실제 범위로 정정 — "두 vendored 사본"이 아니라
+"segment 하나뿐인 절대 import는 basename 비교로 퇴화")는 gate 3이 이미 안고 있는 것과 같은 성격의
+narrower-than-worded 한계로 받아들일 후보이지만, **gate 4 전체의 최종 판정은 self-mount shadowing
+수정이 검증된 뒤로 미룬다.**
