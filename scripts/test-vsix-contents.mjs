@@ -47,6 +47,45 @@ assert.ok(
   `output) - got none. Full file list:\n${posixFiles.join('\n')}`,
 );
 
+// commander's finding: the shared files' own SOURCE imports (`../../types`, i.e. cli/src/types.ts) name
+// only interfaces/type aliases today, so TypeScript erases them and no require() is emitted - but
+// nothing enforces that staying true. `.vscodeignore`'s negation only re-includes cli/dist/shared/**/*.js
+// (never `.json` either - noted here rather than fixed now, since nothing shared/ currently needs a
+// non-.js asset), so the moment a shared file imports a runtime VALUE from outside shared/ (e.g.
+// cli/src/types.ts's own `AUGMENTED_EDGE_SOURCES` export const), the compiled require() call targets a
+// file the vsix does not contain - CLI tests pass (cli/dist/types.js exists there), extension tests pass
+// (the source checkout has it too), and only an installed vsix breaks, silently and only at runtime. Scan
+// the ACTUAL compiled output for this on every run, not just the source imports, so a future change that
+// adds a value import is caught here instead of shipping.
+for (const relativeJsFile of sharedJs) {
+  const contents = await fs.readFile(path.join(repository, relativeJsFile), 'utf8');
+  const requireTargets = [...contents.matchAll(/require\((['"])([^'"]+)\1\)/g)].map(match => match[2]);
+  const sharedDir = path.dirname(path.join(repository, relativeJsFile));
+  for (const target of requireTargets) {
+    if (target.startsWith('node:') || !target.startsWith('.')) {
+      // `node:` builtins are fine everywhere; a non-relative, non-`node:` specifier would be an npm
+      // package - shared/ has none of those today (verified: cli/package.json's own "dependencies" are
+      // never required from shared/'s compiled output in this scan), and adding one would need this
+      // check updated deliberately, not silently passed through.
+      assert.ok(
+        target.startsWith('node:'),
+        `${relativeJsFile} requires a non-relative, non-node: target "${target}" - shared/ has no npm ` +
+        'package dependencies today; if this is intentional, this check needs a matching update, not a bypass',
+      );
+      continue;
+    }
+    const resolved = path.resolve(sharedDir, target);
+    const sharedRoot = path.join(repository, 'cli', 'dist', 'shared');
+    assert.ok(
+      resolved === sharedRoot || resolved.startsWith(sharedRoot + path.sep),
+      `${relativeJsFile} requires "${target}", which resolves to ${resolved} - outside cli/dist/shared/. ` +
+      'The vsix only ships cli/dist/shared/**/*.js (see .vscodeignore), so this would be a real ' +
+      'MODULE_NOT_FOUND for any user who installs the packaged extension, even though CLI tests (the file ' +
+      'exists in cli/dist/) and extension tests (the file exists in the source checkout) both stay green.',
+    );
+  }
+}
+
 const forbiddenPrefixes = ['cli/node_modules/', 'cli/src/'];
 for (const prefix of forbiddenPrefixes) {
   const offenders = posixFiles.filter(f => f.startsWith(prefix));
