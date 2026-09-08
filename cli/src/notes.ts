@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { isOutside, relativeFile } from './impact';
+import { isOutside, relativeFile } from './shared/impactHelpers';
 import {
   CallHierarchyItem,
   CliError,

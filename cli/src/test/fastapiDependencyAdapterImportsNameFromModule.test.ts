@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { importsNameFromModule } from '../adapters/fastapiDependencyAdapter';
+import { importsNameFromModule } from '../shared/adapters/fastapiDependencyAdapter';
 
 // M4 gate 4 module-resolution follow-up (docs/work/task-m4-gate4-module-resolution.md).
 // `importsNameFromModule()` went through two designs after the original stem-only comparison (M4 gate 4

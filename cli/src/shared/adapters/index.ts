@@ -1,7 +1,7 @@
 // M4 stage 2 - the whole "registry" is this one array. See `./types.ts` for why this is deliberately
 // not a bigger plugin-loading abstraction.
 
-import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../types';
+import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../../types';
 import { fastapiDependencyAdapter } from './fastapiDependencyAdapter';
 import { AdapterBudget, RegisteredAdapter } from './types';
 
@@ -30,6 +30,14 @@ export interface AugmentationResult {
  * the static traversal's `TraversalFacts`/`facts.limits`. Returns an empty result with no adapter
  * invoked at all when `enabled` is false - the kill switch default (M4 stage 2, IL-LIM-001/002's own
  * rollout sections both call for adapters shipped disabled by default).
+ *
+ * `provider` is narrowed to `Pick<CallHierarchyProvider, 'prepare'>` (M4 gate 2 shared-adapter lane,
+ * matching `AdapterInput.provider`'s own narrowing - see that field's doc comment in `./types.ts`):
+ * this function only ever forwards `provider` straight into `AdapterInput`, it never calls any method on
+ * it itself, so requiring the full six-member interface here would have been a second, needless place a
+ * second host's provider shim had to implement `incoming`/`collectDiagnostics`/`dispose`/`capabilities`
+ * just to satisfy a type nothing actually uses. The CLI's own call site (`impact.ts`) needed no change -
+ * a full `CallHierarchyProvider` still structurally satisfies this narrower parameter type.
  */
 export async function runAugmentation(
   enabled: boolean,
@@ -37,8 +45,12 @@ export async function runAugmentation(
   workspace: string,
   root: CallHierarchyItem,
   rootId: string,
-  provider: CallHierarchyProvider,
+  provider: Pick<CallHierarchyProvider, 'prepare'>,
   existingNodeIds: ReadonlySet<string>,
+  // The host's own symbol-id scheme (M4 gate 2 shared-adapter lane, docs/work/task-m4-gate2-shared-
+  // adapter.md, see AdapterInput.idOf's own doc comment for why an adapter cannot compute this itself).
+  // The CLI passes its own `symbolId` here; a second host (the VS Code extension) passes its own.
+  idOf: (item: CallHierarchyItem) => string,
 ): Promise<AugmentationResult> {
   if (!enabled) {
     return { edges: [], budgetExceededAdapterIds: [], mountUnresolvedAdapterIds: [] };
@@ -56,6 +68,7 @@ export async function runAugmentation(
       rootId,
       provider,
       existingNodeIds,
+      idOf,
       budget: DEFAULT_BUDGET,
     });
     edges.push(...result.edges);

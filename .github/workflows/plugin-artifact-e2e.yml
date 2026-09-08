@@ -27,3 +27,12 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run packed Plugin E2E
         run: npm run test:plugin-artifact
+      # M4 gate 2 shared-adapter lane (docs/work/task-m4-gate2-shared-adapter.md). Separate check from
+      # the CLI-tarball E2E above: nothing in this repo packaged or inspected a real .vsix before this
+      # lane, and the risk here is specific to it - a `.vscodeignore` negation rule re-including
+      # `cli/dist/shared/**/*.js` (so the extension can reach the FastAPI adapter) could just as easily
+      # over-match and ship `cli/node_modules/**` (pyright, typescript-language-server) instead. Run on
+      # all three OSes because path-separator handling in the file-list assertions is exactly the kind of
+      # thing that has broken silently on windows-latest before elsewhere in this repo.
+      - name: Run vsix contents check
+        run: npm run test:vsix-contents

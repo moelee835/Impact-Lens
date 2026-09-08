@@ -4,9 +4,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { fastapiDependencyAdapter } from '../adapters/fastapiDependencyAdapter';
-import { AdapterInput } from '../adapters/types';
-import { symbolId } from '../impact';
+import { fastapiDependencyAdapter } from '../shared/adapters/fastapiDependencyAdapter';
+import { AdapterInput } from '../shared/adapters/types';
+import { symbolId } from '../shared/impactHelpers';
 import { CallHierarchyItem, CallHierarchyProvider, IncomingCall, ProviderCapabilities, ProviderDiagnostic } from '../types';
 
 // M4 stage 3, "단계 4" (docs/work/task-m4-stage3-accuracy-latency-gates.md). `resolution: 'multiple'`
@@ -136,7 +136,7 @@ test(
       root,
       rootId,
       provider,
-      existingNodeIds: new Set([rootId, symbolId(handler)]),
+      existingNodeIds: new Set([rootId, symbolId(handler)]), idOf: symbolId,
       budget: { maxFiles: 200, maxMatchesPerFile: 20 },
     };
 
@@ -204,7 +204,7 @@ test(
       root,
       rootId,
       provider,
-      existingNodeIds: new Set([rootId, symbolId(handler)]),
+      existingNodeIds: new Set([rootId, symbolId(handler)]), idOf: symbolId,
       budget: { maxFiles: 200, maxMatchesPerFile: 20 },
     };
 
@@ -258,7 +258,7 @@ test(
       root,
       rootId,
       provider,
-      existingNodeIds: new Set([rootId, symbolId(handler)]),
+      existingNodeIds: new Set([rootId, symbolId(handler)]), idOf: symbolId,
       budget: { maxFiles: 200, maxMatchesPerFile: 20 },
     };
 
@@ -317,7 +317,7 @@ test(
       root,
       rootId,
       provider,
-      existingNodeIds: new Set([rootId, symbolId(handler)]),
+      existingNodeIds: new Set([rootId, symbolId(handler)]), idOf: symbolId,
       budget: { maxFiles: 200, maxMatchesPerFile: 20 },
     };
 

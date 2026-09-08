@@ -15,7 +15,8 @@
   },
   "files": [
     "dist/*.js",
-    "dist/adapters/*.js",
+    "dist/shared/*.js",
+    "dist/shared/adapters/*.js",
     "dist/doctor/*.js",
     "dist/providers/*.js",
     "dist/lsp/*.js",
