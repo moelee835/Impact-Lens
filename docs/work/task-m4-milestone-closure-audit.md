@@ -317,8 +317,10 @@ measurement.md` §3·§4-이후·5절. 요약:
 
 - **latency budget 확정**: `max(400ms, 0.25 × static traversal latency)`. 절대 허용치 400ms는
   두 실제 프로젝트에서 관측한 worst-case(717파일 전체 스캔, +181ms)의 2배.
-- **false-positive budget 확정**: "구성이 명시된 corpus(fixture 48개 + 실제 코드 참조 27개,
-  총 75개)에서 0건, 발견 즉시 재개방" — 오늘 재측정 기준 실제로 0건.
+- **false-positive budget 확정**: "구성이 명시된 corpus(TS fixture 18 + Python fixture 38+PR
+  #100의 신규 4 + 오늘 새로 실측한 실제 코드 참조 27)에서 0건, 발견 즉시 재개방" — 오늘 재측정
+  기준 실제 코드 참조 27개 전체에서 실제로 0건(Python fixture의 정확한 새 합계는 감사 기준
+  재적용이 아직 안 됐다 — gate7 문서 §4-이후 참고).
 - **`maxFiles: 200`이 실제 프로젝트(Netflix/dispatch, 717개 `.py` 파일)의 39% 지점에서 이미
   못 미친다는 것을 실측으로 확인했다** — 비용이 아니라(717파일 전체 스캔도 worst-case +181ms)
   숫자 자체가 작게 골라진 문제. 이 lane은 `maxFiles: 2000` 상향을 권고했지만 **프로덕션 코드는

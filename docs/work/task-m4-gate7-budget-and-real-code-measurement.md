@@ -659,19 +659,35 @@ include_router-level `dependencies=[]`)는 이번 fix가 직접 겨냥한 적이
 
 ### False-positive budget — 확정
 
-- **corpus 구성 최종본**: 손으로 만든 fixture 48개(TS 18 + Python 30, `dynamicCallbackIntegration.
-  test.ts`/`pythonFastapiIntegration.test.ts`) + 실제 코드 참조 20개(dispatch 14 + template 6,
-  §3-3) + TS 실제 코드 7개(§3-1) = **75개**. **이 구성 전체에서 오탐 0건**(고친 후 기준).
+- **corpus 구성 최종본(각 숫자의 출처를 구분해서 적는다 — "숫자에는 재현 경로가 붙는다"는 이
+  lane 자신의 원칙)**:
+  - **TS fixture**: `dynamicCallbackIntegration.test.ts`, 오늘 직접 `test(` 재세어 확인한
+    **18개**(정확도 corpus에서 뺀 `KNOWN_ACCEPTED_RESIDUAL_SOURCES` 2개 포함, 그 2개는
+    "수용된 잔여"로 이미 별도 표시돼 있다 — §3-1의 "네 번째 채널" 참고).
+  - **Python fixture**: gate 4 감사 시점에 이미 감사된 **38개**(진양성 15/진음성 23,
+    `task-m4-stage3-accuracy-latency-gates.md` 정정 5·6) + PR #100이 추가한 새 fixture
+    **4개**(module-level self-ref/other-function, decorator 오귀속 한 줄/여러 줄 — 오늘
+    `git show f8bb0ff --stat`로 파일 4개 신규 추가를 직접 재확인). **정확한 새 합계(42로
+    추정)는 정정 5·6의 감사 기준을 다시 기계적으로 적용해야 나온다 — 이 lane은 그 재적용을
+    안 했다**(추정치를 확정치로 적지 않는다, 이것도 이 lane 자신이 반복해서 지적해 온
+    함정이다). 다음에 Python corpus 숫자를 다시 인용할 때는 이 재적용부터 하고 인용한다.
+  - **실제 코드 참조(오늘 새로 실측, 손으로 만든 게 아니다)**: dispatch 14 + template 6
+    (§3-3, 전수 census) + TS 실제 코드 7(§3-1) = **27개**, 사람이 미리 정답을 적어 둔 뒤
+    adapter 출력과 대조 — **이 27개 전체에서 오탐 0건**(고친 후 기준).
+  - 이 27개가 이번 lane이 새로 보탠, 손으로 안 만든 유일한 부분이다 — 위 Python 정확한
+    합계가 아직 미확정이어도 **27개 실제 코드 corpus의 오탐 0건은 오늘 직접 재확인한
+    사실**이라 budget 확정을 막지 않는다.
 - **budget**: 2절의 제안("구성이 명시된 corpus에서 0건, 발견 즉시 재개방") 그대로 확정 — 위
-  구성이 그 "명시된 corpus"다.
+  세 구성(TS fixture 18, Python fixture 38+4, 실제 코드 참조 27)이 그 "명시된 corpus"다.
 
 ## 5. 이 lane의 판단 — "이 숫자로 기본값 on을 권할 수 있는가"
 
 **아직 아니다.** commander가 측정 전에 미리 표시한 판단과 같은 결론에 도달했다 — 다만 지금은
 추측이 아니라 오늘의 실측이 근거다:
 
-1. **정확도 결함은 닫혔다**: PR #99·#100이 오탐 10건(오늘 재측정 기준)을 전부 없앴고, 75개
-   corpus 전체에서 오탐 0건을 확인했다. 이 축만 보면 기본값 on을 막을 이유가 없다.
+1. **정확도 결함은 닫혔다**: PR #99·#100이 오탐 10건(오늘 재측정 기준)을 전부 없앴고, 오늘 새로
+   실측한 실제 코드 corpus 27개(§4-이후 위 항목) 전체에서 오탐 0건을 확인했다. 이 축만 보면
+   기본값 on을 막을 이유가 없다.
 2. **가용성 결함은 진단만 됐고 고쳐지지 않았다**: `maxFiles: 200`은 오늘 실측한 실제 프로젝트
    (dispatch, 717파일) 쿼리 8개 중 **7개에서 예산 초과로 부분/빈 결과를 낸다** — 정확도가
    아니라 "답 자체가 없다"는 문제이고, §3-3이 보였듯 프로덕션 코드는 전혀 안 바꿨다(측정만
@@ -680,7 +696,7 @@ include_router-level `dependencies=[]`)는 이번 fix가 직접 겨냥한 적이
 3. **extension host latency는 오늘도 안 쟀다**(4절, 1단계 harness는 별도 결정 사항으로
    남아 있다) — CLI 수치만으로 기본값 on을 결정하면 실제 사용 환경(특히 Remote-SSH/Container/
    WSL)의 체감 비용을 모른 채 켜는 것이다.
-4. **오탐 corpus는 여전히 프로젝트 2개뿐**이다 — 75개 자체는 38개보다 커졌지만, "실제
+4. **오탐 corpus는 여전히 프로젝트 2개뿐**이다 — 실제 코드 참조가 오늘 27개로 늘었지만, "실제
    프로덕션 코드베이스에서 오탐 0"이라는 문장의 대표성은 여전히 좁다.
 
 **다음으로 필요한 것(이 lane의 범위 밖, 별도 lane)**: (a) `maxFiles`를 실제로 올리는 PR(이
