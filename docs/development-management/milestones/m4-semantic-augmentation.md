@@ -23,6 +23,21 @@
 > [`IL-LIM-016`](../stories/il-lim-016-kotlin-lsp-support.md)이다. "M3 이후"는 여전히 맞는
 > 표현이지만 이제 "M3의 두 특정 story가 닫힌 뒤"로 더 정확히 읽을 수 있다.
 
+> **2026-09-09 정정**: 이 문서가 "provenance/confidence"·"confidence 계약"·"source/confidence"
+> 식으로 반복하는 `confidence` 어휘는 M4 stage 1(`docs/work/task-m4-stage1-evidence-contract.md`)
+> 에서 **폐기되고 대체됐다** — 실제로 shipped된 `EdgeEvidence`/`AugmentedEdge`는 `confidence:
+> confirmed|inferred|observed` 대신 서로 독립된 두 축 `source`(`static-inference` |
+> `runtime-observation`)와 `resolution`(`single` | `multiple`)을 쓴다. `confirmed`는 이 어휘에
+> 아예 없다 — `data.augmentedEdges`는 정의상 provider가 확정하지 못한 것만 담고,
+> `data.edges`(LSP가 이미 확정한 관계)는 M4가 손대지 않는다(`il-lim-001-dynamic-runtime-calls.md`의
+> "2026-09-03 정정"이 이미 이 결정을 기록해 뒀다). 이 문서는 M4가 stage 1을 시작하기 전에 쓰였고,
+> stage 1에서 어휘가 바뀐 뒤 이 문서 자신은 안 갱신된 것이다 — **지금 M4를 닫는 사람이 "산출물"
+> 절의 "provenance/confidence가 포함된 augmented edge schema"를 실제 스키마와 대조하면 존재하지
+> 않는 필드를 찾게 된다.** 아래 원문은 보존하고, 이 문서에서 `confidence`가 나오는 자리("목표"의
+> "provenance/confidence로 구분", "포함 범위"의 "confidence 계약", "산출물"의
+> "provenance/confidence가 포함된", "주요 위험과 대응"의 "source/confidence를 필수화") 전부 이
+> 정정이 적용된다 — 실제 계약은 `source`+`resolution`이다.
+
 ## 목표
 
 LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관련성을 근거 없이 확정하지 않으면서
