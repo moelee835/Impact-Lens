@@ -75,11 +75,20 @@ const RULES: readonly ClassificationRule[] = [
       directorySegments.some(segment => TEST_DIRECTORIES.has(segment.toLowerCase())),
   },
   {
-    // order.test.ts, a.test.d.ts (matches regardless of how many further extensions follow "test.").
-    // Scope: Jest/Vitest's default `testMatch` (`**/?(*.)+(spec|test).?([mc])[jt]s?(x)`, verified
-    // against Jest's own docs) - suffix only, dot-delimited, JS/TS extensions only.
+    // order.test.ts, order.test.jsx (matches regardless of how many further extensions follow
+    // "test." - EXCEPT `.d.ts`, excluded below: `a.test.d.ts` does NOT match, see the guard's own
+    // comment). Scope: Jest/Vitest's default `testMatch` (`**/?(*.)+(spec|test).?([mc])[jt]s?(x)`,
+    // verified against Jest's own docs) - suffix only, dot-delimited, JS/TS extensions only.
     id: 'dot-suffix',
     extensions: TYPESCRIPT_JAVASCRIPT_EXTENSIONS,
+    // `.d.ts` is excluded because Jest's own default `testMatch` extension group
+    // (`?([mc])[jt]s?(x)`) never matches "d.ts" - NOT because a `.d.ts` file is unreachable. It is
+    // reachable: reviewer built a `.d.ts` that illegally contains an implementation (a real ambient-
+    // context violation, `tsc` rejects it with TS1183) and confirmed with real tsserver that its call
+    // hierarchy still returns it as a depth-1 node - the "declaration files have no executable content"
+    // argument this exclusion first shipped with was wrong, in the same way this milestone has
+    // repeatedly found "unreachable" arguments wrong elsewhere (gate 4's accepted residual). Keep this
+    // guard on the Jest-default ground alone.
     matches: fileName => !/\.d\.ts$/i.test(fileName) && /\.(?:test|spec)\.[^/]+$/i.test(fileName),
   },
   {
