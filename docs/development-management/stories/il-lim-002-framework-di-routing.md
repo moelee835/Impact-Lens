@@ -210,6 +210,20 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 > [`IL-LIM-016`](il-lim-016-kotlin-lsp-support.md)이다. 이 story들이 만드는 것은 언어 지원(provider
 > preset)뿐이다 — Spring adapter 자체(이 5단계)는 여전히 M4, `IL-LIM-002`의 몫으로 남는다(언어
 > 계층과 framework 계층의 분리는 그대로 유지).
+>
+> **2026-09-09 추가(`docs/work/task-m3-java-kotlin-spring-planning-refinement.md`) — 설계
+> 시작 전제.** IL-LIM-001 stage 3(`dynamic-callback-static-v1` adapter)이 정착시킨 핵심
+> 교훈은 "가능하면 `prepare()` 기반 재확인을 우선하라"다 — 손수 만든 이름 해석(FastAPI adapter의
+> `isRouterMounted()`)이 gate 4에서 네 라운드에 걸쳐 실패로 증명됐고, `prepare()`로 재확인
+> 가능한 경로는 그 실패를 겪지 않았다. **하지만 Spring의 `@Autowired`/`@Inject` 필드·생성자
+> injection은 FastAPI의 `Depends(get_db)`와 같은 문제가 아니다.** `Depends(get_db)`는 callable을
+> 인자로 직접 넘겨 `prepare()`로 바로 재확인 가능하지만, Spring DI는 주입 지점의 **타입**으로
+> bean을 찾는다 — `prepare()`는 위치가 가리키는 symbol을 알려줄 뿐, "이 타입을 구현하는 다른
+> 클래스들"을 열거해 주지 않는다. **오늘의 교훈은 "가능하면 `prepare()` 경로를 우선하라"이지
+> "Spring도 무조건 `prepare()`로 다 풀린다"가 아니다** — 이 구분을 설계 시작 시점에 명시해
+> 두지 않으면, 손수 만든 해석 코드로 먼저 갔다가 gate 4 같은 라운드를 또 반복할 위험이 있다.
+> 아래 1번 항목은 "주입 지점의 타입을 알아낸 뒤, 그 타입의 구현체를 provider 능력만으로 어떻게
+> 찾을 것인가"라는 질문으로 시작해야 한다(아래 "미해결 질문"의 `implementation` 항목 참고).
 
 1. component/service/repository, constructor injection, `@Bean`, qualifier/primary와 interface 구현 fixture를 만든다.
 2. profile, conditional, collection injection, proxy/AOP와 programmatic registration을 negative/runtime-only로 둔다.
@@ -255,3 +269,24 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 - `include_router` prefix와 재사용 router가 만든 여러 route를 synthetic node identity에 어떻게 반영할지 결정해야 한다.
 - callable class dependency와 dependency override를 v1 범위에 포함할지 실제 사용 fixture를 바탕으로 정해야 한다.
 - Spring adapter에서 application context를 실제로 띄우지 않고 어느 수준까지 condition을 해석할지 경계를 정해야 한다.
+- **(2026-09-09 추가, `docs/work/task-m3-java-kotlin-spring-planning-refinement.md`) 이 story의
+  bean 해석이 부딪히는 벽은 `IL-LIM-001` stage 3 설계 과정에서 이미 따로 기록된 두 가지와 같은
+  근본 원인(이 저장소 `CallHierarchyProvider`가 노출하지 않는 LSP 표준 capability)을 공유한다 —
+  다만 정확히 같은 capability는 아니다(2026-09-09 2차 정정, reviewer 지적 — 최초 초안은 셋을
+  전부 `reference`로 뭉뚱그렸었다):**
+  - **`textDocument/implementation` 부재**: 이 story의 Spring bean 해석(타입 → 구현체 열거)이
+    직접 부딪히는 벽. `reference`("이 심볼을 참조하는 곳")가 아니라 "이 타입을 구현하는 타입들"을
+    묻는 질문이라 표준 LSP capability로는 `implementation`이 맞는 이름이다.
+  - **`textDocument/references` 부재**: `EventEmitter.on`/`.emit` 페어링(어떤 emitter 인스턴스의
+    흐름을 따라 `.emit`과 `.on`을 짝짓는 문제, `IL-LIM-001`)이 부딪히는 벽 — 이건 Spring의 벽과
+    다르다.
+  - **어느 쪽도 아닌 별개의 벽**: dynamic-callback-adapter의 "layer 2"(`register`처럼 관례 이름의
+    사용자 정의 함수가 콜백을 받는 경우)는 `reference`도 `implementation`도 아니다 — `register`를
+    부르는 곳을 전부 찾아도 `register`가 자기 파라미터를 실제로 호출하는지는 알 수 없고(그건
+    `register` 본문 안의 문제다), 실측 결과 `register`의 파라미터 선언 위치와 본문 내 호출
+    표현식 위치 둘 다 `prepare()`가 0건을 반환한다 — 파라미터가 애초에 callable symbol로 취급되지
+    않는다는, 두 capability 어느 쪽을 추가해도 안 풀리는 벽이다.
+  - **이 story는 `implementation`/`reference` 능력 추가를 제안하지 않는다** — 더 큰 아키텍처
+    결정이라 범위 밖이다. 다만 앞으로 이 능력들을 평가할 사람이 "왜 필요한가"를 처음부터 다시
+    조사하지 않도록, 그리고 "`reference`를 넣으면 layer 2도 열린다"는 잘못된 기대를 하지 않도록
+    세 근거를 여기 모아 둔다.

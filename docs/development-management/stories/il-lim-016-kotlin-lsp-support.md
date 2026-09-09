@@ -79,6 +79,17 @@ DI 같은 런타임 관계의 차이를 설명해 주길 원한다.
 ## 권장 대응
 
 - preset ID를 `kotlin.jetbrains-lsp`로 두고 verified version을 좁게 관리한다.
+
+  > **2026-09-09 추가(`docs/work/task-m3-java-kotlin-spring-planning-refinement.md`)**: "좁게
+  > 관리한다"의 실제 하한선을 채운다 — `Kotlin/kotlin-lsp`의 `RELEASES.md`를 직접 읽어 확인한
+  > 결과, **`v262.4739.0`**의 changelog가 "Call hierarchy (`textDocument/prepareCallHierarchy`,
+  > `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls`) ... Fixes
+  > `Kotlin/kotlin-lsp#143`"를 새 capability로 명시한다 — 이보다 오래된 릴리스(`v262.2310.0`,
+  > `v262.1817.0`, `v262.1668.0`, `v261.13587.0`, `v0.25x.*`)의 changelog에는 call hierarchy
+  > 언급이 전혀 없다(같은 파일 전체를 훑어 확인). **verified 범위의 하한을 `v262.4739.0`으로
+  > 둔다** — 이보다 낮은 버전은 call hierarchy 자체가 없다. 이 실측은 changelog 서술 확인(층
+  > 2)이지, 이 저장소의 fixture로 실제 서버를 기동해 세 메서드가 응답하는지 확인한 것(층 3)은
+  > 아니다 — 그 확인은 M3 1단계의 entry gate다(아래 "1단계" 참고).
 - JDK compatibility, `build.gradle(.kts)`/`pom.xml`, module import와 indexing을 doctor의 별도 축으로 표시한다.
 - build import가 필요한 경우 예상 동작과 위험을 안내하고 Plugin이 임의로 Gradle을 시작하지 않는다.
 - JVM Gradle/Maven을 첫 verified scope로 두고 Android/AGP는 experimental subprofile로 분리한다.
@@ -92,6 +103,10 @@ DI 같은 런타임 관계의 차이를 설명해 주길 원한다.
 2. top-level/function/method/extension function, interface, lambda, coroutine과 test caller를 분류한다.
 3. pinned Kotlin LSP의 raw capability와 Call Hierarchy를 cold/warm 반복 capture한다.
 4. Alpha drift와 비결정 결과를 snapshot 자동 승인 없이 diff artifact로 남긴다.
+5. **(2026-09-09 추가)** `v262.4739.0` 이상에서 `prepareCallHierarchy`/`incomingCalls`/
+   `outgoingCalls` 세 메서드가 이 저장소의 fixture에 대해 실제로 응답하는지 직접 기동해 확인한다
+   (`docs/work/task-m3-java-kotlin-spring-planning-refinement.md`) — changelog 서술(층 2)과
+   실제 동작(층 3)은 다르다는 것이 이 저장소 자신의 반복된 교훈이다(clangd 사례 등).
 
 종료 조건: required static edge와 provider-variable edge가 재현 가능하게 분리된다.
 

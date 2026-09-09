@@ -6,6 +6,23 @@
 - 영향도: 중간~높음
 - 적용 영역: VS Code Extension, Agent CLI, Codex/Claude Code Plugin
 
+> **2026-09-09 정정(`docs/work/task-m3-java-kotlin-spring-planning-refinement.md`)**: 이 문서가
+> 다섯 자리("범위"의 "direct/cross-file/interface(default method 포함)/lambda/method
+> reference/record/test 관계를 provider baseline으로 기록한다", "수용 기준"의 "direct/cross-file/
+> method/test baseline과 interface default method/lambda/method reference edge가 반복
+> 기록된다", 1단계 계획의 "interface default method, lambda, method reference, record와 test
+> caller를 분류한다", 4단계 계획의 "interface default method/lambda/method reference gap을
+> `IL-LIM-001`... 에 전달한다", 테스트 계획 표의 "interface default method·lambda·method
+> reference")에서 반복하는 "interface default method/lambda/method reference"라는 한 묶음은
+> **서로 다른 위험 셋을 하나로 뭉친 것**이다 — 실제 jdtls 버그(`eclipse-jdtls/eclipse.jdt.ls#3388`,
+> 아래 "권장 대응" 참고)가 method reference만 깨뜨리고 **lambda는 원 버그 리포트 자신이 정상
+> 동작으로 재현해 뒀다.** interface default method는 이 버그와 아예 무관한 별개의 구문이다.
+> 아래 원문은 보존하고, 이 다섯 자리 전부 다음으로 갈라 읽는다: **lambda**(이 특정 버그의 영향을
+> 받지 않는다고 실측됨, 다른 위험이 있을 수 있으나 이 lane은 찾지 못했다), **method reference**
+> (outgoing 방향은 특정 jdtls 버전 이전에서 깨짐, 실측·버전 하한은 "권장 대응" 참고, incoming
+> 방향은 미확인), **interface default method**(이 lane이 조사하지 않은 별개 위험, 세 번째로
+> 분리해 둘 뿐 별도 근거는 없음). 실측 근거의 자세한 내용은 위 work document 참고.
+
 ## 문제
 
 Java에는 진입점 자체가 없다. `cli/src/providers/resolve.ts`의 `languageId()`에 `.java` case가 아예
@@ -116,6 +133,23 @@ Java 개발자로서 검증된 Java LSP와 JDK/build(Gradle 또는 Maven) 조건
 ## 권장 대응
 
 - preset ID를 `java.jdtls`로 두고 검증 version 범위를 좁게 관리한다.
+
+  > **2026-09-09 추가(`docs/work/task-m3-java-kotlin-spring-planning-refinement.md`)**: 이 "좁게
+  > 관리한다"의 실제 하한선에 넣어야 할 실측 하나를 여기 남긴다 — jdtls 자신의 실제 버그
+  > (`eclipse-jdtls/eclipse.jdt.ls#3388`, 2026-08-05 닫힘, "textDocument/callHierarchy/
+  > outgoingCalls not detecting method via method reference")가 upstream 수정
+  > (`eclipse-jdt/eclipse.jdt.ui#2035`, 2025-03-06 merge, `CalleeAnalyzerVisitor.java` 하나만
+  > 변경)을 반영하기 전 릴리스라면, method reference(`obj::method`)로만 호출되는 메서드의 **outgoing**
+  > call hierarchy가 누락된다(직접 확인). **이 수정을 포함하는 jdtls 릴리스 번호는 이 계획
+  > lane이 확인하지 않았다** — 버전 하한을 실제 숫자로 확정하려면 그 확인이 먼저 필요하고, 이걸
+  > M3 1단계의 구체적 산출물로 명시한다(아래 1단계 계획 참고). **이 버그는 lambda와 무관하다** —
+  > 원 이슈가 이미 lambda(정상 동작)와 method reference(깨짐)를 나란히 재현해 뒀다(스크린샷·raw
+  > `callHierarchyOutgoingCalls` JSON 응답 둘 다 이슈 본문에 있음). **incoming 방향이 이 버그의
+  > 영향을 받는지는 이 lane이 확인하지 않았다** — 수정 PR이 건드린 파일(`CalleeAnalyzerVisitor.java`,
+  > outgoing/callee 쪽)과 incoming/caller 쪽 파일(`CallerMethodWrapper.java`/`RealCallers.java`/
+  > `MethodReferencesSearchRequestor.java`)이 서로 다르다는 것만 확인됐고, 이건 "이 PR이 incoming을
+  > 못 고쳤다"는 것만 증명하지 "incoming이 애초에 이 버그를 가졌는지"는 증명하지 않는다 — 그 답은
+  > 이 저장소의 fixture로 직접 실측해야 나온다(아래 1단계 계획, M3 진입 조건에 추가).
 - JDK compatibility(서버 runtime용과 project 컴파일용을 구분), `build.gradle(.kts)`/`pom.xml`, project
   import와 indexing 상태를 doctor의 별도 축으로 표시한다.
 - build import가 필요한 경우 예상 동작과 위험을 안내하고 Plugin이 임의로 Gradle/Maven을 시작하지 않는다.
@@ -133,8 +167,16 @@ Java 개발자로서 검증된 Java LSP와 JDK/build(Gradle 또는 Maven) 조건
    caller를 분류한다.
 3. pinned jdtls의 raw capability와 Call Hierarchy를 cold/warm 반복 capture한다.
 4. version drift와 비결정 결과를 snapshot 자동 승인 없이 diff artifact로 남긴다.
+5. **(2026-09-09 추가)** method reference로만 호출되는 메서드의 **incoming** call hierarchy를
+   실제로 조회해 응답을 관찰한다 — `eclipse.jdt.ls#3388`의 수정이 outgoing(callee) 쪽 파일만
+   건드렸다는 것은 확인됐지만 incoming(caller) 쪽이 애초에 이 버그를 가졌는지는 확인되지
+   않았다(`docs/work/task-m3-java-kotlin-spring-planning-refinement.md`). 이 항목이 이 story를
+   검증 preset으로 등재하기 전의 **entry gate**다 — method reference로만 호출되는 메서드가
+   "caller 없음"으로 잘못 보고될 위험을 이 실측 없이는 배제할 수 없다.
 
-종료 조건: required static edge와 provider-variable edge가 재현 가능하게 분리된다.
+종료 조건: required static edge와 provider-variable edge가 재현 가능하게 분리된다. jdtls 버전
+하한선에 `eclipse.jdt.ls#3388` 수정을 포함하는 최소 릴리스 번호가 실측으로 채워진다(위 "권장
+대응" 참고, 이 lane은 그 번호를 확인하지 않았다).
 
 ### 2단계 — discovery와 JDK compatibility (Kotlin과 공유)
 
