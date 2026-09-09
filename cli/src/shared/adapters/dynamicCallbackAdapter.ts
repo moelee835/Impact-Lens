@@ -361,6 +361,20 @@ export function stripSameLineCommentsAndStrings(line: string): string | null {
  * `setTimeout(finish, budgetMs)` inside a bare `new Promise(resolve => { ... })` executor) - none
  * currently mis-attribute, because the class method further out is unrecognized too and already folds
  * first.
+ *
+ * **THAT SAFETY IS BORROWED, NOT EARNED - commander's finding, do not remove this warning when reading
+ * it.** These three sites are safe only because TWO separate gaps are stacked: the class method is
+ * unrecognized (folds), AND the arrow inside it is unrecognized (would not fold, would mis-attribute,
+ * if the scan ever reached a recognized scope past it). Widening `ENCLOSING_FUNCTION_PATTERNS` to also
+ * recognize class methods - a change explicitly left as a SEPARATE, not-yet-decided question elsewhere
+ * in this file's history - would remove the class-method fold that is currently the only thing stopping
+ * these three sites from mis-attributing through the arrow to that now-recognized class method (a
+ * `setTimeout` call, deferred, NOT the defensible sync-traversal case). **The two deferred decisions are
+ * coupled: closing the arrow channel is a PREREQUISITE for widening `ENCLOSING_FUNCTION_PATTERNS`, not
+ * an independent follow-up that can happen in either order** - doing the recall work first would make
+ * accuracy silently regress, and the regression would not show up in `dynamicCallbackIntegration.test.ts`'s
+ * fixtures (all pinned CURRENT behavior, not the shape this coupling would break) - only in real code,
+ * the same "fixture passes, real code doesn't" shape this milestone has now hit four times.
  */
 function findEnclosingFunction(lines: readonly string[], fromLine: number): EnclosingFunction | undefined {
   let depth = 0;
