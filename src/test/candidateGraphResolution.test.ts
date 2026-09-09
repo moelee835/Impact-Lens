@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import test from 'node:test';
 import {
+  CANDIDATE_LABEL_TEXT,
   CandidateAnchorNode,
   resolveCandidateEdgeEndpoints,
   resolveSyntheticNode,
@@ -166,4 +169,81 @@ test('two different synthetic endpoints at the same file/line but different colu
   const secondId = resolveSyntheticNode(other, { depth: 0 }, syntheticNodesById);
   assert.notEqual(firstId, secondId);
   assert.equal(syntheticNodesById.size, 2);
+});
+
+// ---------------------------------------------------------------------------
+// commander's finding: `.toString()` only carries a function's own source text, not the module scope
+// around it. Every test above `import`s this module, so Node keeps that module's closure alive - a
+// hypothetical future edit that makes `resolveSyntheticNode` call a NEW helper added to this file (a
+// very natural next move, since it now IS a normal module) would still pass every test above, because
+// `import` always provides that helper. In the real Webview, the injected text is the ONLY thing that
+// exists - a free identifier there is a silent `ReferenceError` at render time, invisible to `npm test`
+// and `npm run cli:test` alike. graphPanel.ts's own comment already asks not to assume this stays true
+// (docs/work/task-refactor-graphpanel-candidate-logic-extraction.md) - this test is what actually holds
+// it, using the same technique commander verified with independently (`new Function`, which runs its
+// body with NO access to this file's module scope, exactly like a Webview <script> tag has none of
+// graphPanel.ts's other module-level bindings).
+// ---------------------------------------------------------------------------
+
+const GRAPH_PANEL_SOURCE = fs.readFileSync(path.resolve(__dirname, '..', '..', 'src', 'graphPanel.ts'), 'utf8');
+
+test('graphPanel.ts injects exactly CANDIDATE_LABEL_TEXT, resolveCandidateEdgeEndpoints, resolveSyntheticNode, in that order - this test\'s sandbox construction below depends on it', () => {
+  assert.match(
+    GRAPH_PANEL_SOURCE,
+    /const CANDIDATE_LABEL_TEXT = \$\{JSON\.stringify\(CANDIDATE_LABEL_TEXT\)\};\s*\n\s*const resolveCandidateEdgeEndpoints = \$\{resolveCandidateEdgeEndpoints\.toString\(\)\};\s*\n\s*const resolveSyntheticNode = \$\{resolveSyntheticNode\.toString\(\)\};/,
+    'graphPanel.ts\'s injection sequence changed shape - the sandbox this file builds below no longer ' +
+    'reproduces what actually reaches the Webview, and needs to be updated to match before it can be trusted again',
+  );
+});
+
+function buildInjectedSandbox(): {
+  resolveCandidateEdgeEndpoints: typeof resolveCandidateEdgeEndpoints;
+  resolveSyntheticNode: typeof resolveSyntheticNode;
+} {
+  const injectedScript = [
+    `const CANDIDATE_LABEL_TEXT = ${JSON.stringify(CANDIDATE_LABEL_TEXT)};`,
+    `const resolveCandidateEdgeEndpoints = ${resolveCandidateEdgeEndpoints.toString()};`,
+    `const resolveSyntheticNode = ${resolveSyntheticNode.toString()};`,
+    'return { resolveCandidateEdgeEndpoints, resolveSyntheticNode };',
+  ].join('\n');
+  // `new Function(body)` executes `body` with access to the global scope ONLY - none of this test
+  // file's or candidateGraphResolution.ts's own module-level bindings are visible inside it. If either
+  // function referenced a free identifier this exact three-line injection does not provide, the line
+  // below throws a ReferenceError immediately - it does not wait for a render() call.
+  return new Function(injectedScript)() as {
+    resolveCandidateEdgeEndpoints: typeof resolveCandidateEdgeEndpoints;
+    resolveSyntheticNode: typeof resolveSyntheticNode;
+  };
+}
+
+test('the injected inline script is self-contained: constructing it throws no ReferenceError, and it agrees with the imported module on all three AugmentedEdge shapes', () => {
+  const sandbox = buildInjectedSandbox();
+
+  const nodeById = anchorMap([['root', { depth: 0 }], ['caller', { depth: 2 }]]);
+  const syntheticSource = {
+    kind: 'synthetic' as const,
+    name: 'get_db',
+    kindLabel: 'function',
+    file: 'app/db.py',
+    range: { start: { line: 10, column: 0 }, end: { line: 10, column: 5 } },
+  };
+  const syntheticTarget = {
+    kind: 'synthetic' as const,
+    name: 'on_shutdown',
+    kindLabel: 'function',
+    file: 'app/lifecycle.py',
+    range: { start: { line: 3, column: 0 }, end: { line: 3, column: 5 } },
+  };
+
+  const shapes: Array<[string, unknown]> = [
+    ['source-synthetic (the only shape the FastAPI adapter emits today)', { source: syntheticSource, target: { kind: 'existing', id: 'root' } }],
+    ['target-synthetic (unreachable via FastAPI, the whole reason this module exists)', { source: { kind: 'existing', id: 'caller' }, target: syntheticTarget }],
+    ['both synthetic (no anchor, defensive)', { source: syntheticSource, target: syntheticTarget }],
+  ];
+
+  for (const [label, augmented] of shapes) {
+    const direct = resolveCandidateEdgeEndpoints(augmented as never, nodeById, new Map());
+    const viaSandbox = sandbox.resolveCandidateEdgeEndpoints(augmented as never, nodeById, new Map());
+    assert.deepEqual(viaSandbox, direct, `sandboxed and imported forms disagree for ${label}`);
+  }
 });

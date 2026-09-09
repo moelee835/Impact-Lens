@@ -116,6 +116,31 @@ adapter가 내는 모양)로 두 버전의 `getHtml()`을 직접 호출·diff했
 - [x] `target-synthetic` 분기를 `node --test`로 직접 고정 — 위 9개 테스트 중 하나.
 - [x] 동작 무변경을 실행으로 증명 — 위 getHtml() diff.
 
+## 2026-09-09 추가 — commander가 찾은 구멍: import 기반 테스트로는 못 잡는 결함 하나
+
+**결함**: `.toString()`은 함수 자신의 소스 텍스트만 옮기고 모듈 스코프는 안 따라간다.
+`candidateGraphResolution.ts`에 이제 헬퍼 상수/함수를 하나 추가해 `resolveSyntheticNode`가 그걸
+부르게 만드는 건(모듈이니까) 아주 자연스러운 다음 수정인데, 그러면 그 식별자는 `graphPanel.ts`의
+주입 3줄에 없으니 **실제 Webview에서 `ReferenceError`로 조용히 죽는다.** 그런데 9개 테스트는 전부
+`import`로 이 모듈을 가져오므로 모듈 스코프가 살아 있어 **이 결함을 원리적으로 못 잡는다** — 이
+lane의 목적("실행으로 검증 못 하던 걸 검증 가능하게 만든다")이 정확히 못 미치는 지점이었다.
+commander가 직접 `.toString()` 텍스트를 뽑아 주입 스코프만 있는 `new Function`으로 재구성해
+module 형태와 3가지 shape(source-synthetic/target-synthetic/both-synthetic) 전부 일치함을 확인해
+찾았다.
+
+**고침**: 두 테스트 추가.
+1. `graphPanel.ts`가 정확히 `CANDIDATE_LABEL_TEXT`/`resolveCandidateEdgeEndpoints`/
+   `resolveSyntheticNode` 순서로 주입하는지 구조로 고정(주입 형태가 바뀌면 아래 샌드박스 재구성이
+   실제 주입과 어긋난다는 걸 알리기 위해).
+2. 그 정확히 세 줄로 `new Function`을 만들어(모듈 스코프에 접근 불가 — Webview `<script>`와
+   동일 조건) 세 가지 shape 전부에서 import한 실제 함수와 같은 결과를 내는지 대조.
+
+**non-vacuity(뮤테이션)** `[실행]`: `candidateGraphResolution.ts`에 실제로 새 모듈-스코프 상수
+(`SYNTHETIC_ID_PREFIX`)를 추가하고 `resolveSyntheticNode` 안에서만 참조하도록 바꿔 재실행 →
+**새로 추가한 샌드박스 테스트만 실패**(`ReferenceError`), 기존 9개 import 기반 테스트는 전부
+그대로 통과 — commander가 지적한 정확히 그 격차(“9개는 초록, webview는 조용히 죽는다”)를 이
+테스트가 재현·차단함을 확인했다. 원복 후 84개 전부 재통과.
+
 ## 남은 것 / 다음
 
 - `CANDIDATE_LABEL_TEXT`/`resolveCandidateEdgeEndpoints`/`resolveSyntheticNode`는 여전히 실제
