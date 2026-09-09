@@ -101,8 +101,8 @@ adapter.md`의 "gate 2 판정" 절 — 실제 VS Code webview 렌더, marker 시
 기반 off/on 비교는 이 저장소에 vscode-host harness가 없어 미검증으로 명시했다.
 
 **2026-09-08 기준: 8개 중 닫힘 5(rollback·gate 2·gate 3·gate 4·gate 5, gate 4는 수용된 잔여 1건을
-안고 닫힘, gate 2는 위 미검증 범위를 안고 닫힘), 열림 3(gate 1·7·8).** gate 2·4 둘 다 PR 병합과
-`reviewer` 재검토를 거쳐야 최종이다.
+안고 닫힘, gate 2는 위 미검증 범위를 안고 닫힘), 열림 3(gate 1·7·8).** gate 2(PR #87·#88·#89,
+마지막 `0e1794c`)·gate 4(PR #86, `19b525e`) 전부 merge 완료, `reviewer` 재검토도 거쳐 최종이다.
 
 ## Gate별 상세 — 근거와 확인 방법(누가, 실행인지 코드 읽기인지)
 
