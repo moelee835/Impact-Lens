@@ -279,6 +279,46 @@ class method/object-literal method 안의 콜백을 실제로 찾아내려면(re
 경로로 보이고(중첩 화살표 함수 안의 호출), 새 fold 조건의 대상도 아니었다(값이 바뀌지 않은
 것으로 확인). 후속 조사 대상으로만 기록한다.
 
+### 네 번째 채널 — 인라인 arrow 인자(commander 발견, 측정만 하고 안 고침)
+
+**PR #99 merge 전, commander가 자신의 probe workspace(이 저장소 코드 아님)로 네 번째 채널을
+찾았다.** `items.forEach((i) => { setTimeout(handler, 0); })`처럼 콜백이 **인라인 arrow 함수
+인자** 안에 있으면, 그 arrow는 named method처럼 앞에 식별자가 없어서
+`ENCLOSING_FUNCTION_PATTERNS`도 새 `UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER` fold도 못 잡는다 —
+스캔이 그 arrow를 그냥 지나쳐 바깥 named scope에 도달한다.
+
+**이 세션이 재확인**: `outerSync`(`.forEach` 안의 arrow, sync 실행)와 `outerThen`(`.then()` 안의
+arrow, 지연 실행) 둘 다 바깥 함수 이름을 candidate로 낸다는 것을 직접 재현했다. **다만
+`createAdapterProvider` 케이스와 같지 않다** — commander의 구분: **동기 고차 순회**(`forEach`/
+`map`/...)는 콜백이 바깥 함수의 실행 도중 **실제로 실행되므로** 바깥 함수를 후보로 내는 게
+변호 가능하지만, **지연·이벤트 구동**(`then`/`setTimeout`/`addEventListener`)은 등록만 하고
+반환하므로 바깥 함수가 그 호출을 직접 일으키지 않는다 — `createAdapterProvider`와 같은 종류의
+틀린 답이다. 이 구분은 이 adapter가 이미 갖고 있는 `CallbackCategory`(`deferred`/`event`/
+`sync-traversal`) 축과 정확히 겹친다.
+
+**실제 코드 크기 실측(이 세션, 정확한 스크립트로 — `findCallSitesInLine`의 bare-identifier
+인자 요구사항을 그대로 복제)**: `src`/`cli/src`의 실제 allowlist 호출부 **31개** 중
+**3개**만 인식 못 하는 arrow를 지나며, 셋 다 이미 알려진 `setTimeout(finish, budgetMs)`(bare
+`new Promise(resolve => {...})` executor 안)다 — **이 셋은 현재 오귀속을 안 낸다**, 더 바깥의
+class method도 인식 못 해서 이번 PR의 fold가 먼저 잡기 때문이다. 즉 이 채널은 실재하지만 **이
+저장소 자신의 코드에서는 지금 당장 살아있는 오귀속을 안 낸다** — commander의 재현은 이 채널이
+**다른 코드 모양에서는** 오귀속을 낼 수 있다는 것을 보인 것이다.
+
+**고치지 않는다(commander 명시적 지시) — 대신 fixture로 현재 동작을 고정하고 문서화한다.**
+arrow opener까지 fold 대상에 넣으면 sync-traversal 케이스(더 흔하고 변호 가능한 쪽)의 recall도
+함께 잃는데, 그 비용이 아직 측정 안 됐다 — 처음의 전부-아니면-전무 모호성 가드가 recall
+절반을 잃었던 것과 같은 종류의 실수를 반복하지 않기 위해서다. `syncTraversalArrowWrapping.ts`
+(변호 가능, "KNOWN, ACCEPTED RESIDUAL")와 `deferredArrowWrapping.ts`(변호 불가, 마찬가지로
+"KNOWN, ACCEPTED RESIDUAL" — 다만 정확도 corpus엔 안 넣음, gate 4가 자신의 수용된 잔여를
+corpus에서 뺀 것과 같은 이유) 두 fixture로 현재 동작을 고정했다. `findEnclosingFunction`의
+doc comment에도 이 구분과 실측 숫자를 남겼다.
+
+**이걸로 이 파일이 같은 결함 클래스(인식 못 하는 scope 경계에서 오귀속이 나는 것)를 네 개의
+서로 다른 채널에서 찾은 것이 된다 — 문자열 → 정규식 리터럴 → method-opener → arrow 인자.**
+매번 "이건 그냥 위음성"이라고 적어 뒀던 자리가 실측하면 오귀속이었다(또는 오귀속일 수 있었다) —
+**방향을 측정하지 않은 "수용된 한계"는 수용된 한계가 아니라는 것**이 이 세션 전체가 반복해서
+배운 교훈이다.
+
 ### 3-2. Python(`fastapi-static-v1`) — 실제 오픈소스 FastAPI 프로젝트가 필요하다
 
 **이게 이 lane의 첫 판단이다.** 이 저장소엔 실제 크기의 Python/FastAPI 코드베이스가 없다 —
