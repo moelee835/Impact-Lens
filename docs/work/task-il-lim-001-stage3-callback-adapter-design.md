@@ -89,6 +89,44 @@ commander가 "이 adapter의 안전성 논증 전체가 여기 달려 있다"고
 위에서 직접 fixture로 확인했다; 나머지 두 종류는 구현 lane에서 구체적 fixture로 추가 확인이
 필요하다 — 지금은 설계 추론이다).
 
+## 2026-09-09 추가 — commander의 반박 1번(callee 호출 의미)을 측정으로 검증, 예상보다 크게 좁아짐
+
+commander의 반박: `prepare()`가 닫는 건 "`handler`가 그 함수인가"뿐이고, "그 callee가 실제로
+`handler`를 호출하는가"는 안 닫힌다 — `logger.register(handler)`가 그냥 map에 저장만 하고 절대
+안 부를 수도 있다. 제안된 완화책(1층 = 표준 API로 호출 의미가 보장됨, 2층 = 관례 이름)을 직접
+측정했다.
+
+### callee 쪽도 `prepare()`로 확인은 되지만, 결과가 Type B와 EventEmitter를 v1에서 밀어낸다
+
+| 호출 형태 | callee 위치 `prepare()` | 판정 |
+| --- | --- | --- |
+| `setTimeout(handler, 0)` | `.../typescript/lib/lib.dom.d.ts` | **1층 확인됨** — 번들 표준 lib 선언 |
+| `arr.forEach(handler)` | `.../typescript/lib/lib.es5.d.ts` | **1층 확인됨** |
+| `arr.push(handler)`(대조군) | `.../typescript/lib/lib.es5.d.ts` | **1층 확인됨** |
+| `button.addEventListener('click', handler)` | `.../typescript/lib/lib.dom.d.ts` | **1층 확인됨**, `handler` 인자도 별도로 재확인됨(선언과 동일) |
+| `register(handler)`(사용자 정의) | 워크스페이스 파일 자신 | **2층**(예상대로 — 표준 lib 아님) |
+| `emitter.on('x', handler)` | **빈 배열 `[]`** | **측정 전 예상과 다름** — Node `EventEmitter.on`은 실존하는 잘 알려진 API인데도 `prepare()`가 콜리 위치에서 아무것도 못 돌려준다(overload 많은 제네릭 메서드 시그니처 때문으로 추정, 확정 원인은 조사 안 함) |
+| `button.onclick = handler`의 **`onclick`(대입 대상 프로퍼티 자체)** | **빈 배열 `[]`** | **Type B는 callee/slot 쪽 검증 메커니즘이 아예 없다** — property access는 애초에 `prepareCallHierarchy` 대상이 아니다(callable 심볼만 되는 게 측정 3의 반복). `handler`(대입되는 값) 쪽은 여전히 재확인됨(선언과 동일) |
+
+### 결론 — 문서가 갖고 있던 두 가정이 둘 다 틀렸다
+
+1. **"emit 등록 지점(`emitter.on(...)`)은 유형 A의 1층 후보"라고 적었던 건 틀렸다.** 콜리
+   `emitter.on`이 `prepare()`로 전혀 확인이 안 되므로, commander의 원칙("1층만으로 1차를 낸다")을
+   그대로 적용하면 **event subscription 등록 지점 자체가 v1에서 빠진다** — `handler` 쪽만 맞고
+   콜리 쪽을 전혀 못 좁히면 사실상 이름 하나(`.on`)로만 거르는 것과 같다(gate 4가 이미 실패한
+   모양).
+2. **Type B(프로퍼티/슬롯 대입)는 1층/2층을 가를 방법 자체가 없다.** 대입되는 값(`handler`)은
+   재확인되지만, 대입 대상 프로퍼티(`onclick` 자신)는 `prepare()`로 절대 확인이 안 된다 —
+   DOM 표준 슬롯(`button.onclick`)이든 임의 객체 리터럴 키(`{ onEvent: handler }`)든 **오늘의
+   SPI로는 구분 불가능**하다. Type A보다 약한 게 아니라, **검증축이 아예 하나 없는** 상태다.
+
+**남은 v1 후보는 순수 표준 라이브러리 호출-인자 전달뿐이다**: `setTimeout`/`setInterval`(추정,
+`setTimeout`과 같은 lib 선언 계열이라 미검증이지만 개연성 높음)/`addEventListener`/
+`Array.prototype.forEach|map|filter`(추정, `forEach`/`push`와 같은 `lib.es5.d.ts` 계열) — **전부
+"호출 인자로 전달"(유형 A) 안의 항목이고, 유형 B와 `.on()`류는 v1에서 완전히 빠진다.** "유형 2개"
+주장이 다시 위태롭다 — 지금 남은 게 진짜 유형 A 하나(표준 API 호출-인자 전달)뿐일 수 있다. 이건
+반박을 더 받아야 할 지점이고, 이 세션이 혼자 결론 내지 않는다.
+
 ## 결정
 
 ### 1. 이번 lane은 "callable 대상"만 다룬다 — event의 emit 쪽은 범위 밖, 이유는 "정확도 판단"이 아니라 "능력 부재"
@@ -192,19 +230,33 @@ lane에서 실측(측정 원칙 그대로 — 추측하지 않는다)한다.**
 
 ## 범위
 
-**포함(이번 lane, 이 문서가 승인되면 이어질 구현 lane)**:
-- 유형 A(호출 인자 전달, API 이름 allowlist로 한정 — 최소 `register`/`.on(`/`setTimeout`/
-  `forEach`부터 시작, 정확한 목록은 구현 lane에서 확정)와 유형 B(프로퍼티/슬롯 대입)를 탐지하는
-  두 번째 adapter.
-- 각 후보를 `prepare()`로 재확인(측정 4의 shadowing 부정 사례를 실제 부정 fixture로 고정).
-- 두 유형 각각의 positive/negative fixture.
+**2026-09-09 갱신**: 위 "commander의 반박 1번" 측정 결과로 아래 "포함" 목록이 이 문서 이전 버전보다
+좁아졌다 — Type B와 `.on()`류는 "포함"에서 "반박·추가 측정 대기"로 내렸다. commander/reviewer의
+다음 판단을 기다리는 중이라 최종이 아니다.
+
+**포함(1층 확인된 것만, 확정)**:
+- 유형 A 중 **callee가 표준 lib 선언(`lib.dom.d.ts`/`lib.es5.d.ts` 등, `prepare()`로 실측 확인된
+  것만)으로 확인되는 호출-인자 전달**: `setTimeout(handler, ...)`, `addEventListener(..., handler)`,
+  `Array.prototype.forEach|map|filter`류(측정: `forEach`/`push` 확인, `map`/`filter`는 같은 lib
+  선언 계열이라 개연성은 높지만 구현 lane에서 개별 재확인 필요).
+- 각 후보를 `prepare()`로 재확인(핸들러 쪽 — 측정 4의 shadowing 부정 사례를 실제 부정 fixture로
+  고정) **그리고** callee 쪽(1층 lib 선언 확인, 위 표).
+
+**반박·추가 측정 대기(이 문서만으로는 포함 여부를 못 정한다)**:
+- **유형 B(프로퍼티/슬롯 대입)** — 대입 대상 프로퍼티 자체가 `prepare()`로 전혀 확인 안 됨(측정:
+  `button.onclick` → `[]`). 1층/2층을 가를 방법이 없어 commander의 "1층만 v1" 원칙을 적용할 기준
+  자체가 없다. 포함하려면 다른 근거(예: 타입 검사를 다른 LSP 능력으로)가 필요하다.
+- **`emitter.on('x', handler)` 같은 `.on()`류 registration** — callee `prepare()`가 `[]`(측정
+  위). "잘 알려진 API"라는 인상과 달리 1층으로 확인이 안 된다.
+- 위 둘이 빠지면 "동적 호출 유형 2개"가 유형 A 하나(표준 API 호출-인자 전달)로 줄어들 수 있다 —
+  이 자체가 반박 대상.
 
 **제외(범위 밖, 능력 부재로 인해)**:
 - event의 `emit` 지점 → handler 연결. `definition`/`reference` provider가 SPI에 추가된 뒤 별도
   lane.
 
-**제외(범위 밖, 데이터 부족으로 인해)**:
-- `AdapterResult.mountUnresolved`/budget 일반화 여부 결정.
+**결정됨(§4, 이번 lane에 포함)**:
+- `AdapterResult.mountUnresolved`를 optional로, `AdapterBudget`에 adapter별 override 추가.
 
 **제외(story 자체가 이미 배제)**:
 - 문자열 이름 기반 연결, reflection, framework DI(`IL-LIM-002` 소관).
