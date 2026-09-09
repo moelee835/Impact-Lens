@@ -254,6 +254,20 @@ export function stripSameLineCommentsAndStrings(line: string): string | null {
     result += character;
     index += 1;
   }
+  // commander, executed directly: a regex literal (`/\{/`, `/[{]/`) is a THIRD channel to the exact
+  // same false-attribution reviewer found via strings - this scanner strips `//`/`/* */`/quotes/simple
+  // backticks but never recognized `/.../ ` as a regex literal at all, so a brace inside one was still
+  // counted as real structure. Reproduced directly (`regexBraceTrap.ts` fixture): `regexInner` was
+  // mis-attributed instead of the true enclosing `regexOuterCaller`, the same wrong-answer shape as the
+  // original string bug. Distinguishing a real regex literal from a division expression needs the
+  // surrounding expression context (what token precedes the `/`) - out of scope for a single-line
+  // scanner - so, per commander's proposal, this does not try: any `/` still present after stripping
+  // real comments/strings, on a line that also has a brace, makes the line unsafe. Measured cost of
+  // this specific addition (commander, cross-checked): under 1% of this repo's own brace-bearing lines
+  // in both `src/` and `cli/src/` - negligible next to what the original all-or-nothing guard cost.
+  if (result.includes('/') && (result.includes('{') || result.includes('}'))) {
+    return null;
+  }
   return result;
 }
 

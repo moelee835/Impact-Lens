@@ -633,3 +633,48 @@ commander가 이미 경고한 "검증이 필요한 별도 작업"의 영역이�
 
 **검증 갱신 2**(전부 `[실행]`, `rm -rf out cli/dist` 후): `npm run cli:test` 444 tests, 441 pass,
 0 fail, 3 skip. `npm test` 84/84 그대로.
+
+## 2026-09-09 추가 7 — 같은 결함이 세 번째 채널(정규식 리터럴)로 남아 있었다, 처음부터 열려 있었다
+
+PR #93이 merge된 직후 `docs/il-lim-001-stage3-callback-adapter-design` branch가 삭제되면서 base가
+그 branch였던 구현 PR이 **GitHub에 의해 자동으로 closed됐다**(`main`으로 재타겟팅한 새 PR로
+대체 — 아래 "PR 처리" 참고, 이 세션의 실수를 그대로 기록한다).
+
+commander가 이어서 새 채널을 실측: `stripSameLineCommentsAndStrings()`가 `//`/`/* */`/따옴표/
+backtick은 다루지만 **정규식 리터럴**(`/\{/`, `/[{]/`)은 전혀 인식하지 않는다 — 그 안의 중괄호가
+실제 코드로 계산된다. `[실행]` 직접 재현: `regexBraceTrap.ts`(이미 닫힌 중첩 함수 `regexInner` 안에
+`const re = /\{/;`)를 만들어 실제 CLI로 돌리니 **`regexInner`로 오귀속**(진짜 감싸는 함수
+`regexOuterCaller` 대신) — reviewer가 찾은 문자열 오귀속과 정확히 같은 모양, 채널만 다르다.
+
+**이건 좁히기가 만든 회귀가 아니다** — commander가 옛(전부-아니면-전무) 가드로도 같은 두 줄을
+돌려 확인: `/\{/;`, `/[{]/;`엔 따옴표도 `//`도 `/*`도 없어서 옛 가드의 조건 자체에 안 걸린다.
+**이 구멍은 두 버전 모두에서 처음부터 열려 있었다.**
+
+**고침**: 정규식과 나눗셈을 구분하려 하지 않는다(문맥 필요, 이 규모 밖) — 주석·문자열을 걷어낸 뒤에도
+`/`가 남아 있고 중괄호도 있으면 그 줄에서 포기한다. commander가 비용을 먼저 쟀다(중괄호 있는 줄
+기준 src 0.9%, cli/src 0.6% 추가 포기, 넓은 가드의 50% 손실과 비교하면 사실상 공짜) — 이 세션이
+**실제 export된 함수**로, 이전과 같은 호출-지점 기준 방법론으로 재측정:
+
+```
+src:      38.3% → 38.3%  (변화 없음 - 이 저장소 자신의 src/ 안에는 이 채널에 걸리는 실제 호출 지점이 없었다)
+cli/src:  47.8% → 47.0%  (약 0.8%p 손실 - commander의 줄 단위 추정과 같은 자릿수)
+```
+
+`regexBraceTrap.ts`를 negative fixture로 추가 — `regexOuterCaller`도 `regexInner`도 안 나오는지
+둘 다 확인(문자열 케이스와 달리 이번엔 **포기가 정답**이다 — 이 채널은 정확한 재해석까지는
+안 갔다). 뮤테이션(`[실행]`): 이 조건만 제거 → 정확히 2개 테스트만 실패(집합-단정 corpus,
+`regexBraceTrap.ts` 테스트), 원복 후 442개 전부 재통과.
+
+**work document에 남기는 문장(commander 요청 그대로)**: 이 채널은 처음부터 열려 있었고, 좁히기
+전/후 버전 둘 다 못 잡았다 — 좁히기가 정규식 결함을 새로 연 게 아니다.
+
+## PR 처리 — 세션 실수 기록
+
+PR #93(설계 문서)을 `--delete-branch`로 merge하면서, **그 branch를 base로 삼은 구현 PR(#94)이
+GitHub에 의해 자동으로 closed됐다** — stacked PR의 base branch를 지우면 안 됐다. `main`으로
+재타겟팅해서 재오픈을 시도했으나 closed된 PR은 base를 못 바꾼다(GitHub 제약) — 같은 branch
+(`feat/il-lim-001-stage3-callback-adapter`)로 `main`을 base로 하는 새 PR을 열어 이어간다(#94의
+리뷰 이력은 closed 상태로 GitHub에 남는다, 삭제하지 않음).
+
+**검증 갱신 3**(전부 `[실행]`, `rm -rf out cli/dist` 후): `npm run cli:test` 445 tests, 442 pass,
+0 fail, 3 skip. `npm test` 84/84, `test:vsix-contents`/`test:response-policy` 변동 없이 green.
