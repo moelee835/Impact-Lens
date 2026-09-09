@@ -127,7 +127,124 @@ commander의 반박: `prepare()`가 닫는 건 "`handler`가 그 함수인가"�
 주장이 다시 위태롭다 — 지금 남은 게 진짜 유형 A 하나(표준 API 호출-인자 전달)뿐일 수 있다. 이건
 반박을 더 받아야 할 지점이고, 이 세션이 혼자 결론 내지 않는다.
 
+## 2026-09-09 추가 2 — 설계 확정(commander·reviewer 교차 확인)
+
+reviewer가 독립적으로 두 갈래를 더 실측해 위 내용을 확정했다:
+
+**"callee가 자기 인자를 실제로 호출하는가"는 이 adapter가 구조적으로 못 닫는 축이다** — 두 후보
+지점(`register`의 파라미터 선언 위치, `register` 본문 안에서 그 파라미터를 호출하는 표현식이
+있을 법한 위치) 모두 `prepare()`가 0건. `incoming(register)`(누가 `register`를 부르는가)도
+무관한 질문이라는 게 같이 확인됐다. **그러므로 API 이름 allowlist는 "오탐을 막는 완화책"이 아니라
+"검증 안 되는 축을 아예 다루지 않기 위한 범위 한정"이다** — 이 문서 전체에서 이렇게만 부른다.
+
+**layer 1은 이름 일치가 아니라 실제 경로 확인이다** — reviewer의 대조군도 `register` 호출부가
+정확히 사용자 소스 파일로 갈렸다(`[실행]`, 이 세션의 측정과 일치).
+
+**추가 실측 — layer 1 안에도 신뢰 등급이 둘이다**: `@types/node`를 설치한 워크스페이스에서
+`setTimeout` callee를 다시 쟀다 — **두 개의 canonical item을 함께 반환한다**:
+```
+1) .../node_modules/.pnpm/@types+node@22.20.1/node_modules/@types/node/timers.d.ts
+2) .../node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib/lib.dom.d.ts
+```
+(1)은 **워크스페이스의 npm 패키지**(`node_modules/@types/node`) — 사용자가 자기 프로젝트에
+shim을 넣어 바꿀 수 있는 경로다. (2)는 **provider가 쓰는 TypeScript 설치에 번들된 것** — 사용자가
+절대 못 바꾼다. **"표준 선언"이라는 한 단어로 뭉치지 않는다**:
+- **1a(가장 강함)** — 해석된 경로가 provider의 TypeScript 설치 안 `lib/lib.*.d.ts`.
+- **1b(약함, 그래도 v1에 포함)** — 해석된 경로가 워크스페이스의 `node_modules/@types/**` 안.
+  실무에서 Node 프로젝트의 `setTimeout`은 거의 항상 이쪽으로 resolve된다(방금 측정) — 1a만
+  받으면 `@types/node`가 설치된 평범한 Node 프로젝트에서 `setTimeout`이 통째로 후보에서 빠진다.
+  둘 다 받아들이되, **1b는 사용자가 바꿀 수 있는 신뢰 경계라는 걸 코드 주석과 이 문서 양쪽에
+  명시한다** — 이건 이 adapter 하나만의 새 위험이 아니라 이 도구가 이미 workspace 코드/의존성
+  전반에 갖고 있는 신뢰 가정과 같은 종류이지만, 감춰서는 안 된다.
+
+**구현 규칙(반드시 지킬 것 — 방금 끝난 lane의 교훈)**: 해석된 경로를 **문자열 포함/suffix**로
+비교하지 않는다. `pathEndsWithSegments`(gate 4, `fastapiDependencyAdapter.ts`)처럼 **경로를
+세그먼트로 쪼개 비교**한다 — `lib.dom.d.ts`라는 파일명은 vendoring된 사본이나 사용자 워크스페이스
+어디에도 있을 수 있고, IL-LIM-010에서 조상 디렉터리 문자열 일치가 분류를 오염시킨 것과 같은 함정이다.
+1a는 "provider가 실제로 실행 중인 TypeScript 설치 경로 + `/lib/` 세그먼트"로, 1b는 "워크스페이스
+루트 + `/node_modules/@types/` 세그먼트"로 각각 앵커링해서 비교한다.
+
+**유형 B**: layer 1만 내면 DOM 표준 슬롯(`element.onclick`류) 한 종류로 쪼그라들 수 있다 — 이건
+지금 fixture 없이 못 정한다. 구현 lane에서 fixture로 실제로 확인하고, 쪼그라들면 결함이 아니라
+정보로 기록한 뒤 "유형 2개"를 무엇으로 채울지 다시 논의한다.
+
+**layer 2(관례 이름, 재확인 안 됨)는 이번 PR에 안 넣는다** — 닫힌 축과 안 닫힌 축이 한 정확도
+숫자에 섞이면 그 숫자가 뭘 뜻하는지 아무도 못 말한다(gate 4가 "오탐 경로 0"을 정정해야 했던
+바로 그 실패 모양).
+
+**§4(mountUnresolved/budget 결정)와 위 "범위" 절의 모순은 §4가 맞는 것으로 정정했다** — 아래
+"범위" 절 참고.
+
+**이 설계는 확정이다 — 구현 lane으로 넘어간다.**
+
+## 2026-09-09 추가 3 — 방금 "확정"이라고 적은 것 중 두 가지가 이미 틀렸다(commander가 같은 시각 지적)
+
+위 "설계 확정" 절을 커밋한 직후 commander가 **내가 직접 잰 `push` 측정값** 자체가 그 절의 정의를
+깬다고 지적했다 — 반박이 아니라 내 결과를 내가 잘못 해석한 것이었다.
+
+**정정 1 — "표준 lib으로 resolve되면 1층"은 포함 기준이 될 수 없다.** `Array.prototype.push`도
+`lib.es5.d.ts`로 정확히 resolve된다(위 표에 이미 있었다) — **그런데 `push`는 자기 인자를 절대
+호출하지 않는다.** "표준 lib에 닿는다"는 사실 하나로는 "그 API가 콜백을 부른다"를 못 보장한다.
+**올바른 구조는 둘로 분리한다**:
+1. **명시적 allowlist(포함 기준, 사람이 정함)** — 호출 의미가 **규격/문서로 보장된** 함수만
+   미리 나열한다. 후보: `setTimeout`/`setInterval`/`queueMicrotask`/`process.nextTick`(지연·예약
+   호출), `addEventListener`(이벤트 구동 호출), `Array.prototype.forEach|map|filter|find`(즉시
+   동기 순회 호출) — `push`/`pop`/`slice` 등은 목록에 없으므로 애초에 후보가 안 된다.
+2. **`prepare()` 재확인(1번 목록에 오른 이름의 callee가 진짜 그 표준 선언인지)** — 사용자가 같은
+   이름의 함수를 만들어 shadowing한 경우를 여기서 걸러낸다(가짜 `forEach`를 만들었다면 workspace
+   파일로 resolve되어 탈락).
+
+**1번이 "무엇을 후보로 볼지"를 정하고, 2번이 "그 후보가 진짜인지" 재확인한다 — 둘을 하나("표준
+lib에 닿으면 1층")로 뭉쳤던 게 이번 정정 대상이다.** 그래도 gate 4보다 강한 이유는 그대로다:
+거기선 이름 해석을 손으로 했고 여기서는 language server가 한다(2번 단계).
+
+**정정 2 — "유형 2개"는 구문이 아니라 런타임 호출 방식으로 센다.** story 원문은 "최소 2개 **동적
+호출** 유형"이지 "구문 유형"이 아니다. 구문(호출 인자 전달 vs 프로퍼티 대입)으로 센 게 이 세션의
+판단이었고, 그 기준이 lane을 유형 1개로 쪼그라뜨린 원인이었다 — **`push`와 `forEach`가 구문·resolve
+결과 둘 다 같은데 호출 여부가 다른 것 자체가, 구문이 아니라 "런타임에 어떻게 불리는가"로 갈라야
+한다는 증거다.** 새 기준:
+- **지연/예약 호출**: `setTimeout(handler, 0)`, `queueMicrotask(handler)` — 런타임이 나중에 부른다.
+- **이벤트 구동 호출**: `addEventListener('click', handler)` — 외부 사건이 부른다.
+- **고차 함수 즉시 동기 순회 호출**: `arr.forEach(handler)`, `arr.map(handler)` — 라이브러리 함수가
+  같은 tick 안에서 부른다.
+
+셋 다 layer 1(위 allowlist + `prepare()` 재확인) 하나 안에 있고, **최소 2개**는 이 셋 중 아무
+둘을 골라도 채워진다 — "유형이 1개로 줄었다"는 이 세션의 오판이었다. story가 이름 댄 두 패턴
+("명시적 callback 전달"=지연 호출 계열, "event subscription"=이벤트 구동 계열)도 **둘 다 layer 1
+안에 있다.**
+
+**정정 3 — "event subscription이 v1에서 빠진다"는 표현이 틀렸다.** `emitter.on(...)`(Node
+`EventEmitter`) 하나가 `prepare()`로 확인 안 되는 것이지, **event subscription이라는 패턴
+자체는 `addEventListener`(DOM) 경로로 이미 layer 1에 있다.** 빠지는 건 "이 패턴의 Node 구현체
+하나"이지 "이 패턴"이 아니다 — 이전 절의 "event subscription 등록 지점 자체가 v1에서 빠진다"는
+문장을 이걸로 정정한다. **`EventEmitter.on`이 왜 안 되는지는 이번 lane에서 조사하지 않는다** —
+앞서 "오버로드 많은 제네릭 시그니처로 추정"이라고 적었는데, 확인 안 된 추정을 원인처럼 적은
+것 자체가 잘못이었다. **원인 미확인, v1에 불필요**라고만 남긴다.
+
+**유지되는 것 — 유형 B는 빠진다, 근거 재구성**: `onclick` 같은 슬롯 자체가 `prepare()`로 전혀
+확인 안 되는 건 그대로다. 이건 "정확도가 부족해서 제외"가 아니라 **"검증 능력이 없어서 제외"**이고,
+event의 `emit` 지점(변수 재확인 불가)과 같은 칸에 넣는다. **그리고 이 둘은 FastAPI adapter의
+`importsNameFromModule`이 애초에 손으로 이름을 해석해야 했던 이유와 같은 근본 원인(callable이
+아닌 대상을 language server에 물을 방법이 없음)을 공유한다** — 세 가지 전부
+`definition`/`reference` provider 하나가 있으면 닫힌다. 이 셋을 한 자리(아래 "능력 부재로 제외")에
+모아 둔다 — 그 능력 추가를 나중에 판단할 사람이 값어치를 한 번에 보도록.
+
+**allowlist 항목은 "콜백을 부를 것 같다"가 아니라 1차 출처로 확인한다** — IL-LIM-010의 framework
+기본 패턴 검증과 같은 급. `setTimeout`/`addEventListener`는 MDN에서 확인했다(`[실행]`, WebFetch):
+MDN의 `addEventListener` 설명은 "sets up a function **that will be called** whenever the specified
+event is delivered"로 명시적으로 "불린다"고 적는다. `setTimeout`은 지연 시간의 정확한 보장은
+없지만("실제 지연은 더 길 수 있다") **콜백 자체가 결국 불린다는 서술은 있다.** 나머지
+(`setInterval`/`queueMicrotask`/`process.nextTick`/`forEach`/`map`/`filter`/`find`)는 이 문서
+작성 시점엔 1차 출처를 개별 확인하지 않았다 — **구현 lane에서 fixture를 만들기 전에 하나씩 확인하고,
+확인 안 된 항목은 allowlist에서 뺀다.**
+
 ## 결정
+
+**정정 안내(2026-09-09)**: 이 섹션은 이 문서를 쓰면서 가장 먼저 나온 판단이고, 아래 "2026-09-09
+추가 2/추가 3"에서 그중 두 개가 정정됐다 — **2번(유형 A/B를 구문으로 가른다)은 "런타임 호출
+방식으로 가른다"로, 4번(mountUnresolved만 다룸)은 결론 자체는 유지되지만 근거가 "추가 3"에서
+보강됐다.** 원문은 지우지 않고 그대로 두되, 최종 결론은 아래 "## 범위 (최종 — 2026-09-09 추가 3
+반영)" 절을 따른다.
 
 ### 1. 이번 lane은 "callable 대상"만 다룬다 — event의 emit 쪽은 범위 밖, 이유는 "정확도 판단"이 아니라 "능력 부재"
 
@@ -228,44 +345,47 @@ optional `budget?: AdapterBudget`을 추가해 어댑터가 자기 값을 선언
 `DEFAULT_BUDGET`로 떨어지게 한다(하위 호환 — 기존 FastAPI 등록은 변경 없음). **정확한 숫자는 구현
 lane에서 실측(측정 원칙 그대로 — 추측하지 않는다)한다.**
 
-## 범위
+## 범위 (최종 — 2026-09-09 추가 3 반영)
 
-**2026-09-09 갱신**: 위 "commander의 반박 1번" 측정 결과로 아래 "포함" 목록이 이 문서 이전 버전보다
-좁아졌다 — Type B와 `.on()`류는 "포함"에서 "반박·추가 측정 대기"로 내렸다. commander/reviewer의
-다음 판단을 기다리는 중이라 최종이 아니다.
+**포함**:
+- **allowlist(1차 출처로 확인된 것만) + `prepare()` 재확인**으로 동작하는 하나의 adapter. allowlist
+  후보: `setTimeout`/`setInterval`/`queueMicrotask`/`process.nextTick`(지연·예약 호출),
+  `addEventListener`(이벤트 구동 호출), `Array.prototype.forEach|map|filter|find`(즉시 동기 순회
+  호출) — `setTimeout`/`addEventListener`는 MDN으로 확인 완료, 나머지는 구현 lane에서 fixture
+  전에 개별 확인(확인 안 되면 목록에서 뺀다).
+- "동적 호출 유형 2개"는 **런타임 호출 방식**(지연/예약, 이벤트 구동, 즉시 동기 순회 — 최소 이
+  셋 중 둘)으로 채운다. story가 이름 댄 "명시적 callback 전달"(지연 호출)과 "event subscription"
+  (이벤트 구동, `addEventListener`)이 둘 다 이 안에 있다.
+- 각 후보를 `prepare()`로 이중 재확인: **callee**가 allowlist가 가리키는 진짜 표준 선언인지(같은
+  이름의 사용자 함수가 아닌지, shadowing 부정 fixture로 고정), **handler**가 원하는 그 함수인지
+  (측정 4의 shadowing 부정 fixture로 고정).
 
-**포함(1층 확인된 것만, 확정)**:
-- 유형 A 중 **callee가 표준 lib 선언(`lib.dom.d.ts`/`lib.es5.d.ts` 등, `prepare()`로 실측 확인된
-  것만)으로 확인되는 호출-인자 전달**: `setTimeout(handler, ...)`, `addEventListener(..., handler)`,
-  `Array.prototype.forEach|map|filter`류(측정: `forEach`/`push` 확인, `map`/`filter`는 같은 lib
-  선언 계열이라 개연성은 높지만 구현 lane에서 개별 재확인 필요).
-- 각 후보를 `prepare()`로 재확인(핸들러 쪽 — 측정 4의 shadowing 부정 사례를 실제 부정 fixture로
-  고정) **그리고** callee 쪽(1층 lib 선언 확인, 위 표).
+**제외(범위 밖, 능력 부재로 인해 — 셋이 같은 근본 원인을 공유한다)**:
+1. 유형 B(프로퍼티/슬롯 대입, `obj.onClick = handler`류) — 대입 대상 프로퍼티 자체가 `prepare()`로
+   전혀 확인 안 됨(측정: `button.onclick` → `[]`).
+2. event의 `emit` 지점 → handler 연결 — receiver(`emitter`, 변수)가 `prepare()`로 확인 안 됨.
+3. FastAPI adapter(`fastapiDependencyAdapter.ts`)가 `importsNameFromModule`로 이름을 손으로
+   해석해야 했던 것(기존 사실, 새로 발견한 게 아니라 같은 자리로 재확인).
 
-**반박·추가 측정 대기(이 문서만으로는 포함 여부를 못 정한다)**:
-- **유형 B(프로퍼티/슬롯 대입)** — 대입 대상 프로퍼티 자체가 `prepare()`로 전혀 확인 안 됨(측정:
-  `button.onclick` → `[]`). 1층/2층을 가를 방법이 없어 commander의 "1층만 v1" 원칙을 적용할 기준
-  자체가 없다. 포함하려면 다른 근거(예: 타입 검사를 다른 LSP 능력으로)가 필요하다.
-- **`emitter.on('x', handler)` 같은 `.on()`류 registration** — callee `prepare()`가 `[]`(측정
-  위). "잘 알려진 API"라는 인상과 달리 1층으로 확인이 안 된다.
-- 위 둘이 빠지면 "동적 호출 유형 2개"가 유형 A 하나(표준 API 호출-인자 전달)로 줄어들 수 있다 —
-  이 자체가 반박 대상.
+세 가지 전부 "callable이 아닌 대상(프로퍼티, 변수, 모듈 경로)을 language server에 물어 확정할
+방법이 없다"는 같은 결핍에서 나온다 — `definition`/`reference` provider 하나가 SPI에 추가되면
+셋 다 동시에 풀린다. 이 lane은 그 능력을 추가하지 않는다(새 adapter와 새 LSP 능력을 한 PR에
+같이 넣으면 뭐가 뭘 깨는지 못 가린다는 commander의 판단) — 별도 lane으로 남긴다.
 
-**제외(범위 밖, 능력 부재로 인해)**:
-- event의 `emit` 지점 → handler 연결. `definition`/`reference` provider가 SPI에 추가된 뒤 별도
-  lane.
+**미확인(원인 조사 안 함, v1에 불필요)**:
+- `EventEmitter.on`이 `prepare()`로 확인 안 되는 이유. event subscription 패턴 자체는
+  `addEventListener`로 layer 1에 남아 있으므로 v1 진행에 필요하지 않다.
 
 **결정됨(§4, 이번 lane에 포함)**:
 - `AdapterResult.mountUnresolved`를 optional로, `AdapterBudget`에 adapter별 override 추가.
 
 **제외(story 자체가 이미 배제)**:
 - 문자열 이름 기반 연결, reflection, framework DI(`IL-LIM-002` 소관).
+- layer 2(관례 이름, `register`/사용자 정의 함수 등 — callee 쪽이 재확인 안 되는 것)는 이번 PR에
+  넣지 않는다. 닫힌 축과 안 닫힌 축이 한 정확도 숫자에 섞이면 그 숫자의 의미를 아무도 못 말한다.
 
-## commander/reviewer의 반박을 기다린다
+## commander/reviewer의 반박을 기다린다(다음 라운드가 있다면)
 
-이 문서는 구현 전 단계다. 특히 다음을 반박 대상으로 명시한다:
-1. 유형 A/B를 가르는 기준(재확인 방식이 아니라 구문 형태) 자체.
-2. 유형 A의 API 이름 allowlist를 무엇으로 시작할지(TS/Node 생태계에서 어떤 API가 "콜백 등록"의
-   대표 사례인지).
-3. 유형 B의 프로퍼티 이름 패턴을 얼마나 좁게/넓게 잡을지.
-4. `definition` 능력 추가를 별도 lane으로 미루는 판단 자체.
+1. allowlist 항목별 1차 출처 확인 결과(구현 lane에서 채워짐).
+2. 런타임 호출 방식 3분류(지연/예약, 이벤트 구동, 즉시 동기 순회) 자체 — 넷째 방식이 있는지.
+3. `definition`/`reference` 능력 추가를 별도 lane으로 미루는 판단 자체.
