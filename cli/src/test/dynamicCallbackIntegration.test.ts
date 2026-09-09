@@ -25,7 +25,7 @@ import test from 'node:test';
 // `augmentedEdges` source names with `assert.deepEqual` - stronger than any per-fixture `.length`
 // assertion would have been, since it simultaneously proves every positive fixture DOES produce a
 // candidate, every negative fixture does NOT, and nothing else (a cross-contaminating false positive
-// from any fixture) is hiding in between. That one assertion covers all 12 fixtures at once. The
+// from any fixture) is hiding in between. That one assertion covers all 14 fixtures at once. The
 // per-scenario tests after it are not re-proving presence/absence (already closed by the set
 // assertion) - they exist to pin per-candidate detail (`reasonCode`, `adapterId`) and to give a
 // regression a specific, readable failure message instead of only a diff against the full set.
@@ -85,8 +85,8 @@ function candidateFor(name: string): AugmentedEdge {
 }
 
 // THE accuracy corpus test - see the file's own top comment for why this one assertion, not a
-// per-fixture `.length` check, is what actually proves precision across all 12 fixtures at once: the
-// 4 positives are present, the 8 negatives are absent, AND no fourteenth, unexpected candidate (a
+// per-fixture `.length` check, is what actually proves precision across all 14 fixtures at once: the
+// 4 positives are present, the 10 negatives are absent, AND no fifteenth, unexpected candidate (a
 // cross-contaminating false positive from any fixture) is hiding in the set either - a `.find()`-based
 // positive check or a single-name `!includes()` negative check could each pass even if that happened.
 test('augmentedEdges contains exactly the 4 expected candidates and nothing else - the accuracy corpus in one assertion', () => {
@@ -108,7 +108,7 @@ test("button.addEventListener('click', handler): reasonCode event-subscription",
   assert.equal(candidateFor('listenerCaller').reasonCode, 'event-subscription');
 });
 
-// The 8 negative fixtures below are already proven absent by the set-equality test above - a
+// The 10 negative fixtures below are already proven absent by the set-equality test above - a
 // `!sourceNames().includes(name)` assertion here is strictly implied by it, never able to catch
 // anything that test would not. Kept as their own named tests anyway, each with its fixture file and
 // its own reason in the title, purely so a regression on ONE specific scenario fails with a readable,
@@ -171,4 +171,25 @@ test('setTimeout(handler, 0) inside a function whose preceding sibling nested fu
 test('setTimeout(handler, 0) inside a function whose preceding sibling nested function contains a regex literal with an unbalanced brace, regexBraceTrap.ts: folds to no candidate rather than misattributing to the wrong (already-closed) enclosing function', () => {
   assert.ok(!sourceNames().includes('regexOuterCaller'));
   assert.ok(!sourceNames().includes('regexInner'));
+});
+
+// objectLiteralMethodCallback.ts / classMethodCallback.ts: M4 gate 7 real-code measurement
+// (docs/work/task-m4-gate7-budget-and-real-code-measurement.md) - reproduces a real mis-attribution
+// found in this repo's own adapterProviderShim.ts, not a synthetic case. An object-literal method
+// shorthand (`run(): void { ... }`) and a class method are neither one of `ENCLOSING_FUNCTION_PATTERNS`;
+// before the fix, the backward scan for the object-literal case skipped straight past the unrecognized
+// `run` method and landed on the outer FACTORY function `outerFactoryNeverCallsHandlerDirectly`, which
+// never itself calls `handler` - a confidently wrong candidate, reproduced directly before this fixture
+// existed. The class-method case was already a false negative (the outer name doesn't even match a
+// pattern), but pinning it here guards against a future change accidentally turning it into the same
+// kind of mis-attribution. Both wrong outer names, and the never-matched method names themselves, must
+// be absent - checking only one leaves the other regression undetected.
+test('setTimeout(handler, 0) inside an object-literal method shorthand returned by a factory function, objectLiteralMethodCallback.ts: folds to no candidate rather than misattributing to the outer factory that never itself calls handler', () => {
+  assert.ok(!sourceNames().includes('outerFactoryNeverCallsHandlerDirectly'));
+  assert.ok(!sourceNames().includes('run'));
+});
+
+test('setTimeout(handler, 0) inside a class method, classMethodCallback.ts: folds to no candidate rather than misattributing to any outer scope', () => {
+  assert.ok(!sourceNames().includes('NeverCallsHandlerDirectly'));
+  assert.ok(!sourceNames().includes('run'));
 });
