@@ -655,24 +655,32 @@ router/include_router-level `dependencies=[]`)는 이번 fix가 직접 겨냥한
 | `get_current_active_superuser`(**형태 D**: route decorator `dependencies=[Depends(...)]`, 오늘 직접 확인 — `users.py`/`login.py`/`utils.py` 전부 `@router.get/post/delete(..., dependencies=[Depends(get_current_active_superuser)])`, 파라미터 형태 아님) | **4개**: `read_users`(정답)·`update_user`(정답)·`read_user_by_id`(오탐)·`reset_password`(오탐); 정답 6개 중 **4개 위음성**(`create_user`/`delete_user`/`recover_password_html_content`/`test_email`) | **6개, 전부 정답**(`create_user`/`delete_user`/`read_users`/`recover_password_html_content`/`test_email`/`update_user`) — 오탐 0, 위음성 0 |
 | `get_db` | **1개**(자기 자신 — self-ref 오탐) | 0개 — **안전한 기각**(B: `SessionDep = Annotated[Session, Depends(get_db)]`, 진짜 caller는 `reference` 능력 필요 — 위음성으로 알려짐, "정답"은 아니다) |
 
-**두 프로젝트 합산(오늘 재측정), 형태별로 나눠서**: 참조 20개(dispatch 14 + template 6)는 네
+**reviewer가 실행으로 잡은 산수 오류(2026-09-09) — template은 6개가 아니라 7개다.**
+`get_current_active_superuser`(D, 6개) 표에는 넣었지만 바로 아래 `get_db`(B, 1개)를 template
+합계에서 빠뜨렸다 — `grep -rn "Depends(get_current_active_superuser)\|Depends(get_db)"`로
+재확인: template은 6+1=**7개**다. 아래 숫자를 전부 그에 맞게 고친다(20→21, 8→9, 12/20(60%)→
+12/21(57%), 27→28 — 뒤에 나오는 corpus 합계 항목도 같이 고침).
+
+**두 프로젝트 합산(오늘 재측정), 형태별로 나눠서**: 참조 21개(dispatch 14 + template 7)는 네
 형태로 갈린다 — **A(파라미터) 6개**(dispatch만), **B(모듈-레벨 별칭) 6개**(dispatch 5 + template
 `get_db` 1), **C(router/include_router-level) 3개**(dispatch만), **D(route decorator, 단일
 route) 6개**(template만, 위에서 다시 확인). **A와 D는 이 adapter가 다루도록 설계된 형태**(12개,
 dispatch 6 + template 6) — 이 12개 안에서는 **고친 후 위음성 0**(A는 고치기 전에도 정상이었고,
-D는 이번 fix가 정확히 고친 shape). **B와 C(8개, 전부 dispatch)는 이 adapter에 없는 능력이
-필요해 기각하는 게 v1의 설계된 정답** — 기각이 안전(오탐 없음)해졌을 뿐, recall이 채워진 게
-아니라 **여전히 위음성으로 알려진 상태**다. **오탐은 20개 전체에서 고치기 전 10건 → 고친 후
-0건**(이 claim은 그대로 유효 — 기각은 오탐을 만들지 않는다).
+D는 이번 fix가 정확히 고친 shape). **B와 C(9개, dispatch 8 + template 1)는 이 adapter에 없는
+능력이 필요해 기각하는 게 v1의 설계된 정답** — 기각이 안전(오탐 없음)해졌을 뿐, recall이 채워진
+게 아니라 **여전히 위음성으로 알려진 상태**다. **오탐은 21개 전체에서 고치기 전 10건 → 고친 후
+0건**(이 claim은 그대로 유효 — 기각은 오탐을 만들지 않는다, template의 `get_db`도 고치기 전엔
+자기참조 오탐이었다가 고친 후 안전한 기각으로 바뀐 것이므로 이미 §3-3의 `get_db` 행에 반영돼
+있었다).
 
 **recall은 두 분모로 둘 다 적는다(commander 3차 반박 — "여기서만"이 분모를 좁힌다는 지적을
 그대로 받아들인다)**:
 
 - **이 adapter가 겨냥하는 두 형태(A+D) 기준: 12/12(100%)** — "우리가 하기로 한 것 안에서는
   완벽하다"는 뜻이고, 그 자체로는 사실이다.
-- **실제 `Depends()` 참조 전체 기준: 12/20(60%)** — **사용자가 실제로 겪는 숫자는 이것이다.**
+- **실제 `Depends()` 참조 전체 기준: 12/21(약 57%)** — **사용자가 실제로 겪는 숫자는 이것이다.**
   사용자는 "이 adapter가 겨냥하는 형태"를 모르고, 그냥 자기 코드의 `Depends()` 참조 목록을
-  본다. 20개 중 8개(40%)가 조용히 빠진 채로.
+  본다. 21개 중 9개(약 43%)가 조용히 빠진 채로.
 - **fixture corpus에서 이미 한 번 지적한 것과 같은 실수를 한 단계 위에서 반복할 뻔했다** —
   "우리가 다루기로 한 것 안에서 오탐 0"이라는 말은 그 범위를 명시하지 않으면 "오탐이 없다"로
   읽힌다. "recall 100%"도 범위를 명시하지 않으면 "다 찾는다"로 읽힌다 — 같은 함정, 다른 지표.
@@ -690,10 +698,13 @@ latency budget에서 유도한다**: `maxFiles`는 budget을 집행하는 수단
 아니다.
 
 - **절대 허용치(잠정, commander 지적 반영 — "오늘 측정의 2배"는 그 자체로 근거가 아니다)**:
-  오늘 두 실제 프로젝트에서 관측한 worst-case delta(717파일 전체 스캔, `get_current_role` 쿼리)
-  **181ms**의 2배인 **400ms**를 쓴다. **다만 이 값은 사용자 쪽 근거(예: "그래프 갱신이
+  오늘 두 실제 프로젝트에서 관측한 delta 중 최댓값(717파일 전체 스캔, `get_current_role` 쿼리)
+  **181ms**의 2배인 **400ms**를 쓴다. **이 "181ms"는 dispatch 한 프로젝트, latency 쿼리 3개
+  중 최댓값이다(reviewer 지적 — 이 문서가 다른 자리에서는 계속 인정해 온 표본 크기 한계를
+  여기서만 "worst case"라는 단정적 표현으로 가렸다) — 더 큰 프로젝트나 다른 쿼리 모양에서 더
+  큰 delta가 나올 수 있고, 아직 안 쟀다.** 그리고 이 값은 사용자 쪽 근거(예: "그래프 갱신이
   Xms 이상 느려지면 기능을 끈다")가 아니라 오늘 측정에서 역산한 임시값이다 — extension host
-  latency를 실측하기 전에는 확정이 아니다.** CLI에서 181ms인 작업이 extension host 안에서
+  latency를 실측하기 전에는 확정이 아니다. CLI에서 181ms인 작업이 extension host 안에서
   (다른 확장과 경쟁, Remote-SSH/Container/WSL이면 파일 읽기가 네트워크 왕복) 400ms 안에
   들어온다는 보장이 전혀 없다 — 이건 아직 한 번도 안 쟀다(4절). **25% 비율과 같은 처리를
   400ms에도 적용한다**: 정직하게 "검증도 반박도 못 한 임시값"으로 남긴다.
@@ -736,11 +747,12 @@ latency budget에서 유도한다**: `maxFiles`는 budget을 집행하는 수단
     추정)는 정정 5·6의 감사 기준을 다시 기계적으로 적용해야 나온다 — 이 lane은 그 재적용을
     안 했다**(추정치를 확정치로 적지 않는다, 이것도 이 lane 자신이 반복해서 지적해 온
     함정이다). 다음에 Python corpus 숫자를 다시 인용할 때는 이 재적용부터 하고 인용한다.
-  - **실제 코드 참조(오늘 새로 실측, 손으로 만든 게 아니다)**: dispatch 14 + template 6
-    (§3-3, 전수 census) + TS 실제 코드 7(§3-1) = **27개**, 사람이 미리 정답을 적어 둔 뒤
-    adapter 출력과 대조 — **이 27개 전체에서 오탐 0건**(고친 후 기준).
-  - 이 27개가 이번 lane이 새로 보탠, 손으로 안 만든 유일한 부분이다 — 위 Python 정확한
-    합계가 아직 미확정이어도 **27개 실제 코드 corpus의 오탐 0건은 오늘 직접 재확인한
+  - **실제 코드 참조(오늘 새로 실측, 손으로 만든 게 아니다)**: dispatch 14 + template **7**
+    (§3-3, 전수 census — reviewer가 잡은 산수 오류 정정, `get_current_active_superuser` 6개에
+    `get_db` 1개를 더해야 한다) + TS 실제 코드 7(§3-1) = **28개**, 사람이 미리 정답을 적어 둔
+    뒤 adapter 출력과 대조 — **이 28개 전체에서 오탐 0건**(고친 후 기준).
+  - 이 28개가 이번 lane이 새로 보탠, 손으로 안 만든 유일한 부분이다 — 위 Python 정확한
+    합계가 아직 미확정이어도 **28개 실제 코드 corpus의 오탐 0건은 오늘 직접 재확인한
     사실**이라 budget 확정을 막지 않는다.
 - **budget**: 2절의 제안("구성이 명시된 corpus에서 0건, 발견 즉시 재개방") 그대로 확정 — 위
   세 구성(TS fixture 18, Python fixture 38+4, 실제 코드 참조 27)이 그 "명시된 corpus"다.
@@ -751,36 +763,50 @@ latency budget에서 유도한다**: `maxFiles`는 budget을 집행하는 수단
 추측이 아니라 오늘의 실측이 근거다:
 
 1. **정확도(오탐)는 닫혔다**: PR #99·#100이 오탐 10건(오늘 재측정 기준)을 전부 없앴고, 오늘 새로
-   실측한 실제 코드 corpus 27개(§4-이후 위 항목) 전체에서 오탐 0건을 확인했다. 이 축만 보면
-   기본값 on을 막을 이유가 없다.
-2. **recall은 겨냥한 형태 안에서만 완전하다 — 실제 참조 기준으로는 60%다(commander 3차 반박)**:
-   `fastapi-static-v1`이 다루도록 설계된 두 형태(파라미터, route decorator)에서는 12/12(100%)지만,
-   실제 `Depends()` 참조 20개 전체 기준으로는 **12/20(60%)**다 — 사용자는 어떤 형태가 겨냥
-   대상인지 모른 채 자기 코드의 참조 목록을 본다.
-3. **지원 안 되는 형태가 조용히 버려진다 — limitation이 없다(commander 3차 반박)**:
-   `classifyDependsReferenceContext`가 `reject`를 반환하면 호출부는 그냥 `continue`한다 — 아무
-   limitation도 안 남는다. 실제 참조의 40%(20개 중 8개, 위 2번과 같은 8개)가 사용자에게 아무
-   신호 없이 버려진다 — `framework_route_mount_unresolved`가 정확히 이 문제("route는 찾았는데
-   mount를 확인 못 했다")를 위해 이미 존재하는데, 이 shape에는 그 짝이 없다. **이 lane은 이
-   limitation 코드를 추가하지 않는다**(코드 변경 — 별도 lane, "코드와 판단이 섞이면 안 된다"는
-   원칙 유지) — 이 4가지 근거 중 사용자에게 가장 직접적인 항목으로만 기록한다.
-4. **가용성 결함은 진단만 됐고 고쳐지지 않았다**: `maxFiles: 200`은 오늘 실측한 실제 프로젝트
-   (dispatch, 717파일) 쿼리 8개 중 **7개에서 예산 초과로 부분/빈 결과를 낸다** — 정확도가
-   아니라 "답 자체가 없다"는 문제이고, §3-3이 보였듯 프로덕션 코드는 전혀 안 바꿨다(측정만
-   했다). **이 상태로 기본값을 켜면, 오탐은 없어진 adapter가 실제 규모 프로젝트 대부분에서
-   아무 답도 못 낸다** — 사용자가 얻는 이득이 사실상 없다.
-5. **extension host latency는 오늘도 안 쟀다**(4절, 1단계 harness는 별도 결정 사항으로
+   실측한 실제 코드 corpus 28개(§4-이후 위 항목, reviewer가 잡은 template 참조 수 정정
+   반영 — 27이 아니라 28) 전체에서 오탐 0건을 확인했다. 이 축만 보면 기본값 on을 막을 이유가
+   없다.
+2. **recall은 겨냥한 형태 안에서만 완전하다 — 실제 참조 기준으로는 약 57%다(commander 3차
+   반박, reviewer가 분모를 21로 정정)**: `fastapi-static-v1`이 다루도록 설계된 두 형태(파라미터,
+   route decorator)에서는 12/12(100%)지만, 실제 `Depends()` 참조 21개 전체 기준으로는
+   **12/21(약 57%)**다 — 사용자는 어떤 형태가 겨냥 대상인지 모른 채 자기 코드의 참조 목록을
+   본다.
+3. **지원 안 되는 형태가 조용히 버려진다 — limitation이 없다(commander 3차 반박, reviewer가
+   `coverage.semantic.status`까지 직접 실행해 재확인)**: `classifyDependsReferenceContext`가
+   `reject`를 반환하면 호출부는 그냥 `continue`한다 — 아무 limitation도 안 남는다.
+   `augmentationEnabled: true`로 쿼리해도 응답이 `augmentationEnabled: false`와 구분이 안 된다
+   (reviewer가 `get_organization_path` 쿼리로 직접 확인). 실제 참조의 약 43%(21개 중 9개, 위
+   2번과 같은 9개)가 사용자에게 아무 신호 없이 버려진다 — `framework_route_mount_unresolved`가
+   정확히 이 문제("route는 찾았는데 mount를 확인 못 했다")를 위해 이미 존재하는데, 이 shape에는
+   그 짝이 없다. **이 lane은 이 limitation 코드를 추가하지 않는다**(코드 변경 — 별도 lane,
+   "코드와 판단이 섞이면 안 된다"는 원칙 유지) — 이 근거 목록 중 사용자에게 가장 직접적인
+   항목으로만 기록한다.
+4. **~~가용성 결함은 진단만 됐고 고쳐지지 않았다~~ — 2026-09-09 정정: PR #102가 닫았다.**
+   `maxFiles: 200`은 오늘 실측한 실제 프로젝트(dispatch, 717파일) 쿼리 8개 중 **7개에서 예산
+   초과로 부분/빈 결과를 냈다** — commander의 "적용 안 된 budget은 budget이 아니다"는 지적에
+   따라, 이 lane이 유도한 `maxFiles: 1500`을 별도 PR(#102, `docs/work/task-m4-gate7-apply-
+   maxfiles.md`)로 실제 코드에 적용했다. **"상한 없음"이 아니라 실제 1500 값으로 dispatch 8개
+   쿼리를 재실행해 전부 `augmentation_budget_exceeded: false`로 확인** — 추론이 아니라 실측으로
+   닫았다. 이 근거는 더 이상 "기본값 on 아직 아님"의 사유가 아니다 — 아래 근거만 남는다.
+5. **분류 자체가 완전하지 않다(reviewer 발견, 오늘 수치엔 영향 없음)**: `findDependsReferences`는
+   `Depends(` 리터럴만 찾는다 — FastAPI가 `Depends()`와 동의어로 지원하는 `Security(fn,
+   scopes=[...])`는 이 adapter에 아예 안 보인다. B/C처럼 "안전하게 기각"되는 게 아니라, reference
+   자체가 안 잡혀서 "원래 없었던 것"과 구분이 안 된다. 두 프로젝트 다 `grep -rn "Security("`
+   결과 0건이라(reviewer가 직접 확인) 오늘 census 숫자엔 영향 없지만, "네 형태로 다 분류된다"는
+   전제 자체가 완전하지 않다는 뜻이라 기록한다 — 새 lane 대상, 이 문서는 고치지 않는다.
+6. **extension host latency는 오늘도 안 쟀다**(4절, 1단계 harness는 별도 결정 사항으로
    남아 있다) — CLI 수치만으로 기본값 on을 결정하면 실제 사용 환경(특히 Remote-SSH/Container/
    WSL)의 체감 비용을 모른 채 켜는 것이다.
-6. **오탐 corpus는 여전히 프로젝트 2개뿐**이다 — 실제 코드 참조가 오늘 27개로 늘었지만, "실제
+7. **오탐 corpus는 여전히 프로젝트 2개뿐**이다 — 실제 코드 참조가 오늘 28개로 늘었지만, "실제
    프로덕션 코드베이스에서 오탐 0"이라는 문장의 대표성은 여전히 좁다.
 
-**다음으로 필요한 것(이 lane의 범위 밖, 별도 lane)**: (a) `maxFiles`를 실제로 올리는 PR(이
-문서가 latency budget에서 유도해 제안한 1500, 400ms 자체가 잠정이라 이 값도 잠정 —
-commander/reviewer 반박 대상) — 오탐 fix가 무의미해지지 않으려면 이게 오탐 fix보다
-먼저 또는 함께 가야 한다. (b) 지원 안 되는 `Depends()` 형태(모듈-레벨 별칭, router-level
-`dependencies=[]`)에 조용한 기각 대신 limitation 코드를 붙이는 PR(`framework_depends_form_
-unsupported`류, `LIMITATION_SURFACE_PATTERNS` 등록까지 — #97 절차 그대로). (c) extension
-host 1단계 harness(4절 권고, 아직 미착수). 이 셋이 닫히기 전까지 이 lane은 기본값 on을
-권하지 않는다 — 뒤집힐 수 있는 잠정 판단이고, 뒤집는 근거는 실측이어야 한다(이 lane 전체가
-그래왔듯).
+**다음으로 필요한 것(이 lane의 범위 밖, 별도 lane)**: ~~(a) `maxFiles`를 실제로 올리는 PR~~
+**2026-09-09: PR #102(`docs/work/task-m4-gate7-apply-maxfiles.md`)가 닫았다** — 1500으로 적용,
+dispatch 8개 쿼리 실제 값으로 재검증 완료(400ms 자체가 잠정이라 1500도 잠정인 건 그대로다 —
+extension host 측정이 바뀌면 이 값도 다시 계산해야 한다). (b) 지원 안 되는 `Depends()` 형태
+(모듈-레벨 별칭, router-level `dependencies=[]`)에 조용한 기각 대신 limitation 코드를 붙이는 PR
+(`framework_depends_form_unsupported`류, `LIMITATION_SURFACE_PATTERNS` 등록까지 — #97 절차
+그대로). (c) `Security()` 미인식(위 5번, reviewer 발견) — 오늘 두 프로젝트엔 없어 숫자에 영향은
+없지만 형태 분류 자체를 넓히는 후속. (d) extension host 1단계 harness(4절 권고, 아직 미착수).
+(b)·(c)·(d)가 닫히기 전까지 이 lane은 기본값 on을 권하지 않는다 — 뒤집힐 수 있는 잠정 판단이고,
+뒤집는 근거는 실측이어야 한다(이 lane 전체가 그래왔듯).

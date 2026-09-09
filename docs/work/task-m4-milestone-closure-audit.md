@@ -369,6 +369,33 @@ measurement.md` §3·§4-이후·5절. 요약:
 넷으로 늘었다.** 바뀐 건 budget 숫자 두 개의 확정도, recall 숫자의 범위 표시, 그리고 "조용한
 기각" 자체가 새 근거로 추가된 것이다.
 
+**2026-09-09 4차 정정(reviewer가 실행으로 잡은 산수 오류, PR #102가 가용성 결함을 닫음)** — 위
+세 블록을 지우지 않고 정정한다:
+
+1. **template 프로젝트의 `Depends()` 참조는 6개가 아니라 7개다.** `get_current_active_superuser`
+   (6곳)를 셀 때 `get_db`(1곳, `SessionDep = Annotated[Session, Depends(get_db)]`)를 총합에서
+   빠뜨렸다 — reviewer가 `grep -rn "Depends(get_current_active_superuser)\|Depends(get_db)"`로
+   재확인. **참조 총계 20→21, "위음성 8건(B 5 + C 3)" 중 두 프로젝트 합산 항목만 8→9(template의
+   B가 1 늘어남 — dispatch-only인 §3-3 본문의 "8건"은 원래 정확했다, 합산 절에서만 틀렸다),
+   recall 12/20(60%)→12/21(약 57%), 실제 코드 corpus 27→28.** 정확도(오탐 10→0) claim은 이
+   오류와 무관해 그대로 유효 — reviewer가 before/after 두 CLI 빌드를 직접 재실행해 재확인했다.
+2. **`maxFiles: 200`의 가용성 결함이 이제 닫혔다.** commander의 "적용 안 된 budget은 budget이
+   아니다"는 지적에 따라 `maxFiles: 1500`을 실제로 적용하는 별도 PR #102(`docs/work/task-m4-
+   gate7-apply-maxfiles.md`)를 열었다 — "상한 없음"이 아니라 실제 1500 값으로 dispatch 8개
+   쿼리를 재실행해 전부 `augmentation_budget_exceeded: false`로 확인했다. **이 항목은 더 이상
+   "아직 기본값 on 아님"의 근거가 아니다** — 남은 근거는 recall(약 57%), 조용한 기각(limitation
+   없음), extension host 미측정, corpus 프로젝트 둘, 그리고 새로 찾은 `Security()` 미인식(아래
+   3번)이다.
+3. **`Security()`가 `Depends()`의 동의어인데 이 adapter에 전혀 안 보인다(reviewer 발견).**
+   `findDependsReferences`가 `Depends(` 리터럴만 찾아서, FastAPI의 `Security(fn, scopes=[...])`
+   형태는 reference 자체가 안 잡힌다 — B/C처럼 안전하게 기각되는 게 아니라 "원래 없었던 것"과
+   구분이 안 된다. 두 프로젝트 다 `Security(` 사용 0건이라(reviewer 확인) 오늘 census 숫자엔
+   영향 없지만, "네 형태로 다 분류된다"는 이 gate의 전제 자체가 완전하지 않다는 뜻이라 기록한다
+   — 새 lane 대상.
+
+**gate 7의 최종 판단은 여전히 안 바뀐다** — 다만 근거 하나(가용성)가 닫히고 새 근거 하나
+(`Security()` 미인식)가 늘어 결과적으로는 그대로 "아직 기본값 on을 권하지 않는다"다.
+
 ### Gate 8 — user-test 명세
 
 `docs/development-management/user-tests/` 디렉터리에 `m0`/`m1`/`m2` 명세는 있지만
@@ -405,12 +432,9 @@ measurement.md` §3·§4-이후·5절. 요약:
 - **정의(무엇이 "정해진"인지)가 필요한 것, 코드 문제 아님**:
   - ~~Gate 7: latency budget 값 자체.~~ **2026-09-09: 정의됐다**(위 추가 참고) — 남은 건 정의가
     아니라 `maxFiles` 값 자체를 바꾸는 코드 변경(아래) 그리고 extension host harness다.
-  - Gate 7의 새 후속(값싼 수정으로 보이지만 확인 필요): `cli/src/shared/adapters/index.ts`의
-    `DEFAULT_BUDGET.maxFiles`를 200에서 올린다(latency budget에서 유도한 1500, **잠정** —
-    2026-09-09 정정 참고). 비용은 이미 감당 가능하다는 게 실측됐다(717파일 전체 스캔
-    worst-case +181ms) — 남은 판단은 "얼마나 올릴지"뿐이라 값싸 보이지만, 그 숫자 자체가
-    아직 잠정인 latency budget(400ms)에서 유도돼 있어 400ms가 바뀌면 같이 바뀐다 —
-    commander/reviewer 반박 대상, 별도 lane으로 갈라 시작한다.
+  - ~~Gate 7의 새 후속: `DEFAULT_BUDGET.maxFiles`를 200에서 올린다~~ **2026-09-09 4차 정정:
+    PR #102가 닫았다** — 1500(latency budget에서 유도, 400ms가 바뀌면 이 값도 같이 바뀌는
+    잠정값)으로 실제 적용, dispatch 8개 쿼리를 실제 값으로 재검증했다.
 
 ## 패턴 — 주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례 3건
 
