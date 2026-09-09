@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import test from 'node:test';
+import { CANDIDATE_LABEL_TEXT } from '../candidateGraphResolution';
 
 // M4 gate 2 UI lane (docs/work/task-m4-gate2-shared-adapter.md). graphPanel.ts does `import * as vscode
 // from 'vscode'` at its top - nothing in it, including toPayload()/getHtml(), can be required() from a
@@ -65,9 +66,13 @@ function extractFunctionBody(text: string, signature: string): string {
 // Word-literal drift guard (commander's finding). scripts/lib/response-policy-engine.mjs's own
 // CANDIDATE_CALLER_PHRASE is exported specifically so response-policy-doc-invariants.mjs can import the
 // exact same string instead of holding a separate literal - graphPanel.ts's client script cannot import
-// it directly (a plain .mjs script, a different module system from this file's compiled CommonJS output),
-// so this is graphPanel.test.ts's own established "read the other file as text" pattern applied to close
-// what would otherwise be a third, comment-only-linked copy.
+// it directly (a plain .mjs script, a different module system from this file's compiled CommonJS output).
+//
+// 2026-09-09 (refactor/graphpanel-candidate-logic-extraction): CANDIDATE_LABEL_TEXT itself moved out of
+// graphPanel.ts's template-literal text into src/candidateGraphResolution.ts, a real module with no
+// `vscode` import - so THIS half of the comparison is now a real `import`, not source-text regex
+// extraction. The response-policy-engine.mjs half still has to be read as text (a plain .mjs script, a
+// different module system this file's compiled CommonJS output cannot `require()`).
 // ---------------------------------------------------------------------------
 
 test('CANDIDATE_LABEL_TEXT matches the first word of response-policy-engine.mjs\'s own CANDIDATE_CALLER_PHRASE', () => {
@@ -78,16 +83,29 @@ test('CANDIDATE_LABEL_TEXT matches the first word of response-policy-engine.mjs\
   const match = /export const CANDIDATE_CALLER_PHRASE = '([^']+)';/.exec(engineSource);
   assert.ok(match, 'expected to find CANDIDATE_CALLER_PHRASE in response-policy-engine.mjs');
   const firstWord = match![1].split(' ')[0];
-  const graphPanelMatch = /var CANDIDATE_LABEL_TEXT = '([^']+)';/.exec(source);
-  assert.ok(graphPanelMatch, 'expected to find CANDIDATE_LABEL_TEXT in graphPanel.ts');
   assert.equal(
-    graphPanelMatch![1],
+    CANDIDATE_LABEL_TEXT,
     match![1],
-    `graphPanel.ts's CANDIDATE_LABEL_TEXT ('${graphPanelMatch![1]}') must equal response-policy-engine.mjs's ` +
-    `CANDIDATE_CALLER_PHRASE ('${match![1]}') - otherwise the CLI response, its own doc-invariant, and this ` +
-    'UI would use three different words for the same concept with nothing to catch a future edit to only one of them',
+    `candidateGraphResolution.ts's CANDIDATE_LABEL_TEXT ('${CANDIDATE_LABEL_TEXT}') must equal ` +
+    `response-policy-engine.mjs's CANDIDATE_CALLER_PHRASE ('${match![1]}') - otherwise the CLI response, ` +
+    'its own doc-invariant, and this UI would use three different words for the same concept with nothing ' +
+    'to catch a future edit to only one of them',
   );
   assert.equal(firstWord, 'candidate', 'sanity check on the assumption this test is built on - if this ever fails, CANDIDATE_CALLER_PHRASE itself changed shape and the comparison above needs rethinking, not just re-pinning');
+});
+
+test('graphPanel.ts embeds the real CANDIDATE_LABEL_TEXT import, not a re-hardcoded duplicate literal', () => {
+  assert.match(
+    source,
+    /import\s*\{[^}]*CANDIDATE_LABEL_TEXT[^}]*\}\s*from\s*'\.\/candidateGraphResolution';/,
+    'expected graphPanel.ts to import CANDIDATE_LABEL_TEXT from ./candidateGraphResolution',
+  );
+  assert.match(
+    source,
+    /const CANDIDATE_LABEL_TEXT = \$\{JSON\.stringify\(CANDIDATE_LABEL_TEXT\)\};/,
+    'expected getHtml() to embed the imported CANDIDATE_LABEL_TEXT into the Webview script via ' +
+    'JSON.stringify(), not a separately-typed-out literal that could drift from the import',
+  );
 });
 
 // ---------------------------------------------------------------------------
