@@ -1,6 +1,9 @@
 # M4 gate 7 — false-positive·latency budget 정의, 실제 코드 측정, extension host latency 조사
 
-- 상태: commander 반박 1라운드 반영 완료, 실행 중(산출물 3-1부터)
+- 상태: 산출물 넷 모두 실행 완료(2026-09-09). budget 수치 확정(§4-이후), 두 실제 프로젝트
+  precision/recall 전/후 census 완료(§3-3), `maxFiles` 세 숫자 실측 완료(§3-3), extension host
+  harness는 여전히 미착수(4절). **이 lane의 최종 판단은 "아직 기본값 on을 권하지 않는다"(5절)** —
+  `maxFiles` 조정과 extension host latency가 남은 선행 조건.
 - branch: `docs/m4-gate7-budget-and-real-code-measurement`
 - 선행: PR #98(Java/Kotlin/Spring 계획) merge 완료. gate 1(실패 격리 항목)·gate 2·gate 3·gate
   4·gate 5·gate 6 닫힘, 열림 2(gate 7, gate 8).
@@ -515,3 +518,173 @@ commander의 1차 반박 셋을 전부 반영했다:
    패턴·candidate 개수 확인, 3-0의 40개 상한 적용) — 후보가 부적절하면 다른 후보로 교체.
 4. 3-2 측정 실행, 측정 스크립트 커밋.
 5. 4절의 조사 결과를 별도로 commander에게 전달 — harness 착수 여부는 별도 결정.
+
+이 다섯 단계는 모두 끝났다. 아래 3-3·5·6절이 그 마지막 산출물이다 — PR #99/#100(둘 다 merge
+완료, `f8bb0ff`)로 고친 두 adapter를, commander가 지적한 함정(잘린 워크스페이스에서 잰 latency를
+"실제 프로젝트 latency"로 보고하는 것, budget에 갇힌 채 측정해 budget이 순환 근거가 되는 것)을
+피해 다시 쟀다.
+
+## 3-3. 최종 재측정(2026-09-09, `[실행]`) — `maxFiles` 실제 비용, precision/recall 전/후 전수 census
+
+### 측정 스크립트를 커밋한다(3-0 결정 이행)
+
+`scripts/gate7-measure-real-code.mjs` — `precision`(정의 위치를 쿼리해 `augmentedEdges` 출력),
+`latency`(같은 쿼리를 augmentation on/off로 반복 실행해 중앙값 delta 계산 — CLI/pyright 기동
+비용이 지배하는 총 소요시간에서 adapter 자신의 비용만 분리), `walk-order`(`walkPythonFiles()`의
+순회 순서를 그대로 복제해, 주어진 파일이 몇 번째 `.py` 파일로 방문되는지 계산 — CLI를 전혀
+안 부르는 순수 읽기 전용 스크립트) 세 하위 명령. 대상 프로젝트 자체는 여전히 커밋하지 않는다 —
+아래 각 표에 pin된 commit hash로 재현한다.
+
+### `maxFiles`를 실제로 올려서 쟀다(commander 지적 반영 — 잘린 워크스페이스 latency를 보고하지 않는다)
+
+**방법**: 격리된 `git worktree`(공유 작업 트리를 건드리지 않음, 어디에도 push하지 않고 측정 후
+바로 제거)에서 `cli/src/shared/adapters/index.ts`의 `DEFAULT_BUDGET.maxFiles`만 200→5000으로
+**측정 목적으로만** 바꿔 재빌드했다 — 프로덕션 코드에는 이 변경이 없다(어느 branch에도 커밋
+안 됨). `Netflix/dispatch`(`dd2837e82a0bf5565b1b4b4b91ea30b7262d4061`, `IGNORED_DIRECTORIES`
+제외 후 717개 `.py` 파일 — `src/`만이 아니라 워크스페이스 루트 전체 기준, 이전 절의 "655"는
+`src/` 서브트리만 센 값이었다)을 원본 그대로, 서브트리로 자르지 않고 썼다.
+
+**세 숫자(commander가 요구한 형태 그대로)**:
+
+| 쿼리 | 200 상한(현재 기본값) — 지금 사용자가 겪는 것 | 상한 없음(5000, 717개 파일 전체 스캔) — 상한을 올렸을 때의 비용 |
+| --- | --- | --- |
+| `get_current_role`(auth/service.py) | off 1145.5ms / on 1168.3ms / **delta 22.9ms**, `augmentation_budget_exceeded: true`, 정답(`common_parameters`) **못 찾음** | off 1149.3ms / on 1330.5ms / **delta 181.3ms**, 정답 정확히 찾음 |
+| `get_body`(endpoints.py) | off 1159.3ms / on 1184.8ms / **delta 25.5ms**, budget 초과, 정답 4개(`slack_events`/`slack_commands`/`slack_actions`/`slack_menus`) **전부 못 찾음** | off 1162.1ms / on 1241.0ms / **delta 78.9ms**, 정답 4개 전부 찾음 |
+| `get_organization_path`(api.py) | off 1113.0ms / on 1131.5ms / **delta 18.5ms**, budget 초과(다만 이 경우엔 정답이 0개라 우연히 결과는 맞음) | off 1102.6ms / on 1177.8ms / **delta 75.1ms**, 정답 0개(맞음, budget 무관) |
+
+(각 median은 7회 반복, `scripts/gate7-measure-real-code.mjs latency`.)
+
+**언제 상한이 걸리기 시작하는가** — `walk-order` 하위 명령으로 `walkPythonFiles()`의 정확한
+순회 순서를 재현해 census 대상 8개 정의 파일이 몇 번째 `.py` 파일로 방문되는지 직접 셌다:
+
+| 파일 | 방문 순서(717개 중) | 200 상한 안에 드는가 |
+| --- | --- | --- |
+| `api.py` | #15 | 예 |
+| `auth/service.py` | #19 | 예 |
+| `case/views.py` | #49 | 예 |
+| `database/core.py` | #112 | 예 |
+| `database/service.py` | **#281** | **아니오** |
+| `incident/views.py` | #368 | 아니오 |
+| `plugins/dispatch_slack/endpoints.py` | **#531** | **아니오** |
+
+**결론**: `maxFiles: 200`은 717개 파일짜리 실제 프로젝트의 **39%(#281) 지점에서 이미 실패하기
+시작한다** — `database/service.py`(`get_current_role`의 정답 `common_parameters`가 있는 파일)가
+정확히 그 지점이다. 이 census 안의 worst case(`endpoints.py`, #531)는 전체의 74% 지점까지
+가야 한다. **717개 파일 전체를 스캔하는 비용은 절대적으로도 작다**(가장 비싼 쿼리에서도
++181ms, CLI 총 소요시간 ~1.3초 중) — `maxFiles`를 올리는 데 드는 비용은 이미 감당 가능한
+수준이라는 뜻이고, 지금 200이 막고 있는 건 "비용이 너무 커서"가 아니라 **숫자 자체가 실제
+프로젝트 규모보다 작게 골라졌기 때문**이다.
+
+### precision/recall 전/후 전수 census — 같은 쿼리 8개, 고치기 전(commit `61d055c`, PR #99만
+반영·PR #100 이전)과 고친 후(`f8bb0ff`, 현재 `main`)를 나란히
+
+**census 자체**: `Depends(bare_name)` 형태로 dispatch에 존재하는 참조는 전수 **14개**(grep
+재확인, 위 walk-order와 같은 `IGNORED_DIRECTORIES` 기준 워크스페이스). 8개 서로 다른 대상
+함수로 묶인다 — 사람이 먼저 각 참조의 형태(파라미터/모듈-레벨 별칭/route decorator, 그리고
+**이번에 처음 본 네 번째 형태**: `APIRouter(..., dependencies=[Depends(x)])`나
+`include_router(..., dependencies=[Depends(x)])`처럼 router 생성·등록 시점에 붙는 의존성 —
+어느 def에도 안 속하고, 그 router 아래 모든 route에 걸리므로 module-level 별칭과 같은 이유로
+"단일 확정 caller 없음"이 정답이다)를 읽어 사람이 정답을 미리 적었다:
+
+| 쿼리(정의) | 실제 참조(형태) | 사람이 미리 적은 정답 |
+| --- | --- | --- |
+| `get_organization_path` | api.py:99, `APIRouter(dependencies=[])` | 0개(단일 확정 caller 없음) |
+| `get_current_user` | api.py:263·268(router-level ×2), auth/service.py:280(모듈-레벨 별칭), auth/service.py:284(파라미터) | 1개: `get_current_role`만 |
+| `get_current_role` | database/service.py:593(파라미터) | 1개: `common_parameters` |
+| `common_parameters` | database/service.py:615(모듈-레벨 별칭) | 0개 |
+| `get_db` | database/core.py:162(모듈-레벨 별칭) | 0개 |
+| `get_body` | endpoints.py:82·107·133·142(파라미터 ×4) | 4개: `slack_events`/`slack_commands`/`slack_actions`/`slack_menus` |
+| `get_current_case` | case/views.py:75(모듈-레벨 별칭) | 0개 |
+| `get_current_incident` | incident/views.py:73(모듈-레벨 별칭) | 0개 |
+
+정답 합계: 진양성이어야 할 edge 6개, 나머지 8개 참조는 전부 기각(0개)이 정답. **두 실행 모두
+`maxFiles: 5000`(위와 같은 측정용 override, 상한에 안 걸리게)으로 실행해 정확도 결함과 가용성
+결함(위 §3-3)을 분리했다** — 안 그러면 고치기 전 결과가 budget 초과로도 오염돼 "정확도가
+나빠서"인지 "예산이 모자라서"인지 구분이 안 된다.
+
+| 쿼리 | 고치기 전(`61d055c`) | 고친 후(`f8bb0ff`) |
+| --- | --- | --- |
+| `get_organization_path` | **1개**(자기 자신 — self-ref 오탐) | 0개 — **정답** |
+| `get_current_user` | **3개**: `get_current_role`(정답), 자기 자신(self-ref 오탐), `healthcheck`(오귀속 — 순방향 미탐색 시절 이전 라우트 핸들러로 미끄러짐) | 1개(`get_current_role`만) — **정답** |
+| `get_current_role` | 1개(`common_parameters`) — 이미 정답(파라미터 형태는 원래 정상이었음, 회귀 없음 재확인) | 1개(`common_parameters`) — 정답, 변화 없음 |
+| `common_parameters` | **1개**(자기 자신 — self-ref 오탐) | 0개 — **정답** |
+| `get_db` | **1개**(자기 자신 — self-ref 오탐) | 0개 — **정답** |
+| `get_body` | 4개(전부 정답) — 이미 정답(파라미터 형태 회귀 없음) | 4개(전부 정답) — 변화 없음 |
+| `get_current_case` | **1개**(자기 자신 — self-ref 오탐) | 0개 — **정답** |
+| `get_current_incident` | **1개**(자기 자신 — self-ref 오탐) | 0개 — **정답** |
+
+**요약**: 고치기 전 — 진양성 6개(정답 그대로 다 찾음, 파라미터 형태는 원래도 정상이었으므로)
++ **오탐 8개**(모듈-레벨 별칭 6곳 전부 자기참조, `get_current_user`의 router-level 참조 중
+하나가 `healthcheck`로 오귀속, `get_organization_path`의 router-level 참조가 자기참조).
+고친 후 — 진양성 6개(회귀 없음), **오탐 0개**, 위음성 0개. **네 번째 형태(router/
+include_router-level `dependencies=[]`)는 이번 fix가 직접 겨냥한 적이 없는데도 이미 안전하게
+기각되고 있었다** — `classifyDependsReferenceContext`의 "그 외는 전부 기각"이 이 형태도
+덮는다(뒤로 스캔했을 때 만나는 첫 안 닫힌 괄호가 `def`도 `@decorator`도 아닌 `APIRouter(`/
+`include_router(`이므로) — **새 결함이 아니라 기존 fix의 부산물로 이미 닫혀 있었다는 것을
+이번에 실측으로 확인했다.**
+
+`tiangolo/full-stack-fastapi-template`(43개 `.py` 파일, `maxFiles: 200`에 전혀 안 걸림 —
+`get_current_active_superuser`/`get_db`도 같은 방식으로 고치기 전/후 대조):
+
+| 쿼리 | 고치기 전 | 고친 후 |
+| --- | --- | --- |
+| `get_current_active_superuser` | **4개**: `read_users`(정답)·`update_user`(정답)·`read_user_by_id`(오탐)·`reset_password`(오탐); 정답 6개 중 **4개 위음성**(`create_user`/`delete_user`/`recover_password_html_content`/`test_email`) | **6개, 전부 정답**(`create_user`/`delete_user`/`read_users`/`recover_password_html_content`/`test_email`/`update_user`) — 오탐 0, 위음성 0 |
+| `get_db` | **1개**(자기 자신 — self-ref 오탐) | 0개 — **정답**(`SessionDep = Annotated[Session, Depends(get_db)]`, 단일 확정 caller 없음) |
+
+**두 프로젝트 합산(오늘 재측정)**: 참조 20개(dispatch 14 + template 6), 고치기 전 오탐 10건
+(dispatch 8 + template 2)·위음성 4건(template만, dispatch는 0) → 고친 후 오탐 0건·위음성 0건,
+진양성 12건(dispatch 6 + template 6) 전부 정확.
+
+## 4-이후. 최종 budget 수치
+
+### Latency budget — 확정
+
+- **`maxFiles`(가용성 budget, 새로 분리해 명시)**: **200은 이 세션이 실측한 두 실제 프로젝트
+  중 하나(dispatch, 717파일)에서 39% 지점(#281)에 이미 못 미친다** — 위 §3-3. 717파일 전체
+  스캔 비용은 최악 케이스에서도 +181ms(총 소요시간의 14% 미만)로, 비용이 상한을 막는 이유가
+  아니다. **이 lane의 권고: `maxFiles`를 최소 2000으로 올린다** — 실측한 두 프로젝트를
+  전부 여유 있게 덮고(717×2.8배), 관측된 비용 분포(200파일당 ~20ms, 717파일당 ~80-180ms,
+  거의 선형)를 그대로 외삽해도 2000파일에서 +250~500ms 수준으로 아래 절대 허용치 안에
+  들어온다. **이 숫자는 이 lane의 제안이고 코드 변경은 하지 않았다** — 프로덕션 값 변경은
+  별도 PR과 별도 승인이 필요하다(commander/reviewer 반박 대상).
+- **절대 허용치**: 오늘 두 실제 프로젝트에서 관측한 worst-case delta(717파일 전체 스캔,
+  `get_current_role` 쿼리) **181ms**의 2배 — **400ms**로 확정한다.
+- **비율**: 25%(초안 그대로) — **오늘 실측으로는 검증도 반박도 못 했다**: "off" 측정치
+  (~1100-1400ms)는 CLI 기동+pyright `prepare` 비용이 지배해서 순수 static traversal 시간만
+  분리하지 못했다. 이 비율은 여전히 미확정 잔여로 남긴다(반박 대상, 이 lane 완료 기준을
+  막지 않는다 — `max(400ms, 25%×static)`에서 절대 허용치가 이미 지금까지 관측된 모든 경우의
+  실질적 기준이었다).
+- **최종 공식**: `budget = max(400ms, 0.25 × static traversal latency)`.
+- **초과 시 결과**: 1절의 제안(CI gate 아님, 기본값 on 전환 게이트로만 사용) 그대로 확정.
+
+### False-positive budget — 확정
+
+- **corpus 구성 최종본**: 손으로 만든 fixture 48개(TS 18 + Python 30, `dynamicCallbackIntegration.
+  test.ts`/`pythonFastapiIntegration.test.ts`) + 실제 코드 참조 20개(dispatch 14 + template 6,
+  §3-3) + TS 실제 코드 7개(§3-1) = **75개**. **이 구성 전체에서 오탐 0건**(고친 후 기준).
+- **budget**: 2절의 제안("구성이 명시된 corpus에서 0건, 발견 즉시 재개방") 그대로 확정 — 위
+  구성이 그 "명시된 corpus"다.
+
+## 5. 이 lane의 판단 — "이 숫자로 기본값 on을 권할 수 있는가"
+
+**아직 아니다.** commander가 측정 전에 미리 표시한 판단과 같은 결론에 도달했다 — 다만 지금은
+추측이 아니라 오늘의 실측이 근거다:
+
+1. **정확도 결함은 닫혔다**: PR #99·#100이 오탐 10건(오늘 재측정 기준)을 전부 없앴고, 75개
+   corpus 전체에서 오탐 0건을 확인했다. 이 축만 보면 기본값 on을 막을 이유가 없다.
+2. **가용성 결함은 진단만 됐고 고쳐지지 않았다**: `maxFiles: 200`은 오늘 실측한 실제 프로젝트
+   (dispatch, 717파일) 쿼리 8개 중 **7개에서 예산 초과로 부분/빈 결과를 낸다** — 정확도가
+   아니라 "답 자체가 없다"는 문제이고, §3-3이 보였듯 프로덕션 코드는 전혀 안 바꿨다(측정만
+   했다). **이 상태로 기본값을 켜면, 정확도는 완벽해진 adapter가 실제 규모 프로젝트 대부분에서
+   아무 답도 못 낸다** — 사용자가 얻는 이득이 사실상 없다.
+3. **extension host latency는 오늘도 안 쟀다**(4절, 1단계 harness는 별도 결정 사항으로
+   남아 있다) — CLI 수치만으로 기본값 on을 결정하면 실제 사용 환경(특히 Remote-SSH/Container/
+   WSL)의 체감 비용을 모른 채 켜는 것이다.
+4. **오탐 corpus는 여전히 프로젝트 2개뿐**이다 — 75개 자체는 38개보다 커졌지만, "실제
+   프로덕션 코드베이스에서 오탐 0"이라는 문장의 대표성은 여전히 좁다.
+
+**다음으로 필요한 것(이 lane의 범위 밖, 별도 lane)**: (a) `maxFiles`를 실제로 올리는 PR(이
+문서가 제안한 2000, commander/reviewer 반박 대상) — 정확도 fix가 무의미해지지 않으려면 이게
+정확도 fix보다 먼저 또는 함께 가야 한다. (b) extension host 1단계 harness(4절 권고, 아직
+미착수). 이 두 가지가 닫히기 전까지 이 lane은 기본값 on을 권하지 않는다 — 뒤집힐 수 있는 잠정
+판단이고, 뒤집는 근거는 실측이어야 한다(이 lane 전체가 그래왔듯).

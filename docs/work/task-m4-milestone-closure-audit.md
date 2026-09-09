@@ -311,6 +311,25 @@ fixture 2개가 같은 기준에 편입돼 현재 38개(진양성 15/진음성 2
 6, `task-m4-stage3-accuracy-latency-gates.md`). 위 "의미 범위가 한정된다"는 지적은 여전히
 유효하다 — corpus가 커진 것과 corpus가 실제 코드베이스를 대표하게 된 것은 다른 이야기다.
 
+**2026-09-09 추가 — gate 7의 budget 산출물이 실행으로 채워졌고, 그 과정에서 실제 오탐 경로가
+드러나 고쳐졌다(PR #99·#100).** 전체 기록은 `docs/work/task-m4-gate7-budget-and-real-code-
+measurement.md` §3·§4-이후·5절. 요약:
+
+- **latency budget 확정**: `max(400ms, 0.25 × static traversal latency)`. 절대 허용치 400ms는
+  두 실제 프로젝트에서 관측한 worst-case(717파일 전체 스캔, +181ms)의 2배.
+- **false-positive budget 확정**: "구성이 명시된 corpus(fixture 48개 + 실제 코드 참조 27개,
+  총 75개)에서 0건, 발견 즉시 재개방" — 오늘 재측정 기준 실제로 0건.
+- **`maxFiles: 200`이 실제 프로젝트(Netflix/dispatch, 717개 `.py` 파일)의 39% 지점에서 이미
+  못 미친다는 것을 실측으로 확인했다** — 비용이 아니라(717파일 전체 스캔도 worst-case +181ms)
+  숫자 자체가 작게 골라진 문제. 이 lane은 `maxFiles: 2000` 상향을 권고했지만 **프로덕션 코드는
+  바꾸지 않았다**(측정 전용 override, 어느 branch에도 커밋 안 됨) — 별도 lane의 몫.
+- **이 lane의 최종 판단: "아직 기본값 on을 권하지 않는다."** 정확도 결함(gate 7이 찾은 것)은
+  닫혔지만, `maxFiles`가 실제 규모 프로젝트에서 답 자체를 못 내는 가용성 결함은 진단만 되고
+  안 고쳐졌고, extension host latency는 여전히 한 번도 안 쟀다(4절, 1단계 harness 미착수).
+  **gate 7은 "정해진 budget"이라는 뜻으로는 닫혔지만("정의가 필요한 것" 항목, 아래 348행 —
+  이제 정의됐다), "기본값 on 전환 판단"이라는 이 gate의 진짜 목적으로는 아직 열려 있다** —
+  `maxFiles` 조정 lane과 extension host 1단계 harness가 남은 선행 조건이다.
+
 ### Gate 8 — user-test 명세
 
 `docs/development-management/user-tests/` 디렉터리에 `m0`/`m1`/`m2` 명세는 있지만
@@ -345,7 +364,13 @@ fixture 2개가 같은 기준에 편입돼 현재 38개(진양성 15/진음성 2
   - Gate 3: cross-file bare-identifier router-include 양성 fixture. 코드는 이미 될 것 같다는
     것까지만 확인됐다 — fixture로 직접 실행해 확인하는 것이 다음 단계다.
 - **정의(무엇이 "정해진"인지)가 필요한 것, 코드 문제 아님**:
-  - Gate 7: latency budget 값 자체.
+  - ~~Gate 7: latency budget 값 자체.~~ **2026-09-09: 정의됐다**(위 추가 참고) — 남은 건 정의가
+    아니라 `maxFiles` 값 자체를 바꾸는 코드 변경(아래) 그리고 extension host harness다.
+  - Gate 7의 새 후속(값싼 수정으로 보이지만 확인 필요): `cli/src/shared/adapters/index.ts`의
+    `DEFAULT_BUDGET.maxFiles`를 200에서 올린다(이 lane의 실측은 2000을 권고). 비용은 이미
+    감당 가능하다는 게 실측됐다(717파일 전체 스캔 worst-case +181ms) — 남은 판단은 "얼마나
+    올릴지"뿐이라 값싸 보이지만, 숫자를 정하는 것 자체가 commander/reviewer 반박 대상이라
+    별도 lane으로 갈라 시작한다.
 
 ## 패턴 — 주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례 3건
 
