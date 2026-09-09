@@ -50,6 +50,22 @@
   tripwire(5000ms) 사이에 120배 간극이 있고, 그 사이 어딘가에 "이 정도부터 사용자가 체감한다"는
   실제 budget이 없다.
 
+### `maxFiles: 200`이 실제 규모 프로젝트에서 3배 이상 초과된다(commander — 부차 데이터가 아니라
+핵심 근거로 승격)
+
+산출물 3-2(FastAPI 실제 프로젝트 측정, 아래 참고)를 진행하며 `Netflix/dispatch`(실제 프로덕션
+코드, 655개 non-test `.py` 파일)를 원본 그대로 워크스페이스로 쿼리했더니 **`maxFiles: 200`
+초과로 `augmentation_budget_exceeded`만 돌아오고 아무 candidate도 안 나왔다** — parameter 형태
+검증을 위해 `auth`+`database` 서브트리만 176개 파일로 잘라낸 워크스페이스를 **직접 만들어야**
+쿼리가 됐다. 사용자는 그렇게 못 한다.
+
+**이건 latency 문제가 아니라 가용성 문제다** — 이 지점의 정확도 결함(§3-2)과 같은 급이고, 어떤
+의미로는 더 크다: 정확도 결함은 틀린 답을 내지만 이건 **실제 규모 프로젝트에서 기본값으로 답
+자체를 안 낸다.** `augmentation_budget_exceeded`로 정직하게 보고되니 조용히 틀리진 않지만,
+사용자가 얻는 건 "예산 초과" 한 줄뿐이다. **"실제 프로젝트에서 200이 맞는 숫자인가"에 대해 지금
+가진 유일한 실측이 "실제 프로젝트 하나가 3배 이상 초과한다"는 것이다** — latency budget(아래
+제안)뿐 아니라 `maxFiles` 자체의 budget 재검토에도 이 수치를 핵심 근거로 쓴다.
+
 ### 제안 — 절대치와 비율 중 더 관대한 쪽(commander 반박으로 정정)
 
 초안은 순수 비율(static traversal 대비 25%)만 제안했는데, **commander가 이 형태의 구조적 결함을
@@ -368,6 +384,37 @@ on으로 돌려 대조한다.
 **측정 결과는 이 저장소에 무엇으로 남기나**: 측정 스크립트(위 3-0 참고, 커밋됨), 이 work
 document(또는 그 후속 실행 lane의 work document)에 정확한 commit hash·실행 명령·대조표(정답
 집합 vs adapter 출력)를 남긴다 — 대상 프로젝트의 코드 자체만 커밋하지 않는다.
+
+### 3-2 실행 결과(2026-09-09, `[실행]`) — 결함 발견 → 별도 fix lane → 재측정까지 완료
+
+측정 도중 결함을 찾아 별도 fix lane(`docs/work/task-m4-fastapi-depends-enclosing-scope-fix.md`,
+branch `fix/fastapi-depends-enclosing-scope`)으로 처리했다 — 전체 과정 요약, 세부 근거는 그
+문서 참고:
+
+- **결함**: `findEnclosingDef()`(Depends() 참조의 enclosing 함수를 찾는 함수)가 scope/들여쓰기
+  인식이 전혀 없이 "가장 가까운 def"를 반환했다. `Depends()`의 세 실사용 형태 중 **파라미터
+  형태만 정상**(실측 확인 — `common_parameters`/`get_current_role`, `Netflix/dispatch`),
+  **module-level `Annotated[T, Depends(fn)]` 별칭과 route decorator `dependencies=[Depends(fn)]`
+  둘 다 깨져 있었다.** 두 실제 프로젝트(`tiangolo/full-stack-fastapi-template`,
+  `Netflix/dispatch`) 모두에서 자기참조·오귀속을 확인했다 — `get_current_active_superuser`
+  쿼리는 candidate 4개 중 오탐 2·이름만 맞음 2·위음성 3이었다.
+- **gate 4 재개방 아님**: reviewer가 독립 재현 후 판정 — gate 4의 다중-후보 방어는 정상 동작한다
+  (두 재현 모두 `enclosingResolved.items.length === 1`). 틀린 건 provider 응답이 아니라
+  `resolveEndpoint`에 넘긴 위치 좌표 자체라 다른 실패 모양이다. 별도 이름으로 추적한다(위 fix
+  work document 자체가 그 기록).
+- **수정**: 형태별 분류 후 형태별 규칙 적용(module-level은 `reference` 능력 부재로 기각,
+  decorator는 순방향 탐색, parameter는 무변경) — `docs/development-management/stories/
+  il-lim-002-framework-di-routing.md`의 "미해결 질문"에 `reference` 부재 네 번째 항목으로 추가.
+- **재측정**: `get_current_active_superuser` 쿼리가 **정답 6개**(`create_user`, `delete_user`,
+  `read_users`, `recover_password_html_content`, `test_email`, `update_user`)를 **전부, 그리고
+  정확히** 낸다 — 오탐 0, 위음성 0. 자기참조·합성 오귀속 재현 케이스도 전부 기각(정답)으로
+  바뀌었다. 새 fixture 4개(module-level self-ref/other-function, decorator 오귀속 한 줄/여러
+  줄) 추가, 뮤테이션 검증(수정 비활성화 시 정확히 새 테스트 4개만 실패) 완료, 기존 corpus
+  전체(48개) 회귀 없음 확인.
+- **이 결함이 gate 7 결론에 미치는 영향**: budget 산정 전에 결함을 먼저 고쳤으므로, 이 corpus의
+  "38개 + 실제 코드, 오탐 0건"이라는 최종 문장은 **이 수정이 반영된 상태 기준**이다 — 결함을 안은
+  채로 budget을 정했다면 commander가 미리 경고한 순환(오늘 값에 맞춰 budget을 정하는 것)이
+  그대로 실현됐을 것이다.
 
 ## 4. Extension host latency — 조사, 그리고 commander/reviewer가 이미 좁혀 둔 범위
 
