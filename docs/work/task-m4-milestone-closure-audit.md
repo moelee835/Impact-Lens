@@ -311,6 +311,124 @@ fixture 2개가 같은 기준에 편입돼 현재 38개(진양성 15/진음성 2
 6, `task-m4-stage3-accuracy-latency-gates.md`). 위 "의미 범위가 한정된다"는 지적은 여전히
 유효하다 — corpus가 커진 것과 corpus가 실제 코드베이스를 대표하게 된 것은 다른 이야기다.
 
+**2026-09-09 추가 — gate 7의 budget 산출물이 실행으로 채워졌고, 그 과정에서 실제 오탐 경로가
+드러나 고쳐졌다(PR #99·#100).** 전체 기록은 `docs/work/task-m4-gate7-budget-and-real-code-
+measurement.md` §3·§4-이후·5절. 요약:
+
+- **latency budget 확정**: `max(400ms, 0.25 × static traversal latency)`. 절대 허용치 400ms는
+  두 실제 프로젝트에서 관측한 worst-case(717파일 전체 스캔, +181ms)의 2배.
+- **false-positive budget 확정**: "구성이 명시된 corpus(TS fixture 18 + Python fixture 38+PR
+  #100의 신규 4 + 오늘 새로 실측한 실제 코드 참조 27)에서 0건, 발견 즉시 재개방" — 오늘 재측정
+  기준 실제 코드 참조 27개 전체에서 실제로 0건(Python fixture의 정확한 새 합계는 감사 기준
+  재적용이 아직 안 됐다 — gate7 문서 §4-이후 참고).
+- **`maxFiles: 200`이 실제 프로젝트(Netflix/dispatch, 717개 `.py` 파일)의 39% 지점에서 이미
+  못 미친다는 것을 실측으로 확인했다** — 비용이 아니라(717파일 전체 스캔도 worst-case +181ms)
+  숫자 자체가 작게 골라진 문제. 이 lane은 `maxFiles: 2000` 상향을 권고했지만 **프로덕션 코드는
+  바꾸지 않았다**(측정 전용 override, 어느 branch에도 커밋 안 됨) — 별도 lane의 몫.
+- **이 lane의 최종 판단: "아직 기본값 on을 권하지 않는다."** 정확도 결함(gate 7이 찾은 것)은
+  닫혔지만, `maxFiles`가 실제 규모 프로젝트에서 답 자체를 못 내는 가용성 결함은 진단만 되고
+  안 고쳐졌고, extension host latency는 여전히 한 번도 안 쟀다(4절, 1단계 harness 미착수).
+  **gate 7은 "정해진 budget"이라는 뜻으로는 닫혔지만("정의가 필요한 것" 항목, 아래 348행 —
+  이제 정의됐다), "기본값 on 전환 판단"이라는 이 gate의 진짜 목적으로는 아직 열려 있다** —
+  `maxFiles` 조정 lane과 extension host 1단계 harness가 남은 선행 조건이다.
+
+**2026-09-09 정정(gate 7 lane, commander 2차 반박 반영) — 위 세 줄을 지우지 않고 정정한다**:
+
+1. **"`max(400ms, ...)`"와 "`maxFiles: 2000` 상향"은 서로 모순이었다** — 717파일 worst
+   case가 181ms이고 거의 선형이면 1600파일 근처에서 이미 400ms에 닿는데, 2000은 그 budget을
+   넘는 작업을 허용한다. **`maxFiles`는 이제 latency budget에서 유도한다**(공식:
+   `maxFiles = budget ÷ 파일당 비용`, 파일당 비용은 오늘 실측한 0.253ms/file) — **1500(잠정)**
+   으로 정정. 자세한 유도는 gate7 문서 §4-이후.
+2. **"절대 허용치 400ms = 오늘 worst-case의 2배"는 그 자체로 사용자 쪽 근거가 아니다** — 오늘
+   측정에서 역산한 임시값일 뿐이다. **400ms는 이제 명시적으로 "잠정, extension host 측정
+   전에는 확정 아님"으로 표시한다** — 확정치가 아니라 25%(비율)와 같은 "검증도 반박도 못 한
+   임시값" 취급이다.
+3. **위음성 0은 recall이 적용되는 형태(파라미터 + route decorator, 12개)에 한정된 말이었다**
+   — module-level 별칭(5)과 이번에 새로 이름 붙인 router/`include_router`-level
+   `dependencies=[]`(3), 합 8개는 **기각이 안전(오탐 없음)해졌을 뿐 여전히 위음성으로 알려진
+   상태**다. `il-lim-002-framework-di-routing.md`의 "미해결 질문"에 다섯 번째 능력-공백
+   항목으로 기록했다. **(2026-09-09 3차 정정) "recall이 적용되는 형태 안에서 100%"만 적는
+   것도 같은 함정의 한 단계 위였다** — 사용자는 어떤 형태가 겨냥 대상인지 모른 채 자기 코드의
+   `Depends()` 참조 목록을 본다. **실제 참조 20개 전체 기준으로는 12/20(60%)** — 이 숫자를
+   반드시 같이 적는다.
+4. **(2026-09-09 3차 정정) 기각이 완전히 조용하다 — limitation이 없다.**
+   `classifyDependsReferenceContext`가 `reject`를 반환하면 호출부는 그냥 `continue`한다 —
+   아무 limitation도 안 남는다. **실제 참조의 40%(20개 중 8개)가 사용자에게 아무 신호 없이
+   버려진다** — 짧아진 결과 목록을 보고 그게 전부라고 읽을 수밖에 없다. 이 저장소엔 정확히
+   이 문제를 위한 선례가 있다(`framework_route_mount_unresolved` — "route는 찾았는데 mount를
+   확인 못 했다"를 조용히 안 버리려고 만든 코드) — 여기도 같은 모양이다. **이 lane은 이
+   limitation 코드를 추가하지 않는다**(코드 변경이라 이 PR과 분리 — "코드와 판단이 섞이면
+   리뷰가 둘 다 흐려진다"는 이 milestone의 기존 원칙 그대로) — 대신 "아직 기본값 on을 권하지
+   않는다"는 판단의 **네 번째 근거**로 추가한다: 지원 안 되는 형태가 조용히 버려진다는 것
+   자체가, 이미 적힌 세 근거(가용성 결함·extension host 미측정·corpus 프로젝트 둘)보다
+   사용자에게 더 직접적이다. 별도 lane에서 `framework_depends_form_unsupported`류 limitation
+   코드 추가와 `LIMITATION_SURFACE_PATTERNS` 등록(#97이 쓴 절차 그대로: 등록 전 오탐 재현 →
+   등록 → 재검증)을 진행한다.
+
+**gate 7의 최종 판단("아직 기본값 on을 권하지 않는다")은 이 정정으로 안 바뀐다 — 오히려 근거가
+넷으로 늘었다.** 바뀐 건 budget 숫자 두 개의 확정도, recall 숫자의 범위 표시, 그리고 "조용한
+기각" 자체가 새 근거로 추가된 것이다.
+
+**2026-09-09 4차 정정(reviewer가 실행으로 잡은 산수 오류, PR #102가 가용성 결함을 닫음)** — 위
+세 블록을 지우지 않고 정정한다:
+
+1. **template 프로젝트의 `Depends()` 참조는 6개가 아니라 7개다.** `get_current_active_superuser`
+   (6곳)를 셀 때 `get_db`(1곳, `SessionDep = Annotated[Session, Depends(get_db)]`)를 총합에서
+   빠뜨렸다 — reviewer가 `grep -rn "Depends(get_current_active_superuser)\|Depends(get_db)"`로
+   재확인. **참조 총계 20→21, "위음성 8건(B 5 + C 3)" 중 두 프로젝트 합산 항목만 8→9(template의
+   B가 1 늘어남 — dispatch-only인 §3-3 본문의 "8건"은 원래 정확했다, 합산 절에서만 틀렸다),
+   recall 12/20(60%)→12/21(약 57%), 실제 코드 corpus 27→28.** 정확도(오탐 10→0) claim은 이
+   오류와 무관해 그대로 유효 — reviewer가 before/after 두 CLI 빌드를 직접 재실행해 재확인했다.
+2. **`maxFiles: 200`의 가용성 결함이 이제 닫혔다.** commander의 "적용 안 된 budget은 budget이
+   아니다"는 지적에 따라 `maxFiles: 1500`을 실제로 적용하는 별도 PR #102(`docs/work/task-m4-
+   gate7-apply-maxfiles.md`)를 열었다 — "상한 없음"이 아니라 실제 1500 값으로 dispatch 8개
+   쿼리를 재실행해 전부 `augmentation_budget_exceeded: false`로 확인했다. **이 항목은 더 이상
+   "아직 기본값 on 아님"의 근거가 아니다** — 남은 근거는 recall(약 57%), 조용한 기각(limitation
+   없음), extension host 미측정, corpus 프로젝트 둘, 그리고 새로 찾은 `Security()` 미인식(아래
+   3번)이다.
+3. **`Security()`가 `Depends()`의 동의어인데 이 adapter에 전혀 안 보인다(reviewer 발견).**
+   `findDependsReferences`가 `Depends(` 리터럴만 찾아서, FastAPI의 `Security(fn, scopes=[...])`
+   형태는 reference 자체가 안 잡힌다 — B/C처럼 안전하게 기각되는 게 아니라 "원래 없었던 것"과
+   구분이 안 된다. 두 프로젝트 다 `Security(` 사용 0건이라(reviewer 확인) 오늘 census 숫자엔
+   영향 없지만, "네 형태로 다 분류된다"는 이 gate의 전제 자체가 완전하지 않다는 뜻이라 기록한다
+   — 새 lane 대상.
+
+**gate 7의 최종 판단은 여전히 안 바뀐다** — 다만 근거 하나(가용성)가 닫히고 새 근거 하나
+(`Security()` 미인식)가 늘어 결과적으로는 그대로 "아직 기본값 on을 권하지 않는다"다.
+
+**2026-09-09 최종 판정 — Gate 7 닫힘, 명시된 잔여 6건을 안고.** PR #102 검토 중 reviewer가 잡은
+또 다른 결함(`maxFiles: 1500`이 `fastapi-static-v1`만이 아니라 `DEFAULT_BUDGET`을 공유하는
+`dynamic-callback-static-v1`까지 조용히 올렸을 뻔함 — `budget` override로 scope를 좁혀 수정,
+동시에 `budgetExceeded: true`가 실제 adapter의 실제 truncation을 거쳐 최종 limitation까지
+도달하는 걸 실행으로 pin하는 테스트가 이전엔 없었던 공백도 닫음)와, 그 수정을 검증하며 이
+lane이 직접 실행으로 확인한 사실(`dynamic-callback-static-v1`의 200 budget이 "언젠가 초과될
+가설"이 아니라 **이 저장소 자신을 저장소 루트로 쿼리하면 지금 당장 초과된다** — `.claude/
+worktrees/`의 중첩 사본 548개가 `IGNORED_DIRECTORIES`에 안 빠져서, 707개 중 200을 훌쩍 넘는다.
+`src`/`cli/src`로 좁힌 스코프에서 잰 이 lane 자신의 기존 발표 수치는 안전하다는 것도 재확인)까지
+반영해, gate 7을 **닫는다**(gate 2·4가 이미 쓴 "수용된 잔여를 안고 닫는다" 형태) —
+`docs/work/task-m4-gate7-budget-and-real-code-measurement.md` §6 "최종 판정" 참고. 남는 잔여
+6건: recall 약 57%(범위 밖 형태 포함 시), 조용한 기각(limitation 없음), corpus 프로젝트 2개,
+`Security()` 미인식, `dynamic-callback-static-v1` 자기 budget 미실측(이미 저장소 루트 기준
+초과), extension host latency 미측정. **gate가 닫히는 것과 augmentation 기본값이 켜지는 것은
+별개다** — "아직 기본값 on을 권하지 않는다"는 판단은 이 닫힘으로 안 바뀐다.
+
+**2026-09-09 5차 정정 — "이미 초과"를 두 층으로 나눈다, 잔여가 6건에서 7건으로.** commander가
+직접 자기 정정했다: "`.claude/worktrees/`의 중첩 사본이 707개 중 707을 만든다"는 참이지만, 그
+사본은 **이 세션이 만든 것**이지 이 저장소의 원래 소스가 아니다. 그래서 두 사실을 구분해야
+한다 — **"이 머신의 이 저장소는 지금 초과한다"**(참, 원인은 세션 산물이라 제품 결함이 아니라
+측정 위생 문제)와 **"TS adapter의 200이 실사용 TS 프로젝트에서 부족한가"**(아직 실측 안 됨,
+깨끗한 clone 기준 `.claude` 전체를 뺀 159/200=80%가 지금 가진 유일한 근사치이지 진짜 외부
+프로젝트 실측이 아니다 — `fastapi-static-v1`이 `Netflix/dispatch`로 받은 것과 다른 급이다).
+reviewer가 PR #102 최종 빌드로 두 주장(실제로 초과됨, `.claude`가 안 걸러짐) 모두 소스와 실행
+양쪽으로 독립 재현했다(worktree 파일 수는 재는 시점에 따라 530~548로 약간 다르지만 결론은
+동일). **더 근본적인 후보 해법도 새로 기록한다**: dot-디렉터리(`.claude`/`.venv`/`.next` 등)를
+walk에서 아예 빼는 것 — `maxFiles`를 올리는 것보다 근본적일 수 있지만 동작 변경이라 그 자체로
+측정이 필요해 이 lane엔 안 넣는다. 잔여가 **6건에서 7건**으로 늘었다(dot-디렉터리 필터링 후보
+추가) — 전체는 `docs/work/task-m4-gate7-budget-and-real-code-measurement.md` §6.
+
+**2026-09-09 기준 갱신: 8개 중 닫힘 6(rollback·gate 2·gate 3·gate 4·gate 5·gate 7, gate 4는
+수용된 잔여 1건, gate 2는 미검증 범위, gate 7은 위 잔여 7건을 각각 안고 닫힘), 열림 2(gate 1·8).**
+
 ### Gate 8 — user-test 명세
 
 `docs/development-management/user-tests/` 디렉터리에 `m0`/`m1`/`m2` 명세는 있지만
@@ -345,7 +463,11 @@ fixture 2개가 같은 기준에 편입돼 현재 38개(진양성 15/진음성 2
   - Gate 3: cross-file bare-identifier router-include 양성 fixture. 코드는 이미 될 것 같다는
     것까지만 확인됐다 — fixture로 직접 실행해 확인하는 것이 다음 단계다.
 - **정의(무엇이 "정해진"인지)가 필요한 것, 코드 문제 아님**:
-  - Gate 7: latency budget 값 자체.
+  - ~~Gate 7: latency budget 값 자체.~~ **2026-09-09: 정의됐다**(위 추가 참고) — 남은 건 정의가
+    아니라 `maxFiles` 값 자체를 바꾸는 코드 변경(아래) 그리고 extension host harness다.
+  - ~~Gate 7의 새 후속: `DEFAULT_BUDGET.maxFiles`를 200에서 올린다~~ **2026-09-09 4차 정정:
+    PR #102가 닫았다** — 1500(latency budget에서 유도, 400ms가 바뀌면 이 값도 같이 바뀌는
+    잠정값)으로 실제 적용, dispatch 8개 쿼리를 실제 값으로 재검증했다.
 
 ## 패턴 — 주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례 3건
 

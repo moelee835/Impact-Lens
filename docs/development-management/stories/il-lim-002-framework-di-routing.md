@@ -295,6 +295,19 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
     `register` 본문 안의 문제다), 실측 결과 `register`의 파라미터 선언 위치와 본문 내 호출
     표현식 위치 둘 다 `prepare()`가 0건을 반환한다 — 파라미터가 애초에 callable symbol로 취급되지
     않는다는, 두 capability 어느 쪽을 추가해도 안 풀리는 벽이다.
+  - **(2026-09-09 추가 3, gate 7 최종 재측정 — commander 지적) 다섯 번째 항목, 이것도 어느 쪽도
+    아닌 별개의 벽**: `APIRouter(prefix=..., dependencies=[Depends(fn)])`나
+    `api_router.include_router(sub_router, dependencies=[Depends(fn)])`처럼 router
+    생성·등록 시점에 붙는 의존성 — `Netflix/dispatch`(실제 프로덕션 코드)에서 3건 실측으로
+    만났다. 진짜 caller는 그 router(또는 그 router를 등록받은 상위 router) 아래 **등록된 모든
+    route 함수**다 — 단일 함수가 아니라 **router 소속 관계를 재귀적으로 따라가야 하는 문제**라,
+    `reference`(이 심볼을 참조하는 곳)로도 `implementation`(이 타입을 구현하는 타입들)으로도
+    안 풀린다 — 필요한 건 "이 router 변수 아래 최종적으로 등록되는 route 핸들러를 전부
+    찾는다"는, FastAPI의 router 합성 모델에 특화된 별개 능력이다. **v1은 이 형태를 기각한다**
+    (`classifyDependsReferenceContext`가 `def`도 `@decorator`도 아닌 것으로 분류해 안전하게
+    포기 — 오탐은 안 내지만, 이 관계 자체를 못 찾는다는 뜻이다, 위음성으로 알려진 상태).
+    `docs/work/task-m4-gate7-budget-and-real-code-measurement.md`의 precision/recall census가
+    이 항목을 처음 이름 붙였다.
   - **이 story는 `implementation`/`reference` 능력 추가를 제안하지 않는다** — 더 큰 아키텍처
     결정이라 범위 밖이다. 다만 앞으로 이 능력들을 평가할 사람이 "왜 필요한가"를 처음부터 다시
     조사하지 않도록, 그리고 "`reference`를 넣으면 layer 2도 열린다"는 잘못된 기대를 하지 않도록
