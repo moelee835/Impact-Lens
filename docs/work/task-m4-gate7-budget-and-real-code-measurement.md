@@ -800,25 +800,48 @@ latency budget에서 유도한다**: `maxFiles`는 budget을 집행하는 수단
 7. **오탐 corpus는 여전히 프로젝트 2개뿐**이다 — 실제 코드 참조가 오늘 28개로 늘었지만, "실제
    프로덕션 코드베이스에서 오탐 0"이라는 문장의 대표성은 여전히 좁다.
 8. **`dynamic-callback-static-v1`(TS/JS 콜백 adapter) 자기 budget은 gate 7 방식으로 실측된 적이
-   없다(reviewer 발견, PR #102) — 그리고 그 부재가 가설이 아니라 이미 이 저장소 자신에서
-   드러난다.** commander가 `src`+`cli/src`를 세어 153개(200 아래, "80% 지점")라고 보고했다 —
-   `walkSourceFiles()`의 실제 `IGNORED_DIRECTORIES`(`.git`/`node_modules`/`out`/`dist`/`build`/
-   `.pnpm-store`)와 확장자(`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`)로 이 lane이 직접 재세어
-   **153개(`src` 42 + `cli/src` 111)로 정확히 일치**를 확인했다. **다만 "워크스페이스 루트
-   기준 159개, 아직 안 걸림"이라는 후속 프레이밍은 정정이 필요하다** — `walkSourceFiles()`는
-   `.claude`를 `IGNORED_DIRECTORIES`에 안 뺀다. 이 저장소의 `.claude/worktrees/`에는 이 세션이
-   만든 저장소 전체 중첩 사본이 여럿 있고(548개 TS/JS 파일), **저장소 실제 루트를 그대로
-   `workspace`로 넘겨 재는 순간 707개**가 된다(159는 `.claude`를 뺀 뒤의 숫자다 — 707−548=159,
-   실제 `walkSourceFiles()`는 이 뺄셈을 안 한다). **직접 실행으로 확인**: 이 저장소 루트
-   (`/Users/woony6/dev/Impact-Lens`)를 `workspace`로, `src/impactDelta.ts`의 `edgeKey` 정의를
+   없다(reviewer 발견, PR #102).** commander가 `src`+`cli/src`를 세어 153개(200 아래, "80%
+   지점")라고 보고했다 — `walkSourceFiles()`의 실제 `IGNORED_DIRECTORIES`(`.git`/`node_modules`/
+   `out`/`dist`/`build`/`.pnpm-store`)와 확장자(`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`)로 이
+   lane이 직접 재세어 **153개(`src` 42 + `cli/src` 111)로 정확히 일치**를 확인했다.
+
+   **commander의 뒤이은 자기 정정(2026-09-09) — "이미 초과"와 "80%, 아직"은 서로 다른 두
+   사실이고 둘 다 적어야 한다.** commander가 처음 "워크스페이스 루트 기준 159개, 아직 안
+   걸림"이라고 보고한 건 정정이 필요했다 — `walkSourceFiles()`는 `.claude`를
+   `IGNORED_DIRECTORIES`에 안 빼는데, 이 저장소의 `.claude/worktrees/`엔 **이 세션이 만든**
+   저장소 전체 중첩 사본이 여럿 있어서(548개 TS/JS 파일) 저장소 루트를 그대로 `workspace`로
+   넘겨 재면 707개다(159는 `.claude`를 뺀 뒤의 숫자, 실제 `walkSourceFiles()`는 이 뺄셈을 안
+   한다). **직접 실행으로 확인**: 저장소 루트를 `workspace`로 `src/impactDelta.ts`의 `edgeKey`를
    augmentation on으로 쿼리하면 **지금, 오늘, `augmentation_budget_exceeded: true`가 이미
-   뜬다** — "80%, 아직 안 걸림"이 아니라 **"저장소 루트 기준으로는 이미 걸려 있다."** (이건 이
-   lane의 §3-1이 처음부터 알고 있던 사실이기도 하다 — "workspace를 저장소 루트로 주면 budget
-   초과, `src`로 좁히면 정확히 찾는다"고 이미 적어 뒀다.) **이 lane의 §3-1·§3-2 발표 수치
-   자체는 안전하다** — `src`(42) 또는 `src`/`cli/src` 개별 스코프로 쟀지 저장소 루트로 잰 적이
-   없다(직접 재확인). 하지만 **다음에 이 저장소를 다시 잴 사람은 저장소 루트가 아니라 `src`
-   또는 `cli/src`로 `workspace`를 좁혀야 한다는 것을 몰랐다면 걸렸을 것**이다 — "가설"이 아니라
-   "이미 걸리는 실측"으로 남긴다.
+   뜬다**. commander가 이걸 인정하면서, **해석을 두 층으로 나눠야 한다고 correction했다**:
+   - **"이 머신의 이 저장소는 지금 초과한다"** — 참이지만 원인이 이 세션이 만든 worktree
+     사본이다. **제품 결함이 아니라 측정 위생 문제** — 깨끗한 clone에는 없다.
+   - **"TS adapter의 200이 실사용 TS 프로젝트에서 부족한가"** — **아직 실측 안 됐다.** 깨끗한
+     clone 기준 **159/200(80%)**이 지금 가진 유일한 데이터이고, 이건 `fastapi-static-v1`이
+     `Netflix/dispatch`로 받은 것 같은 진짜 외부 프로젝트 실측이 아니다 — 이 저장소 자신을
+     "TS 실사용 프로젝트" 대용으로 쓴 근사치일 뿐이다.
+   **두 문장을 다 남긴다** — "이미 초과"만 적으면 다음 사람이 제품 결함으로 잘못 읽고, "80%,
+   아직"만 적으면 이 머신에서 이미 걸리는 실측 사실을 숨기게 된다. **그리고 이건 §3-1이
+   `fastapi-static-v1`에서 이미 겪은 것과 같은 함정이다** — 그때도 "workspace를 저장소 루트로
+   주면 budget 초과, `src`로 좁히면 정확히 찾는다"고 적었다. **두 adapter 모두에서 같은
+   함정(워크스페이스 스코프가 넓으면 세션/도구가 만든 비-소스 디렉터리가 budget을 먹는다)이
+   확인된 것으로 묶어 기록한다.** 이 lane의 §3-1·§3-2 발표 수치 자체는 안전하다 — `src`(42)
+   또는 개별 스코프로 쟀지 저장소 루트로 잰 적이 없다(직접 재확인). **reviewer가 PR #102 최종
+   빌드로 독립 재현**: 저장소 자신을 workspace로 `edgeKey`를 쿼리해 `limitations`/
+   `limitationDetails`에 `augmentation_budget_exceeded`가 실제로 있는 것과, `.claude`가
+   `IGNORED_DIRECTORIES`(`dynamicCallbackAdapter.ts:59`)에 없는 것을 직접 소스로 확인 —
+   worktree 파일 수는 재는 시점에 따라 530~548 사이로 약간 다르게 나왔지만(worktree 상태
+   변화, 자릿수·결론엔 영향 없음) 결론은 동일하다.
+9. **더 근본적인 후보 해법 — dot-디렉터리를 아예 안 걷는다(commander 제안, 이번 PR엔 안
+   넣는다).** `.claude`가 안 걸러진다는 건 `walkSourceFiles()`/`walkPythonFiles()`가 dot-
+   디렉터리를 일반적으로 안 거른다는 뜻이다 — 실사용 워크스페이스엔 `.venv`/`.tox`/
+   `.mypy_cache`/`.next`/`.nuxt` 같은 게 흔하고, 전부 소스가 아닌데 budget을 먹는다. "dot-
+   디렉터리는 안 걷는다"는 규칙이 값싸고 원칙적일 수 있지만(관례상 dot-디렉터리는 소스가
+   아니다), **동작 변경이라 그 자체로 측정이 필요하다**(dot-디렉터리에 진짜 소스를 두는
+   프로젝트가 있는지, 걸러서 실제로 얼마나 아끼는지). **이 lane은 이걸 구현하지 않는다** —
+   gate 7 판정을 지연시키지 않기 위해 후속 lane으로 넘긴다. `maxFiles` 숫자를 올리는 것보다
+   근본적일 수 있다는 점만 남긴다 — **예산을 늘리는 것과 예산을 낭비 안 하는 것은 다른
+   해법이고, 후자가 대개 낫다.**
 
 **다음으로 필요한 것(이 lane의 범위 밖, 별도 lane)**: ~~(a) `maxFiles`를 실제로 올리는 PR~~
 **2026-09-09: PR #102(`docs/work/task-m4-gate7-apply-maxfiles.md`)가 닫았다** — 1500으로 적용,
@@ -830,13 +853,14 @@ extension host 측정이 바뀌면 이 값도 다시 계산해야 한다), `fast
 (`framework_depends_form_unsupported`류, `LIMITATION_SURFACE_PATTERNS` 등록까지 — #97 절차
 그대로). (c) `Security()` 미인식(위 5번, reviewer 발견) — 오늘 두 프로젝트엔 없어 숫자에 영향은
 없지만 형태 분류 자체를 넓히는 후속. (d) `dynamic-callback-static-v1` 자기 budget을 gate 7과 같은
-방식(실제 TS/JS 프로젝트, 파일당 비용 실측)으로 정하는 lane(위 8번) — 이 저장소 자신이 저장소
-루트 기준으로 이미 예산을 넘는다는 것을 보였으므로 우선순위가 낮지 않다. (e) extension host
-1단계 harness(4절 권고, 아직 미착수). (b)·(c)·(d)·(e)가 닫히기 전까지 이 lane은 기본값 on을
-권하지 않는다 — 뒤집힐 수 있는 잠정 판단이고, 뒤집는 근거는 실측이어야 한다(이 lane 전체가
-그래왔듯).
+방식(진짜 외부 TS/JS 프로젝트, 파일당 비용 실측)으로 정하는 lane(위 8번) — 이 저장소를 근사치로
+쓴 깨끗한-clone 추정치(159/200, 80%)가 여유가 적어 우선순위가 낮지 않다. (e) dot-디렉터리를
+walk 대상에서 빼는 lane(위 9번, commander 제안) — `maxFiles` 자체를 올리는 것보다 근본적일 수
+있는 별개 해법, 이번 lane은 구현하지 않는다. (f) extension host 1단계 harness(4절 권고, 아직
+미착수). (b)~(f)가 닫히기 전까지 이 lane은 기본값 on을 권하지 않는다 — 뒤집힐 수 있는 잠정
+판단이고, 뒤집는 근거는 실측이어야 한다(이 lane 전체가 그래왔듯).
 
-## 6. 최종 판정(2026-09-09) — 닫힘, 명시된 잔여 6건을 안고
+## 6. 최종 판정(2026-09-09) — 닫힘, 명시된 잔여 7건을 안고
 
 commander·reviewer와 순서대로 검토를 거쳤다(3라운드 반박, PR #101·#102 각각 독립 재현 검증
 포함). **gate 7("정해진 false-positive·latency budget 통과")을 닫는다** — gate 2·4가 이미 쓴
@@ -847,14 +871,20 @@ commander·reviewer와 순서대로 검토를 거쳤다(3라운드 반박, PR #1
   한정)는 그 budget에서 유도돼 실제 코드에 적용·재검증됐다(PR #102).
 - **"통과"**: 오늘 실측한 corpus(TS fixture 18 + Python fixture 38+4 + 실제 코드 참조 28) 전체에서
   오탐 0건, `fastapi-static-v1`이 겨냥하는 두 형태(파라미터·route decorator)에서 위음성 0건.
-- **잔여 6건(위 번호 목록 중 실제로 열린 항목)은 지운 게 아니라 명시적으로 남긴다**: recall 약 57%(범위 밖 형태
-  포함 시), 조용한 기각(limitation 없음), corpus 프로젝트 2개, `Security()` 미인식,
-  `dynamic-callback-static-v1` 자기 budget 미실측(이미 저장소 루트 기준으로 걸림), extension
-  host latency 미측정. **닫힘은 "완벽함"의 선언이 아니라 "정해진 수치가 실측으로 뒷받침되고,
-  남은 공백이 전부 이름 붙어 있다"는 뜻이다.**
+- **잔여 7건(위 번호 목록 중 실제로 열린 항목)은 지운 게 아니라 명시적으로 남긴다**: recall 약
+  57%(범위 밖 형태 포함 시), 조용한 기각(limitation 없음), corpus 프로젝트 2개, `Security()`
+  미인식, `dynamic-callback-static-v1` 자기 budget이 진짜 외부 TS/JS 프로젝트로 실측된 적
+  없음(깨끗한 clone 근사치로는 159/200=80%, 여유가 적다 — **이 저장소 자신의 실제 워크스페이스
+  루트는 세션이 만든 worktree 사본 때문에 지금 당장 걸리지만, 그건 제품 결함이 아니라 측정
+  위생 문제로 별도 기록한다**, 두 adapter 모두 "워크스페이스 스코프가 넓으면 세션/도구가 만든
+  비-소스 디렉터리가 budget을 먹는다"는 같은 함정에 걸린다는 것도 확인됨), dot-디렉터리가
+  walk에서 안 걸러져 budget이 비-소스 디렉터리(`.venv`/`.next`/세션 worktree 등)에 낭비되는
+  문제(candidate 해법 기록, 이 lane은 구현 안 함), extension host latency 미측정. **닫힘은
+  "완벽함"의 선언이 아니라 "정해진 수치가 실측으로 뒷받침되고, 남은 공백이 전부 이름 붙어
+  있다"는 뜻이다.**
 
 **gate가 닫히는 것과 augmentation 기본값이 사용자에게 켜지는 것은 별개다.** 5절의 판단("아직
 기본값 on을 권하지 않는다")은 이 닫힘 판정으로 안 바뀐다 — gate 7은 "budget이 정해지고 그 budget
 통과 여부를 실측할 수 있다"는 **측정 인프라의 존재**를 요구했고, 이제 그게 있다. 기본값 on
-전환은 별개의, 아직 안 끝난 결정이고 그 결정에 필요한 근거(잔여 6건)는 이 문서에 전부 이름
+전환은 별개의, 아직 안 끝난 결정이고 그 결정에 필요한 근거(잔여 7건)는 이 문서에 전부 이름
 붙어 있다 — 다음 lane이 그 근거를 하나씩 닫아가면 된다.
