@@ -6,6 +6,7 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { analyzeImpact } from '../impact';
 import * as adaptersModule from '../shared/adapters';
+import { stripAugmentationVariableFieldsFlat } from './augmentationVariableFields';
 import { AdapterInput, AdapterResult, RegisteredAdapter } from '../shared/adapters/types';
 import {
   AugmentedEdge,
@@ -256,16 +257,13 @@ test(
     });
     const result = await analyzeImpact({ ...request, augmentationEnabled: true }, provider);
 
-    // The static graph must be byte-for-byte what it would have been with augmentation off - the outer
-    // catch in impact.ts must not be able to touch anything computed before it runs.
-    assert.deepEqual(result.nodes, baseline.nodes);
-    assert.deepEqual(result.edges, baseline.edges);
-    assert.equal(result.truncated, baseline.truncated);
-    assert.deepEqual(result.traversalLimits, baseline.traversalLimits);
-    assert.equal(result.complete, baseline.complete);
-    assert.deepEqual(result.provider, baseline.provider);
-    assert.deepEqual((result.coverage as { traversal: unknown }).traversal, (baseline.coverage as { traversal: unknown }).traversal);
-    assert.deepEqual((result.coverage as { indexing: unknown }).indexing, (baseline.coverage as { indexing: unknown }).indexing);
+    // Rollback-parity polarity (M4 stage 1's rollback contract, commander's finding on this lane): an
+    // explicit allow-list of what is PERMITTED to differ, deleted from a clone before comparing
+    // everything else - not a hand-picked list of fields asserted equal. The earlier version of this
+    // test enumerated eight fields to compare; that passes even if a NEW field starts differing that
+    // nobody thought to add to the list. This form fails the moment anything outside
+    // `stripAugmentationVariableFieldsFlat`'s named allow-list changes by even one byte.
+    assert.deepEqual(stripAugmentationVariableFieldsFlat(result), stripAugmentationVariableFieldsFlat(baseline));
 
     // Augmentation-specific fields are the only ones allowed to differ.
     assert.deepEqual(result.augmentedEdges, []);
