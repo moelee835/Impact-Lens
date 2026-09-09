@@ -19,22 +19,30 @@ test('recognizes common test file naming conventions', () => {
     '/workspace/order.test.ts',
     '/workspace/order.spec.tsx',
     '/workspace/test_order.py',
-    '/workspace/spec_order.rb',
     '/workspace/order_test.go',
     '/workspace/order_spec.rb',
     '/workspace/OrderServiceTest.java',
-    '/workspace/OrderServiceTests.cs',
   ]) {
     assert.equal(isTestFilePath(path), true, path);
   }
 });
 
+// IL-LIM-010 stage 1 (docs/work/task-m4-il-lim-010-test-classifier.md). Both of these used to be
+// pinned `true` above - a naming-rule-per-language scoping change, verified against each framework's
+// own docs, moved them here:
+// - `spec_order.rb`: RSpec's own default (`**/*_spec.rb`) is suffix-only, it has no `spec_*.rb` prefix
+//   convention - `order_spec.rb` above (suffix) still matches, this prefix form never should have.
+// - `OrderServiceTests.cs`: no real `dotnet test` default discovers tests by file name at all (test
+//   PROJECTS are discovered via the `Microsoft.NET.Test.Sdk` package reference, not a filename glob) -
+//   the PascalCase `Test`/`Tests`-suffix rule is Maven Surefire's convention, scoped to `.java` only.
 test('does not classify ordinary source files as tests', () => {
   for (const path of [
     '/workspace/src/order.ts',
     '/workspace/src/contest.java',
     '/workspace/src/tester.ts',
     '/workspace/src/specification.ts',
+    '/workspace/spec_order.rb',
+    '/workspace/OrderServiceTests.cs',
   ]) {
     assert.equal(isTestFilePath(path), false, path);
   }

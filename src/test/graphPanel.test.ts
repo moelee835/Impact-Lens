@@ -39,7 +39,7 @@ test('sends the whole coverage record to the webview', () => {
 
 // M4 milestone closure audit gate 5 (docs/work/task-m4-milestone-closure-audit.md,
 // docs/work/task-m4-gate5-test-color.md). Impact Lens does not run tests, and classification is a
-// filename-only heuristic (`cli/src/testFile.ts`'s `isTestFilePath()`) - so borrowing the `testing`
+// filename-only heuristic (`cli/src/shared/testFileClassifier.ts`'s `isTestFilePath()`) - so borrowing the `testing`
 // palette's pass/fail-meaning tokens (especially `testing.iconPassed`) for a node whose only evidence is
 // its file path asserts a result that was never executed. `direct`/`transitive` already use the neutral
 // `charts` palette, not `testing`, for exactly this reason.
