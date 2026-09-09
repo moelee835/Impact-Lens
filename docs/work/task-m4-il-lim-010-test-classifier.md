@@ -446,3 +446,12 @@ reviewer가 실제 tsserver로 반증했다: **ambient-context 위반**(구현�
 (범위에서 명시적으로 제외, `il-contract-architect` 소관 후속 작업), include/exclude 사용자 pattern
 (story 1단계 3번, 후속 PR), Kotlin/`.pyi`/Surefire 구분자 없는 prefix 등 검증 안 된 확장은 추가
 안 했다(추측 대신 배제, 근거가 생기면 후속).
+
+**story 1단계 vs gate 1 전체 — 혼동하면 안 된다**: `il-lim-010-test-impact-discovery.md` 1단계
+종료 조건("Extension과 CLI가 같은 path matrix에 동일 결과·근거를 반환한다")은 이 PR로 충족된다
+(위 matrix 테스트가 그 종료 조건을 직접 고정한다). **그러나 story 전체(2~4단계 — test symbol
+품질/adapter SPI, 실행 결과 import, UX/Agent action)는 그대로 열려 있고**, closure audit 번호
+기준 **gate 1(IL-LIM-001·002·010 수용 기준)도 IL-LIM-010 하나가 아니라 IL-LIM-001·002를 포함한
+더 큰 범위라 이 PR로 닫히지 않는다.** "story 1단계 완료"를 "gate 1 닫힘"과 같은 뜻으로 쓰지 않는다
+— 이 milestone에서 반복된 "단계 완료"와 "gate 닫힘"을 혼동하는 실패 모양(`task-m4-milestone-
+closure-audit.md`)을 다시 만들지 않기 위한 명시다.
