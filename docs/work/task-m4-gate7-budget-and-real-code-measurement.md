@@ -238,6 +238,47 @@ method와 object-literal method shorthand를 아예 다루지 않는다.** 이 �
 실수를 gate 7 자신이 반복하게 된다. 이 work document는 이 판단을 내리지 않는다 — commander의
 반박/지시를 기다린다.
 
+### 3-1 결함 수정과 재측정(2026-09-09, `[실행]`) — commander 지시: (a), 별도 PR #99로 분리
+
+commander 지시: 결함(근본 원인 1)을 먼저 고치고, 실제 코드에서 recall을 다시 재고, 고치기
+전/후 숫자를 둘 다 보고한다. **근본 원인 2(workspace budget 소진)는 막지 않는다** — 이건
+결함이 아니라 "모노레포/중첩 사본이 있는 실제 워크스페이스에서 `maxFiles: 200`이 맞는
+숫자인가"라는 budget 산정 자신의 입력 데이터로 남긴다(`augmentation_budget_exceeded`로 이미
+정직하게 드러나므로).
+
+**수정 방향(reviewer의 문자열/정규식 채널 발견과 같은 패턴, "세 번째 채널"): 인식 범위를
+넓히지 않고 기각(fold-to-abandonment)으로 접는다.** `findEnclosingFunction`이 역방향 스캔 중
+depth 0에서 세 패턴 중 어느 것과도 안 맞으면서 "함수처럼 보이는"(식별자 + 괄호 + `{`로 끝남,
+제어문 키워드 아님) 줄을 만나면 즉시 `undefined`를 반환하도록 고쳤다 — 오귀속을 위음성으로
+바꾼다. `ENCLOSING_FUNCTION_PATTERNS`를 넓히는 대안은 채택하지 않았다(`name() {`가 평범한
+호출과 구별이 안 돼 새 오귀속을 만들 위험, doc comment가 이미 지적해 뒀던 것과 같은 위험).
+전체 diff와 근거는 PR #99(`fix/dynamic-callback-unrecognized-scope-fold`) 참고 — 이
+work document(budget 산정)와 분리된 별도 PR이다(commander 지시: "코드와 판단이 섞이면 리뷰가
+둘 다 흐려진다").
+
+**재측정 결과(같은 7개 후보, 고치기 전/후)**:
+
+| 대상 | enclosing 형태 | 고치기 전 | 고치기 후 |
+| --- | --- | --- | --- |
+| `finish`(lspProvider.ts) | class method | 위음성(빈 배열) | 위음성(빈 배열, 이제 명시적 기각) — **변화 없음** |
+| `isStoredNote`(noteStore.ts) | class method | 위음성(빈 배열) | 위음성(빈 배열, 이제 명시적 기각) — **변화 없음** |
+| `toAdapterItem`(adapterItemConversion.ts) | object-literal method | **오귀속**(`createAdapterProvider`) | 위음성(빈 배열) — **고쳐짐** |
+| `edgeKey`(impactDelta.ts) | top-level function | 진양성(`computeImpactDelta`) | 진양성(`computeImpactDelta`) — 변화 없음(회귀 없음 확인) |
+| `diagnosticKey`(impactDelta.ts) | top-level function | 진양성(`countAddedDiagnostics`) | 진양성(`countAddedDiagnostics`) — 변화 없음(회귀 없음 확인) |
+| `isPlainCandidate`(resolve.ts) | 중첩 화살표(원인 미규명) | 위음성(빈 배열) | 위음성(빈 배열) — **변화 없음, 원인 여전히 미규명** |
+
+**결과 요약**: 표본 7개 중 정확히 1건(`toAdapterItem`)이 오귀속→위음성으로 바뀌었고, 나머지
+6건은 전/후 동일(기존 위음성 2건은 여전히 위음성, 기존 진양성 2건은 회귀 없이 그대로, 원인
+미규명 위음성 1건은 이 수정의 대상이 아니므로 그대로). **이 표본에서 진양성 개수 자체는 늘지
+않았다** — 이 수정은 recall을 올리는 수정이 아니라 precision을 지키는 수정이다(오귀속 제거).
+class method/object-literal method 안의 콜백을 실제로 찾아내려면(recall을 올리려면)
+`ENCLOSING_FUNCTION_PATTERNS` 확장이 필요하고, commander가 이미 그건 "별개 결정이고, 한다면
+그 자체가 측정이 필요한 작업"이라고 명시했다 — 이 lane은 그 확장을 하지 않는다.
+
+**`isPlainCandidate`의 미규명 원인은 이 lane에서 더 조사하지 않는다** — 근본 원인 1과 다른
+경로로 보이고(중첩 화살표 함수 안의 호출), 새 fold 조건의 대상도 아니었다(값이 바뀌지 않은
+것으로 확인). 후속 조사 대상으로만 기록한다.
+
 ### 3-2. Python(`fastapi-static-v1`) — 실제 오픈소스 FastAPI 프로젝트가 필요하다
 
 **이게 이 lane의 첫 판단이다.** 이 저장소엔 실제 크기의 Python/FastAPI 코드베이스가 없다 —
