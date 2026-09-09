@@ -127,6 +127,12 @@ function importsFastapi(text: string): boolean {
 interface DependsMatch {
   readonly line: number;
   readonly character: number;
+  /** Column of the literal `Depends` keyword itself on `line`, i.e. `match.index` - separate from
+   * `character` (the target NAME's own column) because `classifyDependsReferenceContext()` needs to
+   * scan backward from just BEFORE this call, never into its own `(...)` argument list (which would
+   * otherwise be miscounted as an extra unclosed paren belonging to whatever encloses `Depends(...)`
+   * itself). */
+  readonly dependsCharacter: number;
   /** Which local name this matched (root's own name, or a verified alias) - needed downstream because an
    * alias reference cannot be re-verified the same way (see the note where this is consumed), and because
    * the evidence range must use THIS name's length, not root's (an alias is rarely the same length). */
@@ -139,7 +145,12 @@ function findDependsReferences(lines: readonly string[], localNames: readonly st
     const pattern = new RegExp(`\\bDepends\\(\\s*${escapeRegExp(name)}\\b`, 'g');
     lines.forEach((line, index) => {
       for (const match of line.matchAll(pattern)) {
-        matches.push({ line: index, character: match.index! + match[0].length - name.length, name });
+        matches.push({
+          line: index,
+          character: match.index! + match[0].length - name.length,
+          dependsCharacter: match.index!,
+          name,
+        });
       }
     });
   }
@@ -152,10 +163,192 @@ interface EnclosingDef {
   readonly character: number;
 }
 
-/** Nearest preceding `def`/`async def` line above `fromLine`, indentation not considered - a bounded
- * heuristic (documented limitation), not a scope-accurate parse. */
-function findEnclosingDef(lines: readonly string[], fromLine: number): EnclosingDef | undefined {
+const DECORATOR_CALL_OPEN_PATTERN = /@[\w.]+\s*$/;
+
+/**
+ * M4 gate 7 real-code measurement (docs/work/task-m4-fastapi-depends-enclosing-scope-fix.md): the
+ * PREVIOUS version of this function ("nearest preceding `def`, indentation not considered") was wrong
+ * in a way no fixture caught, because every fixture in this corpus has exactly one route per file.
+ * Measured directly against two real, pinned open-source FastAPI projects: `Depends()` used as a route
+ * decorator's `dependencies=[...]` argument (which sits ABOVE the `def` it decorates, not inside it)
+ * mis-attributed to whatever unrelated function happened to be defined earlier in the same file -
+ * confirmed with a real query producing FOUR wrong-shaped candidates from ONE target, two of them
+ * genuinely unrelated functions, in a project with more than one route per file (the exact shape no
+ * fixture here had).
+ *
+ * `Depends()` has exactly three real usage shapes, and each needs a DIFFERENT rule, not one scanner
+ * incrementally patched to cover all three (that path is how `dynamicCallbackAdapter.ts`'s own
+ * `findEnclosingFunction` ended up finding the same defect class four separate times, in four different
+ * disguises - see that file's history before repeating it here):
+ *
+ * 1. **Parameter form** (`def f(x: T = Depends(y)):`) - the reference sits INSIDE the function's own
+ *    parameter list, i.e. inside an unclosed `(` opened by a `def` line. Backward-scan-to-nearest-def
+ *    already gets this right (measured directly: `common_parameters`/`get_current_role` in
+ *    `Netflix/dispatch`) - left unchanged.
+ * 2. **Route decorator form** (`@router.get(..., dependencies=[Depends(y)])`) - the reference sits
+ *    inside an unclosed `(` opened by a decorator (`@name(` or a dotted chain `@a.b.c(`). Its enclosing
+ *    def is NOT found by scanning backward at all - decorators sit ABOVE the def they decorate, so the
+ *    scan must go FORWARD from the decorator to the def, the same "decorators sit directly above their
+ *    def with nothing in between" rule `findRouteDecorator` already exploits, applied in the opposite
+ *    direction.
+ * 3. **Module-level form** (`XDep = Annotated[T, Depends(y)]`, not inside any `(` opened by a `def` or
+ *    decorator at all) - there IS NO enclosing function. `Depends()` fires wherever `XDep` is later USED
+ *    as a parameter type elsewhere, which this SPI has no way to follow (that needs `definition`/
+ *    `reference` resolution across the workspace, a capability this adapter does not have - see
+ *    `docs/development-management/stories/il-lim-002-framework-di-routing.md`'s "미해결 질문", the
+ *    same gap `dynamic-callback-static-v1`'s emit/on pairing and Spring bean resolution already point
+ *    at). The correct v1 answer is to REJECT, not guess - and this is what the OLD version's "nearest
+ *    preceding def" accidentally did most of the time anyway when it landed on the WRONG function,
+ *    except silently wrong instead of openly absent.
+ *
+ * Classifying which of the three a reference is in is itself not always unambiguous (a multi-line
+ * decorator's `Depends()` line does not itself contain the `@` - `classifyDependsReferenceContext`
+ * handles this by tracking paren depth backward from the reference to the innermost unclosed `(`, not
+ * by looking at the reference's own line in isolation). When that classification cannot confidently
+ * land on "parameter" or "decorator", this rejects rather than guesses - the same discipline this
+ * codebase has already applied five other times (string/regex/method-opener/arrow-argument channels in
+ * `dynamicCallbackAdapter.ts`, and this file's own fold-to-abandonment on an ambiguous alias/mount
+ * match) rather than risk a sixth silently-wrong-answer channel.
+ */
+function findEnclosingDef(
+  lines: readonly string[],
+  strippedLines: readonly string[],
+  fromLine: number,
+  fromCharacter: number,
+): EnclosingDef | undefined {
+  const context = classifyDependsReferenceContext(strippedLines, fromLine, fromCharacter);
+  if (context.kind === 'reject') {
+    return undefined;
+  }
+  if (context.kind === 'parameter') {
+    return findNearestPrecedingDef(lines, fromLine);
+  }
+  return findDecoratedDef(lines, context.decoratorLine);
+}
+
+type DependsReferenceContext =
+  | { readonly kind: 'parameter' }
+  | { readonly kind: 'decorator'; readonly decoratorLine: number }
+  | { readonly kind: 'reject' };
+
+/**
+ * Length-preserving strip of Python `#` comments and single/double-quoted strings (triple-quoted
+ * strings blanked line-by-line in a first full-text pass) - blanks matched spans with equal-length
+ * whitespace rather than removing them. Deliberately NOT the same as this file's existing
+ * `stripCommentsAndStrings()` above: that function REMOVES matched text, which shifts every column
+ * position after the removal - fine for its own whole-file substring/membership uses, but incompatible
+ * with `classifyDependsReferenceContext()` below, which counts parens at exact column offsets computed
+ * against the ORIGINAL, unstripped text (`fromCharacter`, from `findDependsReferences`). An unterminated
+ * quote is blanked to the end of its line - safe, since Python cannot span a single/double-quoted string
+ * across lines without an explicit `\` continuation (rare enough to accept as a residual, matching this
+ * file's existing bounded-heuristic philosophy elsewhere).
+ */
+function stripForParenClassification(text: string): string {
+  const withoutTripleQuoted = text.replace(/"""[\s\S]*?"""|'''[\s\S]*?'''/g, match => match.replace(/[^\n]/g, ' '));
+  return withoutTripleQuoted
+    .split('\n')
+    .map(line => {
+      let result = '';
+      let index = 0;
+      while (index < line.length) {
+        const character = line[index];
+        if (character === '#') {
+          result += ' '.repeat(line.length - index);
+          break;
+        }
+        if (character === '"' || character === '\'') {
+          const quote = character;
+          let cursor = index + 1;
+          let terminated = false;
+          while (cursor < line.length) {
+            if (line[cursor] === '\\') {
+              cursor += 2;
+              continue;
+            }
+            if (line[cursor] === quote) {
+              terminated = true;
+              break;
+            }
+            cursor += 1;
+          }
+          const end = terminated ? cursor + 1 : line.length;
+          result += ' '.repeat(end - index);
+          index = end;
+          continue;
+        }
+        result += character;
+        index += 1;
+      }
+      return result;
+    })
+    .join('\n');
+}
+
+/**
+ * Scans backward from just before the `Depends(` token itself (never into its own argument list, which
+ * would otherwise be counted as an extra open paren) tracking paren depth on `strippedLines` (comments/
+ * strings already blanked to equal length by `stripForParenClassification`, so a stray `(`/`)` inside a
+ * docstring or string literal cannot mis-count, and column positions still line up with the original
+ * text). The first unclosed `(` found (depth reaches 0 while scanning a `)` would have taken it
+ * negative) is the call this `Depends()` reference is nested inside; what immediately precedes that `(`
+ * decides the shape. No unclosed `(` at all by the time the scan reaches the top of the file means a
+ * bare module-level statement.
+ */
+function classifyDependsReferenceContext(
+  strippedLines: readonly string[],
+  fromLine: number,
+  fromCharacter: number,
+): DependsReferenceContext {
+  let depth = 0;
   for (let index = fromLine; index >= 0; index -= 1) {
+    const line = strippedLines[index];
+    const endColumn = index === fromLine ? fromCharacter : line.length;
+    for (let column = endColumn - 1; column >= 0; column -= 1) {
+      const character = line[column];
+      if (character === ')') {
+        depth += 1;
+      } else if (character === '(') {
+        if (depth === 0) {
+          const before = line.slice(0, column);
+          if (/(?:^|\s)(?:async\s+)?def\s+\w+\s*$/.test(before)) {
+            return { kind: 'parameter' };
+          }
+          if (DECORATOR_CALL_OPEN_PATTERN.test(before)) {
+            return { kind: 'decorator', decoratorLine: index };
+          }
+          // Some other unclosed call (a plain function call, `Annotated[...]`'s own brackets are not
+          // parens so never reach here, etc.) - not confidently parameter or decorator.
+          return { kind: 'reject' };
+        }
+        depth -= 1;
+      }
+    }
+  }
+  return { kind: 'reject' };
+}
+
+/** The pre-fix behavior, kept for the one shape it was always correct for (parameter form): nearest
+ * preceding `def`/`async def` line, indentation not considered - safe here specifically because a
+ * parameter-form reference is, by construction (verified by `classifyDependsReferenceContext` already
+ * finding it inside a `def(`-opened paren), never anywhere but inside that same def's own signature. */
+function findNearestPrecedingDef(lines: readonly string[], fromLine: number): EnclosingDef | undefined {
+  for (let index = fromLine; index >= 0; index -= 1) {
+    const match = lines[index].match(DEF_PATTERN);
+    if (match) {
+      return { name: match[2], line: index, character: lines[index].indexOf(match[2], match[1].length) };
+    }
+  }
+  return undefined;
+}
+
+/** Given the line index of a decorator (`@...`), walks FORWARD - past any other consecutive decorator
+ * lines and past this decorator's own (possibly multi-line) argument list, neither of which can match
+ * `DEF_PATTERN` - to the `def` line it actually decorates. Mirrors `findRouteDecorator`'s own backward
+ * version of the same Python syntax rule ("decorators sit directly above their def with nothing else in
+ * between"), applied forward instead. Reaching the end of the file without a `def` (malformed input,
+ * should not happen for real Python) folds to abandonment rather than guessing. */
+function findDecoratedDef(lines: readonly string[], decoratorLine: number): EnclosingDef | undefined {
+  for (let index = decoratorLine; index < lines.length; index += 1) {
     const match = lines[index].match(DEF_PATTERN);
     if (match) {
       return { name: match[2], line: index, character: lines[index].indexOf(match[2], match[1].length) };
@@ -859,6 +1052,7 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
       }
     }
     const lines = text.split('\n');
+    const parenClassificationLines = stripForParenClassification(text).split('\n');
     const references = findDependsReferences(lines, localNames);
     for (const reference of references) {
       if (matchesProcessed >= input.budget.maxFiles * input.budget.maxMatchesPerFile) {
@@ -893,7 +1087,7 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
         }
         resolutionCandidateCount = resolved.items.length;
       }
-      const enclosing = findEnclosingDef(lines, reference.line);
+      const enclosing = findEnclosingDef(lines, parenClassificationLines, reference.line, reference.dependsCharacter);
       if (!enclosing) {
         continue;
       }
