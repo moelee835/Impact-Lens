@@ -164,6 +164,45 @@ const ENCLOSING_FUNCTION_PATTERNS: readonly RegExp[] = [
   /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s+)?function\s*\(/,
 ];
 
+// M4 gate 7 real-code measurement (docs/work/task-m4-gate7-budget-and-real-code-measurement.md,
+// "3-1 실행 결과"): `findEnclosingFunction`'s own doc comment used to call class method shorthand
+// (`name() { ... }`) and object-literal method shorthand "accepted false negatives" - measured
+// against this repo's own real code, that direction was wrong. When the backward scan crosses a line
+// like that, none of the three patterns above match it, but the line's own `{` still doesn't raise
+// `depth` past 0 on the way back up (an unmatched open, seen while scanning backward with depth
+// already at 0, clamps at 0 rather than going negative) - so the scan does not stop, it walks straight
+// through the unrecognized method and keeps matching at depth 0 further out, landing on whatever
+// OUTER named scope happens to enclose it. Reproduced directly: `toAdapterItem`'s real caller is the
+// object-literal method `prepare` in `adapterProviderShim.ts`, but the adapter reported the outer
+// factory `createAdapterProvider` - a function that returns `prepare` but never itself calls
+// `toAdapterItem`. That is not a missed candidate, it is a wrong one - worse than the false negative
+// the old comment described, and the same shape reviewer already found twice in this file (a brace
+// inside a string, then inside a regex literal): a "known limitation" whose actual FAILURE DIRECTION
+// was never measured turned out not to be the direction the comment claimed.
+//
+// Fix (commander's direction, in preference to widening ENCLOSING_FUNCTION_PATTERNS to also match
+// these shapes - that trades this mis-attribution for a different one, since `name() {` is
+// syntactically indistinguishable from a call passed a block, the same over-fitting risk that keeps
+// this out of ENCLOSING_FUNCTION_PATTERNS in the first place): when the scan is at depth 0 and meets a
+// line that LOOKS like a function/method scope opener (an identifier, optional generics, a
+// parenthesized argument list, an optional TypeScript return-type annotation, ending in `{`) but
+// matches none of the three known patterns and is not a control-flow keyword, fold to abandonment
+// immediately - the same "a caught exception must join the could-not-confirm branch" discipline this
+// codebase already applies to `resolveEndpoint()`'s `prepare()` failures and to
+// `stripSameLineCommentsAndStrings()`'s unsafe-line handling. This turns the mis-attribution back into
+// a false negative, which is this adapter's one accepted failure direction everywhere else.
+//
+// Deliberately narrow, not "abort on any line ending in `{`" - that repeats the all-or-nothing guard's
+// own mistake (measured to cost ~half of resolvable recall on this repo's own trees, see this file's
+// top-of-file comment). Control-flow keywords (`if`/`for`/`while`/`switch`/`catch`/`do`) open blocks
+// too but are not function scopes and must keep passing through unaffected; the exclusion list below
+// is deliberately just those six, not e.g. `else` (which can never syntactically satisfy the
+// identifier-then-parens shape below on its own) or a bare `{` with no parens at all (already outside
+// this pattern's shape).
+const UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER =
+  /^\s*(?:export\s+)?(?:default\s+)?(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+|abstract\s+|override\s+|async\s+|get\s+|set\s+|\*\s*)*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:<[^<>]*>)?\s*\([^()]*\)\s*(?::\s*[^{};]+)?\s*\{\s*$/;
+const CONTROL_FLOW_KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'catch', 'do']);
+
 // reviewer, executed directly: a brace inside a string on an already-closed nested function's line
 // (`function inner() { const msg = "shape: {"; ... }`) throws the depth counter off by one, and the
 // counter recovers to 0 exactly on `inner`'s own declaration line - `findEnclosingFunction` returns
@@ -285,8 +324,57 @@ export function stripSameLineCommentsAndStrings(line: string): string | null {
  * brace-counting can no longer be trusted on a single line, rather than silently continuing on a count
  * that might already be wrong - name extraction still reads the ORIGINAL (unstripped) line, which is
  * fine, since a real declaration is never itself inside a string or comment. Still bounded, not a
- * parser: does not understand class method shorthand (`name() { ... }`, too easy to confuse with an
- * ordinary call) or IIFEs either - both accepted false negatives.
+ * parser: does not understand class method shorthand (`name() { ... }`) or IIFEs either - too easy to
+ * confuse with an ordinary call to widen `ENCLOSING_FUNCTION_PATTERNS` to cover them (same over-fitting
+ * risk the gate 7 real-code measurement, `docs/work/task-m4-gate7-budget-and-real-code-measurement.md`,
+ * confirmed empirically). Unlike the two channels reviewer found before this one (a brace inside a
+ * string, then inside a regex literal), a class method or object-literal method shorthand is NOT
+ * silently miscounted - `UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER` below detects crossing one of these
+ * unrecognized scope openers and folds to abandonment, the same "accepted false negative, never a
+ * wrong answer" direction `stripSameLineCommentsAndStrings()` already applies. Measured directly:
+ * without this check, this exact shape produced a real, wrong answer for `toAdapterItem` in
+ * `adapterProviderShim.ts` (the outer factory `createAdapterProvider` was reported as the candidate
+ * caller instead of the object-literal method `prepare`, which is what actually calls it) - the doc
+ * comment used to call this an "accepted false negative" before that measurement showed it was
+ * sometimes a wrong answer instead, not a missing one. **A LESSON THIS FILE HAS NOW LEARNED THREE
+ * TIMES ACROSS THREE DIFFERENT CHANNELS (a brace inside a string, then inside a regex literal, now an
+ * unrecognized scope opener): an "accepted limitation" whose FAILURE DIRECTION was never measured is
+ * not actually an accepted limitation - it can silently be a wrong answer instead of a missing one,
+ * and the only way to know which is to measure it.**
+ *
+ * A FOURTH channel exists and is NOT closed by `UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER`: an inline
+ * arrow function argument (`items.forEach((x) => { ... })`, `promise.then((r) => { ... })`) has no
+ * leading identifier the way a named method does, so it matches neither `ENCLOSING_FUNCTION_PATTERNS`
+ * nor the unrecognized-opener fold, and the scan walks through it to whatever outer named scope
+ * encloses it. Deliberately NOT folded here too (commander, after measuring): whether that outer
+ * attribution is defensible depends on the WRAPPING call's own runtime semantics, split along this
+ * file's existing `CallbackCategory` axis - a synchronous higher-order traversal (`forEach`/`map`/...)
+ * genuinely executes its callback during the outer function's own call, so attributing to the outer
+ * function is a correct (if imprecise) answer (`syncTraversalArrowWrapping.ts` fixture); a deferred or
+ * event-driven registration (`.then()`, `setTimeout`, `addEventListener`) only REGISTERS the callback
+ * and returns, so the outer function never itself causes the call - the same wrong-answer shape as
+ * `createAdapterProvider` above (`deferredArrowWrapping.ts` fixture). Folding on any arrow opener would
+ * cost real recall on the (more common, and defensible) sync-traversal case - measured cost not yet
+ * paid, so this channel is pinned as KNOWN, ACCEPTED RESIDUAL (`dynamicCallbackIntegration.test.ts`'s
+ * `KNOWN_ACCEPTED_RESIDUAL_SOURCES`) rather than closed. Measured against this repo's own real code: of
+ * 31 real allowlist call sites in `src/`/`cli/src/`, 3 currently cross an unrecognized arrow (all three
+ * `setTimeout(finish, budgetMs)` inside a bare `new Promise(resolve => { ... })` executor) - none
+ * currently mis-attribute, because the class method further out is unrecognized too and already folds
+ * first.
+ *
+ * **THAT SAFETY IS BORROWED, NOT EARNED - commander's finding, do not remove this warning when reading
+ * it.** These three sites are safe only because TWO separate gaps are stacked: the class method is
+ * unrecognized (folds), AND the arrow inside it is unrecognized (would not fold, would mis-attribute,
+ * if the scan ever reached a recognized scope past it). Widening `ENCLOSING_FUNCTION_PATTERNS` to also
+ * recognize class methods - a change explicitly left as a SEPARATE, not-yet-decided question elsewhere
+ * in this file's history - would remove the class-method fold that is currently the only thing stopping
+ * these three sites from mis-attributing through the arrow to that now-recognized class method (a
+ * `setTimeout` call, deferred, NOT the defensible sync-traversal case). **The two deferred decisions are
+ * coupled: closing the arrow channel is a PREREQUISITE for widening `ENCLOSING_FUNCTION_PATTERNS`, not
+ * an independent follow-up that can happen in either order** - doing the recall work first would make
+ * accuracy silently regress, and the regression would not show up in `dynamicCallbackIntegration.test.ts`'s
+ * fixtures (all pinned CURRENT behavior, not the shape this coupling would break) - only in real code,
+ * the same "fixture passes, real code doesn't" shape this milestone has now hit four times.
  */
 function findEnclosingFunction(lines: readonly string[], fromLine: number): EnclosingFunction | undefined {
   let depth = 0;
@@ -302,6 +390,10 @@ function findEnclosingFunction(lines: readonly string[], fromLine: number): Encl
         if (match) {
           return { name: match[1], line: index, character: line.indexOf(match[1], match.index ?? 0) };
         }
+      }
+      const unrecognizedMatch = line.match(UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER);
+      if (unrecognizedMatch && !CONTROL_FLOW_KEYWORDS.has(unrecognizedMatch[1])) {
+        return undefined;
       }
     }
     const closes = stripped.split('}').length - 1;
