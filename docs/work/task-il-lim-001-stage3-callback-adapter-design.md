@@ -678,3 +678,50 @@ GitHub에 의해 자동으로 closed됐다** — stacked PR의 base branch를 �
 
 **검증 갱신 3**(전부 `[실행]`, `rm -rf out cli/dist` 후): `npm run cli:test` 445 tests, 442 pass,
 0 fail, 3 skip. `npm test` 84/84, `test:vsix-contents`/`test:response-policy` 변동 없이 green.
+
+## 2026-09-09 추가 8 — PR #95의 CI가 windows에서 4건 실패, 3건은 이 lane의 실제 결함이었다
+
+PR #95를 올린 뒤 CI에서 4개 job이 실패했다:
+
+```
+cli:test / windows-latest   fail
+gopls / windows-latest      fail
+clangd / windows-latest     fail
+gopls / macos-latest        fail
+```
+
+**`gopls / macos-latest`는 이 lane과 무관하다** — 실패한 테스트는
+`contract.test.ts`의 "preserves lifecycle and runtime provenance when the provider exits
+silently"로, `dynamicCallbackAdapter`와 아무 관련이 없다. 프로세스 종료 타이밍에 민감한 기존
+테스트의 flake로 보고, 이 lane에서 손대지 않는다.
+
+**나머지 셋은 전부 같은 원인, 이 lane의 실제 결함**: `dynamicCallbackAdapterTrustedDeclaration.
+test.ts`의 모든 테스트가 windows에서 `TypeError [ERR_INVALID_FILE_URL_PATH]: File URL path must
+be absolute`로 죽었다(`getPathFromURLWin32` → `fileURLToPath` → `uriFile` →
+`isTrustedStandardDeclaration`). 원인: 이 테스트 파일이 `'file:///repo/node_modules/...'`처럼
+**POSIX 모양의 리터럴 문자열**을 URI로 썼는데, **windows의 `fileURLToPath()`는 경로 부분이
+드라이브 문자를 가진 windows 절대경로 모양이어야 한다고 요구**하고, 드라이브 문자가 없으면 예외를
+던진다(POSIX에선 조용히 통과했다 — 그래서 macOS/ubuntu CI와 이 세션의 로컬(macOS) 실행에서는
+한 번도 안 드러났다).
+
+**고침 둘**:
+1. **함수 자체를 방어적으로 만들었다** — `uriFile(uri)` 호출을 try/catch로 감싸 파싱 실패 시
+   `false`(신뢰 안 함)로 접는다. 실제 provider가 이런 URI를 보낼 일은 없어야 하지만, "그래야
+   한다"는 이 adapter가 다른 모든 곳에서 거부해 온 바로 그 가정이다(FastAPI의
+   `resolveEndpoint()`가 `prepare()`의 모든 예외를 잡는 것과 같은 이유) — 알 수 없는 URI는 이미
+   이 함수가 거부하기로 한 바로 그 종류의 불확실성이다.
+2. **테스트 fixture를 플랫폼에 안전하게 다시 만들었다** — 리터럴 문자열 대신
+   `path.resolve('/repo', ...segments)`로 그 플랫폼의 진짜 절대경로를 만들고 `pathToFileURL()`로
+   변환한다. windows에서는 드라이브 문자가 붙은 진짜 windows 경로가 나오고, POSIX에서는 원래
+   방식과 동일하게 동작한다 — 어느 플랫폼에서 실행되든 `fileURLToPath()`가 되돌려 파싱할 수 있는
+   URI가 보장된다. "파싱 자체가 안 되는 URI"를 여전히 테스트하려고, POSIX 리터럴을 그대로 남긴
+   새 테스트 하나를 추가했다 — **windows에서만 의미 있는 검증**(다른 플랫폼에선 그냥 평범한 파일로
+   통과)이지만, "어떤 플랫폼에서도 예외를 던지지 않는다"는 성질 자체는 항상 검증된다.
+
+이 세션의 로컬 macOS 실행이 이 결함을 한 번도 못 잡았다는 것 자체가 기록할 값어치가 있다 —
+**"내 플랫폼에서 통과"가 "모든 CI 플랫폼에서 통과"의 증거가 아니다**, 이 milestone이 이미 Windows
+CRLF 등으로 여러 번 배운 것과 같은 교훈이다.
+
+**검증 갱신 4**(전부 `[실행]`, `rm -rf out cli/dist` 후, macOS 로컬 — windows는 CI 재확인 대기):
+`npm run cli:test` 446 tests, 443 pass, 0 fail, 3 skip. `npm test` 84/84,
+`test:vsix-contents`/`test:response-policy` 변동 없이 green.

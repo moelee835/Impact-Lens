@@ -369,7 +369,27 @@ export function isTrustedStandardDeclaration(uri: string): boolean {
   if (!uri.startsWith('file:')) {
     return false;
   }
-  const segments = uriFile(uri).split(path.sep).filter(Boolean);
+  // windows-latest CI, real failure (not hypothetical): `fileURLToPath()` on Windows requires the URL's
+  // path portion to look like a Windows absolute path (a drive letter) - `getPathFromURLWin32` throws
+  // `ERR_INVALID_FILE_URL_PATH` for a POSIX-shaped `file:///repo/...` URI, which every literal test URI
+  // in dynamicCallbackAdapterTrustedDeclaration.test.ts used to be, and which a real CallHierarchyItem's
+  // URI should never be from an actual provider - but "should never" is exactly the assumption this
+  // whole adapter otherwise refuses to make about provider input (FastAPI's `resolveEndpoint()` catches
+  // every exception `prepare()` can throw for the same reason). try/catch here, folding to `false`
+  // (not trusted) on anything `uriFile()`/`fileURLToPath()` cannot parse, matches that discipline: an
+  // unparseable URI is exactly the kind of uncertainty this function already exists to reject on.
+  let filePath: string;
+  try {
+    filePath = uriFile(uri);
+  } catch {
+    return false;
+  }
+  // Normalize to `/` before splitting - NOT `path.sep` (this repo's own established lesson,
+  // `cli/src/shared/testFileClassifier.ts`'s identical normalization step): `fileURLToPath()`'s output
+  // format is platform-dependent, and splitting a path that may still contain `\` on POSIX's `path.sep`
+  // (`/`) - or the reverse on Windows - would silently produce a single unsplit segment, so
+  // `node_modules` could never match anywhere.
+  const segments = filePath.replace(/\\/g, '/').split('/').filter(Boolean);
   for (let index = 0; index < segments.length - 1; index += 1) {
     if (segments[index] !== 'node_modules') {
       continue;
