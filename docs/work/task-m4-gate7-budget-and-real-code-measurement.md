@@ -799,14 +799,62 @@ latency budget에서 유도한다**: `maxFiles`는 budget을 집행하는 수단
    WSL)의 체감 비용을 모른 채 켜는 것이다.
 7. **오탐 corpus는 여전히 프로젝트 2개뿐**이다 — 실제 코드 참조가 오늘 28개로 늘었지만, "실제
    프로덕션 코드베이스에서 오탐 0"이라는 문장의 대표성은 여전히 좁다.
+8. **`dynamic-callback-static-v1`(TS/JS 콜백 adapter) 자기 budget은 gate 7 방식으로 실측된 적이
+   없다(reviewer 발견, PR #102) — 그리고 그 부재가 가설이 아니라 이미 이 저장소 자신에서
+   드러난다.** commander가 `src`+`cli/src`를 세어 153개(200 아래, "80% 지점")라고 보고했다 —
+   `walkSourceFiles()`의 실제 `IGNORED_DIRECTORIES`(`.git`/`node_modules`/`out`/`dist`/`build`/
+   `.pnpm-store`)와 확장자(`.ts`/`.tsx`/`.js`/`.jsx`/`.mjs`/`.cjs`)로 이 lane이 직접 재세어
+   **153개(`src` 42 + `cli/src` 111)로 정확히 일치**를 확인했다. **다만 "워크스페이스 루트
+   기준 159개, 아직 안 걸림"이라는 후속 프레이밍은 정정이 필요하다** — `walkSourceFiles()`는
+   `.claude`를 `IGNORED_DIRECTORIES`에 안 뺀다. 이 저장소의 `.claude/worktrees/`에는 이 세션이
+   만든 저장소 전체 중첩 사본이 여럿 있고(548개 TS/JS 파일), **저장소 실제 루트를 그대로
+   `workspace`로 넘겨 재는 순간 707개**가 된다(159는 `.claude`를 뺀 뒤의 숫자다 — 707−548=159,
+   실제 `walkSourceFiles()`는 이 뺄셈을 안 한다). **직접 실행으로 확인**: 이 저장소 루트
+   (`/Users/woony6/dev/Impact-Lens`)를 `workspace`로, `src/impactDelta.ts`의 `edgeKey` 정의를
+   augmentation on으로 쿼리하면 **지금, 오늘, `augmentation_budget_exceeded: true`가 이미
+   뜬다** — "80%, 아직 안 걸림"이 아니라 **"저장소 루트 기준으로는 이미 걸려 있다."** (이건 이
+   lane의 §3-1이 처음부터 알고 있던 사실이기도 하다 — "workspace를 저장소 루트로 주면 budget
+   초과, `src`로 좁히면 정확히 찾는다"고 이미 적어 뒀다.) **이 lane의 §3-1·§3-2 발표 수치
+   자체는 안전하다** — `src`(42) 또는 `src`/`cli/src` 개별 스코프로 쟀지 저장소 루트로 잰 적이
+   없다(직접 재확인). 하지만 **다음에 이 저장소를 다시 잴 사람은 저장소 루트가 아니라 `src`
+   또는 `cli/src`로 `workspace`를 좁혀야 한다는 것을 몰랐다면 걸렸을 것**이다 — "가설"이 아니라
+   "이미 걸리는 실측"으로 남긴다.
 
 **다음으로 필요한 것(이 lane의 범위 밖, 별도 lane)**: ~~(a) `maxFiles`를 실제로 올리는 PR~~
 **2026-09-09: PR #102(`docs/work/task-m4-gate7-apply-maxfiles.md`)가 닫았다** — 1500으로 적용,
 dispatch 8개 쿼리 실제 값으로 재검증 완료(400ms 자체가 잠정이라 1500도 잠정인 건 그대로다 —
-extension host 측정이 바뀌면 이 값도 다시 계산해야 한다). (b) 지원 안 되는 `Depends()` 형태
-(모듈-레벨 별칭, router-level `dependencies=[]`)에 조용한 기각 대신 limitation 코드를 붙이는 PR
+extension host 측정이 바뀌면 이 값도 다시 계산해야 한다), `fastapi-static-v1`에만 scoped(reviewer
+발견 — 처음엔 `DEFAULT_BUDGET` 전체를 바꿔 `dynamic-callback-static-v1`도 조용히 같이
+올라갈 뻔했다). (b) 지원 안 되는 `Depends()` 형태(모듈-레벨 별칭, router-level
+`dependencies=[]`)에 조용한 기각 대신 limitation 코드를 붙이는 PR
 (`framework_depends_form_unsupported`류, `LIMITATION_SURFACE_PATTERNS` 등록까지 — #97 절차
 그대로). (c) `Security()` 미인식(위 5번, reviewer 발견) — 오늘 두 프로젝트엔 없어 숫자에 영향은
-없지만 형태 분류 자체를 넓히는 후속. (d) extension host 1단계 harness(4절 권고, 아직 미착수).
-(b)·(c)·(d)가 닫히기 전까지 이 lane은 기본값 on을 권하지 않는다 — 뒤집힐 수 있는 잠정 판단이고,
-뒤집는 근거는 실측이어야 한다(이 lane 전체가 그래왔듯).
+없지만 형태 분류 자체를 넓히는 후속. (d) `dynamic-callback-static-v1` 자기 budget을 gate 7과 같은
+방식(실제 TS/JS 프로젝트, 파일당 비용 실측)으로 정하는 lane(위 8번) — 이 저장소 자신이 저장소
+루트 기준으로 이미 예산을 넘는다는 것을 보였으므로 우선순위가 낮지 않다. (e) extension host
+1단계 harness(4절 권고, 아직 미착수). (b)·(c)·(d)·(e)가 닫히기 전까지 이 lane은 기본값 on을
+권하지 않는다 — 뒤집힐 수 있는 잠정 판단이고, 뒤집는 근거는 실측이어야 한다(이 lane 전체가
+그래왔듯).
+
+## 6. 최종 판정(2026-09-09) — 닫힘, 명시된 잔여 6건을 안고
+
+commander·reviewer와 순서대로 검토를 거쳤다(3라운드 반박, PR #101·#102 각각 독립 재현 검증
+포함). **gate 7("정해진 false-positive·latency budget 통과")을 닫는다** — gate 2·4가 이미 쓴
+형태("수용된 잔여를 안고 닫는다")를 그대로 따른다:
+
+- **"정해진 budget"**: latency(`max(400ms[잠정], 0.25×static[잠정])`)와 false-positive("명시된
+  corpus에서 0건, 발견 즉시 재개방")가 실측으로 확정됐고, `maxFiles`(1500, `fastapi-static-v1`
+  한정)는 그 budget에서 유도돼 실제 코드에 적용·재검증됐다(PR #102).
+- **"통과"**: 오늘 실측한 corpus(TS fixture 18 + Python fixture 38+4 + 실제 코드 참조 28) 전체에서
+  오탐 0건, `fastapi-static-v1`이 겨냥하는 두 형태(파라미터·route decorator)에서 위음성 0건.
+- **잔여 6건(위 번호 목록 중 실제로 열린 항목)은 지운 게 아니라 명시적으로 남긴다**: recall 약 57%(범위 밖 형태
+  포함 시), 조용한 기각(limitation 없음), corpus 프로젝트 2개, `Security()` 미인식,
+  `dynamic-callback-static-v1` 자기 budget 미실측(이미 저장소 루트 기준으로 걸림), extension
+  host latency 미측정. **닫힘은 "완벽함"의 선언이 아니라 "정해진 수치가 실측으로 뒷받침되고,
+  남은 공백이 전부 이름 붙어 있다"는 뜻이다.**
+
+**gate가 닫히는 것과 augmentation 기본값이 사용자에게 켜지는 것은 별개다.** 5절의 판단("아직
+기본값 on을 권하지 않는다")은 이 닫힘 판정으로 안 바뀐다 — gate 7은 "budget이 정해지고 그 budget
+통과 여부를 실측할 수 있다"는 **측정 인프라의 존재**를 요구했고, 이제 그게 있다. 기본값 on
+전환은 별개의, 아직 안 끝난 결정이고 그 결정에 필요한 근거(잔여 6건)는 이 문서에 전부 이름
+붙어 있다 — 다음 lane이 그 근거를 하나씩 닫아가면 된다.

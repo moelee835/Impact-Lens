@@ -396,6 +396,25 @@ measurement.md` §3·§4-이후·5절. 요약:
 **gate 7의 최종 판단은 여전히 안 바뀐다** — 다만 근거 하나(가용성)가 닫히고 새 근거 하나
 (`Security()` 미인식)가 늘어 결과적으로는 그대로 "아직 기본값 on을 권하지 않는다"다.
 
+**2026-09-09 최종 판정 — Gate 7 닫힘, 명시된 잔여 6건을 안고.** PR #102 검토 중 reviewer가 잡은
+또 다른 결함(`maxFiles: 1500`이 `fastapi-static-v1`만이 아니라 `DEFAULT_BUDGET`을 공유하는
+`dynamic-callback-static-v1`까지 조용히 올렸을 뻔함 — `budget` override로 scope를 좁혀 수정,
+동시에 `budgetExceeded: true`가 실제 adapter의 실제 truncation을 거쳐 최종 limitation까지
+도달하는 걸 실행으로 pin하는 테스트가 이전엔 없었던 공백도 닫음)와, 그 수정을 검증하며 이
+lane이 직접 실행으로 확인한 사실(`dynamic-callback-static-v1`의 200 budget이 "언젠가 초과될
+가설"이 아니라 **이 저장소 자신을 저장소 루트로 쿼리하면 지금 당장 초과된다** — `.claude/
+worktrees/`의 중첩 사본 548개가 `IGNORED_DIRECTORIES`에 안 빠져서, 707개 중 200을 훌쩍 넘는다.
+`src`/`cli/src`로 좁힌 스코프에서 잰 이 lane 자신의 기존 발표 수치는 안전하다는 것도 재확인)까지
+반영해, gate 7을 **닫는다**(gate 2·4가 이미 쓴 "수용된 잔여를 안고 닫는다" 형태) —
+`docs/work/task-m4-gate7-budget-and-real-code-measurement.md` §6 "최종 판정" 참고. 남는 잔여
+6건: recall 약 57%(범위 밖 형태 포함 시), 조용한 기각(limitation 없음), corpus 프로젝트 2개,
+`Security()` 미인식, `dynamic-callback-static-v1` 자기 budget 미실측(이미 저장소 루트 기준
+초과), extension host latency 미측정. **gate가 닫히는 것과 augmentation 기본값이 켜지는 것은
+별개다** — "아직 기본값 on을 권하지 않는다"는 판단은 이 닫힘으로 안 바뀐다.
+
+**2026-09-09 기준 갱신: 8개 중 닫힘 6(rollback·gate 2·gate 3·gate 4·gate 5·gate 7, gate 4는
+수용된 잔여 1건, gate 2는 미검증 범위, gate 7은 위 잔여 6건을 각각 안고 닫힘), 열림 2(gate 1·8).**
+
 ### Gate 8 — user-test 명세
 
 `docs/development-management/user-tests/` 디렉터리에 `m0`/`m1`/`m2` 명세는 있지만
