@@ -280,6 +280,15 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
   - **`textDocument/references` 부재**: `EventEmitter.on`/`.emit` 페어링(어떤 emitter 인스턴스의
     흐름을 따라 `.emit`과 `.on`을 짝짓는 문제, `IL-LIM-001`)이 부딪히는 벽 — 이건 Spring의 벽과
     다르다.
+  - **(2026-09-09 추가 2, gate 7 실제 코드 측정) 같은 벽의 네 번째 항목**: `fastapi-static-v1`의
+    module-level `XDep = Annotated[T, Depends(fn)]` 별칭도 `reference` 부재다.
+    `findEnclosingDef()`가 이 형태를 v1에서 기각하기로 한 이유가 정확히 이거다(구현:
+    `docs/work/task-m4-fastapi-depends-enclosing-scope-fix.md`) — 이 참조에는 애초에 호출자
+    함수가 없다, 의존성은 `XDep`이 **쓰이는 곳**(다른 함수의 파라미터 타입으로)에서 발생하고,
+    그걸 따라가려면 workspace 전체에서 `XDep`을 참조하는 위치를 찾는 `reference` 능력이
+    필요하다. 실제 오픈소스 프로젝트 두 곳(`tiangolo/full-stack-fastapi-template`,
+    `Netflix/dispatch`) 전부 이 관용구를 쓴다 — FastAPI 공식 문서가 권장하는 현대적 표기라
+    드문 패턴이 아니다.
   - **어느 쪽도 아닌 별개의 벽**: dynamic-callback-adapter의 "layer 2"(`register`처럼 관례 이름의
     사용자 정의 함수가 콜백을 받는 경우)는 `reference`도 `implementation`도 아니다 — `register`를
     부르는 곳을 전부 찾아도 `register`가 자기 파라미터를 실제로 호출하는지는 알 수 없고(그건

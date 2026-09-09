@@ -701,6 +701,70 @@ test(
 );
 
 // ---------------------------------------------------------------------------
+// M4 gate 7 real-code measurement (docs/work/task-m4-fastapi-depends-enclosing-scope-fix.md):
+// `findEnclosingDef()` had no scope/indentation awareness at all - it returned the nearest preceding
+// `def` line regardless of whether the reference was actually inside it. Every fixture above has exactly
+// one route per file and only ever uses parameter-form Depends() directly inside a `def(...)` signature
+// - the one shape the old scan always got right by construction - so this defect was invisible to the
+// accuracy corpus even though it reproduced on the FIRST non-trivial query against two real, unmodified
+// open-source FastAPI projects. These four fixtures are the shapes that were missing.
+// ---------------------------------------------------------------------------
+
+test(
+  'module-level Annotated[T, Depends(fn)] with fn\'s own def immediately above, module_level_alias_self_ref.py: rejects rather than reporting fn as its own candidate caller',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('module_level_alias_self_ref.py', 14, 5, true); // `def module_alias_self_target`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 0, JSON.stringify(response.data.augmentedEdges));
+  },
+);
+
+test(
+  'module-level Annotated[T, Depends(fn)] with an unrelated def immediately above, module_level_alias_other_function.py: rejects rather than misattributing to the unrelated function',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('module_level_alias_other_function.py', 20, 5, true); // `def module_alias_other_target`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 0, JSON.stringify(response.data.augmentedEdges));
+  },
+);
+
+test(
+  'route decorator dependencies=[Depends(fn)] in a file with more than one route (single-line decorator), multi_route_decorator_single_line.py: attributes to the route it actually decorates, not the earlier unrelated route',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('multi_route_decorator_single_line.py', 16, 5, true); // `def multi_route_dep_target`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    const edge = response.data.augmentedEdges[0]!;
+    assert.equal(edge.reasonCode, 'fastapi-depends');
+    assert.equal(
+      edge.source.name,
+      'multi_route_second_handler',
+      `expected the route this decorator actually attaches to, not the earlier unrelated route: ${JSON.stringify(edge.source)}`,
+    );
+  },
+);
+
+test(
+  'route decorator dependencies=[Depends(fn)] spanning multiple lines, multi_route_decorator_multi_line.py: attributes to the route it actually decorates - the Depends() reference\'s own line never contains an @, so classification must track paren depth, not just look at that one line',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('multi_route_decorator_multi_line.py', 14, 5, true); // `def multi_line_decorator_dep_target`
+    assert.equal(response.ok, true);
+    assert.equal(response.data.augmentedEdges.length, 1, JSON.stringify(response.data.augmentedEdges));
+    const edge = response.data.augmentedEdges[0]!;
+    assert.equal(edge.reasonCode, 'fastapi-depends');
+    assert.equal(
+      edge.source.name,
+      'multi_line_decorator_second_handler',
+      `expected the route this decorator actually attaches to, not the earlier unrelated route: ${JSON.stringify(edge.source)}`,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
 // M4 stage 3 latency gate (docs/work/task-m4-stage3-accuracy-latency-gates.md, "단계 3"). Not a tight
 // perf assertion - CI runners are noisy and this corpus is small (well under `maxFiles`), so exact
 // millisecond numbers belong in the work document (measured locally, with its own environment stated),
