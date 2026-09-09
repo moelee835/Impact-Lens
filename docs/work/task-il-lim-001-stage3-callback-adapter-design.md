@@ -725,3 +725,25 @@ CRLF 등으로 여러 번 배운 것과 같은 교훈이다.
 **검증 갱신 4**(전부 `[실행]`, `rm -rf out cli/dist` 후, macOS 로컬 — windows는 CI 재확인 대기):
 `npm run cli:test` 446 tests, 443 pass, 0 fail, 3 skip. `npm test` 84/84,
 `test:vsix-contents`/`test:response-policy` 변동 없이 green.
+
+> **2026-09-09 정정 — 이건 "windows 버그"가 아니라 "테스트 fixture 이식성 버그"다**: 위 소제목과
+> 721-723줄의 "이 milestone이 이미 Windows CRLF 등으로 여러 번 배운 것과 같은 교훈이다"는 문장이
+> gate 4의 CRLF 사례와 같은 급으로 읽힐 위험이 있어 구분해 둔다 — 실제로는 서로 반대 방향의
+> 문제였다.
+>
+> - **gate 4의 CRLF는 실사용자 버그였다**: 실제 Windows 사용자의 실제 파일이 CRLF 줄바꿈을 가지고
+>   있었고, 프로덕션 코드가 그걸 잘못 처리했다. `.gitattributes`로 그걸 감추려 한 시도가 틀린
+>   해법이었을 뿐, 고쳐야 할 진짜 문제는 있었다.
+> - **이번 건 반대다**: 프로덕션 코드(`isTrustedStandardDeclaration`)가 실제 provider로부터 받는
+>   URI는 windows에서도 항상 `file:///c:/...`처럼 드라이브 문자가 붙은, 파싱 가능한 모양이다 —
+>   깨진 건 **이 세션이 직접 만든 테스트 리터럴**(`'file:///repo/...'`, POSIX 모양을 windows에서도
+>   그대로 쓴 것)뿐이었다. 실제 사용자가 windows에서 이 경로를 타면서 깨지는 시나리오는 관측된
+>   적이 없다 — 관측될 수도 없다, provider가 그런 모양의 URI를 내보내지 않기 때문이다.
+>
+> 따라서 위 "고침 둘" 중 **테스트 fixture를 `pathToFileURL(path.resolve(...))`로 다시 만든 것이
+> 정확한 해법**이고(플랫폼 네이티브 경로는 항상 자기 자신을 파싱할 수 있다), **production의
+> try/catch는 버그 수정이 아니라 "관측된 적 없는 경우에 대한 방어"**다 — FastAPI의
+> `resolveEndpoint()`가 `prepare()`의 모든 예외를 잡는 것과 같은 방어적 패턴이지, CRLF처럼 고칠
+> 실사용자 결함이 있었던 게 아니다. 커밋 메시지(`a22d6f9`)의 "Fix Windows CI failure"라는 제목은
+> CI가 실제로 windows에서 실패했다는 사실 자체는 맞지만, 원인이 production 결함이라고 오독되지
+> 않도록 이 문서로 교정해 둔다.
