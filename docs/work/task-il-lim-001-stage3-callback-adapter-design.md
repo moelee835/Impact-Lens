@@ -238,6 +238,53 @@ event is delivered"로 명시적으로 "불린다"고 적는다. `setTimeout`은
 작성 시점엔 1차 출처를 개별 확인하지 않았다 — **구현 lane에서 fixture를 만들기 전에 하나씩 확인하고,
 확인 안 된 항목은 allowlist에서 뺀다.**
 
+## 2026-09-09 추가 4 — reviewer의 반례로 allowlist 판정 기준 자체를 바꾼다(최종)
+
+reviewer가 `push`/`sort`/`reduce`를 다시 쟀다 — **셋 다 `forEach`/`setTimeout`/`addEventListener`와
+완전히 같은 파일(`lib.es5.d.ts`), 같은 신뢰도로 resolve된다.** 즉 **"callee가 표준 lib으로
+resolve된다"는 재확인(2번)은 "그 인자 자리가 콜백인가"에 아무 신호를 안 준다** — `push`와 `forEach`를
+못 가른다. "추가 3"에서 이미 allowlist(1번)와 재확인(2번)을 분리했지만, 재확인이 allowlist의
+부담을 조금이라도 던다는 인상이 남아 있었다면 이걸로 지운다: **1번(allowlist)이 전부이고, 2번은
+"그 이름이 진짜 그 표준 선언인가"만 재확인한다.**
+
+**"무조건 호출된다" vs "조건부 호출된다"로 나누는 것도 실패한다** — reviewer가 직접 반례를 냈다:
+`[].forEach(cb)`(빈 배열, 0회), `setTimeout(cb,0)`+`clearTimeout`(0회),
+`addEventListener`(이벤트 없으면 0회), `[].sort(cb)`/`[1].reduce(cb, no-init)`(0회),
+`new Promise(()=>{}).then(cb)`(영원히 미정착, 0회) — **"무조건 호출" 칸이 비어 있다.** 콜백
+등록에 호출을 보장하는 API는 없다 — 그게 이 기능이 "candidate caller"라고 부르는 이유 그 자체다.
+
+**최종 기준: "규격이 그 인자 자리를 콜백으로 정의하는가"** — 런타임 무관, 규격 문서로 판정
+가능하다.
+- **콜백 자리(allowlist 후보)**: `forEach`/`map`/`filter`/`find`/`sort`/`reduce`(위치는 다르지만
+  전부 함수 인자를 받아 명시된 조건에서 호출하도록 규격이 정의), `then`, `setTimeout`/`setInterval`/
+  `queueMicrotask`/`process.nextTick`, `addEventListener`.
+- **콜백 자리 아님**: `push`/`includes`/`indexOf`/`console.log` 등 — 그 인자 자리는 **데이터**로
+  규격이 정의한다.
+- `push`/`sort`가 재확인(2번)에서 안 갈리는 건 결함이 아니다 — **1번(allowlist)에서 애초에
+  `push`가 후보가 안 되므로 2번까지 갈 필요가 없다.** `sort`는 콜백 자리가 맞으므로(비교 함수)
+  allowlist에 있고, 실제로 호출되는지는 "조건부"(빈/한 원소 배열이면 0회)이며 그건 이 기능이
+  주장하는 바가 아니다(아래 참고).
+
+**allowlist 항목은 `{ 함수, 콜백 인자 위치 }`로 둔다** — 이름만 넣으면 `setTimeout(delay, fn)`처럼
+인자 순서가 바뀌거나 다른 자리에 함수를 넘긴 경우가 통과한다. 위치: `setTimeout`/`setInterval`/
+`queueMicrotask`/`process.nextTick`/`forEach`/`map`/`filter`/`find`/`sort`/`reduce`(초기값 없는
+경우 포함) 전부 0번째 인자, `addEventListener`는 1번째 인자(0번째는 이벤트 이름 문자열) — 각
+API 자신의 표준 타입 선언(`lib.dom.d.ts`/`lib.es5.d.ts`) 시그니처로 확인 가능(별도 1차 출처
+조회 불필요 — 인자 순서는 논쟁의 여지가 없는 언어 상식이라 IL-LIM-010의 framework 관례 검증과
+같은 급의 검증이 필요하지 않다고 판단했다).
+
+**부록 — `addEventListener`의 별도 축(재확인을 안 깬다)**: `addEventListener`의 두 번째 인자는
+함수뿐 아니라 `handleEvent` 메서드를 가진 객체(`EventListenerObject`)일 수도 있다. 이건 "규격이
+호출을 보장하는가"와 다른 축("정적 분석이 그 참조를 함수로 따라갈 수 있는가")이다 — `prepare()`가
+그 자리에서 함수가 아닌 걸 만나면 빈 배열을 주고, 이 adapter는 그걸 기각으로 접는다(안전한 방향의
+실패, gate 4와 같은 fold-to-abandonment).
+
+**이 adapter가 실제로 주장하는 것(문서에 고정)**: "이 함수가 **호출된다**"가 아니라 **"규격상
+콜백 자리에 이 함수가 전달됐다"**다. 위 모든 0회 호출 반례(빈 배열, 이벤트 미발생,
+clearTimeout, 미정착 Promise)가 이 주장 밖의 반례가 아니라 **이 주장이 원래 포함하는 범위**다 —
+`candidate caller`(확정 아님)라는 기존 라벨이 정확히 이 의미를 이미 표현하고 있었다. 새 UI 문구는
+필요 없다.
+
 ## 결정
 
 **정정 안내(2026-09-09)**: 이 섹션은 이 문서를 쓰면서 가장 먼저 나온 판단이고, 아래 "2026-09-09
@@ -345,20 +392,26 @@ optional `budget?: AdapterBudget`을 추가해 어댑터가 자기 값을 선언
 `DEFAULT_BUDGET`로 떨어지게 한다(하위 호환 — 기존 FastAPI 등록은 변경 없음). **정확한 숫자는 구현
 lane에서 실측(측정 원칙 그대로 — 추측하지 않는다)한다.**
 
-## 범위 (최종 — 2026-09-09 추가 3 반영)
+## 범위 (최종 — 2026-09-09 추가 4 반영)
 
 **포함**:
-- **allowlist(1차 출처로 확인된 것만) + `prepare()` 재확인**으로 동작하는 하나의 adapter. allowlist
-  후보: `setTimeout`/`setInterval`/`queueMicrotask`/`process.nextTick`(지연·예약 호출),
-  `addEventListener`(이벤트 구동 호출), `Array.prototype.forEach|map|filter|find`(즉시 동기 순회
-  호출) — `setTimeout`/`addEventListener`는 MDN으로 확인 완료, 나머지는 구현 lane에서 fixture
-  전에 개별 확인(확인 안 되면 목록에서 뺀다).
+- **allowlist(기준: "규격이 그 인자 자리를 콜백으로 정의하는가", 위치까지 지정) + `prepare()`
+  재확인(그 이름이 진짜 표준 선언인지만)**으로 동작하는 하나의 adapter. `{함수, 콜백 인자 위치}`:
+  `setTimeout`/`setInterval`/`queueMicrotask`/`process.nextTick`(0번째, 지연·예약 호출),
+  `addEventListener`(1번째, 이벤트 구동 호출), `Array.prototype.forEach|map|filter|find|sort|
+  reduce`(0번째, 즉시 동기 순회 호출) — `push`/`includes`/`indexOf` 등은 그 인자 자리가 규격상
+  데이터이므로 애초에 후보가 아니다(재확인으로 거르는 게 아니라 allowlist에 없다).
 - "동적 호출 유형 2개"는 **런타임 호출 방식**(지연/예약, 이벤트 구동, 즉시 동기 순회 — 최소 이
   셋 중 둘)으로 채운다. story가 이름 댄 "명시적 callback 전달"(지연 호출)과 "event subscription"
   (이벤트 구동, `addEventListener`)이 둘 다 이 안에 있다.
 - 각 후보를 `prepare()`로 이중 재확인: **callee**가 allowlist가 가리키는 진짜 표준 선언인지(같은
   이름의 사용자 함수가 아닌지, shadowing 부정 fixture로 고정), **handler**가 원하는 그 함수인지
-  (측정 4의 shadowing 부정 fixture로 고정).
+  (측정 4의 shadowing 부정 fixture로 고정). `addEventListener`의 두 번째 인자가 함수가 아니라
+  `EventListenerObject`(`handleEvent` 메서드를 가진 객체)인 경우 `prepare()`가 빈 배열을 주고
+  기각으로 접는다 — 별도 처리 불필요.
+- **이 adapter가 실제로 내는 주장은 "호출된다"가 아니라 "규격상 콜백 자리에 이 함수가 전달됐다"다**
+  — 빈 배열에서 `forEach`가 0회 호출되는 것, `clearTimeout`된 타이머, 이벤트가 안 난 리스너 전부
+  이 주장이 원래 포함하는 범위이지 반례가 아니다. 기존 `candidate caller` 라벨이 이미 이 의미다.
 
 **제외(범위 밖, 능력 부재로 인해 — 셋이 같은 근본 원인을 공유한다)**:
 1. 유형 B(프로퍼티/슬롯 대입, `obj.onClick = handler`류) — 대입 대상 프로퍼티 자체가 `prepare()`로
