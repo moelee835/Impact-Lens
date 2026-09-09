@@ -577,3 +577,59 @@ commander/reviewer 둘 다 낮게 평가**(워크스페이스에 파일을 쓸 �
 
 **검증 갱신**(전부 `[실행]`, `rm -rf out cli/dist` 후): `npm run cli:test` 433 tests, 430 pass,
 0 fail, 3 skip. `npm test` 84/84. `test:vsix-contents`/`test:response-policy` 변동 없이 green.
+
+## 2026-09-09 추가 6 — reviewer의 범위 확인이 commander의 recall 실측으로 이어졌다, 가드를 다시 고쳤다
+
+reviewer가 결함 2 수정 뒤 "막을 필요는 없다"면서도 범위 확인차 남긴 관찰: `hasAmbiguousBrace`가
+패턴 매칭보다 먼저 실행되니 **찾는 함수의 선언 줄 자체**가 중괄호+주석(`function outerCaller() {
+// handles clicks`, 흔한 스타일)을 같이 가지면 그 줄도 통째로 미탐지된다.
+
+commander가 이걸 "막을 필요 없는 관찰"에서 "정량화가 필요한 결함"으로 승격시켰다 — **이 저장소
+자신의 `src/`·`cli/src/` 두 트리에서, allowlist API가 실제로 등장하는 모든 줄을 대상으로 가드
+있는/없는 `findEnclosingFunction` 성공률을 직접 쟀다**:
+
+```
+src:      가드 없음(안전하지 않음) 55.8%  →  기존 가드(전부-아니면-전무) 28.3%  (해석 가능했던 것의 절반 손실)
+cli/src:  가드 없음(안전하지 않음) 64.7%  →  기존 가드(전부-아니면-전무) 34.5%  (마찬가지로 절반 손실)
+```
+
+**손실의 원인은 조건이 지나치게 넓어서였다** — "중괄호와 따옴표/backtick/주석 기호가 같은 줄에
+같이 있으면"이 전제였는데, 실제 코드에서 이 둘이 **무관하게** 공존하는 흔한 줄(`if (x) { log('a');
+}`, 선언 줄 자체의 trailing comment)이 전체 손실의 대부분이었다. **precision corpus만 있고 recall
+손실을 잡는 단정이 하나도 없어서, 이 숫자를 아무도 모른 채 merge될 뻔했다** — commander가 지적한
+대로 fixture와 가드가 같이 작고 깨끗하게 자라, 가드의 커버리지가 자기 corpus와 정확히 같은
+넓이였다(gate 4에서 이미 배운 함정과 같은 모양).
+
+이 세션이 독립적으로 재현(같은 두 트리, 별도로 작성한 스크립트)해 같은 수치(±반올림)를 확인했다.
+
+**고침(commander 제안 (b) 채택 — 조건을 좁힌다, 전체를 포기하지 않는다)**: `hasAmbiguousBrace`를
+`stripSameLineCommentsAndStrings()`로 교체 — **중괄호가 실제로 따옴표/주석 *안에* 있을 때만**
+무력화하고, 밖에 있으면 정상적으로 센다. 한 줄 안에서만 판단하는 스캐너(여러 줄에 걸칠 수 있는
+경우 - 미종결 문자열/블록 주석/backtick, `${...}` 보간 포함 backtick - 는 여전히 안전하게
+포기)로, `fastapiDependencyAdapter.ts`의 Python 전용 함수는 여전히 안 썼다.
+
+**실제로 병합된(export된) 함수로 재측정**(프로토타입이 아니라 `cli/dist`에서 직접 import해 확인):
+
+```
+src:      가드 없음 55.8%  →  기존 가드 28.3%  →  새 가드 38.3%(해석 가능했던 것의 약 69%를 회복)
+cli/src:  가드 없음 64.7%  →  기존 가드 34.5%  →  새 가드 47.8%(약 74%를 회복)
+```
+
+**남는 잔여(정직하게 명시)**: 새 가드도 "가드 없음"의 55.8%/64.7%에는 못 미친다 — 남는 손실은
+주로 여러 줄에 걸치는 backtick 템플릿 리터럴(이 저장소 자신의 doc-comment 스타일이 즐겨 쓰는
+형태)과 `${...}` 보간이다. 이걸 마저 회복하려면 진짜 여러 줄짜리 backtick 추적이 필요하고, 그건
+commander가 이미 경고한 "검증이 필요한 별도 작업"의 영역이다 — 이번 lane에서는 안 한다.
+
+`ambiguousBraceInString.ts` fixture는 이제 **정정된 정답**(`outerCaller`가 실제로 candidate로
+나옴, `inner`는 여전히 안 나옴)을 고정하도록 갱신했다 — 이전 버전은 "가드가 통째로 포기해서 둘 다
+안 나온다"를 고정했는데, 새 가드는 포기하지 않고 **올바르게 해석**하므로 그 기대값 자체가
+바뀌었다.
+
+### 뮤테이션 재확인(전부 `[실행]`, 원복 후 재통과)
+
+- `stripSameLineCommentsAndStrings()`를 "아무 것도 안 지우고 원본 줄 그대로 반환"으로 무력화 →
+  정확히 그 함수에 의존하는 11개 테스트만 실패(신규 유닛 테스트 9개 + integration 2개), 나머지
+  430개는 그대로 통과. 원복 후 441개 전부 재통과.
+
+**검증 갱신 2**(전부 `[실행]`, `rm -rf out cli/dist` 후): `npm run cli:test` 444 tests, 441 pass,
+0 fail, 3 skip. `npm test` 84/84 그대로.

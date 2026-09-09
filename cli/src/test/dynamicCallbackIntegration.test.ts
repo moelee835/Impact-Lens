@@ -29,7 +29,7 @@ import test from 'node:test';
 // per-scenario tests after it are not re-proving presence/absence (already closed by the set
 // assertion) - they exist to pin per-candidate detail (`reasonCode`, `adapterId`) and to give a
 // regression a specific, readable failure message instead of only a diff against the full set.
-const EXPECTED_CANDIDATE_SOURCES = ['forEachCaller', 'listenerCaller', 'timeoutCaller'];
+const EXPECTED_CANDIDATE_SOURCES = ['forEachCaller', 'listenerCaller', 'outerCaller', 'timeoutCaller'];
 
 const executable = path.resolve(__dirname, '..', 'index.js');
 const workspace = path.resolve(__dirname, '..', '..', 'src', 'test', 'fixtures', 'typescript-dynamic-callback');
@@ -86,10 +86,10 @@ function candidateFor(name: string): AugmentedEdge {
 
 // THE accuracy corpus test - see the file's own top comment for why this one assertion, not a
 // per-fixture `.length` check, is what actually proves precision across all 11 fixtures at once: the
-// 3 positives are present, the 8 negatives are absent, AND no twelfth, unexpected candidate (a
+// 4 positives are present, the 7 negatives are absent, AND no thirteenth, unexpected candidate (a
 // cross-contaminating false positive from any fixture) is hiding in the set either - a `.find()`-based
 // positive check or a single-name `!includes()` negative check could each pass even if that happened.
-test('augmentedEdges contains exactly the 3 expected candidates and nothing else - the accuracy corpus in one assertion', () => {
+test('augmentedEdges contains exactly the 4 expected candidates and nothing else - the accuracy corpus in one assertion', () => {
   assert.deepEqual([...sourceNames()].sort(), [...EXPECTED_CANDIDATE_SOURCES].sort());
 });
 
@@ -108,7 +108,7 @@ test("button.addEventListener('click', handler): reasonCode event-subscription",
   assert.equal(candidateFor('listenerCaller').reasonCode, 'event-subscription');
 });
 
-// The 8 negative fixtures below are already proven absent by the set-equality test above - a
+// The 7 negative fixtures below are already proven absent by the set-equality test above - a
 // `!sourceNames().includes(name)` assertion here is strictly implied by it, never able to catch
 // anything that test would not. Kept as their own named tests anyway, each with its fixture file and
 // its own reason in the title, purely so a regression on ONE specific scenario fails with a readable,
@@ -141,9 +141,17 @@ test("emitter.emit('x'), fireEmitter.ts: capability absence - the receiver is a 
   assert.ok(!sourceNames().includes('fire'));
 });
 
-test('setTimeout(handler, 0) inside a function whose preceding sibling nested function contains a string with an unbalanced brace, ambiguousBraceInString.ts: reviewer-found false-attribution risk, now folded to no candidate rather than misattributed to the wrong (already-closed) enclosing function', () => {
-  assert.ok(!sourceNames().includes('outerCaller'));
-  // Also pin the specific wrong answer this used to produce, not just the right one's absence - a
-  // regression that started misattributing to some OTHER name would still pass the line above.
+// ambiguousBraceInString.ts: reviewer originally reproduced this as a false-attribution risk against
+// the first (all-or-nothing abort) guard - `outerCaller` (the true enclosing function) was
+// mis-attributed to `inner` (an already-closed nested function containing a string with an unbalanced
+// brace). commander then measured that abort guard's real recall cost across this repo's own two
+// source trees (roughly half of otherwise-resolvable call sites lost) and it was replaced with
+// `stripSameLineCommentsAndStrings()`, which handles this exact shape correctly instead of aborting -
+// the brace inside the string is blanked out before counting, so the depth count never gets thrown off
+// in the first place. This fixture now pins the CORRECT resolution, not an abort: `outerCaller` is a
+// real positive, `inner` must never appear (a regression back to the old mis-attribution, or a new one
+// pointing somewhere else, both fail this).
+test('setTimeout(handler, 0) inside a function whose preceding sibling nested function contains a string with an unbalanced brace, ambiguousBraceInString.ts: correctly attributed to the true enclosing function', () => {
+  assert.equal(candidateFor('outerCaller').reasonCode, 'callback-registration');
   assert.ok(!sourceNames().includes('inner'));
 });

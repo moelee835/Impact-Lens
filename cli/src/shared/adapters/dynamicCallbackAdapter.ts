@@ -172,20 +172,89 @@ const ENCLOSING_FUNCTION_PATTERNS: readonly RegExp[] = [
 // a NEW mis-attribution in TypeScript: it never strips `//`/`/* */` at all, it never strips backtick
 // template literals (exactly where `{` hides most often in TS), and it treats a bare `#` as a comment
 // marker - but `#` in TypeScript introduces a private class field (`this.#count`), so a line containing
-// one would have its real remainder silently discarded. Fixing this by building a real TS-aware
-// stripper is future work needing its own verification (comments, template literals, regex literals all
-// interact); the cheap fix that fits this file's own established discipline instead:
-/** A line combining a brace with any quote/backtick/comment marker makes the running brace count
- * unreliable from that point on - `findEnclosingFunction` gives up rather than guess, the same
- * fold-to-abandonment direction every other failure path in this file already takes (this was the one
- * exception: every other limit here is a missed candidate, never a wrong one). Conservative on purpose:
- * a line with both an unrelated brace AND an unrelated string (`if (x) { greet("hi"); }`) also aborts,
- * even though nothing about it is actually ambiguous - an accepted false negative in exchange for never
- * emitting a false attribution. */
-const AMBIGUOUS_BRACE_LINE = /["'`]|\/\/|\/\*|\*\//;
-
-function hasAmbiguousBrace(line: string): boolean {
-  return (line.includes('{') || line.includes('}')) && AMBIGUOUS_BRACE_LINE.test(line);
+// one would have its real remainder silently discarded.
+//
+// First fix shipped here was even cheaper than that: abort brace-counting entirely the moment a line
+// combines any brace with any quote/backtick/comment marker, regardless of whether they actually
+// interact. commander measured its real cost directly against this repo's own two source trees
+// (`src/`, `cli/src/`, every line where an allowlisted API name appears) and found it lost roughly HALF
+// of what the plain (unguarded, but wrong-on-shadowed-nesting) version could already resolve - most of
+// that loss from completely ordinary lines like `if (x) { log('a'); }` or a declaration's own trailing
+// `// comment`, not the rare deep-nested-string shape the guard was built for. Recall costs of that
+// size need to be paid deliberately, not discovered after merge - so this is the ONE non-cheap fix in
+// this file: a real (still single-line, still not a parser) same-line strip of comments/strings, replacing
+// their contents with same-length blanks so real braces outside them count correctly and column
+// positions elsewhere never shift.
+/**
+ * Blanks out same-line `//`/`/* *\/` comments and single/double-quoted string contents, and single-line
+ * backtick strings with no `${` interpolation, so `{`/`}` inside any of them cannot be miscounted as
+ * real structure - unlike the all-or-nothing guard this replaced, this recovers the common cases
+ * (measured: roughly +10-15 percentage points of resolvable call sites across this repo's own two
+ * trees) instead of aborting on all of them. Returns `null` - genuinely unsafe, caller must abort - for
+ * anything that could plausibly span multiple lines, or whose content this single-line scan cannot
+ * safely evaluate: an unterminated block comment, an unterminated quoted or backtick string (template
+ * literals routinely span lines in this codebase's own doc-comment style), and a same-line backtick
+ * string containing `${` - interpolation can itself contain arbitrary expressions including braces this
+ * scan has no safe way to evaluate, so it is rejected even when both backticks are on this one line.
+ * A `//` comment can never itself span lines, so finding one (outside a string) always ends the scan for
+ * that line safely, with everything after it blanked regardless of what it contains.
+ */
+export function stripSameLineCommentsAndStrings(line: string): string | null {
+  let result = '';
+  let index = 0;
+  while (index < line.length) {
+    const character = line[index];
+    if (character === '/' && line[index + 1] === '/') {
+      result += ' '.repeat(line.length - index);
+      break;
+    }
+    if (character === '/' && line[index + 1] === '*') {
+      const close = line.indexOf('*/', index + 2);
+      if (close === -1) {
+        return null;
+      }
+      result += ' '.repeat(close + 2 - index);
+      index = close + 2;
+      continue;
+    }
+    if (character === '"' || character === '\'') {
+      const quote = character;
+      let cursor = index + 1;
+      let terminated = false;
+      while (cursor < line.length) {
+        if (line[cursor] === '\\') {
+          cursor += 2;
+          continue;
+        }
+        if (line[cursor] === quote) {
+          terminated = true;
+          break;
+        }
+        cursor += 1;
+      }
+      if (!terminated) {
+        return null;
+      }
+      result += ' '.repeat(cursor - index + 1);
+      index = cursor + 1;
+      continue;
+    }
+    if (character === '`') {
+      const close = line.indexOf('`', index + 1);
+      if (close === -1) {
+        return null;
+      }
+      if (line.slice(index + 1, close).includes('${')) {
+        return null;
+      }
+      result += ' '.repeat(close + 1 - index);
+      index = close + 1;
+      continue;
+    }
+    result += character;
+    index += 1;
+  }
+  return result;
 }
 
 /**
@@ -198,16 +267,19 @@ function hasAmbiguousBrace(line: string): boolean {
  * already closed before `fromLine`, so it is a SIBLING statement, not the enclosing scope. `depth` counts
  * net unmatched closing braces seen while scanning backward; a candidate line is only accepted when
  * `depth === 0` there, i.e. nothing between it and `fromLine` has already closed a nested block.
- * `hasAmbiguousBrace()` (see its own doc comment) aborts the whole scan the moment brace-counting can no
- * longer be trusted, rather than silently continuing on a count that might already be wrong. Still
- * bounded, not a parser: does not understand class method shorthand (`name() { ... }`, too easy to
- * confuse with an ordinary call) or IIFEs either - both accepted false negatives.
+ * `stripSameLineCommentsAndStrings()` (see its own doc comment) aborts the whole scan the moment
+ * brace-counting can no longer be trusted on a single line, rather than silently continuing on a count
+ * that might already be wrong - name extraction still reads the ORIGINAL (unstripped) line, which is
+ * fine, since a real declaration is never itself inside a string or comment. Still bounded, not a
+ * parser: does not understand class method shorthand (`name() { ... }`, too easy to confuse with an
+ * ordinary call) or IIFEs either - both accepted false negatives.
  */
 function findEnclosingFunction(lines: readonly string[], fromLine: number): EnclosingFunction | undefined {
   let depth = 0;
   for (let index = fromLine; index >= 0; index -= 1) {
     const line = lines[index];
-    if (hasAmbiguousBrace(line)) {
+    const stripped = stripSameLineCommentsAndStrings(line);
+    if (stripped === null) {
       return undefined;
     }
     if (depth === 0) {
@@ -218,8 +290,8 @@ function findEnclosingFunction(lines: readonly string[], fromLine: number): Encl
         }
       }
     }
-    const closes = line.split('}').length - 1;
-    const opens = line.split('{').length - 1;
+    const closes = stripped.split('}').length - 1;
+    const opens = stripped.split('{').length - 1;
     depth = Math.max(0, depth + closes - opens);
   }
   return undefined;
