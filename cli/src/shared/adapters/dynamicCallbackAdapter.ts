@@ -328,14 +328,39 @@ export function stripSameLineCommentsAndStrings(line: string): string | null {
  * confuse with an ordinary call to widen `ENCLOSING_FUNCTION_PATTERNS` to cover them (same over-fitting
  * risk the gate 7 real-code measurement, `docs/work/task-m4-gate7-budget-and-real-code-measurement.md`,
  * confirmed empirically). Unlike the two channels reviewer found before this one (a brace inside a
- * string, then inside a regex literal), this is NOT silently miscounted - `UNRECOGNIZED_FUNCTION_LIKE_
- * LINE_OPENER` below detects crossing one of these unrecognized scope openers and folds to
- * abandonment, the same "accepted false negative, never a wrong answer" direction `stripSameLine
- * CommentsAndStrings()` already applies. Measured directly: without this check, this exact shape
- * produced a real, wrong answer for `toAdapterItem` in `adapterProviderShim.ts` (the outer factory
- * `createAdapterProvider` was reported as the candidate caller instead of the object-literal method
- * `prepare`, which is what actually calls it) - the doc comment used to call this an "accepted false
- * negative" before that measurement showed it was sometimes a wrong answer instead, not a missing one.
+ * string, then inside a regex literal), a class method or object-literal method shorthand is NOT
+ * silently miscounted - `UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER` below detects crossing one of these
+ * unrecognized scope openers and folds to abandonment, the same "accepted false negative, never a
+ * wrong answer" direction `stripSameLineCommentsAndStrings()` already applies. Measured directly:
+ * without this check, this exact shape produced a real, wrong answer for `toAdapterItem` in
+ * `adapterProviderShim.ts` (the outer factory `createAdapterProvider` was reported as the candidate
+ * caller instead of the object-literal method `prepare`, which is what actually calls it) - the doc
+ * comment used to call this an "accepted false negative" before that measurement showed it was
+ * sometimes a wrong answer instead, not a missing one. **A LESSON THIS FILE HAS NOW LEARNED THREE
+ * TIMES ACROSS THREE DIFFERENT CHANNELS (a brace inside a string, then inside a regex literal, now an
+ * unrecognized scope opener): an "accepted limitation" whose FAILURE DIRECTION was never measured is
+ * not actually an accepted limitation - it can silently be a wrong answer instead of a missing one,
+ * and the only way to know which is to measure it.**
+ *
+ * A FOURTH channel exists and is NOT closed by `UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER`: an inline
+ * arrow function argument (`items.forEach((x) => { ... })`, `promise.then((r) => { ... })`) has no
+ * leading identifier the way a named method does, so it matches neither `ENCLOSING_FUNCTION_PATTERNS`
+ * nor the unrecognized-opener fold, and the scan walks through it to whatever outer named scope
+ * encloses it. Deliberately NOT folded here too (commander, after measuring): whether that outer
+ * attribution is defensible depends on the WRAPPING call's own runtime semantics, split along this
+ * file's existing `CallbackCategory` axis - a synchronous higher-order traversal (`forEach`/`map`/...)
+ * genuinely executes its callback during the outer function's own call, so attributing to the outer
+ * function is a correct (if imprecise) answer (`syncTraversalArrowWrapping.ts` fixture); a deferred or
+ * event-driven registration (`.then()`, `setTimeout`, `addEventListener`) only REGISTERS the callback
+ * and returns, so the outer function never itself causes the call - the same wrong-answer shape as
+ * `createAdapterProvider` above (`deferredArrowWrapping.ts` fixture). Folding on any arrow opener would
+ * cost real recall on the (more common, and defensible) sync-traversal case - measured cost not yet
+ * paid, so this channel is pinned as KNOWN, ACCEPTED RESIDUAL (`dynamicCallbackIntegration.test.ts`'s
+ * `KNOWN_ACCEPTED_RESIDUAL_SOURCES`) rather than closed. Measured against this repo's own real code: of
+ * 31 real allowlist call sites in `src/`/`cli/src/`, 3 currently cross an unrecognized arrow (all three
+ * `setTimeout(finish, budgetMs)` inside a bare `new Promise(resolve => { ... })` executor) - none
+ * currently mis-attribute, because the class method further out is unrecognized too and already folds
+ * first.
  */
 function findEnclosingFunction(lines: readonly string[], fromLine: number): EnclosingFunction | undefined {
   let depth = 0;

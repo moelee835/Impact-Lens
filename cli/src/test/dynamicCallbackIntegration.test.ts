@@ -31,6 +31,20 @@ import test from 'node:test';
 // regression a specific, readable failure message instead of only a diff against the full set.
 const EXPECTED_CANDIDATE_SOURCES = ['forEachCaller', 'listenerCaller', 'outerCaller', 'timeoutCaller'];
 
+// M4 gate 7 real-code measurement (docs/work/task-m4-gate7-budget-and-real-code-measurement.md, "the
+// arrow channel" - commander's finding after PR #99's method-opener fix): an inline arrow argument
+// (`(x) => { ... }`) is caught by neither `ENCLOSING_FUNCTION_PATTERNS` nor the new
+// `UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER` fold (it has no leading identifier the way a named
+// method does), so the scan walks through it and attributes to the outer named function - correctly
+// for a synchronous higher-order traversal (`syncTraversalArrowWrapping.ts`'s `syncOuterCaller`, since
+// `forEach`'s callback runs during the outer call's own execution), wrongly for a deferred registration
+// (`deferredArrowWrapping.ts`'s `deferredOuterCaller`, the same wrong-answer shape PR #99 fixed for
+// `createAdapterProvider`). NEITHER is in `EXPECTED_CANDIDATE_SOURCES` above (per commander: not part
+// of the precision corpus, the same reason gate 4 kept its own accepted residual out of that
+// milestone's corpus) - both are pinned separately below as CURRENT behavior, not endorsed-correct
+// behavior, so a future change to this channel is caught either way it goes.
+const KNOWN_ACCEPTED_RESIDUAL_SOURCES = ['syncOuterCaller', 'deferredOuterCaller'];
+
 const executable = path.resolve(__dirname, '..', 'index.js');
 const workspace = path.resolve(__dirname, '..', '..', 'src', 'test', 'fixtures', 'typescript-dynamic-callback');
 
@@ -85,12 +99,16 @@ function candidateFor(name: string): AugmentedEdge {
 }
 
 // THE accuracy corpus test - see the file's own top comment for why this one assertion, not a
-// per-fixture `.length` check, is what actually proves precision across all 14 fixtures at once: the
+// per-fixture `.length` check, is what actually proves precision across all 16 fixtures at once: the
 // 4 positives are present, the 10 negatives are absent, AND no fifteenth, unexpected candidate (a
 // cross-contaminating false positive from any fixture) is hiding in the set either - a `.find()`-based
 // positive check or a single-name `!includes()` negative check could each pass even if that happened.
+// `KNOWN_ACCEPTED_RESIDUAL_SOURCES` is filtered out here on purpose (see its own comment) - it is real,
+// current, non-empty adapter output, but deliberately not asserted as correct by this corpus; the
+// dedicated tests just below pin its presence separately so a change to it is still caught.
 test('augmentedEdges contains exactly the 4 expected candidates and nothing else - the accuracy corpus in one assertion', () => {
-  assert.deepEqual([...sourceNames()].sort(), [...EXPECTED_CANDIDATE_SOURCES].sort());
+  const withoutKnownResidual = sourceNames().filter(name => !KNOWN_ACCEPTED_RESIDUAL_SOURCES.includes(name));
+  assert.deepEqual([...withoutKnownResidual].sort(), [...EXPECTED_CANDIDATE_SOURCES].sort());
 });
 
 test('setTimeout(handler, 0): reasonCode callback-registration, adapterId dynamic-callback-static-v1, evidenceSource static-inference', () => {
@@ -192,4 +210,20 @@ test('setTimeout(handler, 0) inside an object-literal method shorthand returned 
 test('setTimeout(handler, 0) inside a class method, classMethodCallback.ts: folds to no candidate rather than misattributing to any outer scope', () => {
   assert.ok(!sourceNames().includes('NeverCallsHandlerDirectly'));
   assert.ok(!sourceNames().includes('run'));
+});
+
+// KNOWN, ACCEPTED RESIDUAL - the "arrow channel" (see KNOWN_ACCEPTED_RESIDUAL_SOURCES's own comment).
+// Measured against this repo's own real code (commander, script-based count replicating
+// findCallSitesInLine's bare-identifier-argument requirement exactly): of 31 real allowlist call sites
+// in src/ and cli/src/, 3 currently cross an unrecognized inline-arrow scope (all three
+// `setTimeout(finish, budgetMs)` inside a `new Promise(resolve => { ... })` executor) - none of the
+// three actually mis-attribute today, because the class method further out is ALSO unrecognized and
+// PR #99's fold catches it first. These two fixtures exist to pin the channel's behavior in the shapes
+// that DO reach an outer name, not because this repo's own code currently exercises them.
+test('setTimeout(handler, 0) inside an inline arrow passed to a synchronous higher-order call, syncTraversalArrowWrapping.ts: currently attributes to the outer function - defensible, since the arrow runs during the outer call\'s own synchronous execution', () => {
+  assert.equal(candidateFor('syncOuterCaller').reasonCode, 'callback-registration');
+});
+
+test('setTimeout(handler, 0) inside an inline arrow passed to a deferred registration (.then()), deferredArrowWrapping.ts: currently attributes to the outer function - NOT defensible, the same wrong-answer shape PR #99 fixed for createAdapterProvider, left open (unmeasured recall cost to close via the same fold this PR uses)', () => {
+  assert.equal(candidateFor('deferredOuterCaller').reasonCode, 'callback-registration');
 });
