@@ -319,6 +319,19 @@ doc comment에도 이 구분과 실측 숫자를 남겼다.
 **방향을 측정하지 않은 "수용된 한계"는 수용된 한계가 아니라는 것**이 이 세션 전체가 반복해서
 배운 교훈이다.
 
+**추가(commander 지적) — 위 "3개는 지금 안전하다"는 빌린 안전이지 얻은 안전이 아니다.** 이
+세 자리가 안전한 건 gap이 **두 겹으로 쌓여 있기 때문**이다 — class method가 인식 안 돼서
+fold되고(1), 그 안의 arrow도 인식이 안 된다(2, 지금 채널). `ENCLOSING_FUNCTION_PATTERNS`에
+class method를 추가하는 recall 개선(별개 결정으로 미뤄 둔 항목, 이 lane 앞부분 "결과 요약"
+참고)을 하는 순간 (1)의 fold가 없어지고, 스캔이 arrow를 지나쳐 이제는 인식되는 class
+method(`setTimeout`, 지연 호출 — 변호 불가 쪽)를 후보로 낸다. **두 미뤄 둔 결정이 커플링돼
+있다** — arrow 채널을 먼저 닫는 게 `ENCLOSING_FUNCTION_PATTERNS` 확장의 전제 조건이지, 순서
+상관없는 독립 후속 작업이 아니다. 반대 순서로 하면 정확도가 조용히 나빠지고, 그 회귀는
+`dynamicCallbackIntegration.test.ts`의 fixture(전부 **현재** 동작을 고정해 둔 것이지 이
+커플링이 깨지는 모양은 아니다)로는 안 잡히고 실제 코드에서만 보인다 — 이 lane이 이미 네 번
+반복해서 겪은 "fixture는 통과하는데 실제 코드에서 깨진다"는 모양 그대로다.
+`findEnclosingFunction`의 doc comment에도 이 커플링을 명시해 뒀다.
+
 ### 3-2. Python(`fastapi-static-v1`) — 실제 오픈소스 FastAPI 프로젝트가 필요하다
 
 **이게 이 lane의 첫 판단이다.** 이 저장소엔 실제 크기의 Python/FastAPI 코드베이스가 없다 —
