@@ -164,6 +164,30 @@ const ENCLOSING_FUNCTION_PATTERNS: readonly RegExp[] = [
   /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s+)?function\s*\(/,
 ];
 
+// reviewer, executed directly: a brace inside a string on an already-closed nested function's line
+// (`function inner() { const msg = "shape: {"; ... }`) throws the depth counter off by one, and the
+// counter recovers to 0 exactly on `inner`'s own declaration line - `findEnclosingFunction` returns
+// `inner`, a real, wrong answer, not a missed one. commander: don't reuse `fastapiDependencyAdapter.ts`'s
+// `stripCommentsAndStrings()` to fix this - it is Python-specific in three ways that would each create
+// a NEW mis-attribution in TypeScript: it never strips `//`/`/* */` at all, it never strips backtick
+// template literals (exactly where `{` hides most often in TS), and it treats a bare `#` as a comment
+// marker - but `#` in TypeScript introduces a private class field (`this.#count`), so a line containing
+// one would have its real remainder silently discarded. Fixing this by building a real TS-aware
+// stripper is future work needing its own verification (comments, template literals, regex literals all
+// interact); the cheap fix that fits this file's own established discipline instead:
+/** A line combining a brace with any quote/backtick/comment marker makes the running brace count
+ * unreliable from that point on - `findEnclosingFunction` gives up rather than guess, the same
+ * fold-to-abandonment direction every other failure path in this file already takes (this was the one
+ * exception: every other limit here is a missed candidate, never a wrong one). Conservative on purpose:
+ * a line with both an unrelated brace AND an unrelated string (`if (x) { greet("hi"); }`) also aborts,
+ * even though nothing about it is actually ambiguous - an accepted false negative in exchange for never
+ * emitting a false attribution. */
+const AMBIGUOUS_BRACE_LINE = /["'`]|\/\/|\/\*|\*\//;
+
+function hasAmbiguousBrace(line: string): boolean {
+  return (line.includes('{') || line.includes('}')) && AMBIGUOUS_BRACE_LINE.test(line);
+}
+
 /**
  * Nearest preceding function-shaped declaration line above `fromLine` that actually still ENCLOSES it -
  * a bounded heuristic (same philosophy as `fastapiDependencyAdapter.ts`'s `findEnclosingDef()`), not a
@@ -173,17 +197,19 @@ const ENCLOSING_FUNCTION_PATTERNS: readonly RegExp[] = [
  * would incorrectly match `inner` - it is textually the closest preceding declaration, but its own body
  * already closed before `fromLine`, so it is a SIBLING statement, not the enclosing scope. `depth` counts
  * net unmatched closing braces seen while scanning backward; a candidate line is only accepted when
- * `depth === 0` there, i.e. nothing between it and `fromLine` has already closed a nested block. Still
- * bounded, not a parser: a `{`/`}` inside a string, comment or template literal is counted as if it were
- * real code (unlike `fastapiDependencyAdapter.ts`'s `stripCommentsAndStrings()`, not applied here for
- * this pass) - an accepted false-negative/false-attribution risk for exactly that shape, not silently
- * assumed safe. Does not understand class method shorthand (`name() { ... }`, too easy to confuse with
- * an ordinary call) or IIFEs either - both accepted false negatives, same as before.
+ * `depth === 0` there, i.e. nothing between it and `fromLine` has already closed a nested block.
+ * `hasAmbiguousBrace()` (see its own doc comment) aborts the whole scan the moment brace-counting can no
+ * longer be trusted, rather than silently continuing on a count that might already be wrong. Still
+ * bounded, not a parser: does not understand class method shorthand (`name() { ... }`, too easy to
+ * confuse with an ordinary call) or IIFEs either - both accepted false negatives.
  */
 function findEnclosingFunction(lines: readonly string[], fromLine: number): EnclosingFunction | undefined {
   let depth = 0;
   for (let index = fromLine; index >= 0; index -= 1) {
     const line = lines[index];
+    if (hasAmbiguousBrace(line)) {
+      return undefined;
+    }
     if (depth === 0) {
       for (const pattern of ENCLOSING_FUNCTION_PATTERNS) {
         const match = line.match(pattern);
@@ -226,6 +252,18 @@ async function resolveAt(
  *   introduces - but it is weaker than the bundled-lib tier, and callers of this function must not
  *   blur the two into one "verified" bit without knowing which tier fired, should a future need to
  *   distinguish them arise.
+ *
+ * reviewer, executed directly: BOTH tiers are the same literal-segment-name check, not real
+ * package-manager provenance verification - `.../src/node_modules/typescript/lib/fake.d.ts` and
+ * `.../src/node_modules/@types/fake-package/evil.d.ts` (a hand-created or committed directory
+ * literally named `node_modules`, anywhere, never installed by npm/pnpm) both return `true` from this
+ * function exactly like a real install would. The bundled-lib tier is NOT more strictly enforced than
+ * the `@types` tier despite reading that way above - the difference described there is what the path
+ * REPRESENTS when it genuinely comes from a real toolchain (never user-modifiable vs. a real npm
+ * package the workspace controls), not a difference in how hard either check is to satisfy. Accepted at
+ * the same severity as the `@types` tier's own trust already is: reaching this requires the ability to
+ * write files into the analyzed workspace, which this tool already trusts generally - not a risk this
+ * function adds.
  *
  * Path comparison is by SEGMENT, never substring/suffix (gate 4's `pathEndsWithSegments` lesson,
  * IL-LIM-010's ancestor-directory lesson) - a file named `lib.dom.d.ts`, or a directory named

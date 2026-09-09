@@ -71,3 +71,24 @@ test('an ordinary workspace source file is rejected', () => {
 test('a non-file: URI (defensive - CallHierarchyItem.uri is always file: in practice) is rejected', () => {
   assert.equal(isTrustedStandardDeclaration('untitled:Untitled-1'), false);
 });
+
+// KNOWN, ACCEPTED RESIDUAL (reviewer, executed directly): this check is a literal segment-name match,
+// not real package-manager provenance verification - it cannot tell a real npm/pnpm-created
+// `node_modules` directory from one a workspace merely happens to contain (hand-created, or committed)
+// at any depth. Accepted at the same severity `@types/node`'s own weaker trust tier already carries
+// (see this function's own doc comment): reaching this requires the ability to write files into the
+// analyzed workspace, which this tool already trusts generally. Pinned here, not fixed, so a future
+// reader does not rediscover it as a surprise.
+test('KNOWN, ACCEPTED RESIDUAL: a hand-made directory literally named node_modules/typescript/lib anywhere in the workspace is trusted, indistinguishable from a real install', () => {
+  assert.equal(
+    isTrustedStandardDeclaration('file:///repo/src/node_modules/typescript/lib/fake.d.ts'),
+    true,
+  );
+});
+
+test('KNOWN, ACCEPTED RESIDUAL: a hand-made directory literally named node_modules/@types anywhere in the workspace is trusted the same way', () => {
+  assert.equal(
+    isTrustedStandardDeclaration('file:///repo/src/node_modules/@types/fake-package/evil.d.ts'),
+    true,
+  );
+});

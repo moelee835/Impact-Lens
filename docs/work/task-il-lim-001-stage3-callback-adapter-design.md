@@ -521,3 +521,59 @@ subscribe/fire) = **10건**, 전부 이 기준으로 셌다. budget/latency 테�
 **완료 기준 대조**: 위 "결정"·"범위 (최종)" 절의 모든 항목 구현·테스트 완료. 남은 것은 그대로
 남긴다 — Type B, emit 연결, `EventEmitter.on` 조사, layer 2는 이번 PR 범위 밖(설계 문서가 이미
 그렇게 정함).
+
+## 2026-09-09 추가 5 — commander/reviewer의 PR #94 실행 검토, 결함 3건 수정
+
+### 결함 1 — 정확도 corpus 기준이 스스로 0건을 세게 적혀 있었다(commander)
+
+파일 상단 주석이 "`augmentedEdges.length`를 0/1로 단정하는 테스트가 기준"이라고 적었는데
+`[실행]` grep 결과 그런 단정이 **한 건도 없었다** — 실제 단정은 `find()`/`!includes()` 형태였고,
+이건 **여분의 오탐(false positive)을 하나도 못 잡는** 약한 형태다(positive 테스트는 다른 이름이
+더 있어도 통과, negative 테스트는 그 이름 하나만 확인). 기계적 기준을 미리 적어 드리프트를
+막으려던 바로 그 문장이 실제 코드와 안 맞는, 이 마일스톤이 반복해서 잡은 실패 모양이었다.
+
+**고침**: `augmentedEdges`의 source 이름 전체 집합을 `assert.deepEqual`로 한 번에 단정하는 테스트
+하나를 추가 — 여분 검출까지 포함하는 더 강한 형태(commander 제안 그대로). 기존 개별 테스트는
+그 단정에 이미 함의되지만, 시나리오별로 읽기 쉬운 실패 메시지를 남기려고 그대로 뒀다(주석에
+"함의됨, 재확인 아님"이라고 명시). 기준 문구도 "집합 전체를 단정하는 테스트"로 정정.
+
+### 결함 2 — `findEnclosingFunction`이 문자열 안 중괄호에 속아 오귀속을 만들었다(reviewer)
+
+reviewer가 실제로 재현: 이미 닫힌 중첩 함수 안에 `"shape: {"` 같은 문자열이 있으면, 그 안의 `{`가
+중첩 함수의 진짜 `}`를 상쇄해 깊이가 그 함수의 선언 줄에서 우연히 0으로 떨어진다 — 결과: 진짜
+감싸는 함수(`outerCaller`) 대신 **이미 끝난 안쪽 함수(`inner`)를 잘못 지목**한다. 기존 주석이
+"false-negative/false-attribution 위험"이라고 이미 이름 댔었지만(comment-vs-code 불일치는 아니었다
+— commander가 확인), **미탐과 오귀속은 이 adapter의 다른 모든 한계(전부 미탐 방향)와 성격이
+다르다** — 사용자 코드에 대해 틀린 주장을 만드는 유일한 지점이었다.
+
+**고침(commander 제안, `fastapiDependencyAdapter.ts`의 `stripCommentsAndStrings` 재사용은
+기각)**: Python 전용 함수를 그대로 가져오면 TypeScript에서 새 오귀속을 만든다 — `//`/`/* */`를
+전혀 안 지우고, backtick 템플릿 리터럴(TS에서 `{`가 가장 많이 숨는 자리)도 안 지우고,
+`#`을 주석 시작으로 오인한다(TS의 `#`은 private class field, `this.#count` 줄의 나머지가
+통째로 잘린다). 대신 **모호하면 기각**: 역방향 스캔 중 괄호와 따옴표/backtick/주석 기호가 같은
+줄에 같이 있으면 그 지점에서 스캔을 포기(`undefined` 반환, 이 adapter의 다른 네 실패 경로와 같은
+fold-to-abandonment 방향)한다. 오귀속이 미탐으로 바뀐다 — 비용이 몇 줄이고, 진짜 TS-aware
+stripper는 별도 검증이 필요한 미래 작업으로 남긴다.
+
+reviewer가 재현한 정확한 모양(`ambiguousBraceInString.ts`)을 negative fixture로 추가 —
+`outerCaller`도 `inner`도 안 나오는지 둘 다 확인(둘 중 하나만 확인하면 "다른 이름으로 오귀속"
+회귀를 놓친다).
+
+### 결함 3 — trust tier 주석이 실제보다 강한 인상을 줬다(reviewer)
+
+reviewer가 실측: `isTrustedStandardDeclaration`의 두 tier(bundled lib, `@types`) **둘 다 리터럴
+세그먼트 이름 일치일 뿐, 진짜 패키지 매니저 출처 검증이 아니다** —
+`src/node_modules/typescript/lib/fake.d.ts`(사용자가 직접 만든/커밋한 가짜 `node_modules`)도
+`true`를 반환한다. 기존 주석은 "bundled lib이 더 강하다"는 인상을 줬는데 **집행 강도는 둘 다
+같다** — 다른 건 그 경로가 진짜 툴체인에서 나왔을 때 무엇을 의미하는가일 뿐. **심각도는
+commander/reviewer 둘 다 낮게 평가**(워크스페이스에 파일을 쓸 수 있어야 트리거되고, 이 도구가
+이미 갖고 있는 "워크스페이스 코드는 신뢰한다"는 가정과 같은 급) — 기능적으로 막지 않고, 주석을
+사실과 맞추고 KNOWN·ACCEPTED RESIDUAL 유닛 테스트 2개로 고정(gate 4의 잔여 pin 관례 그대로).
+
+### 뮤테이션 재확인(전부 `[실행]`, 원복 후 재통과)
+
+- `hasAmbiguousBrace()` 가드를 제거 → 정확히 2개 테스트만 실패(집합-단정 corpus 테스트, 새
+  false-attribution 테스트) — 나머지 428개는 그대로 통과. 원복 후 430개 전부 재통과.
+
+**검증 갱신**(전부 `[실행]`, `rm -rf out cli/dist` 후): `npm run cli:test` 433 tests, 430 pass,
+0 fail, 3 skip. `npm test` 84/84. `test:vsix-contents`/`test:response-policy` 변동 없이 green.
