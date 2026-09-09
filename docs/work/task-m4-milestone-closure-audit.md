@@ -332,6 +332,26 @@ measurement.md` §3·§4-이후·5절. 요약:
   이제 정의됐다), "기본값 on 전환 판단"이라는 이 gate의 진짜 목적으로는 아직 열려 있다** —
   `maxFiles` 조정 lane과 extension host 1단계 harness가 남은 선행 조건이다.
 
+**2026-09-09 정정(gate 7 lane, commander 2차 반박 반영) — 위 세 줄을 지우지 않고 정정한다**:
+
+1. **"`max(400ms, ...)`"와 "`maxFiles: 2000` 상향"은 서로 모순이었다** — 717파일 worst
+   case가 181ms이고 거의 선형이면 1600파일 근처에서 이미 400ms에 닿는데, 2000은 그 budget을
+   넘는 작업을 허용한다. **`maxFiles`는 이제 latency budget에서 유도한다**(공식:
+   `maxFiles = budget ÷ 파일당 비용`, 파일당 비용은 오늘 실측한 0.253ms/file) — **1500(잠정)**
+   으로 정정. 자세한 유도는 gate7 문서 §4-이후.
+2. **"절대 허용치 400ms = 오늘 worst-case의 2배"는 그 자체로 사용자 쪽 근거가 아니다** — 오늘
+   측정에서 역산한 임시값일 뿐이다. **400ms는 이제 명시적으로 "잠정, extension host 측정
+   전에는 확정 아님"으로 표시한다** — 확정치가 아니라 25%(비율)와 같은 "검증도 반박도 못 한
+   임시값" 취급이다.
+3. **위음성 0은 recall이 적용되는 형태(파라미터 + route decorator, 12개)에 한정된 말이었다**
+   — module-level 별칭(5)과 이번에 새로 이름 붙인 router/`include_router`-level
+   `dependencies=[]`(3), 합 8개는 **기각이 안전(오탐 없음)해졌을 뿐 여전히 위음성으로 알려진
+   상태**다. `il-lim-002-framework-di-routing.md`의 "미해결 질문"에 다섯 번째 능력-공백
+   항목으로 기록했다.
+
+**gate 7의 최종 판단("아직 기본값 on을 권하지 않는다")과 그 세 근거는 이 정정으로 안 바뀐다** —
+바뀐 건 budget 숫자 두 개의 확정도와 recall 숫자의 범위 표시뿐이다.
+
 ### Gate 8 — user-test 명세
 
 `docs/development-management/user-tests/` 디렉터리에 `m0`/`m1`/`m2` 명세는 있지만
@@ -369,10 +389,11 @@ measurement.md` §3·§4-이후·5절. 요약:
   - ~~Gate 7: latency budget 값 자체.~~ **2026-09-09: 정의됐다**(위 추가 참고) — 남은 건 정의가
     아니라 `maxFiles` 값 자체를 바꾸는 코드 변경(아래) 그리고 extension host harness다.
   - Gate 7의 새 후속(값싼 수정으로 보이지만 확인 필요): `cli/src/shared/adapters/index.ts`의
-    `DEFAULT_BUDGET.maxFiles`를 200에서 올린다(이 lane의 실측은 2000을 권고). 비용은 이미
-    감당 가능하다는 게 실측됐다(717파일 전체 스캔 worst-case +181ms) — 남은 판단은 "얼마나
-    올릴지"뿐이라 값싸 보이지만, 숫자를 정하는 것 자체가 commander/reviewer 반박 대상이라
-    별도 lane으로 갈라 시작한다.
+    `DEFAULT_BUDGET.maxFiles`를 200에서 올린다(latency budget에서 유도한 1500, **잠정** —
+    2026-09-09 정정 참고). 비용은 이미 감당 가능하다는 게 실측됐다(717파일 전체 스캔
+    worst-case +181ms) — 남은 판단은 "얼마나 올릴지"뿐이라 값싸 보이지만, 그 숫자 자체가
+    아직 잠정인 latency budget(400ms)에서 유도돼 있어 400ms가 바뀌면 같이 바뀐다 —
+    commander/reviewer 반박 대상, 별도 lane으로 갈라 시작한다.
 
 ## 패턴 — 주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례 3건
 

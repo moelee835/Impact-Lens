@@ -580,27 +580,47 @@ commander의 1차 반박 셋을 전부 반영했다:
 
 **census 자체**: `Depends(bare_name)` 형태로 dispatch에 존재하는 참조는 전수 **14개**(grep
 재확인, 위 walk-order와 같은 `IGNORED_DIRECTORIES` 기준 워크스페이스). 8개 서로 다른 대상
-함수로 묶인다 — 사람이 먼저 각 참조의 형태(파라미터/모듈-레벨 별칭/route decorator, 그리고
-**이번에 처음 본 네 번째 형태**: `APIRouter(..., dependencies=[Depends(x)])`나
-`include_router(..., dependencies=[Depends(x)])`처럼 router 생성·등록 시점에 붙는 의존성 —
-어느 def에도 안 속하고, 그 router 아래 모든 route에 걸리므로 module-level 별칭과 같은 이유로
-"단일 확정 caller 없음"이 정답이다)를 읽어 사람이 정답을 미리 적었다:
+함수로 묶인다.
 
-| 쿼리(정의) | 실제 참조(형태) | 사람이 미리 적은 정답 |
-| --- | --- | --- |
-| `get_organization_path` | api.py:99, `APIRouter(dependencies=[])` | 0개(단일 확정 caller 없음) |
-| `get_current_user` | api.py:263·268(router-level ×2), auth/service.py:280(모듈-레벨 별칭), auth/service.py:284(파라미터) | 1개: `get_current_role`만 |
-| `get_current_role` | database/service.py:593(파라미터) | 1개: `common_parameters` |
-| `common_parameters` | database/service.py:615(모듈-레벨 별칭) | 0개 |
-| `get_db` | database/core.py:162(모듈-레벨 별칭) | 0개 |
-| `get_body` | endpoints.py:82·107·133·142(파라미터 ×4) | 4개: `slack_events`/`slack_commands`/`slack_actions`/`slack_menus` |
-| `get_current_case` | case/views.py:75(모듈-레벨 별칭) | 0개 |
-| `get_current_incident` | incident/views.py:73(모듈-레벨 별칭) | 0개 |
+**commander 반박(2026-09-09 2차) 반영 — "기각은 '안전하게 처리됨'이지 '올바르게 처리됨'이
+아니다."** 처음 이 census를 짤 때 모듈-레벨 별칭과 router-level `dependencies=[]`를 똑같이
+"정답 0개"로 적었는데, 이건 **이 adapter가 구조적으로 못 다루는 형태를 분모에서 빼고 "위음성
+0"이라고 말한 것**과 같다 — fixture corpus에서 이 milestone이 반복해서 지적해 온 바로 그 함정을
+census 자체에 다시 저지른 것이다. **아래 표는 세 갈래를 명확히 구분한다**:
 
-정답 합계: 진양성이어야 할 edge 6개, 나머지 8개 참조는 전부 기각(0개)이 정답. **두 실행 모두
-`maxFiles: 5000`(위와 같은 측정용 override, 상한에 안 걸리게)으로 실행해 정확도 결함과 가용성
-결함(위 §3-3)을 분리했다** — 안 그러면 고치기 전 결과가 budget 초과로도 오염돼 "정확도가
-나빠서"인지 "예산이 모자라서"인지 구분이 안 된다.
+- **(A) 파라미터 형태** — 이 adapter가 다루도록 설계된 형태. recall이 의미 있게 적용된다.
+- **(B) 모듈-레벨 `Annotated[T, Depends(y)]` 별칭** — 진짜 caller는 별칭이 선언된 곳이 아니라
+  **별칭이 나중에 다른 함수의 파라미터 타입으로 쓰이는 곳**이다(`reference` 능력 필요). **이미
+  PR #98·#100이 `il-lim-002-framework-di-routing.md`의 "미해결 질문"에 `reference` 부재
+  네 번째 항목으로 명시해 뒀다** — 여기서도 그 항목을 그대로 인용한다. 기각이 안전하지만
+  **완전하지 않다** — 진짜 caller를 찾을 능력이 없어서 포기한 것이지, "caller가 없다"가 정답인
+  게 아니다.
+- **(C, 이번에 처음 실측으로 만난 형태) router/`include_router`-level `dependencies=[Depends(x)]`**
+  (`APIRouter(prefix=..., dependencies=[Depends(x)])`, `api_router.include_router(sub_router,
+  dependencies=[Depends(x)])`) — 그 router 아래 등록된 **모든 route 함수**가 실제 caller다.
+  단일 함수가 아니라 **router 소속 관계를 따라가야 하는, 이 adapter에 전혀 없는 별개의 능력**이다
+  (`reference`도 `implementation`도 아니다 — "이 router에 등록된 route를 전부 찾는다"는 FastAPI
+  router 합성 모델에 특화된 능력이라 기존 두 범주에 안 들어간다, 아래 il-lim-002 문서에 다섯
+  번째 항목으로 새로 추가한다). **이것도 기각이 안전하지만 완전하지 않다** — 새로 발견한
+  네 번째 미탐 shape이다.
+
+| 쿼리(정의) | 실제 참조(형태) | 사람이 미리 적은 정답 | recall 분류 |
+| --- | --- | --- | --- |
+| `get_organization_path` | api.py:99, `APIRouter(dependencies=[])`(C) | 0개(이 adapter의 능력 밖 — 진짜 caller는 그 router의 모든 route) | **위음성**(범위 밖으로 알려짐) |
+| `get_current_user` | api.py:263·268(router-level ×2, C), auth/service.py:280(모듈-레벨 별칭, B), auth/service.py:284(파라미터, A) | A만 1개: `get_current_role` | A는 recall 대상(정답), B·C는 위음성(범위 밖) |
+| `get_current_role` | database/service.py:593(파라미터, A) | 1개: `common_parameters` | recall 대상(정답) |
+| `common_parameters` | database/service.py:615(모듈-레벨 별칭, B) | 0개(능력 밖) | 위음성(범위 밖으로 알려짐) |
+| `get_db` | database/core.py:162(모듈-레벨 별칭, B) | 0개(능력 밖) | 위음성(범위 밖으로 알려짐) |
+| `get_body` | endpoints.py:82·107·133·142(파라미터 ×4, A) | 4개: `slack_events`/`slack_commands`/`slack_actions`/`slack_menus` | recall 대상(정답) |
+| `get_current_case` | case/views.py:75(모듈-레벨 별칭, B) | 0개(능력 밖) | 위음성(범위 밖으로 알려짐) |
+| `get_current_incident` | incident/views.py:73(모듈-레벨 별칭, B) | 0개(능력 밖) | 위음성(범위 밖으로 알려짐) |
+
+**dispatch 14개 참조의 실제 분류: (A) 파라미터 6개(전부 recall 대상, 전부 찾음), (B) 모듈-레벨
+별칭 5개(전부 알려진 위음성 — 능력 부재), (C) router-level `dependencies=[]` 3개(전부 알려진
+위음성 — 능력 부재, 이번에 새로 이름 붙인 shape).** **두 실행 모두 `maxFiles: 5000`(위와 같은
+측정용 override, 상한에 안 걸리게)으로 실행해 정확도 결함과 가용성 결함(위 §3-3)을 분리했다** —
+안 그러면 고치기 전 결과가 budget 초과로도 오염돼 "정확도가 나빠서"인지 "예산이 모자라서"인지
+구분이 안 된다.
 
 | 쿼리 | 고치기 전(`61d055c`) | 고친 후(`f8bb0ff`) |
 | --- | --- | --- |
@@ -615,47 +635,81 @@ commander의 1차 반박 셋을 전부 반영했다:
 
 **요약**: 고치기 전 — 진양성 6개(정답 그대로 다 찾음, 파라미터 형태는 원래도 정상이었으므로)
 + **오탐 8개**(모듈-레벨 별칭 6곳 전부 자기참조, `get_current_user`의 router-level 참조 중
-하나가 `healthcheck`로 오귀속, `get_organization_path`의 router-level 참조가 자기참조).
-고친 후 — 진양성 6개(회귀 없음), **오탐 0개**, 위음성 0개. **네 번째 형태(router/
-include_router-level `dependencies=[]`)는 이번 fix가 직접 겨냥한 적이 없는데도 이미 안전하게
-기각되고 있었다** — `classifyDependsReferenceContext`의 "그 외는 전부 기각"이 이 형태도
-덮는다(뒤로 스캔했을 때 만나는 첫 안 닫힌 괄호가 `def`도 `@decorator`도 아닌 `APIRouter(`/
-`include_router(`이므로) — **새 결함이 아니라 기존 fix의 부산물로 이미 닫혀 있었다는 것을
-이번에 실측으로 확인했다.**
+하나가 `healthcheck`로 오귀속, `get_organization_path`의 router-level 참조가 자기참조) + 알려진
+위음성 8건(B 5 + C 3, 고치기 전에도 기각이 아니라 오탐이었으므로 이 8건은 고치기 전엔 "위음성"이
+아니라 "오탐"이었다 — 고친 후에야 "안전한 기각"이 되면서 위음성으로 바뀐다). 고친 후 — 진양성
+6개(회귀 없음), **오탐 0개**, **recall 대상(A) 안에서는 위음성 0개, 그러나 범위 밖(B+C) 8건은
+여전히 위음성이다** — 기각이 오탐을 없앤 것이지 recall을 완성한 게 아니다. **네 번째 형태(C,
+router/include_router-level `dependencies=[]`)는 이번 fix가 직접 겨냥한 적이 없는데도 이미
+안전하게(오탐 없이) 기각되고 있었다** — `classifyDependsReferenceContext`의 "그 외는 전부
+기각"이 이 형태도 덮는다(뒤로 스캔했을 때 만나는 첫 안 닫힌 괄호가 `def`도 `@decorator`도 아닌
+`APIRouter(`/`include_router(`이므로) — **새 오탐이 아니라는 뜻이지, 이 shape을 다룬다는 뜻은
+아니다.** 이 shape은 아직 아무도 안 다룬다 — 위 새 다섯 번째 능력-공백 항목이 그 사실을 기록한다.
 
 `tiangolo/full-stack-fastapi-template`(43개 `.py` 파일, `maxFiles: 200`에 전혀 안 걸림 —
 `get_current_active_superuser`/`get_db`도 같은 방식으로 고치기 전/후 대조):
 
 | 쿼리 | 고치기 전 | 고친 후 |
 | --- | --- | --- |
-| `get_current_active_superuser` | **4개**: `read_users`(정답)·`update_user`(정답)·`read_user_by_id`(오탐)·`reset_password`(오탐); 정답 6개 중 **4개 위음성**(`create_user`/`delete_user`/`recover_password_html_content`/`test_email`) | **6개, 전부 정답**(`create_user`/`delete_user`/`read_users`/`recover_password_html_content`/`test_email`/`update_user`) — 오탐 0, 위음성 0 |
-| `get_db` | **1개**(자기 자신 — self-ref 오탐) | 0개 — **정답**(`SessionDep = Annotated[Session, Depends(get_db)]`, 단일 확정 caller 없음) |
+| `get_current_active_superuser`(**형태 D**: route decorator `dependencies=[Depends(...)]`, 오늘 직접 확인 — `users.py`/`login.py`/`utils.py` 전부 `@router.get/post/delete(..., dependencies=[Depends(get_current_active_superuser)])`, 파라미터 형태 아님) | **4개**: `read_users`(정답)·`update_user`(정답)·`read_user_by_id`(오탐)·`reset_password`(오탐); 정답 6개 중 **4개 위음성**(`create_user`/`delete_user`/`recover_password_html_content`/`test_email`) | **6개, 전부 정답**(`create_user`/`delete_user`/`read_users`/`recover_password_html_content`/`test_email`/`update_user`) — 오탐 0, 위음성 0 |
+| `get_db` | **1개**(자기 자신 — self-ref 오탐) | 0개 — **안전한 기각**(B: `SessionDep = Annotated[Session, Depends(get_db)]`, 진짜 caller는 `reference` 능력 필요 — 위음성으로 알려짐, "정답"은 아니다) |
 
-**두 프로젝트 합산(오늘 재측정)**: 참조 20개(dispatch 14 + template 6), 고치기 전 오탐 10건
-(dispatch 8 + template 2)·위음성 4건(template만, dispatch는 0) → 고친 후 오탐 0건·위음성 0건,
-진양성 12건(dispatch 6 + template 6) 전부 정확.
+**두 프로젝트 합산(오늘 재측정), 형태별로 나눠서**: 참조 20개(dispatch 14 + template 6)는 네
+형태로 갈린다 — **A(파라미터) 6개**(dispatch만), **B(모듈-레벨 별칭) 6개**(dispatch 5 + template
+`get_db` 1), **C(router/include_router-level) 3개**(dispatch만), **D(route decorator, 단일
+route) 6개**(template만, 위에서 다시 확인). **A와 D는 이 adapter가 다루도록 설계된, recall이
+의미 있는 형태**(12개, dispatch 6 + template 6) — 이 12개 안에서는 **고친 후 위음성 0**(A는
+고치기 전에도 정상이었고, D는 이번 fix가 정확히 고친 shape). **B와 C(8개, 전부 dispatch)는
+이 adapter에 없는 능력이 필요해 기각하는 게 v1의 설계된 정답** — 기각이 안전(오탐 없음)해졌을
+뿐, recall이 채워진 게 아니라 **여전히 위음성으로 알려진 상태**다. **오탐은 20개 전체에서 고치기
+전 10건 → 고친 후 0건**(이 claim은 그대로 유효 — 기각은 오탐을 만들지 않는다). **"위음성 0"은
+A+D(12개, recall이 적용되는 형태)에 한정된 말이고, 전체 20개 참조 기준으로는 위음성 8건(B 5 +
+C 3)이 여전히 있다.**
 
 ## 4-이후. 최종 budget 수치
 
-### Latency budget — 확정
+### Latency budget — 확정(commander 2차 반박 반영 — 두 budget이 서로 모순이었다)
 
-- **`maxFiles`(가용성 budget, 새로 분리해 명시)**: **200은 이 세션이 실측한 두 실제 프로젝트
-  중 하나(dispatch, 717파일)에서 39% 지점(#281)에 이미 못 미친다** — 위 §3-3. 717파일 전체
-  스캔 비용은 최악 케이스에서도 +181ms(총 소요시간의 14% 미만)로, 비용이 상한을 막는 이유가
-  아니다. **이 lane의 권고: `maxFiles`를 최소 2000으로 올린다** — 실측한 두 프로젝트를
-  전부 여유 있게 덮고(717×2.8배), 관측된 비용 분포(200파일당 ~20ms, 717파일당 ~80-180ms,
-  거의 선형)를 그대로 외삽해도 2000파일에서 +250~500ms 수준으로 아래 절대 허용치 안에
-  들어온다. **이 숫자는 이 lane의 제안이고 코드 변경은 하지 않았다** — 프로덕션 값 변경은
-  별도 PR과 별도 승인이 필요하다(commander/reviewer 반박 대상).
-- **절대 허용치**: 오늘 두 실제 프로젝트에서 관측한 worst-case delta(717파일 전체 스캔,
-  `get_current_role` 쿼리) **181ms**의 2배 — **400ms**로 확정한다.
+**commander의 지적을 그대로 받아들인다: `max(400ms, ...)`와 `maxFiles: 2000`은 같은 문서 안에서
+서로 위반한다.** 717파일에서 worst case가 181ms였고 거의 선형이면 1600파일 근처에서 이미
+400ms에 닿는다 — `maxFiles: 2000`은 스스로 정한 latency budget을 넘는 작업을 허용하는 숫자였다.
+그리고 2000의 출처는 "측정한 717의 약 2.8배"였을 뿐 — 이 lane이 내내 지적해 온 "측정에 숫자를
+맞추는" 모양을 이 lane 자신이 반복한 것이었다. **`maxFiles`를 독립적으로 고르지 않는다 —
+latency budget에서 유도한다**: `maxFiles`는 budget을 집행하는 수단이지, 별개로 정할 대상이
+아니다.
+
+- **절대 허용치(잠정, commander 지적 반영 — "오늘 측정의 2배"는 그 자체로 근거가 아니다)**:
+  오늘 두 실제 프로젝트에서 관측한 worst-case delta(717파일 전체 스캔, `get_current_role` 쿼리)
+  **181ms**의 2배인 **400ms**를 쓴다. **다만 이 값은 사용자 쪽 근거(예: "그래프 갱신이
+  Xms 이상 느려지면 기능을 끈다")가 아니라 오늘 측정에서 역산한 임시값이다 — extension host
+  latency를 실측하기 전에는 확정이 아니다.** CLI에서 181ms인 작업이 extension host 안에서
+  (다른 확장과 경쟁, Remote-SSH/Container/WSL이면 파일 읽기가 네트워크 왕복) 400ms 안에
+  들어온다는 보장이 전혀 없다 — 이건 아직 한 번도 안 쟀다(4절). **25% 비율과 같은 처리를
+  400ms에도 적용한다**: 정직하게 "검증도 반박도 못 한 임시값"으로 남긴다.
 - **비율**: 25%(초안 그대로) — **오늘 실측으로는 검증도 반박도 못 했다**: "off" 측정치
   (~1100-1400ms)는 CLI 기동+pyright `prepare` 비용이 지배해서 순수 static traversal 시간만
-  분리하지 못했다. 이 비율은 여전히 미확정 잔여로 남긴다(반박 대상, 이 lane 완료 기준을
-  막지 않는다 — `max(400ms, 25%×static)`에서 절대 허용치가 이미 지금까지 관측된 모든 경우의
-  실질적 기준이었다).
-- **최종 공식**: `budget = max(400ms, 0.25 × static traversal latency)`.
-- **초과 시 결과**: 1절의 제안(CI gate 아님, 기본값 on 전환 게이트로만 사용) 그대로 확정.
+  분리하지 못했다. 이 비율도 미확정 잔여로 남긴다.
+- **최종 공식(둘 다 잠정)**: `budget = max(400ms[잠정], 0.25 × static traversal latency[잠정])`.
+- **초과 시 결과**: 1절의 제안(CI gate 아님, 기본값 on 전환 게이트로만 사용) 그대로 확정 — 이건
+  절대 숫자에 안 걸려 있어 잠정이 아니다.
+
+**`maxFiles`는 위 latency budget에서 유도한다(commander의 공식: `maxFiles = budget ÷ 파일당
+비용`)**:
+
+- **파일당 비용(실측)**: `get_current_role`(가장 비용이 큰, 즉 가장 보수적인 쿼리) 기준
+  181.3ms / 717파일 = **파일당 약 0.253ms**. (참고: 200파일 지점에서의 delta/200은
+  0.115ms/file로 더 작다 — 파일당 비용이 완전히 선형은 아니고 워크스페이스가 커질수록
+  파일당 비용도 커지는 것으로 보인다. 아래 유도는 더 큰(717파일 지점) 값을 써서 보수적으로
+  잡았다 — 그래도 717을 훨씬 넘는 지점까지 외삽하는 것 자체가 검증 안 된 가정이라는 건
+  남는다.)
+- **유도**: `maxFiles = 400ms[잠정] ÷ 0.253ms/file ≈ 1581`. 측정 노이즈와 위 비선형성에 대한
+  안전 여유를 위해 **1500으로 내림**(올림이 아니라 내림 — budget은 상한이라 초과 방향으로
+  반올림하지 않는다).
+- **`maxFiles: 1500`(잠정, 400ms가 확정되면 이 값도 같이 바뀐다)**: 실측한 두 프로젝트(717,
+  43파일)를 여유 있게 덮는다. **이 숫자는 이 lane의 제안이고 코드 변경은 하지 않았다** —
+  프로덕션 값 변경은 별도 PR과 별도 승인이 필요하다(commander/reviewer 반박 대상). **두
+  숫자(400ms와 1500)는 이제 하나에서 나온다** — extension host 측정으로 400ms가 바뀌면
+  `maxFiles`도 같은 공식으로 다시 계산해야 한다는 것을 이 문서 자체가 명시한다.
 
 ### False-positive budget — 확정
 
@@ -700,7 +754,8 @@ include_router-level `dependencies=[]`)는 이번 fix가 직접 겨냥한 적이
    프로덕션 코드베이스에서 오탐 0"이라는 문장의 대표성은 여전히 좁다.
 
 **다음으로 필요한 것(이 lane의 범위 밖, 별도 lane)**: (a) `maxFiles`를 실제로 올리는 PR(이
-문서가 제안한 2000, commander/reviewer 반박 대상) — 정확도 fix가 무의미해지지 않으려면 이게
-정확도 fix보다 먼저 또는 함께 가야 한다. (b) extension host 1단계 harness(4절 권고, 아직
+문서가 latency budget에서 유도해 제안한 1500, 400ms 자체가 잠정이라 이 값도 잠정 —
+commander/reviewer 반박 대상) — 정확도 fix가 무의미해지지 않으려면 이게 정확도 fix보다
+먼저 또는 함께 가야 한다. (b) extension host 1단계 harness(4절 권고, 아직
 미착수). 이 두 가지가 닫히기 전까지 이 lane은 기본값 on을 권하지 않는다 — 뒤집힐 수 있는 잠정
 판단이고, 뒤집는 근거는 실측이어야 한다(이 lane 전체가 그래왔듯).
