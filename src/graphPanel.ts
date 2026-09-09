@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
 import {
+  CANDIDATE_LABEL_TEXT,
+  resolveCandidateEdgeEndpoints,
+  resolveSyntheticNode,
+} from './candidateGraphResolution';
+import {
   calculateFitZoom,
   calculateGraphLayout,
   calculateViewportSurface,
@@ -375,6 +380,13 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     const calculateFitZoom = ${calculateFitZoom.toString()};
     const calculateViewportSurface = ${calculateViewportSurface.toString()};
     const shouldRestoreViewport = ${shouldRestoreViewport.toString()};
+    // IL-LIM-010-adjacent lane (docs/work/task-refactor-graphpanel-candidate-logic-extraction.md).
+    // Real TypeScript now, embedded the same way as the four functions above - see
+    // src/candidateGraphResolution.ts for the doc comments, reasoning and unit tests this text used to
+    // have no way to carry.
+    const CANDIDATE_LABEL_TEXT = ${JSON.stringify(CANDIDATE_LABEL_TEXT)};
+    const resolveCandidateEdgeEndpoints = ${resolveCandidateEdgeEndpoints.toString()};
+    const resolveSyntheticNode = ${resolveSyntheticNode.toString()};
     const saved = vscode.getState() || {};
     const restoreViewport = shouldRestoreViewport(saved.rootId, graph.rootId, saved.zoom);
     let visibleDepth = clamp(restoreViewport ? saved.visibleDepth ?? graph.coverage.traversal.requestedDepth : graph.coverage.traversal.requestedDepth, 1, graph.coverage.traversal.requestedDepth);
@@ -847,49 +859,6 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       if (node.relation === 'test') return node.depth === 1 ? 'Test · direct caller' : 'Test · ' + node.depth + ' hops';
       if (node.relation === 'direct') return 'Direct caller';
       return 'Transitive · ' + node.depth + ' hops';
-    }
-    // M4 gate 2 UI lane (docs/work/task-m4-gate2-shared-adapter.md). The literal string, not a paraphrase
-    // - 'scripts/lib/response-policy-engine.mjs's own \'CANDIDATE_CALLER_PHRASE\' ('candidate caller') is
-    // what the CLI's response-policy engine and its doc-invariant already share as one source specifically
-    // to prevent this exact kind of drift; this file cannot import that constant directly (a plain .mjs
-    // script, a different module system from this file's compiled output), so a graphPanel.test.ts
-    // structural assertion reads response-policy-engine.mjs's source text and checks this literal still
-    // matches it, the same way that test file already checks CSS tokens against a known-good value.
-    var CANDIDATE_LABEL_TEXT = 'candidate caller';
-    // Resolves one AugmentedEdge's source/target into plain ids the layout/render loops above can use -
-    // an 'existing' endpoint's id must already be in 'nodeById' (the depth-filtered node set) or the
-    // whole edge is skipped, same reasoning as the confirmed-edge loop's own 'if (!source || !target)
-    // continue'. A 'synthetic' endpoint gets (or reuses) a pseudo-node via 'resolveSyntheticNode' below.
-    function resolveCandidateEdgeEndpoints(augmented, nodeById, syntheticNodesById) {
-      if (augmented.source.kind === 'existing' && !nodeById.has(augmented.source.id)) return undefined;
-      if (augmented.target.kind === 'existing' && !nodeById.has(augmented.target.id)) return undefined;
-      var anchor = augmented.source.kind === 'existing' ? nodeById.get(augmented.source.id)
-        : augmented.target.kind === 'existing' ? nodeById.get(augmented.target.id) : undefined;
-      var sourceId = augmented.source.kind === 'existing' ? augmented.source.id
-        : resolveSyntheticNode(augmented.source, anchor, syntheticNodesById);
-      var targetId = augmented.target.kind === 'existing' ? augmented.target.id
-        : resolveSyntheticNode(augmented.target, anchor, syntheticNodesById);
-      if (!sourceId || !targetId) return undefined;
-      return { source: sourceId, target: targetId };
-    }
-    // 'anchor' is the edge's OTHER endpoint (already confirmed 'existing' by the caller) - this is what
-    // "depth + 1, not always render" (docs/work/task-m4-gate2-shared-adapter.md's UI to-do list) means in
-    // code: without an anchor there is no depth to place a synthetic pseudo-node at, so it is skipped
-    // (returns undefined) rather than guessed - no adapter produces an edge with no 'existing' endpoint
-    // at all today, so this is a defensive case, not one exercised by the current adapter.
-    function resolveSyntheticNode(endpoint, anchor, syntheticNodesById) {
-      if (!anchor) return undefined;
-      var key = endpoint.file + '#' + endpoint.range.start.line + ':' + endpoint.range.start.column + '#' + endpoint.name;
-      if (!syntheticNodesById.has(key)) {
-        syntheticNodesById.set(key, {
-          id: 'candidate:' + key,
-          depth: anchor.depth + 1,
-          name: endpoint.name,
-          path: endpoint.file,
-          line: endpoint.range.start.line,
-        });
-      }
-      return syntheticNodesById.get(key).id;
     }
     render();
   </script>
