@@ -71,8 +71,18 @@ export interface AdapterResult {
    * surfaced instead as `framework_route_mount_unresolved`, never silently dropped and never asserted as
    * proof the router is unmounted (a static scan cannot tell "genuinely unmounted" from "mounted outside
    * this scan's reach" apart).
+   *
+   * Optional (IL-LIM-001 stage 3, docs/work/task-il-lim-001-stage3-callback-adapter-design.md, second
+   * adapter): this is a FastAPI-shaped concept - "found a candidate but couldn't confirm a secondary
+   * mount condition" - not a general adapter concept. A second adapter (the callback/event one) has no
+   * analogous intermediate state: its own re-verification either confirms a candidate or rejects it
+   * outright (fold-to-abandonment, same as everywhere else in this SPI), with nothing in between to name.
+   * Forcing that adapter to return `mountUnresolved: false` would read as "checked this concept and it's
+   * fine" when the concept never applied - the same "field claims what it doesn't guarantee" shape this
+   * milestone has repeatedly found and fixed elsewhere. Leave `undefined` when not applicable;
+   * `runAugmentation()`'s own check treats that identically to `false` (both are falsy).
    */
-  readonly mountUnresolved: boolean;
+  readonly mountUnresolved?: boolean;
 }
 
 /**
@@ -130,4 +140,13 @@ export interface RegisteredAdapter {
   /** `languageId` values (as `resolve.ts`'s `languageId()` would produce) this adapter applies to. */
   readonly languageIds: readonly string[];
   readonly run: FrameworkAdapter;
+  /**
+   * Overrides `./index.ts`'s shared `DEFAULT_BUDGET` for this adapter only. Optional (IL-LIM-001 stage
+   * 3, second adapter): the {maxFiles, maxMatchesPerFile} SHAPE stays shared - both adapters cost the
+   * same way (scan files, count matches per file, re-verify each through `prepare()`) - but the FastAPI
+   * adapter's numbers were measured against Python corpora, never verified for TS/JS workspaces (which
+   * can have a very different file-count distribution, e.g. monorepos). Leave unset to use
+   * `DEFAULT_BUDGET` unchanged, as the FastAPI registration does.
+   */
+  readonly budget?: AdapterBudget;
 }

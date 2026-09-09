@@ -442,3 +442,82 @@ lane에서 실측(측정 원칙 그대로 — 추측하지 않는다)한다.**
 1. allowlist 항목별 1차 출처 확인 결과(구현 lane에서 채워짐).
 2. 런타임 호출 방식 3분류(지연/예약, 이벤트 구동, 즉시 동기 순회) 자체 — 넷째 방식이 있는지.
 3. `definition`/`reference` 능력 추가를 별도 lane으로 미루는 판단 자체.
+
+## 구현 작업 로그
+
+**산출물**:
+- `cli/src/shared/adapters/types.ts`: `AdapterResult.mountUnresolved`를 optional로,
+  `RegisteredAdapter`에 optional `budget`을 추가(§4 결정 실행).
+- `cli/src/shared/adapters/index.ts`: `adapter.budget ?? DEFAULT_BUDGET`으로 per-adapter override 적용.
+- `cli/src/shared/adapters/dynamicCallbackAdapter.ts`(신규) — `dynamic-callback-static-v1`.
+  `CALLBACK_ARGUMENT_ALLOWLIST`(함수명+콜백 인자 위치+런타임 호출 방식 카테고리),
+  `isTrustedStandardDeclaration()`(axis 1, export됨, 별도 유닛 테스트), 본문의 axis 2(handler
+  재확인) + `findEnclosingFunction()`(caller 식별) + 본 adapter 함수.
+- `cli/tsconfig.json`: 새 fixture 디렉터리를 CLI 자체 컴파일에서 제외(아래 "구현 중 발견한 문제" 1번).
+- `cli/src/test/dynamicCallbackAdapterTrustedDeclaration.test.ts`(신규, 8 tests) — axis 1 유닛 테스트.
+- `cli/src/test/dynamicCallbackIntegration.test.ts`(신규, 11 tests) — 실제 CLI 바이너리를 실제
+  fixture workspace에 대해 spawn(pythonFastapiIntegration.test.ts와 같은 방식).
+- `cli/src/test/fixtures/typescript-dynamic-callback/`(신규) — 13개 파일, positive 3 + negative 7 +
+  baseline 1(직접 호출) + 지원 파일 2(handler, emitter).
+
+**정확도 corpus 세는 기준 — 문서에 미리 적은 것과 실제 구현 사이의 차이를 명시한다**: 설계
+문서는 "매 시나리오마다 별도 analyze 호출 + `augmentedEdges.length`를 0/1로 단정"을 전제로
+기준을 적었다. 실제로는 **fixture 전부를 한 workspace에 두고 analyze를 한 번만 호출**했다(모든
+fixture 파일이 같은 workspace에 있으므로 매 시나리오마다 CLI를 다시 spawn하면 tsserver를 그만큼
+반복 기동하는 비용만 늘고 결과는 같다 — `pythonFastapiIntegration.test.ts`도 여러 fixture를
+한 번의 spawn으로 같이 확인하는 자리가 있다). 그래서 각 테스트는 `augmentedEdges.length`
+자체가 아니라 **특정 이름의 source가 있는지/없는지**를 확인한다 — 공유된 응답 안에서 "정확히
+하나의 candidate만 이 시나리오에 해당한다"를 개별적으로 단정하는 것과 기계적으로 동등하다(다른
+시나리오의 candidate와 섞이지 않는다는 걸 이름으로 구분하므로). **최종 개수**: positive 3(setTimeout/
+forEach/addEventListener) + negative 7(register/push/handler-shadow/callee-shadow/onclick/
+subscribe/fire) = **10건**, 전부 이 기준으로 셌다. budget/latency 테스트나 "known false negative"/
+"accepted residual" 이름의 테스트는 없다(전부 명확히 참 또는 거짓인 shape이라 그런 딱지가 필요
+없었다).
+
+**구현 중 발견한 문제 — 전부 실행으로 확인, 뮤테이션으로 재확인**:
+
+1. **fixture가 CLI 자체 빌드에 잡혔다.** `.ts` fixture가 `cli/tsconfig.json`의
+   `include: ["src/**/*.ts"]`에 그대로 걸려, `HTMLButtonElement`(DOM lib, CLI 자신은
+   `lib: ["ES2022"]`만 씀) 컴파일 에러가 났다. Python fixture(`.py`)는 애초에 이 문제가 없어서
+   몰랐던 충돌 — `cli/tsconfig.json`에 이 fixture 디렉터리만 `exclude` 추가로 해결.
+2. **정규식이 method call을 못 잡았다.** `(?:^|[^\w$.])` 형태로 "함수명 앞에 문자가 아니어야
+   한다"를 짰는데, `.`도 배제 대상에 넣는 바람에 `arr.forEach(`처럼 점으로 시작하는 메서드 호출
+   자체가 안 걸렸다 — `forEachCaller`/`listenerCaller`가 전혀 안 나와서 발견([실행], 첫
+   end-to-end 확인에서 `timeoutCaller`(점 없는 bare 호출)만 나오는 걸 보고 알았다). lookbehind
+   `(?<![\w$])`(점은 허용, 단어문자/`$`만 배제)로 교체해 해결.
+3. **`isTrustedStandardDeclaration`이 pnpm 중첩 경로에서 잘못될 뻔했다.** 처음 구현은 "workspace
+   기준 상대경로의 첫 두 세그먼트가 `node_modules`/`@types`인가"를 봤는데, 실제 pnpm 설치는
+   `node_modules/.pnpm/@types+node@x/node_modules/@types/...`라 workspace 기준 상대경로의 첫
+   두 세그먼트가 `node_modules`/`.pnpm`이지 `node_modules`/`@types`가 아니다 — `@types/node`가
+   설치된 워크스페이스로 실제로 재확인하기 전에는 안 드러났을 결함. "절대경로 세그먼트 어디서든
+   `node_modules` 바로 다음에 `typescript`+`lib` 또는 `@types`가 오는가"로 재작성 — flat/pnpm
+   레이아웃 둘 다, 그리고 "워크스페이스 소스에 우연히 같은 이름의 디렉터리가 있는" 경우(반대
+   방향 오탐)를 유닛 테스트로 고정.
+4. **`findEnclosingFunction`이 중첩 함수에서 틀렸다** — 가장 심각한 결함, 뮤테이션 테스트로
+   드러났다. `if (handlerId !== input.rootId) continue;`(axis 2)를 일부러 지워 "그 검사가 없으면
+   shadowing 부정 fixture가 잘못 통과해야 한다"를 확인하려 했는데, **전체 테스트가 그대로
+   초록이었다** — 그 자체가 그 negative 테스트가 공허하다는 신호였다. 원인: `shadowedTimeoutCallback.ts`
+   에서 `setTimeout(handler, 0)` 바로 위에 **먼저 닫힌 중첩 함수** `function handler() {...}`가
+   있는데, "가장 가까운 이전 function 선언"만 보는 첫 구현이 이미 닫힌 그 중첩 함수를 "감싸는
+   함수"로 잘못 골랐다(진짜 감싸는 함수 `shadowedTimeoutCaller`가 아니라). axis 2가 살아있을
+   때는 어차피 그 지점에서 먼저 걸러지니 겉으로는 안 보였을 결함이다. 중괄호 깊이를 거꾸로
+   추적해(닫는 괄호로 깊이 증가, 여는 괄호로 감소) 깊이 0에서만 후보를 인정하도록 고쳤다 — 문자열/
+   주석 안의 중괄호는 여전히 못 거른다(별도 한계로 명시, `stripCommentsAndStrings` 같은 전처리는
+   이번엔 안 함). 고친 뒤 같은 뮤테이션을 다시 걸어 **정확히 그 테스트 1개만** 실패하는 걸
+   재확인했다.
+
+**전체 뮤테이션 목록(전부 재확인 완료, 원복 후 재통과)**:
+- axis 1(callee trust)을 항상 true로 → `fakeTimeoutCaller` 테스트만 실패.
+- axis 2(handler identity)를 제거 → (수정 전) 아무것도 안 잡힘(공허 발견) → (수정 후)
+  `shadowedTimeoutCaller` 테스트만 실패.
+
+**검증**(전부 `[실행]`, `rm -rf out cli/dist` 후):
+- `npm run cli:test`: 429 tests, 426 pass, 0 fail, 3 skip(무관).
+- `npm test`(Extension): 84 tests, 84 pass, 0 fail(이 lane은 Extension 쪽 코드를 안 건드렸지만
+  shared adapter 등록 배열이 컴파일 산출물을 공유하므로 재확인).
+- `npm run test:vsix-contents`: 통과, `cli/dist/shared/**` 5 → 6 파일, require-boundary 위반 없음.
+- `npm run test:response-policy`: 34 checks 통과(무관, regression 없음).
+
+**완료 기준 대조**: 위 "결정"·"범위 (최종)" 절의 모든 항목 구현·테스트 완료. 남은 것은 그대로
+남긴다 — Type B, emit 연결, `EventEmitter.on` 조사, layer 2는 이번 PR 범위 밖(설계 문서가 이미
+그렇게 정함).
