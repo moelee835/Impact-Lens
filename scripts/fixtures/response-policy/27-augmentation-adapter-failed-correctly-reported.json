@@ -1,0 +1,68 @@
+{
+  "file": "27-augmentation-adapter-failed-correctly-reported.json",
+  "name": "augmentation_adapter_failed correctly reported using coverage.ts's own wording",
+  "description": "M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md, closing the M4 closure audit's Gate 1): registered alongside coverage.ts's augmentationAdapterFailedDetails() producer, not after - M4 gate 4's reopening (docs/work/task-m4-gate4-mount-false-positive.md finding 5) already found that shipping a new severity:'warning' limitation code with no LIMITATION_SURFACE_PATTERNS entry makes surfacesLimitation() fall through to its default (a regex requiring the literal underscored code name in prose), so a summary using coverage.ts's own recommended wording gets reported as missing_high_severity_disclosure. Must-pass fixture, verified by running the engine, not by reading the patterns.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": { "name": "@impact-lens/cli", "version": "0.9.0" },
+      "node": { "version": "22.0.0", "major": 22, "executable": "node" },
+      "runner": { "source": "checkout" }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "typescript-language-server",
+        "requestedLanguageId": "typescript",
+        "detectedLanguageId": "typescript",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": { "callHierarchy": true, "diagnostics": true },
+        "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+        "lifecycle": { "stage": "query", "status": "ready" }
+      },
+      "coverage": {
+        "traversal": { "status": "complete", "requestedDepth": 5, "reachedDepth": 1, "maxNodes": 120 },
+        "semantic": { "status": "static-only", "evidenceSources": ["lsp-call-hierarchy"] },
+        "indexing": { "status": "ready", "evidence": { "signal": "work-done-progress", "detail": "indexing" } },
+        "reasons": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "augmentation_adapter_failed"]
+      },
+      "completion": { "requestStatus": "succeeded", "traversalStatus": "exhausted", "semanticScope": "provider-static", "indexingStatus": "ready" },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "rootId": "root111111111111111111",
+      "nodes": [
+        { "id": "root111111111111111111", "name": "scheduleRefresh" }
+      ],
+      "augmentedEdges": [],
+      "limitationDetails": [
+        { "code": "dynamic_calls_not_inferred", "severity": "info", "scope": "semantic", "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy." },
+        { "code": "unsaved_buffers_unavailable", "severity": "info", "scope": "request", "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk." },
+        { "code": "augmentation_adapter_failed", "severity": "warning", "scope": "semantic", "message": "The following adapter(s) failed while looking for augmented edges: dynamic-callback-static-v1 (TypeError). Augmented edges from them are missing; the static call graph above is unaffected, and every other adapter's results are unaffected.", "action": "This is the adapter failing to complete, not evidence that no augmented relationship exists; re-run if a complete augmented result is needed." }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "typescript-language-server",
+      "requestedLanguageId": "typescript",
+      "detectedLanguageId": "typescript",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": { "callHierarchy": true, "diagnostics": true },
+      "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+      "lifecycle": { "stage": "query", "status": "ready" }
+    },
+    "limitations": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "augmentation_adapter_failed"],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from typescript-language-server with augmentation enabled; the provider index is ready. scheduleRefresh has no confirmed incoming callers. The dynamic-callback-static-v1 adapter failed while looking for augmented edges (TypeError), so augmented edges from it are missing - the static call graph above is unaffected, and no other adapter's results were affected.",
+  "expect": "pass",
+  "expectedViolations": []
+}

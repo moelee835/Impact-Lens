@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
 import test from 'node:test';
+import { AUGMENTATION_LIMITATION_CODES } from './augmentationVariableFields';
 
 // IL-LIM-006 (docs/work/task-m2-fastapi-e2e.md). Unconditional - no skip gate, no external dependency to
 // install: `bundled-pyright` is a pinned CLI dependency (cli/package.json), and stage 1/1.5's measurement
@@ -761,13 +762,11 @@ test(
 // back into `nodes`/`edges`). This closes that gap with an actual regression test for each.
 // ---------------------------------------------------------------------------
 
-/** Fields legitimately expected to change when augmentation runs and finds something - everything else in
- * the envelope must stay identical to the OFF response. Kept as an explicit allow-list (delete-then-
- * compare-the-rest), not a hand-picked list of fields to assert equal, so any OTHER field drifting would
- * fail this test even if nobody remembered to name it here. */
-const AUGMENTATION_LIMITATION_CODES = new Set([
-  'inferred_edges_included', 'observed_edges_included', 'augmentation_budget_exceeded', 'framework_route_mount_unresolved',
-]);
+// `AUGMENTATION_LIMITATION_CODES` moved to `./augmentationVariableFields.ts` (M4 augmentation-failure-
+// isolation lane, docs/work/task-m4-augmentation-failure-isolation.md) so this file and
+// `augmentationFailureIsolation.test.ts` share one source of truth for "what augmentation is allowed to
+// add" instead of drifting into two lists that quietly stop agreeing - see that file's own comment for
+// why the allow-list (delete-then-compare-the-rest) polarity matters more than which fields are in it.
 
 function stripAugmentationVariableFields(response: Record<string, unknown>): Record<string, unknown> {
   const clone = JSON.parse(JSON.stringify(response));

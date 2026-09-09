@@ -343,6 +343,26 @@ const LIMITATION_SURFACE_PATTERNS = {
     /\bnot evidence (?:that )?(?:the )?route is unreachable\b/i,
     /\bdoes not mean the route is unmounted\b/i,
   ],
+  // M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md, closing
+  // the M4 closure audit's Gate 1): added ALONGSIDE the two coverage.ts producers, not after - this
+  // milestone already reopened once (M4 gate 4, docs/work/task-m4-gate4-mount-false-positive.md finding
+  // 5) for shipping a new `severity: 'warning'` limitation code with no entry here, which made a summary
+  // that disclosed it using coverage.ts's own recommended wording fail `missing_high_severity_disclosure`
+  // - the safety net penalizing the honest disclosure it was supposed to require. Both codes below are
+  // `severity: 'warning'` too (`highSeverityLimitations()` includes warning), so both are exposed to the
+  // exact same gap if left unregistered. Patterns are drawn from coverage.ts's own message text
+  // (`augmentationAdapterFailedDetails`/`augmentationInternalErrorDetails`) plus a natural paraphrase,
+  // the same two-source approach `augmentation_budget_exceeded` above already uses.
+  augmentation_adapter_failed: [
+    /\badapter(?:\(s\))?\s+failed\b/i,
+    /\bfailed while looking for augmented edges\b/i,
+    /\badapter\b[^.!?]{0,60}\bfail(?:ed|ing) to complete\b/i,
+  ],
+  augmentation_internal_error: [
+    /\baugmentation (?:itself )?failed unexpectedly\b/i,
+    /\baugmentation_internal_error\b/i,
+    /\binternal error\b[^.!?]{0,40}\baugmentation\b|\baugmentation\b[^.!?]{0,40}\binternal error\b/i,
+  ],
 };
 
 function escapeRegExp(text) {

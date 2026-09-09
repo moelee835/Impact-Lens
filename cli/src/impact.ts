@@ -5,7 +5,7 @@ import { classifyRelation } from './testFile';
 import { projectCompletion } from './coverage';
 import { inspectCompileDatabase } from './providers/compileDatabase';
 import { C_FAMILY_LANGUAGE_IDS } from './providers/resolve';
-import { runAugmentation } from './shared/adapters';
+import { AugmentationResult, runAugmentation } from './shared/adapters';
 import { externalRange, isOutside, relativeFile, symbolId, symbolKindName, uriFile } from './shared/impactHelpers';
 import {
   AnalysisObservations,
@@ -101,16 +101,31 @@ export async function analyzeImpact(
   // check which ids already exist (M4 stage 1's dangling-id decision), never written to. Runs on its
   // own budget (M4 stage 1's "budget/limits leak" decision), so nothing it does can affect
   // `traversal.limits`/`reachedDepth`/anything `projectCompletion` below derives from `facts`.
-  const augmentation = await runAugmentation(
-    request.augmentationEnabled ?? false,
-    provider.capabilities.detectedLanguageId,
-    workspace,
-    root,
-    symbolId(root),
-    provider,
-    new Set(nodes.map(node => node.id)),
-    symbolId,
-  );
+  //
+  // M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md,
+  // closing the M4 closure audit's Gate 1): `runAugmentation()` already isolates each adapter's own
+  // throw from every other adapter (its per-adapter catch, `./shared/adapters/index.ts`). This second,
+  // outer catch is for `runAugmentation()`'s own orchestration code breaking outside that loop - a bug
+  // in this codebase, not in an adapter, which is why it produces `augmentation_internal_error` rather
+  // than `augmentation_adapter_failed` below. Either way, `nodes`/`edges` above are already computed and
+  // this catch cannot touch them - only `augmentedEdges`/the two observations below are affected.
+  let augmentation: AugmentationResult;
+  let internalErrorKind: string | undefined;
+  try {
+    augmentation = await runAugmentation(
+      request.augmentationEnabled ?? false,
+      provider.capabilities.detectedLanguageId,
+      workspace,
+      root,
+      symbolId(root),
+      provider,
+      new Set(nodes.map(node => node.id)),
+      symbolId,
+    );
+  } catch (error) {
+    augmentation = { edges: [], budgetExceededAdapterIds: [], mountUnresolvedAdapterIds: [], failedAdapters: [] };
+    internalErrorKind = error instanceof Error ? error.name : 'unknown';
+  }
   const augmentedEdges = [...augmentation.edges].sort((left, right) =>
     JSON.stringify(left).localeCompare(JSON.stringify(right)));
   const reachedDepth = Math.max(0, ...traversal.entries.map(entry => entry.depth));
@@ -160,6 +175,12 @@ export async function analyzeImpact(
       : {}),
     ...(augmentation.mountUnresolvedAdapterIds.length > 0
       ? { augmentationMountUnresolved: augmentation.mountUnresolvedAdapterIds }
+      : {}),
+    ...(augmentation.failedAdapters.length > 0
+      ? { augmentationAdapterFailed: augmentation.failedAdapters }
+      : {}),
+    ...(internalErrorKind !== undefined
+      ? { augmentationInternalError: { errorKind: internalErrorKind } }
       : {}),
     ...provider.analysisObservations?.(),
     ...observations,

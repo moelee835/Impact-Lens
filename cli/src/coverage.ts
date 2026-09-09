@@ -308,6 +308,8 @@ function limitationDetailsFor(
   details.push(...semanticScopeDetails(completion.semanticScope));
   details.push(...augmentationBudgetDetails(observations.augmentationBudgetExceeded));
   details.push(...mountUnresolvedDetails(observations.augmentationMountUnresolved));
+  details.push(...augmentationAdapterFailedDetails(observations.augmentationAdapterFailed));
+  details.push(...augmentationInternalErrorDetails(observations.augmentationInternalError));
   return details;
 }
 
@@ -352,6 +354,53 @@ function mountUnresolvedDetails(mountUnresolvedAdapterIds: AnalysisObservations[
     scope: 'semantic',
     message: 'A route decorator was found, but no include_router(...) call referencing this router could be found within the analyzed workspace. This does not mean the route is unmounted - the router may be included from outside this workspace, through a directory this scan does not reach, or through dynamic registration (e.g. include_router(get_router())) that this scan cannot follow.',
     action: 'If this route should be reachable, confirm how its router is mounted; this warning only reflects what a static scan of this workspace could find.',
+  }];
+}
+
+/**
+ * M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md, closing
+ * the M4 closure audit's Gate 1): an adapter's `run()` threw. The static call graph above is entirely
+ * unaffected - `runAugmentation()`'s per-adapter catch (`./shared/adapters/index.ts`) means this
+ * adapter's failure could not have touched it, and could not have touched any OTHER adapter's edges
+ * either. Only `errorKind` (`error.name`) is named, never the thrown value's message - IL-LIM-001's
+ * rollout item forbids sending user code or symbol names, and an exception message can contain either.
+ */
+function augmentationAdapterFailedDetails(
+  failures: AnalysisObservations['augmentationAdapterFailed'],
+): readonly LimitationDetail[] {
+  if (failures === undefined || failures.length === 0) {
+    return [];
+  }
+  return [{
+    code: 'augmentation_adapter_failed',
+    severity: 'warning',
+    scope: 'semantic',
+    message: `The following adapter(s) failed while looking for augmented edges: ${failures.map(failure => `${failure.adapterId} (${failure.errorKind})`).join(', ')}. Augmented edges from them are missing; the static call graph above is unaffected, and every other adapter's results are unaffected.`,
+    action: 'This is the adapter failing to complete, not evidence that no augmented relationship exists; re-run if a complete augmented result is needed.',
+  }];
+}
+
+/**
+ * M4 augmentation-failure-isolation lane: `runAugmentation()` itself threw, outside any adapter's own
+ * try/catch. Distinct code from `augmentation_adapter_failed` on purpose (commander's finding): this is
+ * a bug in this codebase's own orchestration code, not an adapter reaching one of its documented failure
+ * modes, and conflating the two would let a real orchestration bug hide forever behind the more benign-
+ * sounding adapter-failure wording. The static call graph above is unaffected - this observation is only
+ * ever attached by a host-level catch around the `runAugmentation()` call, after which the host proceeds
+ * with the static result it already had and an empty augmentation result.
+ */
+function augmentationInternalErrorDetails(
+  internalError: AnalysisObservations['augmentationInternalError'],
+): readonly LimitationDetail[] {
+  if (internalError === undefined) {
+    return [];
+  }
+  return [{
+    code: 'augmentation_internal_error',
+    severity: 'warning',
+    scope: 'semantic',
+    message: `Augmentation itself failed unexpectedly (${internalError.errorKind}), not any specific adapter. Augmented edges are missing for this request; the static call graph above is unaffected.`,
+    action: 'This indicates a bug in Impact Lens itself rather than a limitation of any adapter; consider reporting it.',
   }];
 }
 
