@@ -22,5 +22,15 @@
     // CLI itself ships via its own standalone packaging.
     "declaration": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  // IL-LIM-001 stage 3 (docs/work/task-il-lim-001-stage3-callback-adapter-design.md). This fixture
+  // workspace is a SEPARATE analysis target for the dynamic-callback adapter's own spawned
+  // `bundled-typescript` language server (its own tsconfig.json, no explicit `lib`, so it gets DOM by
+  // default) - not code this CLI project itself needs compiled, the same role the Python fixtures under
+  // `src/test/fixtures/python-fastapi/` already play for the FastAPI adapter. Those never collided with
+  // this config because `include` only ever matched `.ts`; this one uses `.ts` on purpose (the fixture
+  // needs to be real TypeScript, analyzed by a real TypeScript language server) and needs excluding
+  // explicitly, or `tsc -p .` fails on `HTMLButtonElement` under this project's own `lib: ["ES2022"]`
+  // (no DOM) - reproduced directly before adding this line.
+  "exclude": ["src/test/fixtures/typescript-dynamic-callback"]
 }

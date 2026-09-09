@@ -442,3 +442,308 @@ lane에서 실측(측정 원칙 그대로 — 추측하지 않는다)한다.**
 1. allowlist 항목별 1차 출처 확인 결과(구현 lane에서 채워짐).
 2. 런타임 호출 방식 3분류(지연/예약, 이벤트 구동, 즉시 동기 순회) 자체 — 넷째 방식이 있는지.
 3. `definition`/`reference` 능력 추가를 별도 lane으로 미루는 판단 자체.
+
+## 구현 작업 로그
+
+**산출물**:
+- `cli/src/shared/adapters/types.ts`: `AdapterResult.mountUnresolved`를 optional로,
+  `RegisteredAdapter`에 optional `budget`을 추가(§4 결정 실행).
+- `cli/src/shared/adapters/index.ts`: `adapter.budget ?? DEFAULT_BUDGET`으로 per-adapter override 적용.
+- `cli/src/shared/adapters/dynamicCallbackAdapter.ts`(신규) — `dynamic-callback-static-v1`.
+  `CALLBACK_ARGUMENT_ALLOWLIST`(함수명+콜백 인자 위치+런타임 호출 방식 카테고리),
+  `isTrustedStandardDeclaration()`(axis 1, export됨, 별도 유닛 테스트), 본문의 axis 2(handler
+  재확인) + `findEnclosingFunction()`(caller 식별) + 본 adapter 함수.
+- `cli/tsconfig.json`: 새 fixture 디렉터리를 CLI 자체 컴파일에서 제외(아래 "구현 중 발견한 문제" 1번).
+- `cli/src/test/dynamicCallbackAdapterTrustedDeclaration.test.ts`(신규, 8 tests) — axis 1 유닛 테스트.
+- `cli/src/test/dynamicCallbackIntegration.test.ts`(신규, 11 tests) — 실제 CLI 바이너리를 실제
+  fixture workspace에 대해 spawn(pythonFastapiIntegration.test.ts와 같은 방식).
+- `cli/src/test/fixtures/typescript-dynamic-callback/`(신규) — 13개 파일, positive 3 + negative 7 +
+  baseline 1(직접 호출) + 지원 파일 2(handler, emitter).
+
+**정확도 corpus 세는 기준 — 문서에 미리 적은 것과 실제 구현 사이의 차이를 명시한다**: 설계
+문서는 "매 시나리오마다 별도 analyze 호출 + `augmentedEdges.length`를 0/1로 단정"을 전제로
+기준을 적었다. 실제로는 **fixture 전부를 한 workspace에 두고 analyze를 한 번만 호출**했다(모든
+fixture 파일이 같은 workspace에 있으므로 매 시나리오마다 CLI를 다시 spawn하면 tsserver를 그만큼
+반복 기동하는 비용만 늘고 결과는 같다 — `pythonFastapiIntegration.test.ts`도 여러 fixture를
+한 번의 spawn으로 같이 확인하는 자리가 있다). 그래서 각 테스트는 `augmentedEdges.length`
+자체가 아니라 **특정 이름의 source가 있는지/없는지**를 확인한다 — 공유된 응답 안에서 "정확히
+하나의 candidate만 이 시나리오에 해당한다"를 개별적으로 단정하는 것과 기계적으로 동등하다(다른
+시나리오의 candidate와 섞이지 않는다는 걸 이름으로 구분하므로). **최종 개수**: positive 3(setTimeout/
+forEach/addEventListener) + negative 7(register/push/handler-shadow/callee-shadow/onclick/
+subscribe/fire) = **10건**, 전부 이 기준으로 셌다. budget/latency 테스트나 "known false negative"/
+"accepted residual" 이름의 테스트는 없다(전부 명확히 참 또는 거짓인 shape이라 그런 딱지가 필요
+없었다).
+
+**구현 중 발견한 문제 — 전부 실행으로 확인, 뮤테이션으로 재확인**:
+
+1. **fixture가 CLI 자체 빌드에 잡혔다.** `.ts` fixture가 `cli/tsconfig.json`의
+   `include: ["src/**/*.ts"]`에 그대로 걸려, `HTMLButtonElement`(DOM lib, CLI 자신은
+   `lib: ["ES2022"]`만 씀) 컴파일 에러가 났다. Python fixture(`.py`)는 애초에 이 문제가 없어서
+   몰랐던 충돌 — `cli/tsconfig.json`에 이 fixture 디렉터리만 `exclude` 추가로 해결.
+2. **정규식이 method call을 못 잡았다.** `(?:^|[^\w$.])` 형태로 "함수명 앞에 문자가 아니어야
+   한다"를 짰는데, `.`도 배제 대상에 넣는 바람에 `arr.forEach(`처럼 점으로 시작하는 메서드 호출
+   자체가 안 걸렸다 — `forEachCaller`/`listenerCaller`가 전혀 안 나와서 발견([실행], 첫
+   end-to-end 확인에서 `timeoutCaller`(점 없는 bare 호출)만 나오는 걸 보고 알았다). lookbehind
+   `(?<![\w$])`(점은 허용, 단어문자/`$`만 배제)로 교체해 해결.
+3. **`isTrustedStandardDeclaration`이 pnpm 중첩 경로에서 잘못될 뻔했다.** 처음 구현은 "workspace
+   기준 상대경로의 첫 두 세그먼트가 `node_modules`/`@types`인가"를 봤는데, 실제 pnpm 설치는
+   `node_modules/.pnpm/@types+node@x/node_modules/@types/...`라 workspace 기준 상대경로의 첫
+   두 세그먼트가 `node_modules`/`.pnpm`이지 `node_modules`/`@types`가 아니다 — `@types/node`가
+   설치된 워크스페이스로 실제로 재확인하기 전에는 안 드러났을 결함. "절대경로 세그먼트 어디서든
+   `node_modules` 바로 다음에 `typescript`+`lib` 또는 `@types`가 오는가"로 재작성 — flat/pnpm
+   레이아웃 둘 다, 그리고 "워크스페이스 소스에 우연히 같은 이름의 디렉터리가 있는" 경우(반대
+   방향 오탐)를 유닛 테스트로 고정.
+4. **`findEnclosingFunction`이 중첩 함수에서 틀렸다** — 가장 심각한 결함, 뮤테이션 테스트로
+   드러났다. `if (handlerId !== input.rootId) continue;`(axis 2)를 일부러 지워 "그 검사가 없으면
+   shadowing 부정 fixture가 잘못 통과해야 한다"를 확인하려 했는데, **전체 테스트가 그대로
+   초록이었다** — 그 자체가 그 negative 테스트가 공허하다는 신호였다. 원인: `shadowedTimeoutCallback.ts`
+   에서 `setTimeout(handler, 0)` 바로 위에 **먼저 닫힌 중첩 함수** `function handler() {...}`가
+   있는데, "가장 가까운 이전 function 선언"만 보는 첫 구현이 이미 닫힌 그 중첩 함수를 "감싸는
+   함수"로 잘못 골랐다(진짜 감싸는 함수 `shadowedTimeoutCaller`가 아니라). axis 2가 살아있을
+   때는 어차피 그 지점에서 먼저 걸러지니 겉으로는 안 보였을 결함이다. 중괄호 깊이를 거꾸로
+   추적해(닫는 괄호로 깊이 증가, 여는 괄호로 감소) 깊이 0에서만 후보를 인정하도록 고쳤다 — 문자열/
+   주석 안의 중괄호는 여전히 못 거른다(별도 한계로 명시, `stripCommentsAndStrings` 같은 전처리는
+   이번엔 안 함). 고친 뒤 같은 뮤테이션을 다시 걸어 **정확히 그 테스트 1개만** 실패하는 걸
+   재확인했다.
+
+**전체 뮤테이션 목록(전부 재확인 완료, 원복 후 재통과)**:
+- axis 1(callee trust)을 항상 true로 → `fakeTimeoutCaller` 테스트만 실패.
+- axis 2(handler identity)를 제거 → (수정 전) 아무것도 안 잡힘(공허 발견) → (수정 후)
+  `shadowedTimeoutCaller` 테스트만 실패.
+
+**검증**(전부 `[실행]`, `rm -rf out cli/dist` 후):
+- `npm run cli:test`: 429 tests, 426 pass, 0 fail, 3 skip(무관).
+- `npm test`(Extension): 84 tests, 84 pass, 0 fail(이 lane은 Extension 쪽 코드를 안 건드렸지만
+  shared adapter 등록 배열이 컴파일 산출물을 공유하므로 재확인).
+- `npm run test:vsix-contents`: 통과, `cli/dist/shared/**` 5 → 6 파일, require-boundary 위반 없음.
+- `npm run test:response-policy`: 34 checks 통과(무관, regression 없음).
+
+**완료 기준 대조**: 위 "결정"·"범위 (최종)" 절의 모든 항목 구현·테스트 완료. 남은 것은 그대로
+남긴다 — Type B, emit 연결, `EventEmitter.on` 조사, layer 2는 이번 PR 범위 밖(설계 문서가 이미
+그렇게 정함).
+
+## 2026-09-09 추가 5 — commander/reviewer의 PR #94 실행 검토, 결함 3건 수정
+
+### 결함 1 — 정확도 corpus 기준이 스스로 0건을 세게 적혀 있었다(commander)
+
+파일 상단 주석이 "`augmentedEdges.length`를 0/1로 단정하는 테스트가 기준"이라고 적었는데
+`[실행]` grep 결과 그런 단정이 **한 건도 없었다** — 실제 단정은 `find()`/`!includes()` 형태였고,
+이건 **여분의 오탐(false positive)을 하나도 못 잡는** 약한 형태다(positive 테스트는 다른 이름이
+더 있어도 통과, negative 테스트는 그 이름 하나만 확인). 기계적 기준을 미리 적어 드리프트를
+막으려던 바로 그 문장이 실제 코드와 안 맞는, 이 마일스톤이 반복해서 잡은 실패 모양이었다.
+
+**고침**: `augmentedEdges`의 source 이름 전체 집합을 `assert.deepEqual`로 한 번에 단정하는 테스트
+하나를 추가 — 여분 검출까지 포함하는 더 강한 형태(commander 제안 그대로). 기존 개별 테스트는
+그 단정에 이미 함의되지만, 시나리오별로 읽기 쉬운 실패 메시지를 남기려고 그대로 뒀다(주석에
+"함의됨, 재확인 아님"이라고 명시). 기준 문구도 "집합 전체를 단정하는 테스트"로 정정.
+
+### 결함 2 — `findEnclosingFunction`이 문자열 안 중괄호에 속아 오귀속을 만들었다(reviewer)
+
+reviewer가 실제로 재현: 이미 닫힌 중첩 함수 안에 `"shape: {"` 같은 문자열이 있으면, 그 안의 `{`가
+중첩 함수의 진짜 `}`를 상쇄해 깊이가 그 함수의 선언 줄에서 우연히 0으로 떨어진다 — 결과: 진짜
+감싸는 함수(`outerCaller`) 대신 **이미 끝난 안쪽 함수(`inner`)를 잘못 지목**한다. 기존 주석이
+"false-negative/false-attribution 위험"이라고 이미 이름 댔었지만(comment-vs-code 불일치는 아니었다
+— commander가 확인), **미탐과 오귀속은 이 adapter의 다른 모든 한계(전부 미탐 방향)와 성격이
+다르다** — 사용자 코드에 대해 틀린 주장을 만드는 유일한 지점이었다.
+
+**고침(commander 제안, `fastapiDependencyAdapter.ts`의 `stripCommentsAndStrings` 재사용은
+기각)**: Python 전용 함수를 그대로 가져오면 TypeScript에서 새 오귀속을 만든다 — `//`/`/* */`를
+전혀 안 지우고, backtick 템플릿 리터럴(TS에서 `{`가 가장 많이 숨는 자리)도 안 지우고,
+`#`을 주석 시작으로 오인한다(TS의 `#`은 private class field, `this.#count` 줄의 나머지가
+통째로 잘린다). 대신 **모호하면 기각**: 역방향 스캔 중 괄호와 따옴표/backtick/주석 기호가 같은
+줄에 같이 있으면 그 지점에서 스캔을 포기(`undefined` 반환, 이 adapter의 다른 네 실패 경로와 같은
+fold-to-abandonment 방향)한다. 오귀속이 미탐으로 바뀐다 — 비용이 몇 줄이고, 진짜 TS-aware
+stripper는 별도 검증이 필요한 미래 작업으로 남긴다.
+
+reviewer가 재현한 정확한 모양(`ambiguousBraceInString.ts`)을 negative fixture로 추가 —
+`outerCaller`도 `inner`도 안 나오는지 둘 다 확인(둘 중 하나만 확인하면 "다른 이름으로 오귀속"
+회귀를 놓친다).
+
+### 결함 3 — trust tier 주석이 실제보다 강한 인상을 줬다(reviewer)
+
+reviewer가 실측: `isTrustedStandardDeclaration`의 두 tier(bundled lib, `@types`) **둘 다 리터럴
+세그먼트 이름 일치일 뿐, 진짜 패키지 매니저 출처 검증이 아니다** —
+`src/node_modules/typescript/lib/fake.d.ts`(사용자가 직접 만든/커밋한 가짜 `node_modules`)도
+`true`를 반환한다. 기존 주석은 "bundled lib이 더 강하다"는 인상을 줬는데 **집행 강도는 둘 다
+같다** — 다른 건 그 경로가 진짜 툴체인에서 나왔을 때 무엇을 의미하는가일 뿐. **심각도는
+commander/reviewer 둘 다 낮게 평가**(워크스페이스에 파일을 쓸 수 있어야 트리거되고, 이 도구가
+이미 갖고 있는 "워크스페이스 코드는 신뢰한다"는 가정과 같은 급) — 기능적으로 막지 않고, 주석을
+사실과 맞추고 KNOWN·ACCEPTED RESIDUAL 유닛 테스트 2개로 고정(gate 4의 잔여 pin 관례 그대로).
+
+### 뮤테이션 재확인(전부 `[실행]`, 원복 후 재통과)
+
+- `hasAmbiguousBrace()` 가드를 제거 → 정확히 2개 테스트만 실패(집합-단정 corpus 테스트, 새
+  false-attribution 테스트) — 나머지 428개는 그대로 통과. 원복 후 430개 전부 재통과.
+
+**검증 갱신**(전부 `[실행]`, `rm -rf out cli/dist` 후): `npm run cli:test` 433 tests, 430 pass,
+0 fail, 3 skip. `npm test` 84/84. `test:vsix-contents`/`test:response-policy` 변동 없이 green.
+
+## 2026-09-09 추가 6 — reviewer의 범위 확인이 commander의 recall 실측으로 이어졌다, 가드를 다시 고쳤다
+
+reviewer가 결함 2 수정 뒤 "막을 필요는 없다"면서도 범위 확인차 남긴 관찰: `hasAmbiguousBrace`가
+패턴 매칭보다 먼저 실행되니 **찾는 함수의 선언 줄 자체**가 중괄호+주석(`function outerCaller() {
+// handles clicks`, 흔한 스타일)을 같이 가지면 그 줄도 통째로 미탐지된다.
+
+commander가 이걸 "막을 필요 없는 관찰"에서 "정량화가 필요한 결함"으로 승격시켰다 — **이 저장소
+자신의 `src/`·`cli/src/` 두 트리에서, allowlist API가 실제로 등장하는 모든 줄을 대상으로 가드
+있는/없는 `findEnclosingFunction` 성공률을 직접 쟀다**:
+
+```
+src:      가드 없음(안전하지 않음) 55.8%  →  기존 가드(전부-아니면-전무) 28.3%  (해석 가능했던 것의 절반 손실)
+cli/src:  가드 없음(안전하지 않음) 64.7%  →  기존 가드(전부-아니면-전무) 34.5%  (마찬가지로 절반 손실)
+```
+
+**손실의 원인은 조건이 지나치게 넓어서였다** — "중괄호와 따옴표/backtick/주석 기호가 같은 줄에
+같이 있으면"이 전제였는데, 실제 코드에서 이 둘이 **무관하게** 공존하는 흔한 줄(`if (x) { log('a');
+}`, 선언 줄 자체의 trailing comment)이 전체 손실의 대부분이었다. **precision corpus만 있고 recall
+손실을 잡는 단정이 하나도 없어서, 이 숫자를 아무도 모른 채 merge될 뻔했다** — commander가 지적한
+대로 fixture와 가드가 같이 작고 깨끗하게 자라, 가드의 커버리지가 자기 corpus와 정확히 같은
+넓이였다(gate 4에서 이미 배운 함정과 같은 모양).
+
+이 세션이 독립적으로 재현(같은 두 트리, 별도로 작성한 스크립트)해 같은 수치(±반올림)를 확인했다.
+
+**고침(commander 제안 (b) 채택 — 조건을 좁힌다, 전체를 포기하지 않는다)**: `hasAmbiguousBrace`를
+`stripSameLineCommentsAndStrings()`로 교체 — **중괄호가 실제로 따옴표/주석 *안에* 있을 때만**
+무력화하고, 밖에 있으면 정상적으로 센다. 한 줄 안에서만 판단하는 스캐너(여러 줄에 걸칠 수 있는
+경우 - 미종결 문자열/블록 주석/backtick, `${...}` 보간 포함 backtick - 는 여전히 안전하게
+포기)로, `fastapiDependencyAdapter.ts`의 Python 전용 함수는 여전히 안 썼다.
+
+**실제로 병합된(export된) 함수로 재측정**(프로토타입이 아니라 `cli/dist`에서 직접 import해 확인):
+
+```
+src:      가드 없음 55.8%  →  기존 가드 28.3%  →  새 가드 38.3%(해석 가능했던 것의 약 69%를 회복)
+cli/src:  가드 없음 64.7%  →  기존 가드 34.5%  →  새 가드 47.8%(약 74%를 회복)
+```
+
+**남는 잔여(정직하게 명시)**: 새 가드도 "가드 없음"의 55.8%/64.7%에는 못 미친다 — 남는 손실은
+주로 여러 줄에 걸치는 backtick 템플릿 리터럴(이 저장소 자신의 doc-comment 스타일이 즐겨 쓰는
+형태)과 `${...}` 보간이다. 이걸 마저 회복하려면 진짜 여러 줄짜리 backtick 추적이 필요하고, 그건
+commander가 이미 경고한 "검증이 필요한 별도 작업"의 영역이다 — 이번 lane에서는 안 한다.
+
+`ambiguousBraceInString.ts` fixture는 이제 **정정된 정답**(`outerCaller`가 실제로 candidate로
+나옴, `inner`는 여전히 안 나옴)을 고정하도록 갱신했다 — 이전 버전은 "가드가 통째로 포기해서 둘 다
+안 나온다"를 고정했는데, 새 가드는 포기하지 않고 **올바르게 해석**하므로 그 기대값 자체가
+바뀌었다.
+
+### 뮤테이션 재확인(전부 `[실행]`, 원복 후 재통과)
+
+- `stripSameLineCommentsAndStrings()`를 "아무 것도 안 지우고 원본 줄 그대로 반환"으로 무력화 →
+  정확히 그 함수에 의존하는 11개 테스트만 실패(신규 유닛 테스트 9개 + integration 2개), 나머지
+  430개는 그대로 통과. 원복 후 441개 전부 재통과.
+
+**검증 갱신 2**(전부 `[실행]`, `rm -rf out cli/dist` 후): `npm run cli:test` 444 tests, 441 pass,
+0 fail, 3 skip. `npm test` 84/84 그대로.
+
+## 2026-09-09 추가 7 — 같은 결함이 세 번째 채널(정규식 리터럴)로 남아 있었다, 처음부터 열려 있었다
+
+PR #93이 merge된 직후 `docs/il-lim-001-stage3-callback-adapter-design` branch가 삭제되면서 base가
+그 branch였던 구현 PR이 **GitHub에 의해 자동으로 closed됐다**(`main`으로 재타겟팅한 새 PR로
+대체 — 아래 "PR 처리" 참고, 이 세션의 실수를 그대로 기록한다).
+
+commander가 이어서 새 채널을 실측: `stripSameLineCommentsAndStrings()`가 `//`/`/* */`/따옴표/
+backtick은 다루지만 **정규식 리터럴**(`/\{/`, `/[{]/`)은 전혀 인식하지 않는다 — 그 안의 중괄호가
+실제 코드로 계산된다. `[실행]` 직접 재현: `regexBraceTrap.ts`(이미 닫힌 중첩 함수 `regexInner` 안에
+`const re = /\{/;`)를 만들어 실제 CLI로 돌리니 **`regexInner`로 오귀속**(진짜 감싸는 함수
+`regexOuterCaller` 대신) — reviewer가 찾은 문자열 오귀속과 정확히 같은 모양, 채널만 다르다.
+
+**이건 좁히기가 만든 회귀가 아니다** — commander가 옛(전부-아니면-전무) 가드로도 같은 두 줄을
+돌려 확인: `/\{/;`, `/[{]/;`엔 따옴표도 `//`도 `/*`도 없어서 옛 가드의 조건 자체에 안 걸린다.
+**이 구멍은 두 버전 모두에서 처음부터 열려 있었다.**
+
+**고침**: 정규식과 나눗셈을 구분하려 하지 않는다(문맥 필요, 이 규모 밖) — 주석·문자열을 걷어낸 뒤에도
+`/`가 남아 있고 중괄호도 있으면 그 줄에서 포기한다. commander가 비용을 먼저 쟀다(중괄호 있는 줄
+기준 src 0.9%, cli/src 0.6% 추가 포기, 넓은 가드의 50% 손실과 비교하면 사실상 공짜) — 이 세션이
+**실제 export된 함수**로, 이전과 같은 호출-지점 기준 방법론으로 재측정:
+
+```
+src:      38.3% → 38.3%  (변화 없음 - 이 저장소 자신의 src/ 안에는 이 채널에 걸리는 실제 호출 지점이 없었다)
+cli/src:  47.8% → 47.0%  (약 0.8%p 손실 - commander의 줄 단위 추정과 같은 자릿수)
+```
+
+`regexBraceTrap.ts`를 negative fixture로 추가 — `regexOuterCaller`도 `regexInner`도 안 나오는지
+둘 다 확인(문자열 케이스와 달리 이번엔 **포기가 정답**이다 — 이 채널은 정확한 재해석까지는
+안 갔다). 뮤테이션(`[실행]`): 이 조건만 제거 → 정확히 2개 테스트만 실패(집합-단정 corpus,
+`regexBraceTrap.ts` 테스트), 원복 후 442개 전부 재통과.
+
+**work document에 남기는 문장(commander 요청 그대로)**: 이 채널은 처음부터 열려 있었고, 좁히기
+전/후 버전 둘 다 못 잡았다 — 좁히기가 정규식 결함을 새로 연 게 아니다.
+
+## PR 처리 — 세션 실수 기록
+
+PR #93(설계 문서)을 `--delete-branch`로 merge하면서, **그 branch를 base로 삼은 구현 PR(#94)이
+GitHub에 의해 자동으로 closed됐다** — stacked PR의 base branch를 지우면 안 됐다. `main`으로
+재타겟팅해서 재오픈을 시도했으나 closed된 PR은 base를 못 바꾼다(GitHub 제약) — 같은 branch
+(`feat/il-lim-001-stage3-callback-adapter`)로 `main`을 base로 하는 새 PR을 열어 이어간다(#94의
+리뷰 이력은 closed 상태로 GitHub에 남는다, 삭제하지 않음).
+
+**검증 갱신 3**(전부 `[실행]`, `rm -rf out cli/dist` 후): `npm run cli:test` 445 tests, 442 pass,
+0 fail, 3 skip. `npm test` 84/84, `test:vsix-contents`/`test:response-policy` 변동 없이 green.
+
+## 2026-09-09 추가 8 — PR #95의 CI가 windows에서 4건 실패, 3건은 이 lane의 실제 결함이었다
+
+PR #95를 올린 뒤 CI에서 4개 job이 실패했다:
+
+```
+cli:test / windows-latest   fail
+gopls / windows-latest      fail
+clangd / windows-latest     fail
+gopls / macos-latest        fail
+```
+
+**`gopls / macos-latest`는 이 lane과 무관하다** — 실패한 테스트는
+`contract.test.ts`의 "preserves lifecycle and runtime provenance when the provider exits
+silently"로, `dynamicCallbackAdapter`와 아무 관련이 없다. 프로세스 종료 타이밍에 민감한 기존
+테스트의 flake로 보고, 이 lane에서 손대지 않는다.
+
+**나머지 셋은 전부 같은 원인, 이 lane의 실제 결함**: `dynamicCallbackAdapterTrustedDeclaration.
+test.ts`의 모든 테스트가 windows에서 `TypeError [ERR_INVALID_FILE_URL_PATH]: File URL path must
+be absolute`로 죽었다(`getPathFromURLWin32` → `fileURLToPath` → `uriFile` →
+`isTrustedStandardDeclaration`). 원인: 이 테스트 파일이 `'file:///repo/node_modules/...'`처럼
+**POSIX 모양의 리터럴 문자열**을 URI로 썼는데, **windows의 `fileURLToPath()`는 경로 부분이
+드라이브 문자를 가진 windows 절대경로 모양이어야 한다고 요구**하고, 드라이브 문자가 없으면 예외를
+던진다(POSIX에선 조용히 통과했다 — 그래서 macOS/ubuntu CI와 이 세션의 로컬(macOS) 실행에서는
+한 번도 안 드러났다).
+
+**고침 둘**:
+1. **함수 자체를 방어적으로 만들었다** — `uriFile(uri)` 호출을 try/catch로 감싸 파싱 실패 시
+   `false`(신뢰 안 함)로 접는다. 실제 provider가 이런 URI를 보낼 일은 없어야 하지만, "그래야
+   한다"는 이 adapter가 다른 모든 곳에서 거부해 온 바로 그 가정이다(FastAPI의
+   `resolveEndpoint()`가 `prepare()`의 모든 예외를 잡는 것과 같은 이유) — 알 수 없는 URI는 이미
+   이 함수가 거부하기로 한 바로 그 종류의 불확실성이다.
+2. **테스트 fixture를 플랫폼에 안전하게 다시 만들었다** — 리터럴 문자열 대신
+   `path.resolve('/repo', ...segments)`로 그 플랫폼의 진짜 절대경로를 만들고 `pathToFileURL()`로
+   변환한다. windows에서는 드라이브 문자가 붙은 진짜 windows 경로가 나오고, POSIX에서는 원래
+   방식과 동일하게 동작한다 — 어느 플랫폼에서 실행되든 `fileURLToPath()`가 되돌려 파싱할 수 있는
+   URI가 보장된다. "파싱 자체가 안 되는 URI"를 여전히 테스트하려고, POSIX 리터럴을 그대로 남긴
+   새 테스트 하나를 추가했다 — **windows에서만 의미 있는 검증**(다른 플랫폼에선 그냥 평범한 파일로
+   통과)이지만, "어떤 플랫폼에서도 예외를 던지지 않는다"는 성질 자체는 항상 검증된다.
+
+이 세션의 로컬 macOS 실행이 이 결함을 한 번도 못 잡았다는 것 자체가 기록할 값어치가 있다 —
+**"내 플랫폼에서 통과"가 "모든 CI 플랫폼에서 통과"의 증거가 아니다**, 이 milestone이 이미 Windows
+CRLF 등으로 여러 번 배운 것과 같은 교훈이다.
+
+**검증 갱신 4**(전부 `[실행]`, `rm -rf out cli/dist` 후, macOS 로컬 — windows는 CI 재확인 대기):
+`npm run cli:test` 446 tests, 443 pass, 0 fail, 3 skip. `npm test` 84/84,
+`test:vsix-contents`/`test:response-policy` 변동 없이 green.
+
+> **2026-09-09 정정 — 이건 "windows 버그"가 아니라 "테스트 fixture 이식성 버그"다**: 위 소제목과
+> 721-723줄의 "이 milestone이 이미 Windows CRLF 등으로 여러 번 배운 것과 같은 교훈이다"는 문장이
+> gate 4의 CRLF 사례와 같은 급으로 읽힐 위험이 있어 구분해 둔다 — 실제로는 서로 반대 방향의
+> 문제였다.
+>
+> - **gate 4의 CRLF는 실사용자 버그였다**: 실제 Windows 사용자의 실제 파일이 CRLF 줄바꿈을 가지고
+>   있었고, 프로덕션 코드가 그걸 잘못 처리했다. `.gitattributes`로 그걸 감추려 한 시도가 틀린
+>   해법이었을 뿐, 고쳐야 할 진짜 문제는 있었다.
+> - **이번 건 반대다**: 프로덕션 코드(`isTrustedStandardDeclaration`)가 실제 provider로부터 받는
+>   URI는 windows에서도 항상 `file:///c:/...`처럼 드라이브 문자가 붙은, 파싱 가능한 모양이다 —
+>   깨진 건 **이 세션이 직접 만든 테스트 리터럴**(`'file:///repo/...'`, POSIX 모양을 windows에서도
+>   그대로 쓴 것)뿐이었다. 실제 사용자가 windows에서 이 경로를 타면서 깨지는 시나리오는 관측된
+>   적이 없다 — 관측될 수도 없다, provider가 그런 모양의 URI를 내보내지 않기 때문이다.
+>
+> 따라서 위 "고침 둘" 중 **테스트 fixture를 `pathToFileURL(path.resolve(...))`로 다시 만든 것이
+> 정확한 해법**이고(플랫폼 네이티브 경로는 항상 자기 자신을 파싱할 수 있다), **production의
+> try/catch는 버그 수정이 아니라 "관측된 적 없는 경우에 대한 방어"**다 — FastAPI의
+> `resolveEndpoint()`가 `prepare()`의 모든 예외를 잡는 것과 같은 방어적 패턴이지, CRLF처럼 고칠
+> 실사용자 결함이 있었던 게 아니다. 커밋 메시지(`a22d6f9`)의 "Fix Windows CI failure"라는 제목은
+> CI가 실제로 windows에서 실패했다는 사실 자체는 맞지만, 원인이 production 결함이라고 오독되지
+> 않도록 이 문서로 교정해 둔다.

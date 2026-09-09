@@ -2,16 +2,23 @@
 // not a bigger plugin-loading abstraction.
 
 import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../../types';
+import { dynamicCallbackAdapter } from './dynamicCallbackAdapter';
 import { fastapiDependencyAdapter } from './fastapiDependencyAdapter';
 import { AdapterBudget, RegisteredAdapter } from './types';
 
 export const ADAPTERS: readonly RegisteredAdapter[] = [
   { id: 'fastapi-static-v1', languageIds: ['python'], run: fastapiDependencyAdapter },
+  {
+    id: 'dynamic-callback-static-v1',
+    languageIds: ['typescript', 'typescriptreact', 'javascript', 'javascriptreact'],
+    run: dynamicCallbackAdapter,
+  },
 ];
 
-/** Same budget for every adapter today - there is only one. A second adapter with different needs is
- * exactly the kind of case that should decide whether this stays shared or becomes per-adapter, not
- * something to guess at with one data point.
+/** Default budget, used unless a `RegisteredAdapter` declares its own (`./types.ts`'s `budget` field -
+ * IL-LIM-001 stage 3, second adapter). The {maxFiles, maxMatchesPerFile} SHAPE stays shared across every
+ * adapter - the decision that shape didn't need to change once a second adapter existed, see that
+ * field's doc comment - only the NUMBERS are now per-adapter.
  *
  * `maxFiles: 200` - re-reviewed in stage 3 (latency measured, kept unchanged); see
  * `isRouterMounted`'s doc comment in `./fastapiDependencyAdapter.ts` for the measured cost and why
@@ -69,7 +76,7 @@ export async function runAugmentation(
       provider,
       existingNodeIds,
       idOf,
-      budget: DEFAULT_BUDGET,
+      budget: adapter.budget ?? DEFAULT_BUDGET,
     });
     edges.push(...result.edges);
     if (result.budgetExceeded) {
