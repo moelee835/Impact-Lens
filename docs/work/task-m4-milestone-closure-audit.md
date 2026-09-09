@@ -146,6 +146,26 @@ adapter.md`의 "gate 2 판정" 절 — 실제 VS Code webview 렌더, marker 시
 > 커밋/PR 본문에는 "gate 1의 실패 격리 항목을 닫는다"로 정확히 인용한다 — "gate 1을 닫는다"라고
 > 쓰면 이 문서와 어긋난다.
 
+> **2026-09-09 추가 2 — `IL-LIM-002` 5단계(Spring adapter)는 M4 자신의 범위 안에서 아예 시작할
+> 수 없다는 사실을, 지금까지 이 문서·`IL-LIM-002` 문서 모두 각주로만 흩어 놓았다.** 위 네 항목
+> (Backlog·gate C·runtime-observation·실패 격리)은 전부 "M4가 만든 것이 계약을 완전히 못
+> 채운다"는 gap이다 — 이건 종류가 다르다: `IL-LIM-002`의 5단계는 Java/Kotlin 언어 지원
+> (`IL-LIM-018`/`IL-LIM-016`, 둘 다 M3 소유)이 없으면 분석할 provider 자체가 없어서, **M4가
+> 아무리 노력해도 이 단계는 M4 안에서 실행 불가능하다.** `il-lim-002-framework-di-routing.md`의
+> 2026-09-03 추가가 이미 이 사실 자체는 정확히 적어 뒀지만, 그 문서 안에서만 적혀 있어서 M4를
+> 형식적으로 닫는 사람이 `IL-LIM-002` 문서를 따로 열어 읽지 않으면 "M4가 자기 story의 한 단계를
+> 이월한 채로 닫는다"는 것을 모를 수 있다(`docs/work/task-m3-java-kotlin-spring-planning-
+> refinement.md`, commander 지시로 이 lane이 짚음). **M4를 형식적으로 닫을 때(milestone 상태를
+> `Planned`에서 바꿀 때) 아래를 gate 판정과 별개로 명시한다**:
+>
+> - **시작(착수) 가능 조건**: `IL-LIM-018` **또는** `IL-LIM-016` 중 하나가 닫히는 것. 재개 범위는
+>   **닫힌 그 언어로 한정된다** — 예를 들어 Java만 닫히면 Java/Spring 조합만 시작 가능하고, Kotlin
+>   조합은 `IL-LIM-016`이 닫힐 때까지 이월 상태를 유지한다.
+> - **완결 조건**: `IL-LIM-002`가 지원한다고 주장하는 언어(Java, Kotlin) 전부가 검증된 provider를
+>   가질 때 — 즉 `IL-LIM-018`과 `IL-LIM-016` **둘 다** 닫힌 뒤. 이 둘을 하나의 "재개 조건"으로
+>   뭉치면 "언어 하나로는 아무것도 시작 못 한다"거나 "하나만 닫혀도 5단계가 끝난다"는 잘못된
+>   양극단 중 하나로 읽힌다 — 그래서 나눠 적는다.
+
 ### Gate 2 — JSON과 UI 구분
 
 - **JSON**: `data.edges`/`data.augmentedEdges` 분리, `resolution`/`evidenceSource` 필드, "candidate
