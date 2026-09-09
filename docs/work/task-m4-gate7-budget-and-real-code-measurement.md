@@ -184,6 +184,60 @@ commander가 지적한 "fixture가 가드와 함께 자란다"는 함정을 피�
 **비용**: 낮다 — 이미 이 저장소 안에 있는 코드, 별도 프로젝트를 구하지 않아도 된다. `stage 3`
 설계 과정에서 이미 부분적으로 한 것(recall 측정)을 정밀도 측정으로 확장하는 정도다.
 
+### 3-1 실행 결과(2026-09-09, `[실행]`) — 심각한 결함 2건, 예산 위험 1건. budget 결정 전에
+보고한다
+
+`src/`·`cli/src/`에서 allowlist 표준 위치에 이름 있는 함수가 전달되는 실제 호출부 7개를
+찾아 CLI를 실제로 실행해 대조했다(`node cli/dist/index.js analyze --stdin`, 각 대상 함수의
+선언 위치를 쿼리, `augmentationEnabled: true`):
+
+| 대상 함수 | 위치(호출부) | enclosing 형태 | 결과 |
+| --- | --- | --- | --- |
+| `finish` | `cli/src/lspProvider.ts:429`(class method `awaitPublishedDiagnostics` 안) | class method | **위음성** — `augmentedEdges: []`, budget 초과 아님 |
+| `finish` | `cli/src/lspProvider.ts:601`(다른 class method) | class method | 같은 형태, 같은 결과로 추정(개별 재실행 안 함) |
+| `finish` | `cli/src/providers/readiness.ts:211`(class method) | class method | 같은 형태, 같은 결과로 추정(개별 재실행 안 함) |
+| `edgeKey` | `src/impactDelta.ts:27-28`(top-level function `computeImpactDelta` 안) | top-level function | **진양성** — `computeImpactDelta`를 정확히 찾음 |
+| `diagnosticKey` | `src/impactDelta.ts:49`(top-level function `countAddedDiagnostics` 안) | top-level function | **진양성** — 이미 `existingNodeIds`에 있는 `countAddedDiagnostics`를 정확히 찾음(`kind: 'existing'`) |
+| `isStoredNote` | `src/noteStore.ts:319`(class method `loadShared` 안) | class method | **위음성** — `augmentedEdges: []`, budget 초과 아님 |
+| `toAdapterItem` | `src/adapterProviderShim.ts:39`(object-literal method `prepare` 안, cross-file) | object-literal method | **오귀속** — 실제로는 `prepare`가 부르는데 바깥의 `createAdapterProvider`(factory 함수)를 후보로 냄 |
+| `isPlainCandidate` | `cli/src/providers/resolve.ts:327`(top-level function `executableNotFound` 안, 다만 호출이 `flatMap(preset => ...)`의 화살표 함수 본문 안) | 중첩 화살표(익명) 안의 top-level function | **위음성**, 원인 이 측정에서 완전히 규명 못함(class-method 패턴과 다른 경로로 보임 — 후속 조사 필요) |
+
+**근본 원인 1(확정, 코드 읽기+실행 둘 다로 확인) — `ENCLOSING_FUNCTION_PATTERNS`가 class
+method와 object-literal method shorthand를 아예 다루지 않는다.** 이 패턴은 정확히 셋뿐이다
+(`function name(`, `const name = (...) =>`, `const name = function(`) — `methodName(...) {`
+형태(class method든 object literal method든)는 어느 것도 안 걸린다. 이게 두 가지 다른 실패
+모양을 만든다:
+- **뒤로 스캔하다 아무 패턴도 못 만나면**: 위음성(`finish`, `isStoredNote`) — 후보를 아예 안 냄.
+- **뒤로 스캔하다 안 맞는 scope를 건너뛰고 그 바깥의 맞는 scope에 도달하면**: **오귀속**
+  (`toAdapterItem`) — `prepare`(실제로 호출하는 함수)를 건너뛰고 `createAdapterProvider`
+  (그 함수를 반환할 뿐 자신은 `toAdapterItem`을 안 부르는 outer factory)를 후보로 낸다. **이건
+  단순 위음성보다 나쁘다** — adapter가 "이 함수가 candidate caller다"라고 확신 있게 틀린 답을
+  낸다. class method/object-literal method는 이 저장소를 포함해 실제 TypeScript 코드베이스에서
+  극히 흔한 형태다 — 이 gap이 fixture corpus(위음성 0건, 오귀속 0건 보고)에 전혀 안 잡힌 이유는
+  fixture 12개 중 어느 것도 class method나 object-literal method 안에 콜백을 두지 않았기
+  때문이다(직접 확인, `cli/src/test/fixtures/typescript-dynamic-callback/*.ts` 재확인).
+
+**근본 원인 2(확정, 실행으로 확인) — 워크스페이스 루트 자체가 크면 파일-walk budget이 실제
+대상 파일에 도달하기 전에 소진될 수 있다.** `workspace: '/Users/woony6/dev/Impact-Lens'`(모노레포
+루트, `IGNORED_DIRECTORIES`에 없는 `.claude/worktrees/agent-*`가 이 저장소 전체의 중첩 사본을
+여럿 담고 있음)로 같은 `edgeKey` 쿼리를 실행하면 `augmentation_budget_exceeded`가 뜨고
+`augmentedEdges: []`가 된다 — `workspace: '/Users/woony6/dev/Impact-Lens/src'`(범위를 좁힌 것)로
+바꾸면 정확히 찾는다. **이건 fixture testing이 원리적으로 못 잡는 위험이다** — fixture
+워크스페이스는 항상 작고 깨끗하다. 실사용자의 워크스페이스가 크거나(모노레포) 정리 안 된
+디렉터리(빌드 산출물이 아닌, `IGNORED_DIRECTORIES`에 없는 큰 형제 디렉터리)를 포함하면 같은
+일이 일어날 수 있다.
+
+**표본 7개 중 진양성 2건, 위음성 3건(1건은 원인 미규명), 오귀속 1건 — "38개 corpus에서 오탐
+0건"이 real-world reliability를 대표하지 않는다는 gate 7의 전제를, 이 lane 자신의 최소 표본이
+그대로 실증했다.**
+
+**이 발견이 budget 산정 순서에 미치는 영향(commander에게 별도 보고, 이 문서엔 판단만 기록)**:
+근본 원인 1(class/object-literal method enclosing scope 미지원)은 **budget 수치를 정하는 것보다
+먼저 고쳐야 할 수 있는 결함**이다 — 지금 recall/precision 위에 budget을 얹으면, 이미 이 세션이
+한 번 겪은 "가드가 fixture를 다 통과하면서 실제 코드에서 절반을 잃고 있었다"는 것과 같은 모양의
+실수를 gate 7 자신이 반복하게 된다. 이 work document는 이 판단을 내리지 않는다 — commander의
+반박/지시를 기다린다.
+
 ### 3-2. Python(`fastapi-static-v1`) — 실제 오픈소스 FastAPI 프로젝트가 필요하다
 
 **이게 이 lane의 첫 판단이다.** 이 저장소엔 실제 크기의 Python/FastAPI 코드베이스가 없다 —
