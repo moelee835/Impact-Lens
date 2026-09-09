@@ -91,7 +91,17 @@ export class ImpactAnalyzer {
 
     const nodes: ImpactNode[] = await Promise.all(
       traversal.entries.map(async entry => {
-        const relation = classifyImpactRelation(entry.depth, entry.value.item.uri.path);
+        // IL-LIM-010 stage 1 (docs/work/task-m4-il-lim-010-test-classifier.md). `.uri.path` is an
+        // absolute path - its own ancestor directories (a home directory literally named `test`, a
+        // checkout under `.../spec/...`) are not this project's own test directories, and the
+        // classifier's directory-convention rule cannot tell the difference from the outside.
+        // `asRelativePath(uri, false)` is this repository's own existing convention for exactly this
+        // (graphPanel.ts:255, impactTreeProvider.ts:267, controller.ts:672 all already use it for the
+        // path shown to the user) - passed the `Uri` object itself, not the string `.path`, so a
+        // Windows `/c:/...`-shaped path never has to be reparsed. The second argument MUST stay `false`:
+        // `true` prefixes multi-root workspace folder names onto the result, which reintroduces this
+        // exact bug through another door for a folder named `test`/`spec`.
+        const relation = classifyImpactRelation(entry.depth, vscode.workspace.asRelativePath(entry.value.item.uri, false));
         const isTest = relation === 'test';
         const note = await this.notes.resolve(entry.value.item);
         return {

@@ -9,7 +9,10 @@
 ## 목적과 사용자 가치
 
 Impact Lens는 테스트를 실행하지 않는다. `test` 분류는 `cli/src/testFile.ts`의
-`isTestFilePath()` — 파일 이름 규칙 하나뿐이다. 데이터 모델도 통과 상태를 표현할 값이 없다
+`isTestFilePath()`(**2026-09-09 정정** — IL-LIM-010 1단계, `docs/work/task-m4-il-lim-010-test-
+classifier.md`가 실제 규칙 테이블을 `cli/src/shared/testFileClassifier.ts`로 옮겼다.
+`cli/src/testFile.ts`는 이제 그 모듈을 다시 내보내는 얇은 어댑터다 — 이 문단의 "파일 이름 규칙
+하나뿐"이라는 결론 자체는 안 바뀐다) — 파일 이름 규칙 하나뿐이다. 데이터 모델도 통과 상태를 표현할 값이 없다
 (`src/types.ts:6`, `TestFreshness = 'notRun' | 'outdated'`). 그런데 `src/graphPanel.ts`는 `test`로
 분류된 node/edge에 VS Code의 **testing 팔레트**, 그중에서도 **`testing.iconPassed`**(테스트 통과를
 뜻하는 토큰)를 색으로 썼다 — `direct`/`transitive`는 중립적인 `charts` 팔레트를 쓰는데 `test`만

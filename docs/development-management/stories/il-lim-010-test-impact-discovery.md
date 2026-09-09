@@ -144,6 +144,14 @@ parameterized test, 동적 test registration과 비표준 디렉터리는 누락
 
 ## rollout과 관측
 
+**2026-09-09 정정 — "relation 수 변화 없이"는 전제가 틀렸다.** 아래 문구는 Extension과 CLI의
+regex가 이미 일치한다는 가정 위에 쓰였다. `docs/work/task-m4-il-lim-010-test-classifier.md`(1단계
+구현)가 두 원본을 직접 실행해 재현한 결과, 30개 경로 corpus 중 10개에서 이미 답이 갈라져 있었다 —
+"공유 모듈로 합친다"만으로는 relation 수가 그대로 유지될 수 없다(어느 쪽이든 한쪽은 답이 바뀐다).
+이 문구의 실제 의도(사용자 목록이 예고 없이 바뀌지 않게 하는 위험 통제)는 살려서, "수 무변경"
+대신 "모든 변경 경로를 열거하고 근거를 남긴다"로 갚았다 — 실제 변경 집합·근거·checksum 검산은 위
+work document 참고. 이 정정은 원문을 지우지 않고 아래에 그대로 둔다(이 저장소의 정정 관례).
+
 - 1차에서는 classifier 공유와 evidence만 추가해 relation 수 변화 없이 출시한다.
 - 사용자 pattern은 workspace setting opt-in으로 추가하고 invalid pattern을 조용히 무시하지 않는다.
 - adapter/import 기능은 framework별 experimental 상태에서 fixture precision을 기록한다.

@@ -57,20 +57,28 @@ export async function analyzeImpact(
   const nodes = await Promise.all(traversal.entries.map(async entry => {
     const itemFile = uriFile(itemUri(entry.item));
     const note = noteResolver ? await noteResolver(entry.item) : unavailableNote();
+    // IL-LIM-010 stage 1 (docs/work/task-m4-il-lim-010-test-classifier.md). `classifyRelation()` must
+    // see the SAME workspace-relative path already computed for `file` below, not the raw absolute
+    // `itemFile` - an absolute path's own ancestor directories (a home directory literally named `test`,
+    // a checkout under `.../spec/...`) are not the project's own test directories, and the classifier's
+    // directory-convention rule cannot tell the difference from the outside. Computed once and reused so
+    // this doesn't run `relativeFile()` a third time.
+    const relativeItemFile = relativeFile(workspace, itemFile);
+    const relation = classifyRelation(entry.depth, relativeItemFile);
     return {
       id: symbolId(entry.item),
       name: entry.item.name,
       kind: symbolKindName(entry.item.kind),
       kindCode: entry.item.kind,
       detail: entry.item.detail ?? '',
-      file: relativeFile(workspace, itemFile),
+      file: relativeItemFile,
       uri: entry.item.uri,
       outsideWorkspace: isOutside(workspace, itemFile),
       declarationRange: externalRange(entry.item.range),
       selectionRange: externalRange(entry.item.selectionRange),
       depth: entry.depth,
-      relation: classifyRelation(entry.depth, itemFile),
-      testDistance: classifyRelation(entry.depth, itemFile) === 'test' ? entry.depth : null,
+      relation,
+      testDistance: relation === 'test' ? entry.depth : null,
       note,
       diagnostics: diagnosticsForItem(diagnosticMap.get(entry.item.uri) ?? [], entry.item),
       source: await sourceForItem(entry.item, request.includeSource ?? 'none'),
