@@ -129,6 +129,13 @@ FastAPI `Depends()`와 decorator route, Spring/Guice 계열 DI처럼 프레임�
 - 첫 adapter를 `fastapi-static-v1`로 한정하고 지원 문법을 versioned capability로 공개한다.
 - 공통 `FrameworkRelationAdapter`는 adapter별 언어, framework/version, project marker, relation type과
   confidence를 선언한다. FastAPI 규칙을 Spring이나 다른 container에 재사용하지 않는다.
+  > **2026-09-09 정정**: 위 "confidence를 선언한다"는 M4 stage 1(`docs/work/task-m4-stage1-evidence-contract.md`)
+  > 에서 폐기·대체된 어휘다 — 실제로 shipped된 adapter SPI(`cli/src/shared/adapters/types.ts`)는
+  > `confidence` 필드를 선언하지 않고, 서로 독립된 두 축 `source`(`static-inference` |
+  > `runtime-observation`)와 `resolution`(`single` | `multiple`)을 쓴다. 이 자리는 Spring adapter
+  > 시작하는 사람이 Spring 절보다 먼저 읽는 위치라 특히 정확해야 한다 — 아래 원문은 보존하되, 실제
+  > 계약은 `source`+`resolution`이다. (같은 폐기 어휘는 `m4-semantic-augmentation.md`에도 있었고
+  > 같은 날 정정됐다.)
 - v1 관계는 다음 순서로 지원한다.
   1. 함수 parameter의 `Depends(target)`와 `Annotated[T, Depends(target)]`
   2. route decorator의 `dependencies=[Depends(target)]`
