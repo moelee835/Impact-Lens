@@ -60,19 +60,34 @@ commander가 이 결론을 받아들여 receiver-resolve 제안을 철회했다.
 
 ### 측정 4 — `prepare()`는 함수 참조 위치에서 이름 일치가 아니라 진짜 재확인을 한다
 
-`register(handler)`의 **인자 위치**(`handler`가 선언이 아니라 참조로 쓰인 자리)에서 `prepare()`를
-호출 → `handler.ts`의 선언과 **완전히 같은 canonical item**(같은 `uri`, 같은 `selectionRange`)을
-반환한다. `obj.onClick = handler`(프로퍼티 대입)의 `handler` 위치에서도 마찬가지로 같은 canonical
-item을 반환한다.
+commander가 "이 adapter의 안전성 논증 전체가 여기 달려 있다"고 지적해 5개 위치 전부 개별 측정했다
+(reviewer가 측정한 `emitter`는 변수였다 — **함수 참조** 위치는 이 측정이 처음이다).
 
-**shadowing 부정 fixture**: `register(handler)` 안의 `handler`가 **지역 함수**(같은 이름, 다른
-scope)일 때 `prepare()`는 `shadowed.ts`(지역 선언)를 반환하고 `handler.ts`(찾으려는 대상)를
-**반환하지 않는다** — uri가 다르다. 즉 **이름만 맞추는 접근이었다면 이 경우를 오탐으로 만들었을
-것을, `prepare()` 기반 재확인이 막는다.** gate 4의 `importsNameFromModule`이 지키는 것과 같은
-규율("이름 일치만으로 연결하지 않는다", story 3단계 항목 2)이 **`definition`/`reference` provider
-없이, 이미 SPI에 있는 `prepare()`만으로 성립한다**는 뜻이다 — story는 이 재확인에
-definition/reference provider가 필요하다고 적어 뒀지만, 측정 결과 call-hierarchy의 `prepare()`가
-이미 그 역할을 한다(적어도 callable 대상에 대해서는).
+| 참조 위치 | `prepare()` 결과 | `handler.ts` 선언과 동일 canonical item? |
+| --- | --- | --- |
+| `handler.ts`의 선언 자체(대조군) | non-empty | 자기 자신이므로 동일 |
+| `register(handler)`의 `handler` | non-empty | **동일**(같은 uri, 같은 selectionRange) |
+| `arr.forEach(handler)`의 `handler` | non-empty | **동일** |
+| `setTimeout(handler, 0)`의 `handler` | non-empty | **동일** |
+| `obj.onClick = handler`의 `handler` | non-empty | **동일** |
+| `register(handler)`인데 `handler`가 **지역 함수**(shadowing 부정 fixture) | non-empty | **다르다** — 지역 선언의 uri를 반환, `handler.ts`가 아님 |
+
+**함수 참조는 선언 위치가 아니어도 `prepare()`가 실패하지 않는다** — 측정 3(변수 `emitter`)과
+정확히 대조된다: `emitter`(변수)는 참조든 선언이든 전부 빈 배열, `handler`(함수)는 참조·선언
+어디서든 non-empty다. **이게 유형 A/B를 가르는 근거이자(결정 1 참고), 이 adapter의 핵심 안전성
+논증이다**: `register(handler)`의 `handler`가 정말 원하는 그 함수인지, 같은 이름의 다른 스코프
+함수인지를 **텍스트로 안 맞추고 `prepare()`로 확정**할 수 있다 — shadowing 부정 fixture가 그걸
+증명한다(다른 uri를 반환하므로 adapter가 이 경우 edge를 안 낸다).
+
+**의미**: gate 4의 `importsNameFromModule`이 지키는 규율("이름 일치만으로 연결하지 않는다", story
+3단계 항목 2)이 **`definition`/`reference` provider 없이, 이미 SPI에 있는 `prepare()`만으로
+성립한다** — story는 이 재확인에 definition/reference provider가 필요하다고 적어 뒀지만, 측정
+결과 call-hierarchy의 `prepare()`가 이미 그 역할을 한다(callable 대상에 한해). 그래서 이 adapter는
+**FastAPI adapter가 손으로 짠 이름 해석(`importsNameFromModule`, ~200줄) 없이, language server에
+물어서 확정하는 방식으로 시작할 수 있다** — gate 4가 네 라운드에 걸쳐 닫은 오탐 종류(같은 이름 다른
+심볼, 스코프 shadowing, 역방향 alias)가 **이 adapter에서는 설계상 발생하지 않는다**(shadowing은
+위에서 직접 fixture로 확인했다; 나머지 두 종류는 구현 lane에서 구체적 fixture로 추가 확인이
+필요하다 — 지금은 설계 추론이다).
 
 ## 결정
 
@@ -130,13 +145,50 @@ definition/reference provider가 필요하다고 적어 뒀지만, 측정 결과
 - **유형 B가 오늘 SPI로 재확인 가능함은 이미 측정으로 확인**(측정 4, `obj.onClick = handler`) —
   구문 형태가 다르다고 재확인 메커니즘까지 다른 건 아니다.
 
-### 3. `AdapterResult.mountUnresolved`/`DEFAULT_BUDGET` 일반화는 이번 lane에서 판단하지 않는다
+### 3. 정확도 corpus 분모 — fixture를 만들기 전에 세는 기준을 먼저 적는다
 
-commander가 별도로 지적한 SPI 결함(`mountUnresolved`가 FastAPI 어휘로 굳어 있고, 두 번째
-adapter에는 무의미한 `mountUnresolved: false`를 강제로 반환해야 함)은 **이 lane이 실제 두 번째
-데이터 포인트를 만든 뒤에** 판단한다 — 지금 고치면 하나의 데이터로 추측하는 것과 같다. 구현
-lane에서 이 필드를 실제로 채워야 하는 순간 마주치면, 그 자리에서 "일반화 vs 그대로 둠"을 결정하고
-이 문서(또는 구현 work doc)에 기록한다.
+FastAPI adapter의 precision 분모가 19→25→29→31→34→36→38로 다섯 번 흔들린 이유는 **세고 나서
+기준을 맞췄기 때문**이었다(`docs/work/task-m4-il-lim-010-test-classifier.md`에도 같은 교훈이
+반복된다). 이번엔 반대로 한다 — `cli/src/test/pythonFastapiIntegration.test.ts`에 사후 적용했던
+기계적 기준을 그대로 이식해 **fixture를 하나도 안 만든 지금** 적는다:
+
+> callback/event adapter의 정확도 corpus에 들어가는 테스트는, 이 adapter가 만들 예정인 통합
+> 테스트 파일(가칭 `callbackEventIntegration.test.ts`)에서 **`augmentedEdges.length`를 정확히
+> 0 또는 1로 단정하는 것이 그 테스트의 주된 목적인 테스트 전부**다. 아래는 제외한다:
+> - budget/latency가 주 목적인 테스트(FastAPI corpus와 같은 제외 기준).
+> - 테스트 이름에 리터럴 부분 문자열 "known false negative" 또는 "accepted residual"이 포함된
+>   테스트(가능한 미탐/잔여를 의도적으로 pin하는 테스트 — 정확도 주장에 넣으면 스스로 인정한
+>   한계를 강점으로 착각하게 만든다).
+
+이 기준을 구현 lane의 work document 맨 위에 그대로 복사해 넣고, fixture를 다 만든 뒤 이 기준을
+기계적으로 적용한 개수를 보고한다 — 사람이 센 숫자를 먼저 보고하고 기준을 나중에 맞추지 않는다.
+
+### 4. `AdapterResult.mountUnresolved`/`DEFAULT_BUDGET` — 두 번째 데이터 포인트로 지금 결정한다
+
+commander가 "미루면 세 번째 adapter까지 간다"고 지적해 이번엔 미루지 않는다. 근거는 이 adapter가
+실제로 어떤 모양으로 동작할지에 대한 설계 추론이다(구현 전이라 확정은 아니다 — fixture 작업 중
+틀렸다고 밝혀지면 이 절을 정정한다):
+
+**`mountUnresolved` → optional로 바꾼다(`mountUnresolved?: boolean`)**. 이 필드는 FastAPI adapter의
+"route decorator는 찾았는데 mount 여부를 확인 못 함"이라는 **FastAPI 고유의 중간 상태**를 표현한다.
+callback/event adapter에는 그런 중간 상태가 없다 — 유형 A/B 둘 다 "패턴을 찾고 `prepare()`로
+재확인" 두 단계뿐이고, 재확인이 실패하면 그건 FastAPI의 "mount 불확실"이 아니라 그냥 **기각**이다
+(gate 4와 같은 fold-to-abandonment). 그러니 이 adapter는 `mountUnresolved`에 대응하는 개념이 아예
+없다 — 강제로 `false`를 반환하게 하면 "확인했고 문제없다"로 읽히는데 실제로는 "이 개념 자체가
+무관하다"는, commander가 이미 지적한 바로 그 결함을 새 adapter에도 그대로 물려주는 것이다.
+optional로 바꾸면 FastAPI는 그대로 `true`/`false`를 반환하고, callback/event adapter는 필드
+자체를 안 채워도 된다 — `runAugmentation()`의 `if (result.mountUnresolved)` 체크는 `undefined`에도
+그대로 안전하다(falsy).
+
+**`DEFAULT_BUDGET`의 shape(`{maxFiles, maxMatchesPerFile}`)는 그대로 공유한다 — adapter별 override만
+추가한다.** 이 adapter도 FastAPI와 같은 비용 모델을 쓸 가능성이 높다: 파일을 텍스트/정규식으로
+스캔해 후보 패턴(유형 A/B 각각의 구문 모양)을 찾고 `prepare()`로 재확인하는 방식이라, "파일 몇 개를
+스캔했는가, 파일당 매치가 몇 개인가"라는 같은 두 축으로 비용이 결정된다 — **shape을 바꿀 이유가
+없다.** 다만 **숫자(200/20)는 FastAPI(Python 프로젝트)를 기준으로 잰 값**이고, TS/JS 워크스페이스는
+파일 수 분포가 다를 수 있어(모노레포 등) 같은 숫자가 맞으리라는 보장이 없다 — 그래서 `RegisteredAdapter`에
+optional `budget?: AdapterBudget`을 추가해 어댑터가 자기 값을 선언할 수 있게 하고, 없으면
+`DEFAULT_BUDGET`로 떨어지게 한다(하위 호환 — 기존 FastAPI 등록은 변경 없음). **정확한 숫자는 구현
+lane에서 실측(측정 원칙 그대로 — 추측하지 않는다)한다.**
 
 ## 범위
 
