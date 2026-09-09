@@ -805,6 +805,16 @@ function sameFile(a: string, b: string): boolean {
  * unchanged - not because it was shown to be right, but because no evidence pushed it in a specific other
  * direction.
  *
+ * 2026-09-09 CORRECTION (gate 7, `docs/work/task-m4-gate7-budget-and-real-code-measurement.md`) - the
+ * first of the two open questions above is now answered: yes, real FastAPI workspaces commonly exceed
+ * 200 `.py` files. Querying `Netflix/dispatch` (717 `.py` files after `IGNORED_DIRECTORIES` pruning,
+ * unmodified) hit `augmentation_budget_exceeded` on 7 of 8 real cross-file queries - the file that
+ * answered one of them correctly sits at position #281 of 717, well inside an ordinary project, not at
+ * some pathological tail. `DEFAULT_BUDGET.maxFiles` in `./index.ts` moved to 1500 (derived from the
+ * latency budget that same gate set, not an independent guess - see that constant's own comment). The
+ * second open question (how common a bare-identifier mount is relative to unrecognized shapes) is still
+ * not measured - this correction only closes the first.
+ *
  * Matching only a bare identifier argument (`include_router(name` / `include_router(name,`, never
  * `include_router(name()` or `include_router(get_name())`) IS deliberate: it is exactly what leaves
  * dynamic registration (stage 1's own out-of-scope example) unmatched, with no special-casing needed.
