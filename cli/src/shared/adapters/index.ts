@@ -6,36 +6,58 @@ import { dynamicCallbackAdapter } from './dynamicCallbackAdapter';
 import { fastapiDependencyAdapter } from './fastapiDependencyAdapter';
 import { AdapterBudget, RegisteredAdapter } from './types';
 
-export const ADAPTERS: readonly RegisteredAdapter[] = [
-  { id: 'fastapi-static-v1', languageIds: ['python'], run: fastapiDependencyAdapter },
-  {
-    id: 'dynamic-callback-static-v1',
-    languageIds: ['typescript', 'typescriptreact', 'javascript', 'javascriptreact'],
-    run: dynamicCallbackAdapter,
-  },
-];
-
 /** Default budget, used unless a `RegisteredAdapter` declares its own (`./types.ts`'s `budget` field -
  * IL-LIM-001 stage 3, second adapter). The {maxFiles, maxMatchesPerFile} SHAPE stays shared across every
  * adapter - the decision that shape didn't need to change once a second adapter existed, see that
  * field's doc comment - only the NUMBERS are now per-adapter.
  *
- * `maxFiles: 200` was re-reviewed in stage 3 (latency measured, kept unchanged) on the strength of an
- * open question stage 3 explicitly left unanswered: "whether real FastAPI workspaces commonly exceed
- * 200 `.py` files in the first place" (see `isRouterMounted`'s doc comment in
- * `./fastapiDependencyAdapter.ts`). Gate 7's real-code measurement
- * (`docs/work/task-m4-gate7-budget-and-real-code-measurement.md`) answered it: querying
- * `Netflix/dispatch` (real production code, 717 `.py` files after `IGNORED_DIRECTORIES` pruning)
- * unmodified hit `augmentation_budget_exceeded` on 7 of 8 real cross-file queries - the 200 cap was
- * already too small for an ordinary production-scale project, at 39% of the way through its file
- * count, not at some pathological edge. `maxFiles: 1500` is derived, not guessed, from that gate's own
- * latency budget: `budget(400ms, itself provisional pending an extension-host measurement) ÷ measured
- * per-file cost (~0.253ms/file, the worst-case query at 717 files) ≈ 1581`, rounded down for safety
- * margin against measurement noise and the observed non-linearity (per-file cost was lower - ~0.115ms -
- * at the 200-file mark, so extrapolating the 717-file rate outward is itself an unverified assumption
- * past the measured range). If the 400ms figure moves once extension-host latency is actually measured,
- * this value should be recomputed with it, not left stale. */
-const DEFAULT_BUDGET: AdapterBudget = { maxFiles: 1500, maxMatchesPerFile: 20 };
+ * `maxFiles: 200` - re-reviewed in stage 3 (latency measured, kept unchanged); see
+ * `isRouterMounted`'s doc comment in `./fastapiDependencyAdapter.ts` for the measured cost. Still
+ * `dynamic-callback-static-v1`'s value (unchanged by gate 7, see its own registration comment below) -
+ * `fastapi-static-v1` overrides this via `FASTAPI_BUDGET` below. */
+const DEFAULT_BUDGET: AdapterBudget = { maxFiles: 200, maxMatchesPerFile: 20 };
+
+/** `fastapi-static-v1`-only override (gate 7,
+ * `docs/work/task-m4-gate7-budget-and-real-code-measurement.md` / `docs/work/task-m4-gate7-apply-
+ * maxfiles.md`). `maxFiles: 200` was re-reviewed in stage 3 on the strength of an open question stage 3
+ * explicitly left unanswered: "whether real FastAPI workspaces commonly exceed 200 `.py` files in the
+ * first place". Gate 7's real-code measurement answered it: querying `Netflix/dispatch` (real
+ * production code, 717 `.py` files after `IGNORED_DIRECTORIES` pruning) unmodified hit
+ * `augmentation_budget_exceeded` on 7 of 8 real cross-file queries - the 200 cap was already too small
+ * for an ordinary production-scale project, at 39% of the way through its file count, not at some
+ * pathological edge. `maxFiles: 1500` is derived, not guessed, from that gate's own latency budget:
+ * `budget(400ms, itself provisional pending an extension-host measurement) ÷ measured per-file cost
+ * (~0.253ms/file, the worst-case query at 717 files) ≈ 1581`, rounded down for safety margin against
+ * measurement noise and the observed non-linearity (per-file cost was lower - ~0.115ms - at the
+ * 200-file mark, so extrapolating the 717-file rate outward is itself an unverified assumption past the
+ * measured range). If the 400ms figure moves once extension-host latency is actually measured, this
+ * value should be recomputed with it, not left stale. This measurement is Python-file-walk-specific
+ * (`walkPythonFiles()`) - it says nothing about `dynamic-callback-static-v1`'s own
+ * `walkSourceFiles()` cost over TS/JS files, which is why that adapter keeps `DEFAULT_BUDGET` above
+ * instead of also picking this value up. */
+const FASTAPI_BUDGET: AdapterBudget = { maxFiles: 1500, maxMatchesPerFile: 20 };
+
+export const ADAPTERS: readonly RegisteredAdapter[] = [
+  {
+    id: 'fastapi-static-v1',
+    languageIds: ['python'],
+    run: fastapiDependencyAdapter,
+    // Scoped to THIS adapter only (`./types.ts`'s `budget` field, IL-LIM-001 stage 3) - not raised via
+    // `DEFAULT_BUDGET` above, which `dynamic-callback-static-v1` also inherits (reviewer's finding on
+    // gate 7's PR #102: an earlier version of this change raised `DEFAULT_BUDGET.maxFiles` directly,
+    // silently also raising the callback adapter's own `walkSourceFiles()` budget - a completely
+    // different code path over TS/JS files this gate's measurement never touched at all). See
+    // `FASTAPI_BUDGET`'s own comment above for the derivation.
+    budget: FASTAPI_BUDGET,
+  },
+  {
+    id: 'dynamic-callback-static-v1',
+    languageIds: ['typescript', 'typescriptreact', 'javascript', 'javascriptreact'],
+    run: dynamicCallbackAdapter,
+    // Deliberately NOT touched by gate 7 - stays on `DEFAULT_BUDGET` (200) until this adapter's own
+    // per-file cost over TS/JS `walkSourceFiles()` is measured the same way `fastapi-static-v1`'s was.
+  },
+];
 
 export interface AugmentationResult {
   readonly edges: readonly AugmentedEdge[];
