@@ -1,0 +1,68 @@
+{
+  "file": "28-augmentation-internal-error-correctly-reported.json",
+  "name": "augmentation_internal_error correctly reported using coverage.ts's own wording",
+  "description": "M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md): registered alongside coverage.ts's augmentationInternalErrorDetails() producer for the same reason 27-augmentation-adapter-failed-correctly-reported.json exists - an unregistered severity:'warning' code falls through surfacesLimitation()'s default and penalizes an honest disclosure using this code's own recommended wording. Distinct code from augmentation_adapter_failed on purpose (commander's finding, recorded in the design doc): this represents runAugmentation() itself breaking outside any adapter's own try/catch, a bug in this codebase rather than an adapter reaching one of its documented failure modes - the two must never be surfaced with each other's wording. Must-pass fixture, verified by running the engine.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": { "name": "@impact-lens/cli", "version": "0.9.0" },
+      "node": { "version": "22.0.0", "major": 22, "executable": "node" },
+      "runner": { "source": "checkout" }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "typescript-language-server",
+        "requestedLanguageId": "typescript",
+        "detectedLanguageId": "typescript",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": { "callHierarchy": true, "diagnostics": true },
+        "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+        "lifecycle": { "stage": "query", "status": "ready" }
+      },
+      "coverage": {
+        "traversal": { "status": "complete", "requestedDepth": 5, "reachedDepth": 1, "maxNodes": 120 },
+        "semantic": { "status": "static-only", "evidenceSources": ["lsp-call-hierarchy"] },
+        "indexing": { "status": "ready", "evidence": { "signal": "work-done-progress", "detail": "indexing" } },
+        "reasons": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "augmentation_internal_error"]
+      },
+      "completion": { "requestStatus": "succeeded", "traversalStatus": "exhausted", "semanticScope": "provider-static", "indexingStatus": "ready" },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "rootId": "root111111111111111111",
+      "nodes": [
+        { "id": "root111111111111111111", "name": "scheduleRefresh" }
+      ],
+      "augmentedEdges": [],
+      "limitationDetails": [
+        { "code": "dynamic_calls_not_inferred", "severity": "info", "scope": "semantic", "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy." },
+        { "code": "unsaved_buffers_unavailable", "severity": "info", "scope": "request", "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk." },
+        { "code": "augmentation_internal_error", "severity": "warning", "scope": "semantic", "message": "Augmentation itself failed unexpectedly (TypeError), not any specific adapter. Augmented edges are missing for this request; the static call graph above is unaffected.", "action": "This indicates a bug in Impact Lens itself rather than a limitation of any adapter; consider reporting it." }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "typescript-language-server",
+      "requestedLanguageId": "typescript",
+      "detectedLanguageId": "typescript",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": { "callHierarchy": true, "diagnostics": true },
+      "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+      "lifecycle": { "stage": "query", "status": "ready" }
+    },
+    "limitations": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "augmentation_internal_error"],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from typescript-language-server with augmentation enabled; the provider index is ready. scheduleRefresh has no confirmed incoming callers. Augmentation itself failed unexpectedly (TypeError) rather than any specific adapter, so augmented edges are missing for this request - the static call graph above is unaffected.",
+  "expect": "pass",
+  "expectedViolations": []
+}

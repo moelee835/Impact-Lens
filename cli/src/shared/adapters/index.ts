@@ -1,7 +1,7 @@
 // M4 stage 2 - the whole "registry" is this one array. See `./types.ts` for why this is deliberately
 // not a bigger plugin-loading abstraction.
 
-import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../../types';
+import { AugmentationAdapterFailure, AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../../types';
 import { dynamicCallbackAdapter } from './dynamicCallbackAdapter';
 import { fastapiDependencyAdapter } from './fastapiDependencyAdapter';
 import { AdapterBudget, RegisteredAdapter } from './types';
@@ -29,6 +29,20 @@ export interface AugmentationResult {
   readonly edges: readonly AugmentedEdge[];
   readonly budgetExceededAdapterIds: readonly string[];
   readonly mountUnresolvedAdapterIds: readonly string[];
+  /** M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md,
+   * closing the M4 closure audit's Gate 1): adapters whose `run()` threw instead of returning an
+   * `AdapterResult`, recorded separately from `budgetExceededAdapterIds`/`mountUnresolvedAdapterIds`
+   * (both of which are the adapter reporting its OWN degraded state through its normal return value) -
+   * this is the adapter failing to return at all. Every other adapter's result is unaffected - this
+   * array existing at all is what proves a throw degraded only itself, never anything else in this loop.
+   * `AugmentationAdapterFailure` (`../../types.ts`) is a named type, not inlined here, for the same
+   * reason `types.ts`'s own doc comment on it gives: an inline object type nested inside
+   * `AnalysisObservations` broke `stateReachability.sources.test.ts`'s field-inventory scan. */
+  readonly failedAdapters: readonly AugmentationAdapterFailure[];
+}
+
+function errorKindOf(error: unknown): string {
+  return error instanceof Error ? error.name : 'unknown';
 }
 
 /**
@@ -45,6 +59,10 @@ export interface AugmentationResult {
  * second host's provider shim had to implement `incoming`/`collectDiagnostics`/`dispose`/`capabilities`
  * just to satisfy a type nothing actually uses. The CLI's own call site (`impact.ts`) needed no change -
  * a full `CallHierarchyProvider` still structurally satisfies this narrower parameter type.
+ *
+ * `adapters` defaults to the real registry and exists purely for injection in tests (M4 augmentation-
+ * failure-isolation lane) - neither production call site (`cli/src/impact.ts`, `src/impactAnalyzer.ts`)
+ * passes it, so both keep using the real `ADAPTERS` array unchanged.
  */
 export async function runAugmentation(
   enabled: boolean,
@@ -58,33 +76,47 @@ export async function runAugmentation(
   // adapter.md, see AdapterInput.idOf's own doc comment for why an adapter cannot compute this itself).
   // The CLI passes its own `symbolId` here; a second host (the VS Code extension) passes its own.
   idOf: (item: CallHierarchyItem) => string,
+  adapters: readonly RegisteredAdapter[] = ADAPTERS,
 ): Promise<AugmentationResult> {
   if (!enabled) {
-    return { edges: [], budgetExceededAdapterIds: [], mountUnresolvedAdapterIds: [] };
+    return { edges: [], budgetExceededAdapterIds: [], mountUnresolvedAdapterIds: [], failedAdapters: [] };
   }
   const edges: AugmentedEdge[] = [];
   const budgetExceededAdapterIds: string[] = [];
   const mountUnresolvedAdapterIds: string[] = [];
-  for (const adapter of ADAPTERS) {
+  const failedAdapters: AugmentationAdapterFailure[] = [];
+  for (const adapter of adapters) {
     if (!adapter.languageIds.includes(languageId)) {
       continue;
     }
-    const result = await adapter.run({
-      workspace,
-      root,
-      rootId,
-      provider,
-      existingNodeIds,
-      idOf,
-      budget: adapter.budget ?? DEFAULT_BUDGET,
-    });
-    edges.push(...result.edges);
-    if (result.budgetExceeded) {
-      budgetExceededAdapterIds.push(adapter.id);
-    }
-    if (result.mountUnresolved) {
-      mountUnresolvedAdapterIds.push(adapter.id);
+    // Blanket catch, deliberately symmetric with `fastapiDependencyAdapter.ts`'s `resolveEndpoint()`
+    // (which folds every `prepare()` exception to a no-match rather than distinguishing error types) and
+    // with gate 4's completeness argument ("a failed re-verification, a thrown exception included,
+    // always folds toward no-edge, never toward a promotion") - an adapter's whole job is "produce
+    // nothing when it cannot confirm something", and a thrown exception is one more way of not
+    // confirming. This one adapter's failure must not affect any OTHER adapter still to run in this same
+    // loop, which is why the catch sits here and not around the loop or around this function's caller -
+    // both of those would let one adapter's throw erase every other adapter's already-computed edges.
+    try {
+      const result = await adapter.run({
+        workspace,
+        root,
+        rootId,
+        provider,
+        existingNodeIds,
+        idOf,
+        budget: adapter.budget ?? DEFAULT_BUDGET,
+      });
+      edges.push(...result.edges);
+      if (result.budgetExceeded) {
+        budgetExceededAdapterIds.push(adapter.id);
+      }
+      if (result.mountUnresolved) {
+        mountUnresolvedAdapterIds.push(adapter.id);
+      }
+    } catch (error) {
+      failedAdapters.push({ adapterId: adapter.id, errorKind: errorKindOf(error) });
     }
   }
-  return { edges, budgetExceededAdapterIds, mountUnresolvedAdapterIds };
+  return { edges, budgetExceededAdapterIds, mountUnresolvedAdapterIds, failedAdapters };
 }

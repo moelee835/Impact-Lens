@@ -8,6 +8,7 @@ import { NoteStore } from './noteStore';
 import { createSymbolKey } from './symbolIdentity';
 import { classifyImpactRelation } from './testFile';
 import { ImpactDiagnostic, ImpactEdge, ImpactNode, ImpactResult } from './types';
+import type { AugmentedEdge } from '../cli/dist/types';
 // This relative path depends on `src/` and `out/` being siblings ONE level under the repo root, both
 // today (`tsconfig.json`'s `rootDir: "src"`/`outDir: "out"`) - `src/foo.ts`'s `../cli/dist/...` compiles
 // unchanged into `out/foo.js`'s `require("../cli/dist/...")`, and that resolves correctly only because
@@ -178,18 +179,37 @@ export class ImpactAnalyzer {
     if (augmentationEnabled && workspaceFolder && !isLocalFileWorkspace) {
       augmentationLimitations.push('augmentation_unsupported_workspace');
     }
-    const augmentedEdges = workspaceFolder && isLocalFileWorkspace
-      ? (await runAugmentation(
-        augmentationEnabled,
-        languageId,
-        workspaceFolder.uri.fsPath,
-        toAdapterItem(rootItem),
-        symbolKey(rootItem),
-        createAdapterProvider(),
-        new Set(nodes.map(node => node.id)),
-        idOf,
-      )).edges
-      : [];
+    // M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md,
+    // closing the M4 closure audit's Gate 1): `runAugmentation()` already isolates each adapter's own
+    // throw from every other adapter internally (its per-adapter catch, `cli/src/shared/adapters/
+    // index.ts`). This outer catch is for `runAugmentation()`'s own orchestration code breaking outside
+    // that loop - a bug in this codebase, not in an adapter (`augmentation_internal_error`, distinct
+    // from `augmentation_adapter_failed` below - see that lane's design doc for why the two must not be
+    // conflated). Either way `nodes`/`edges` above are already computed by `traverseIncoming` and this
+    // catch cannot touch them - only `augmentedEdges`/`augmentationLimitations` are affected. This host's
+    // `ImpactResult.limitations` is a plain string-code array (no structured `LimitationDetail` here
+    // unlike the CLI), so unlike `cli/src/impact.ts` this cannot also carry `errorKind`/adapter id.
+    let augmentedEdges: readonly AugmentedEdge[] = [];
+    if (workspaceFolder && isLocalFileWorkspace) {
+      try {
+        const augmentation = await runAugmentation(
+          augmentationEnabled,
+          languageId,
+          workspaceFolder.uri.fsPath,
+          toAdapterItem(rootItem),
+          symbolKey(rootItem),
+          createAdapterProvider(),
+          new Set(nodes.map(node => node.id)),
+          idOf,
+        );
+        augmentedEdges = augmentation.edges;
+        if (augmentation.failedAdapters.length > 0) {
+          augmentationLimitations.push('augmentation_adapter_failed');
+        }
+      } catch {
+        augmentationLimitations.push('augmentation_internal_error');
+      }
+    }
 
     const coverage = vscodeCoverage(
       traversal.limits,

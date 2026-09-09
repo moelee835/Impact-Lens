@@ -132,6 +132,20 @@ adapter.md`의 "gate 2 판정" 절 — 실제 VS Code webview 렌더, marker 시
   fastapi-static-v1가 도달 가능한 throw 경로를 찾았다는 뜻은 아니다(찾지 못했다, 그리고 안 찾았다는
   것과 없다는 것은 다르다).
 
+> **2026-09-09 추가 — 위 네 항목 중 마지막(실패 격리) 항목만 닫혔다, gate 1 전체는 여전히 열림.**
+> `fix/m4-augmentation-failure-isolation`(docs/work/task-m4-augmentation-failure-isolation.md)이
+> `runAugmentation()` 자신의 loop 안에 adapter별 blanket try/catch를(한 adapter의 throw가 다른
+> adapter의 결과나 이미 계산된 정적 그래프에 번지지 않도록), 그리고 두 host의
+> `await runAugmentation(...)` 호출 자체에도 바깥 catch를(orchestration 자체의 버그를 별도
+> `augmentation_internal_error`로 구분해) 추가했다 — `augmentationFailureIsolation.test.ts`의
+> 뮤테이션 검증(catch를 제거하면 정확히 의도한 테스트만 실패, 원복 후 재확인)으로 실행 검증했다.
+> **하지만 이 위 네 항목 중 나머지 둘("IL-LIM-001·010이 story 전체로 Backlog", "runtime-observation
+> 값을 실제로 만드는 producer가 없다")은 이 PR이 손대지 않았다** — 그래서 판정표의 gate 1은
+> 여전히 **열림**으로 남는다(위 세 항목 중 하나가 닫혔다고 gate 전체를 닫힘으로 바꾸지 않는다,
+> gate 4가 "수용된 잔여 1건을 안고 닫힘"이라고 정확히 구분해 적은 것과 같은 이유). 이 PR의
+> 커밋/PR 본문에는 "gate 1의 실패 격리 항목을 닫는다"로 정확히 인용한다 — "gate 1을 닫는다"라고
+> 쓰면 이 문서와 어긋난다.
+
 ### Gate 2 — JSON과 UI 구분
 
 - **JSON**: `data.edges`/`data.augmentedEdges` 분리, `resolution`/`evidenceSource` 필드, "candidate

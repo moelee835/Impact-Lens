@@ -1,11 +1,13 @@
 # M4: augmentation adapter 실패를 정적 그래프로부터 격리
 
-- 상태: 진행 중
+- 상태: 구현·검증 완료, PR 대기
 - branch: `fix/m4-augmentation-failure-isolation`
 - 선행: PR #95(`dynamic-callback-static-v1`, 두 번째 adapter) merge 완료 — 이 lane이 닫는 gap이
   두 번째 adapter로 throw 표면이 두 배가 됐다는 사실이 이 lane을 지금 시점으로 당긴 근거.
-- 근거 문서: `docs/work/task-m4-milestone-closure-audit.md`의 **Gate 1(실패 격리)** — "보조 분석
-  실패가 기존 정적 그래프를 실패시키지 않는다"가 열림으로 판정된 항목. 이 lane은 그 gate를 닫는다.
+- 근거 문서: `docs/work/task-m4-milestone-closure-audit.md`의 **Gate 1**의 세 항목 중 "보조 분석
+  실패가 기존 정적 그래프를 실패시키지 않는다" 하나. 이 lane은 그 항목만 닫는다 — gate 1 전체는
+  나머지 두 항목(IL-LIM-001·010 Backlog, `runtime-observation` producer 부재) 때문에 계속 열림
+  (아래 "M4 종료 gate 감사와의 관계" 참고).
 
 ## 목적과 사용자 가치
 
@@ -91,38 +93,69 @@ adapter가 지금 하나(`fastapi-static-v1`)에서 둘(`dynamic-callback-static
   push하는 기존 패턴을 그대로 재사용한다(이 host는 `limitationDetails` 구조 자체가 아직 CLI만큼
   안 갖춰져 있어 문자열 코드 배열에 맞춘다 — 기존 `augmentation_unsupported_workspace` push와 같은
   자리).
-- `cli/src/types.ts`의 `AnalysisObservations`에 `augmentationAdapterFailed?: readonly {
-  adapterId: string; errorKind: string }[]`와 `augmentationInternalError?: { errorKind: string }`
-  추가(기존 `augmentationBudgetExceeded`/`augmentationMountUnresolved` 옆).
+- `cli/src/types.ts`의 `AnalysisObservations`에 `augmentationAdapterFailed?: readonly
+  AugmentationAdapterFailure[]`와 `augmentationInternalError?: AugmentationInternalError` 추가
+  (기존 `augmentationBudgetExceeded`/`augmentationMountUnresolved` 옆). **실행 중 발견한 함정**:
+  처음엔 이 두 필드를 인라인 object 타입(`readonly { adapterId: string; errorKind: string }[]`)으로
+  썼는데, `stateReachability.sources.test.ts`의 필드-인벤토리 검사가 `interface
+  AnalysisObservations { ... }` 본문 전체를 정규식으로 훑어 모든 `readonly <name>:`을 최상위
+  필드로 간주해서, 중첩된 `adapterId`/`errorKind`가 분류 안 된 유령 필드로 잡혀 테스트가 실패했다
+  (읽어서 예측한 게 아니라 `npm run cli:test` 실행 후 발견). `AugmentationAdapterFailure`/
+  `AugmentationInternalError`를 그 interface 밖에 이름 있는 타입으로 선언해 해결 — `cli/src/
+  shared/adapters/index.ts`의 `AugmentationResult.failedAdapters`도 같은 타입을 재사용(중복 정의
+  대신 `types.ts`에서 import, `compileDatabase`가 이미 쓰는 "types.ts는 의존성 없는 base layer"
+  원칙을 그대로 따름).
+- `cli/src/test/stateReachabilityClassification.ts`의 `CLASSIFIED_OBSERVATION_FIELDS`/
+  `OBSERVATION_FIELD_PRODUCER`에 두 필드를 `has-producer`/`analyze-caller`로 추가 — 안 하면 위
+  필드-인벤토리 검사가 "분류 안 된 필드"로 그대로 실패한다(실행으로 확인).
 - `cli/src/coverage.ts`에 `augmentationAdapterFailedDetails()`/`augmentationInternalErrorDetails()`
   추가, `augmentationBudgetDetails()`/`mountUnresolvedDetails()`와 같은 자리에서 호출.
 - `scripts/lib/response-policy-engine.mjs`의 `LIMITATION_SURFACE_PATTERNS`에
   `augmentation_adapter_failed`/`augmentation_internal_error` 패턴 추가, `docs/work/task-m4-gate4-
   mount-false-positive.md` finding 5가 쓴 것과 같은 방식(coverage.ts 메시지 문구 + 예상 자연어
-  패러프레이즈 둘 다 커버)으로 작성.
+  패러프레이즈 둘 다 커버)으로 작성. 새 fixture 2개(`27-*`, `28-*`)를 등록 **전** 상태로 실행해
+  gate 4와 정확히 같은 모양의 `missing_high_severity_disclosure` 오탐을 재현한 뒤 등록·재확인함
+  (뮤테이션 검증, 아래 "검증 계획" 참고).
 
-## 검증 계획
+## 검증 계획 — 실행 결과
 
-- [실행] 새 unit test(`cli/src/test/`): 두 stub adapter 중 하나만 throw하는 `ADAPTERS` 배열을
-  주입 → 살아남은 adapter의 edge는 그대로 있고, 실패한 adapter는 `augmentation_adapter_failed`
-  detail 하나로만 나타나는지 확인.
-- [실행] rollback-parity 스타일 테스트: 실제 CLI 프로세스를 두 번 실행(augmentation on, adapter
-  하나가 throw하도록 조작된 workspace/설정 — 또는 index.ts 레벨 단위 테스트로 대체) 비교해
-  `augmentedEdges`/`limitationDetails`/`limitations`를 제외한 나머지 필드가 바이트 단위로 같은지.
-  M4 stage 1의 rollback 계약 테스트 형태를 그대로 차용.
-- [실행] host-level 회귀: `runAugmentation` 자체가 throw하도록 만든(예: adapters 인자에 loop
-  진입 전 던지는 것이 아니라, 함수 계약을 깨는 방식이 아니라 실제로는 이 경로가 도달 불가능할 수도
-  있음 — 도달 가능한 경로를 못 찾으면 그 사실을 "찾지 못했다"고 기록하고 vi.mock/monkeypatch로
-  강제 유발하는 테스트로 대체) 두 host 각각에서 정적 그래프가 살아남는지.
-- [실행] `response-policy-engine`에 새 fixture 2개(코드별 1개) 추가 — 새 코드를 CLI 권장 문구
-  그대로 공개한 요약이 `missing_high_severity_disclosure`로 오탐나지 않는지 실행으로 확인.
-- [실행] `npm run cli:test`, `npm test`, `test:response-policy` 전부 green, `rm -rf out cli/dist`
-  후 재확인.
-- 뮤테이션: try/catch를 제거하거나 조건을 반대로 바꿔 각 새 테스트가 정확히 의도한 대로 실패하는지
-  확인 후 원복·재확인(이 세션 전체의 비어있지-않음 규율).
+- [실행, 완료] `cli/src/test/augmentationFailureIsolation.test.ts`(신규 파일, 5 테스트):
+  - `runAugmentation()`에 stub adapter 배열 주입 — 하나만 throw → 살아남은 adapter의 edge는
+    그대로, 실패한 adapter는 `failedAdapters`에 `{ adapterId, errorKind: 'TypeError' }` 하나로만
+    기록.
+  - 둘 다 throw → `edges: []`이지만 함수 자체는 던지지 않고 `failedAdapters` 2건으로 기록.
+  - `Error`가 아닌 값(경로/심볼 이름이 든 문자열)을 throw → `errorKind: 'unknown'`으로만 기록되고
+    내용은 어디에도 담기지 않음을 확인(rollout 항목의 "내용 금지" 경계를 직접 검증).
+  - languageId가 안 맞는 adapter는 실행 자체가 안 되어 실패로 안 잡힘.
+  - `analyzeImpact()` 레벨: `t.mock.method`로 `runAugmentation` export 자체를 throw하도록 교체 →
+    augmentation 끈 baseline과 `nodes`/`edges`/`truncated`/`traversalLimits`/`complete`/`provider`/
+    `coverage.traversal`/`coverage.indexing`가 완전히 같고, `augmentedEdges`만 `[]`,
+    `limitationDetails`에 `augmentation_internal_error`만 있고 `augmentation_adapter_failed`는
+    없음을 확인(rollback-parity와 같은 극성 — 달라도 되는 필드만 제외하고 나머지 전부 비교).
+- [실행, 완료] 뮤테이션 검증 둘:
+  1. `runAugmentation()`의 `try`/`catch`를 `if (true)`로 바꾸고 catch 블록 제거 → 위 5개 테스트 중
+     throw를 실제로 일으키는 3개(단일 실패/이중 실패/비-Error 값)만 정확히 실패, 나머지 2개(언어
+     불일치, 호스트 레벨)는 그대로 통과 — 원복 후 5개 전부 재통과 확인.
+  2. `impact.ts`의 외곽 `try`/`catch`를 `if (true)`로 바꾸고 catch 제거 → `analyzeImpact()` 테스트
+     하나만 정확히 실패(`TypeError: synthetic orchestration failure`가 그대로 전파), 나머지 4개는
+     영향 없음 — 원복 후 재통과 확인.
+- [실행, 완료] `response-policy-engine`에 fixture 2개(`27-*`/`28-*`) 추가. 등록 **전** 상태로
+  `npm run test:response-policy` 실행 → gate 4와 동일한 모양의 `missing_high_severity_disclosure`
+  오탐을 실제로 재현(패턴 삭제 → 두 fixture 모두 FAIL, 정확히 그 코드로) → 패턴 복원 후 28개
+  fixture 전부(신규 2개 포함) pass, 총 36 checks pass.
+- [실행, 완료] `rm -rf out cli/dist` 후 `npm run cli:test`(448/448 pass, 3 skip 그대로),
+  `npm test`(84/84 pass), `test:response-policy`(36/36), `test:vsix-contents`(경고 없이 통과) 전부
+  재확인.
+- [실행, 완료] `npx tsc --noEmit` 양쪽(`cli/`, 루트) 타입 검사 통과 — `AnalysisObservations`
+  필드 타입 변경이 두 host 모두에서 깨지지 않음을 확인.
 
 ## M4 종료 gate 감사와의 관계
 
-이 PR이 merge되면 `docs/work/task-m4-milestone-closure-audit.md`의 **Gate 1(실패 격리)** 항목을
-"닫힘"으로 갱신하는 정정을 같은 PR에 포함한다(원문 보존, 날짜 정정 관행) — 열린 발견이 조용히
-사라지는 것과 명시적으로 닫히는 것은 다르다는 것이 commander의 지적.
+`docs/work/task-m4-milestone-closure-audit.md`의 판정표 gate 1("IL-LIM-001·002·010 수용 기준
+통과")은 세 개의 독립된 미해결 항목을 안고 "열림"이었다 — (1) IL-LIM-001·010 story 전체가
+`Backlog`, (2) `runtime-observation` 값을 실제로 만드는 producer가 없음, (3) 보조 분석 실패가
+기존 정적 그래프를 실패시키는 문제(이 lane이 다루는 것). 이 PR은 **(3)만** 닫는다 — (1)·(2)는
+손대지 않으므로 **gate 1 전체는 이 PR 이후에도 여전히 "열림"으로 남는다**. 같은 PR에 감사 문서의
+Gate 1 상세 절에 정정 하나를 추가해 이 구분을 정확히 기록한다(원문 보존, 날짜 정정 관행, gate
+4가 "수용된 잔여 1건을 안고 닫힘"이라고 정확히 구분해 적은 선례와 같은 방식) — 열린 발견 중
+일부가 닫혔다고 전체가 조용히 닫힘으로 읽히면 안 된다는 것이 commander의 지적.

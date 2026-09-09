@@ -380,6 +380,45 @@ export interface AnalysisObservations {
    * confirmed reachable entrypoint.
    */
   readonly augmentationMountUnresolved?: readonly string[];
+  /**
+   * M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md,
+   * closing the M4 closure audit's Gate 1): adapter ids whose `run()` threw instead of returning an
+   * `AdapterResult`, paired with the thrown value's `error.name` (`errorKind`) - never its `message`,
+   * which can contain a file path or symbol name (IL-LIM-001's rollout item forbids that). Distinct from
+   * `augmentationInternalError` below: this is the ADAPTER failing, one of the failure modes its own
+   * contract already allows for (`FrameworkAdapter`'s doc comment - "if it cannot confirm, produce
+   * nothing"), not a bug in this codebase's own orchestration code.
+   */
+  readonly augmentationAdapterFailed?: readonly AugmentationAdapterFailure[];
+  /**
+   * M4 augmentation-failure-isolation lane: set when the call to `runAugmentation()` itself threw,
+   * outside any single adapter's own try/catch (`./shared/adapters/index.ts`'s per-adapter blanket
+   * catch already isolates adapter failures into `augmentationAdapterFailed` above - reaching this path
+   * means the orchestration code surrounding that loop broke, which is a bug in this codebase, not in an
+   * adapter). Kept as a distinct code so this class of failure is never misread as "an adapter had
+   * trouble" (commander's finding: conflating the two lets a real orchestration bug hide forever behind
+   * the more benign-sounding adapter-failure wording).
+   */
+  readonly augmentationInternalError?: AugmentationInternalError;
+}
+
+/**
+ * M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md). Named
+ * types, not inline object literals, on purpose: `stateReachability.sources.test.ts`'s field-inventory
+ * check regex-scans everything between `interface AnalysisObservations {` and its closing `}` for
+ * `readonly <name>:` and treats every match as a top-level field to classify - an inline
+ * `{ readonly adapterId: string; readonly errorKind: string }` nested inside that interface body would
+ * have made `adapterId`/`errorKind` spuriously fail that scan as unclassified top-level fields (found by
+ * running the test, not by inspection - see this lane's design doc "구현 지점" for the exact failure).
+ * Declaring these shapes here, outside that interface's body, keeps the scan's textual boundary correct.
+ */
+export interface AugmentationAdapterFailure {
+  readonly adapterId: string;
+  readonly errorKind: string;
+}
+
+export interface AugmentationInternalError {
+  readonly errorKind: string;
 }
 
 /**

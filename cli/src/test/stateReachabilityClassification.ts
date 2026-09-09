@@ -39,6 +39,15 @@ export const CLASSIFIED_OBSERVATION_FIELDS: Readonly<Record<string, ObservationF
   // decorator it cannot confirm is mounted (corpus case 3, docs/work/task-m4-stage1-evidence-contract.md).
   // Same producer layer as augmentationBudgetExceeded above.
   augmentationMountUnresolved: 'has-producer',
+  // M4 augmentation-failure-isolation lane (docs/work/task-m4-augmentation-failure-isolation.md):
+  // impact.ts's analyzeImpact() sets this directly from runAugmentation()'s AugmentationResult.
+  // failedAdapters when non-empty - an adapter's own run() threw. Same producer layer as
+  // augmentationBudgetExceeded/augmentationMountUnresolved above.
+  augmentationAdapterFailed: 'has-producer',
+  // M4 augmentation-failure-isolation lane: impact.ts's analyzeImpact() sets this directly when the
+  // `await runAugmentation(...)` call itself throws (outside any adapter's own try/catch). Same producer
+  // layer as the other augmentation-* fields above.
+  augmentationInternalError: 'has-producer',
 };
 
 /**
@@ -71,6 +80,8 @@ export const OBSERVATION_FIELD_PRODUCER: Readonly<Record<string, 'lsp-provider' 
   semantic: 'analyze-caller',
   augmentationBudgetExceeded: 'analyze-caller',
   augmentationMountUnresolved: 'analyze-caller',
+  augmentationAdapterFailed: 'analyze-caller',
+  augmentationInternalError: 'analyze-caller',
 };
 
 export function fieldsClassified(classification: ObservationFieldClassification): readonly string[] {
