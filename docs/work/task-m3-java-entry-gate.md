@@ -273,6 +273,71 @@ jdtls가 "블로킹"으로 끝까지 버티는지, 아니면 어느 시점부터
 높다 - 그건 위치 자체가 심볼로 안 풀리는 오류이고, 이번에 관측한 건 심볼은 풀렸는데 그 답이
 나오기까지 걸린 시간이다. 서로 다른 문제를 같은 것으로 뭉치지 않는다.
 
+## 후속 실측(commander 지시, Maven보다 먼저) — 실제 dependency와 CLI timeout 상호작용
+
+**"블로킹은 무한하지 않다 - 우리 쪽 CLI 기본 timeout이 30초다."** jdtls가 Ready까지 응답을
+미루는 방식이라면, import가 30초를 넘는 프로젝트에서는 그 blocking이 CLI 자신의 timeout에
+먼저 잘린다 - 그러면 "빈 결과 오독"은 피했어도 그 자리를 "timeout"이 대신 차지할 수 있다.
+이 질문에 답하려고 **이 저장소가 실제로 쓰는 제품 CLI**(`cli/dist/index.js`, 내 probe
+스크립트가 아니라)로 직접 쟀다 - `provider.command`로 jdtls를 raw custom provider로 지정해
+(아직 preset이 없으므로), 실제 사용자가 겪을 정확한 에러 코드·문구를 확인했다.
+
+**fixture**: dependency 없는 fixture에 `org.springframework.boot:spring-boot-starter-web:3.3.4`
+(commander 지시 - 이 마일스톤의 목적지가 Spring이라 자연스러운 선택) `implementation`
+dependency 하나를 추가했다. **Spring adapter는 만들지 않는다** - `@Service` annotation 하나만
+붙여 실제 Spring 클래스 모양을 흉내 냈을 뿐, DI 관계 추론은 시도하지 않았다(`IL-LIM-002` 5단계
+몫, M3 범위 밖).
+
+**1. 실제 dependency가 있는 프로젝트의 import가 얼마나 걸리는가.**
+
+완전히 새 `GRADLE_USER_HOME`(이전 실행의 캐시를 전혀 재사용하지 않음 - 진짜 첫 사용자 경험)로
+Spring Boot starter web(+ 전이 dependency 전부)을 실제 Maven Central 네트워크에서 내려받게
+하고, 제품 CLI의 **기본 `timeoutMs`(30000, 코드에서 직접 확인: `cli/src/index.ts:57,90`의
+`request.timeoutMs ?? 30000`)** 그대로 요청했다: **총 18,958ms**(`timings.totalMs`, 응답
+JSON에 그대로 찍힘) - **30초 예산 안에 들어왔다.** `ok: true`, 정답(`directTarget`←
+`directCaller`) 그대로 나왔다.
+
+**이 숫자를 일반화하지 않는다** - Spring Boot starter web 하나만 추가했을 때, 이 세션의
+네트워크 조건에서 걸린 시간이다. dependency가 더 많은 실제 Spring 프로젝트, 혹은 더 느린
+네트워크에서는 30초를 넘을 수 있다 - **"이번엔 안 넘었다"이지 "항상 안 넘는다"가 아니다.**
+
+**2. 넘으면 우리 스택이 무엇을 반환하는가.**
+
+실제로 넘기는 걸 보려고 **`timeoutMs`를 3000(3초)으로 강제로 짧게** 잡고, 다시 완전히 새
+`GRADLE_USER_HOME`으로 요청했다. 결과:
+
+```json
+{"ok":false,"error":{"code":"timeout","message":"Language Server request timed out: textDocument/prepareCallHierarchy","retryable":true,"details":{"stage":"query","method":"textDocument/prepareCallHierarchy"}}}
+```
+
+**`code: "timeout"`은 일반 timeout이다 - "아직 project를 import/색인 중이라 느리다"는 것을
+구분해 알려주는 별도 code가 없다.** 코드에서 직접 확인: `cli/src/errors.ts`에 `timeout`
+하나뿐이고, `readinessTracker`(gopls처럼 `readiness` 프로필이 선언된 preset만 쓰는 메커니즘)는
+raw custom provider(지금 jdtls를 쓰는 유일한 방법, preset이 아직 없으므로)에는 전혀 연결돼
+있지 않다 - 성공한 응답에서도 `indexingStatus`가 항상 `"unknown"`으로 나온 것(위 §1 응답
+참고)이 이걸 보여준다.
+
+**3. 그 문구가 사용자에게 정직하고 행동 가능한가.**
+
+`retryable: true`는 **정직했다** - 같은 jdtls 세션(같은 `-data` 디렉터리, 이번 실패 시도가
+백그라운드에서 계속 project를 import하고 있었을 것)에 timeout을 15초로 늘려 즉시 재시도하니
+**10,459ms만에 성공**했다. **재시도가 실제로 통한다는 뜻에서는 정직하다.**
+
+**다만 문구 자체는 "기다리면 된다"를 말하지 않는다.** `"Language Server request timed out:
+textDocument/prepareCallHierarchy"`는 raw LSP 메서드 이름을 그대로 노출하는, 프로토콜
+수준의 실패로 읽힌다 - Java LSP 내부를 모르는 사용자는 이걸 "이 도구는 Java에서 안 된다"로
+결론지을 수 있다(commander가 정확히 우려한 그 모양). **"빈 결과 오독"이라는 원래 걱정은
+비켜 갔지만, 그 자리를 문구만 다른 같은 종류의 오독("timeout=고장")이 대신 차지할 수 있다는
+것이 이번 실측의 결론이다.**
+
+**preset 구현 lane을 위한 구체적 실마리(이 lane은 구현하지 않는다, 기록만)**: jdtls는 실제로
+`language/status` 알림 스트림(`Starting` → `Started: Ready` → `ServiceReady`, 위 "cold/warm
+재시도" 절에서 이미 확인)을 보낸다 - `gopls`가 `work-done-progress`로 `readiness` 프로필을
+선언한 것과 같은 메커니즘을 jdtls에도 만들 수 있다는 뜻이다. **지금은 raw custom provider라
+이 신호를 전혀 안 쓰고 있어서** timeout이 "import 중"과 "다른 이유로 느림"을 구분 못 하는
+것이지, jdtls 자체가 그 구분에 필요한 정보를 안 주는 게 아니다 - preset을 실제로 만들 때
+`readiness` 프로필로 이 신호를 연결하면 이번에 찾은 문제가 gopls처럼 풀릴 가능성이 있다.
+
 ## 발견 요약 — 핵심 질문에 대한 답
 
 **1. 핵심 질문: method reference로만 호출되는 메서드의 incoming call hierarchy가 잡히는가.**
