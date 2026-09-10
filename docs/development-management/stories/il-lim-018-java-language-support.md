@@ -178,6 +178,21 @@ Java 개발자로서 검증된 Java LSP와 JDK/build(Gradle 또는 Maven) 조건
 하한선에 `eclipse.jdt.ls#3388` 수정을 포함하는 최소 릴리스 번호가 실측으로 채워진다(위 "권장
 대응" 참고, 이 lane은 그 번호를 확인하지 않았다).
 
+> **2026-09-10 종료 조건 정정 (commander 지시, PR #117의 Swift 재개 트리거가 이 조건을
+> 판정 가능해야 하므로 필요).** 위 두 번째 조건("최소 릴리스 번호가 실측으로 채워진다")은
+> **`eclipse.jdt.ls#3388`이 outgoing 방향에 있다는 것을 전제로 세워진 조건이었다.** entry gate
+> 실측(아래 2026-09-10 블록)이 밝힌 것: Impact Lens는 **incoming만 쓰고**, incoming은
+> **구버전(`v1.45.0`, 수정 전)에서도 이미 정확했다** — 즉 이 결함은 애초에 Impact Lens가 쓰는
+> 방향에 없었다. **이 조건은 적용되지 않는다** — 원문은 지우지 않되, 더 이상 1단계 종료를
+> 막는 조건으로 읽지 않는다.
+>
+> **이 조건을 대체하는 것**: "method reference로만 호출되는 메서드의 incoming call hierarchy가
+> 정확하다는 것이 최소 두 jdtls 버전(수정 전후)·세 프로젝트 형태(standalone/Gradle/Maven)에서
+> 실측으로 확인된다." **이건 이미 충족됐다** — 아래 2026-09-10 entry gate 블록과
+> `docs/work/task-m3-java-entry-gate.md` 전체가 그 근거다. 첫 번째 조건(required static
+> edge와 provider-variable edge 분리)은 여전히 미충족 — 1단계는 **그 조건 하나만 남기고 그
+> 조건으로만 판정한다.**
+
 > **2026-09-10 entry gate 실측 완료(`docs/work/task-m3-java-entry-gate.md`)**: 5번 항목이
 > **통과**했다 - jdtls v1.45.0/v1.61.0, standalone·최소 Gradle(dependency 없음)·멀티모듈
 > (cross-file·cross-module) 전부에서 static·instance method reference로만 호출되는 메서드의
