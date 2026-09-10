@@ -248,6 +248,26 @@ reviewer의 원문을 받고 나서야 이게 **project의 Kotlin 여부와 무�
 것**이다(commander의 표현 그대로). 이번 경우는 인용이 틀린 게 아니라, 원문을 열어서야 보이는
 것이 실제로 있었다.
 
+## `jdk-buildtool`이 Gradle을 절대 안 부른다는 것 - 어느 테스트가 실제 증거인가 (reviewer가
+## 더 날카롭게 읽음, commander 지시로 기록)
+
+`cli/src/test/doctor.test.ts`에 이름부터 "never spawns Gradle"로 붙였던 테스트가 있었는데,
+**그건 실제로는 약한 증거였다** - reviewer가 잡았다. 그 테스트의 workspace에는
+`gradle-wrapper.properties` 자체가 없어서, `jdkBuildToolCheck()`가 spawn 지점에 도달하기도
+전에 이미 `undefined`를 반환한다 - "함수가 끝까지 갔는데도 spawn이 없었다"가 아니라 "거기까지
+가지도 않았다"를 증명할 뿐이다.
+
+**실제 비공허 증거는 "hit" 테스트다** - 정확한 조합(Gradle `8.14` + JDK major `25`)을
+`PATH: ''`(완전히 빈 PATH)에서 돌려 **정상적으로 `jdk_buildtool_incompatible`을 낸다.** 이
+경로는 **끝까지 실행되고**, 만약 코드가 어딘가에서 `gradle`을 spawn하려 했다면 빈 PATH 때문에
+ENOENT로 죽었을 것이다 - 깨끗한 결과가 나온다는 사실 자체가 spawn이 없었다는 증거다.
+
+**정정**: 이름이 틀렸던 테스트는 `jdk-buildtool is omitted (not thrown or hung) when there is
+no gradle-wrapper.properties at all`로 이름을 바꾸고, 주석에 "이게 실제 spawn-free 증거가
+아니다"를 명시했다. "hit" 테스트 쪽에는 "이게 진짜 증거다"라는 주석을 새로 달았다. **둘은 같은
+것을 증명하지 않는다** - 다음 사람이 약한 쪽을 spawn-free의 근거로 삼지 않도록, 그리고 나중에
+그 테스트가 바뀌어도 이 안전 속성이 실제로 깨졌는지 알 수 있도록 코드 자체에 남겨 뒀다.
+
 ## 관측: spawn-family 감사(`buildInvocation.sources.test.ts`)의 탐지 방식이 코드·주석의 표현에
 ## 비용을 물린다 (commander 지시 - 관측만, 개선안 없음)
 

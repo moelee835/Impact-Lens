@@ -785,6 +785,13 @@ test('jdk-project-hint is omitted, not a false pass, when no build file declares
   assert.ok(!ids.includes('jdk-project-hint'), ids.join(', '));
 });
 
+// This is the test that actually proves jdk-buildtool never spawns Gradle - not the one below named
+// for it (reviewer's catch: that one's workspace has no gradle-wrapper.properties at all, so the
+// function returns before it could ever reach a spawn either way - it proves the function short-
+// circuits on a missing file, a different and weaker property). THIS test runs with `PATH: ''` (empty)
+// all the way through to a real `fail` result: if the code ever tried to shell out to `gradle` to read
+// its version, an empty PATH would make that spawn fail (ENOENT) and this test would not see a clean
+// `jdk_buildtool_incompatible` result - it does, which is the actual non-vacuous evidence.
 test('jdk-buildtool fires only on the exact reproduced combination: Gradle 8.14 + JDK major 25', async t => {
   const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-buildtool-hit-');
   fs.mkdirSync(path.join(workspace, 'gradle', 'wrapper'), { recursive: true });
@@ -831,10 +838,13 @@ test('jdk-buildtool is omitted, never pass, for a Gradle version outside the one
   assert.ok(!ids.includes('jdk-buildtool'), ids.join(', '));
 });
 
-test('jdk-buildtool never spawns Gradle - the version comes from gradle-wrapper.properties alone', async t => {
-  // If this check ever shelled out to `gradle`, a PATH with no gradle on it would make the spawn fail
-  // (ENOENT) rather than silently succeed - this proves the read-only design by construction, not by
-  // inspecting a log. A workspace with no gradle-wrapper.properties at all must not throw or hang.
+test('jdk-buildtool is omitted (not thrown or hung) when there is no gradle-wrapper.properties at all', async t => {
+  // A weaker property than its name once implied (reviewer's catch, kept honest here rather than
+  // relabeled quietly): with no gradle-wrapper.properties file, the check returns before it could ever
+  // reach a spawn call either way, so passing here does not by itself prove the check is spawn-free -
+  // it proves the missing-file case short-circuits cleanly. The test above this one, on the exact
+  // Gradle-8.14/JDK-25 combination with an empty PATH, is what actually proves spawn-freedom: that one
+  // reaches a real result on a path that WOULD hit ENOENT if a spawn were attempted along it.
   const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-buildtool-nospawn-');
   const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-25c-');
   fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
