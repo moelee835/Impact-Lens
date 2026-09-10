@@ -78,6 +78,13 @@
   이후에도, 더 긴 대기 후에도 바뀌지 않았다.** `definition`/`references`는 같은 위치에서 정상
   응답하므로 심볼 인식 문제가 아니다. **Kotlin의 관용적 코드가 top-level 함수이므로, 이것이 확정되면
   지원 범위가 잘린다.**
+  **다만 이 관측에는 끝내 풀지 못한 불확실성이 하나 있다 — 일반적인 "재확인이 더 필요하다"가 아니라
+  구체적인 의심이다**: 이 측정은 손으로 만든 raw LSP client로 했고, **그 client가 실제 VS Code
+  익스텐션이 서버에 보내는 project-import 트리거를 재현했는지 확인되지 않았다.** 실제 익스텐션으로
+  같은 질문을 하려 했으나 **그 경로에서는 서버 프로세스 자체가 뜨지 않아**(아래 참고) **"진짜
+  익스텐션 트리거 아래에서도 top-level이 `null`인가"는 한 번도 직접 검증하지 못했다.** 실제
+  `gradle build` 성공과 더 긴 대기가 결과를 바꾸지 않았다는 것이 readiness 가설을 크게 약화시키지만,
+  **이 한 조각은 열린 채로 남는다.**
 - **실제 VS Code 익스텐션 경로**: 폴더로 열기·JDK 21을 `JAVA_HOME`/`PATH`에 얹기·Gradle wrapper
   생성·정상 창(Extension Development Host 아님)·`.kt` 파일 열기를 **모두 갖춘 조건에서도 서버
   프로세스가 뜨지 않는다.** 익스텐션은 정상 활성화되는데(`workspaceContains:build.gradle.kts`)
