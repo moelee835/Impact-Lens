@@ -601,6 +601,13 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
         // Axis 2: is `handler` really the target this run is looking for?
         const handlerResolved = await resolveAt(input, file, callSite.line, callSite.argumentCharacter);
         if (handlerResolved.length !== 1) {
+          // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-
+          // limitations.md, reviewer's six-site audit): NOT tallied, deliberately. This runs BEFORE any
+          // relevance-to-root check - a zero or ambiguous resolution here means the passed argument's own
+          // identity is unconfirmed, so it is not yet known whether a real "something calls root via this
+          // slot" relationship even exists at this call site (root might not be among an ambiguous set of
+          // candidates at all). Counting it would assert existence of a relationship this adapter never
+          // confirmed - the same reasoning as the callee-resolution check just below.
           continue;
         }
         const handlerId = input.idOf(handlerResolved[0]);
@@ -611,6 +618,11 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
         // Axis 1: is the callee really the trusted standard declaration the allowlist expects?
         const calleeResolved = await resolveAt(input, file, callSite.line, callSite.calleeCharacter);
         if (calleeResolved.length === 0) {
+          // M4 IL-LIM-001/002 inference-unresolved lane: NOT tallied, deliberately (reviewer's own
+          // "boundary case" call, confirmed by commander). If the callee itself does not resolve, this
+          // adapter does not even know whether this call site is a real callback-slot invocation at all -
+          // counting it would assert a relationship exists ("root is passed as a callback here") that was
+          // never actually confirmed, the opposite failure this lane also has to guard against.
           continue;
         }
         const calleeIsTrusted = calleeResolved.some(item => isTrustedStandardDeclaration(item.uri));
@@ -626,7 +638,23 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
           continue;
         }
         const enclosingResolved = await resolveAt(input, file, enclosing.fn.line, enclosing.fn.character);
-        if (enclosingResolved.length !== 1) {
+        if (enclosingResolved.length === 0) {
+          // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-
+          // limitations.md, reviewer's six-site audit): tallied - by this point both axes above already
+          // confirmed root really is passed into a real, trusted callback slot, so this call site's
+          // relationship to root is established; only the enclosing caller's identity could not be
+          // pinned. Same shape and same reasonCode as `fastapiDependencyAdapter.ts`'s identical
+          // enclosing-resolution-failed check.
+          recordRejection('enclosing-function-unresolved', 'technique-blocked');
+          continue;
+        }
+        if (enclosingResolved.length > 1) {
+          // M4 IL-LIM-001/002 inference-unresolved lane: tallied - the relationship is confirmed, the
+          // provider just named more than one real candidate for the enclosing caller and `AugmentedEdge`
+          // has no field to express more than one source (same reasoning, same reasonCode, as
+          // `fastapiDependencyAdapter.ts`'s identical case: a schema/implementation gap, not a missing
+          // provider capability, hence `backlog` rather than `capability-blocked`).
+          recordRejection('multiple-source-candidates', 'backlog');
           continue;
         }
         const { id: sourceId, endpoint: sourceEndpoint } = endpointFor(input, enclosingResolved[0]);

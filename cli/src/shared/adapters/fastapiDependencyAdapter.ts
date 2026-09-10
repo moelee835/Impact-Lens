@@ -1119,6 +1119,16 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
       } else {
         const resolved = await resolveEndpoint(input, file, { line: reference.line, character: reference.character });
         if (resolved.items.length === 0) {
+          // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-
+          // limitations.md, reviewer's six-site audit): NOT tallied, deliberately. This resolves the
+          // EXACT text position `findDependsReferences` matched as root's own literal name - unlike the
+          // enclosing-def checks below, there is no separately-confirmed relationship here yet for a
+          // zero-item result to be "narrowing a failure" on. Zero items at this exact spot means the
+          // matched text most likely was never a real reference to root at all (a false-positive text
+          // match `stripForParenClassification`/`findDependsReferences` did not catch, not a genuine
+          // Depends() reference we simply cannot pin down) - the same "we do not yet know a real
+          // relationship exists here" shape as `dynamicCallbackAdapter.ts`'s callee-resolution check.
+          // Counting it would assert existence of a relationship this adapter never actually confirmed.
           continue;
         }
         const matchesRoot = resolved.items.some(item => input.idOf(item) === input.rootId);
@@ -1139,6 +1149,13 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
       }
       const enclosingResolved = await resolveEndpoint(input, file, { line: enclosing.def.line, character: enclosing.def.character });
       if (enclosingResolved.items.length === 0) {
+        // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-
+        // limitations.md, reviewer's six-site audit): tallied - UNLIKE the target-side zero-item check
+        // above, the relationship itself is already confirmed by this point (this reference resolved to
+        // root, or was a verified alias) - only the ENCLOSING caller's identity could not be pinned. That
+        // is "found the relation, failed to narrow it", commander's own counting criterion, not "we do
+        // not know a relation exists".
+        recordRejection('enclosing-function-unresolved', 'technique-blocked');
         continue;
       }
       if (enclosingResolved.items.length > 1) {
@@ -1148,17 +1165,18 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
         // function could be this edge's caller" - `source` is a single endpoint, not a list. So the
         // only choice that does not arbitrarily promote one candidate to a confirmed caller is to
         // produce no edge at all here (M4 stage 1's own rule: if a single caller cannot be confirmed,
-        // do not assert one). No dedicated limitation code exists for this specific case, and one was
-        // deliberately not added in this lane (commander's explicit scope decision: reusing an existing
-        // code that does not actually fit this situation, or inventing a new one, is a separate cost -
-        // V1_WITHHELD_REASON_CODES, the plugin skill docs, cli-contract.md and the response-policy eval
-        // all have to move together for a new code, per this same file's other limitation codes). The
-        // real cost of that: a caller silently dropped here is indistinguishable from a query that
-        // never found a candidate reference at all - the same "empty result, ambiguous cause" problem
-        // `provider_null_incoming_calls` exists to solve for the static traversal, unsolved here. This
-        // adapter already accepts an equivalent silent gap in the other direction for several known
-        // false-negative shapes (module-attribute mount, alias-variable mount - both undetectable, both
-        // silent) - consistent with that choice, but not a good state, and not resolved by this comment.
+        // do not assert one).
+        //
+        // M4 IL-LIM-001/002 inference-unresolved lane: this WAS a silent drop before this lane - a
+        // caller dropped here was indistinguishable from a query that never found a candidate reference
+        // at all, the same "empty result, ambiguous cause" problem `provider_null_incoming_calls` exists
+        // to solve for the static traversal (this comment used to end here, unresolved - reviewer's
+        // six-site audit closed it). Category is `backlog`, not `capability-blocked`: the provider
+        // already gave a perfectly good answer (multiple real candidates); what is missing is a place in
+        // `AugmentedEdge`'s own schema to express more than one source, the same way `resolution:
+        // 'multiple'` already does for the target side - a schema/implementation task, not a missing
+        // provider capability.
+        recordRejection('multiple-source-candidates', 'backlog');
         continue;
       }
       const { id: sourceId, endpoint: sourceEndpoint } = endpointFor(input, enclosingResolved.items[0]);

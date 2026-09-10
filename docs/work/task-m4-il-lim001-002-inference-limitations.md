@@ -330,6 +330,42 @@ case를 처리해야 하는, "정직"이 아니라 "유령 값으로 계약을 �
 "후보를 못 좁힌다"(gate C)는 다른 주장이고, 전자는 `Depends(get_db_a)` 호출 지점이 완전히
 정적으로 확정되는 경우라는 구분을 후속 lane도 다시 하지 않도록 여기 남긴다.
 
+### 2026-09-10 reviewer 지적 — "runtime-only binding" 하나가 아니라 서로 다른 메커니즘 셋이다
+
+원래 이 절은 세 후보를 "gate C(runtime-only binding)"라는 하나의 개념 아래 순서대로 시도해
+기각한 것처럼 적었다. **틀린 프레이밍이다.** 실측과 코드 재확인 결과 셋은 애초에 같은 문제의
+변주가 아니라 서로 다른 세 메커니즘이었다 - 하나로 묶어 "다음 lane이 runtime-only 하나를
+설계하면 된다"고 넘기면 다음 lane이 시작부터 잘못된 단일 설계 문제를 풀게 된다.
+
+1. **registry lookup** (`Depends(registry_lookup())`, 반환값이 `REGISTRY[os.environ.get(...)]`) —
+   대상이 "정적으로 하나도 안 보이는" 게 아니라 **어떤 capability로도 원리적으로 못 푼다.** 실행
+   시점 환경변수·dict 내용에 의존하므로, `reference`/`definition` 같은 워크스페이스 전체 참조
+   추적이 있어도 후보를 열거할 수 없다 - `capability-blocked`(더 강한 capability로 언젠가
+   풀린다)조차 아니다. 세 후보 중 유일하게 "진짜 runtime-only" 개념에 해당한다.
+2. **`Depends(factory())`** (`Depends(get_dependency_by_name(name))`, factory가 실제로는 상수
+   함수 하나만 반환) — registry lookup과 겉모양(호출 결과가 `Depends()` 인자)은 같지만 성격이
+   다르다. factory의 반환 타입 정보가 있으면(예: `-> Callable[..., Session]`이 아니라 실제
+   구체 반환 타입) 원리적으로 좁혀질 수도 있는 경우가 있다 - "지금 없는 정보로 풀릴 수도 있는
+   gap"이라 `capability-blocked`에 더 가깝다. 두 후보를 같은 줄에 놓은 원래 표가 이 차이를
+   지웠다.
+3. **`dependency_overrides`** — 위에서 이미 정리한 대로 gate C와 무관한 별개 개념(호출 지점은
+   완전히 정적으로 확정되고, "확정된 후보가 실행 시 대체될 수 있다"는 다른 주장)이다. 세 후보
+   목록에 나란히 있을 자리가 아니다 - 애초에 gate C의 예시가 아니라 gate C와 헷갈리기 쉬운
+   인접 개념으로 따로 적어야 했다.
+
+**후속 lane에 넘기는 정정된 지시**: gate C 후속 lane은 "runtime-only binding 하나"를 설계하지
+않는다. registry lookup(원리적으로 불가능 - 후보 존재 자체를 노출하지 않는 방향의 설계가 필요)과
+`Depends(factory())`(반환 타입 정보로 부분적으로 풀릴 수 있는, 별도 capability-blocked 계열
+gap)를 처음부터 서로 다른 질문으로 분리해서 시작한다. `dependency_overrides`는 gate C의 예시
+목록에서 완전히 제외하고, 필요하면 별도의 "확정 후 런타임 대체" 개념으로 언급한다.
+
+**`runtime-observation` 유지 / `runtime-only` 미도입 — 같은 비용-방향 규칙을 두 번 적용한 것**
+(reviewer 확인). `AUGMENTED_EDGE_SOURCES`의 `runtime-observation` 값은 이미 출하돼 있어 빼면
+소비자를 깨뜨리므로 producer가 없어도 유지한다. 이번 lane이 `runtime-only`를 vocabulary에
+아예 넣지 않은 것은 그 반대 방향이다 - 아직 출하 전이므로 producer 없는 값을 미리 넣지 않는다.
+두 판단은 서로 다른 규칙이 아니라 **"출하된 producer-less 값은 비싸서 유지하고, 출하 전
+producer-less 값은 싸서 안 넣는다"는 하나의 비용-방향 규칙을 상황만 바꿔 두 번 적용한 것**이다.
+
 **이 fixture의 종료 조건(후속 lane이 실제로 착수할 때 적용)**: `runtime-only`(또는 그때 확정되는
 이름)의 category tally가 최소 1 증가하고, `augmentedEdges`에는 해당 관계의 edge가 **생기지
 않는다**(현재 `resolution` 두 값 - `single`/`multiple` - 어디에도 안 들어감, stage 1이 이미
@@ -464,3 +500,99 @@ lane이 안 닫는다 - 후속 lane 몫이고, 이번 lane의 실측이 그 후�
 `dependencies=[]`는 여전히 완전히 안 보인다 - 사용자 문서가 유일한 공개 창구다. gate 1 전체
 (IL-LIM-001 수용 기준 5번의 언어 matrix 등)는 이 lane 범위 밖으로 계속 열려 있다. augmentation
 기본값은 이 lane 이후에도 여전히 꺼져 있다.
+
+## 2026-09-10 reviewer 전체 diff 감사 — 6곳 미집계 재확인(re-verification) 지점 반영
+
+위 "작업 로그"까지 PR #105로 push한 뒤, reviewer가 diff 전체를 다시 훑어 **양쪽 adapter의
+`resolveEndpoint()`/`resolveAt()` 재확인(re-verification) 호출 6곳**이 0건/복수건 결과를
+하나도 tally하지 않고 있다는 걸 찾았다 - 그중 하나(`dynamicCallbackAdapter.ts`의 다중 후보
+분기)는 코드 자체의 기존 주석이 "전용 limitation code가 없어 일부러 안 다뤘다"고 자백하고
+있던 자리였다. commander가 셋의 처리를 예시로 명시하고 나머지 셋은 같은 기준으로 내가 직접
+판단하되 근거를 남기라고 지시했다.
+
+**commander의 판단 기준(그대로 인용)**: adapter가 이미 "관계 후보가 진짜 존재한다"까지 확인한
+뒤 그걸 좁히는 데 실패했으면 센다. 경로 자체가 "관계 없음"이라는 진짜 결론이면 안 센다. 세는
+것이 adapter가 실제로 알지도 못하는 관계의 존재를 단언하는 셈이 되면 안 센다.
+
+### 6곳 판정표
+
+| 파일 | 위치 | 조건 | 판정 | reasonCode / category |
+| --- | --- | --- | --- | --- |
+| `fastapiDependencyAdapter.ts` | target 참조 `resolveEndpoint()` | `resolved.items.length === 0` | **집계 안 함** | - |
+| `fastapiDependencyAdapter.ts` | enclosing def `resolveEndpoint()` | `enclosingResolved.items.length === 0` | **집계함** | `enclosing-function-unresolved` / `technique-blocked` |
+| `fastapiDependencyAdapter.ts` | enclosing def `resolveEndpoint()` | `enclosingResolved.items.length > 1` | **집계함** | `multiple-source-candidates` / `backlog` |
+| `dynamicCallbackAdapter.ts` | 전달된 handler 인자 `resolveAt()` | `handlerResolved.length !== 1` | **집계 안 함** | - |
+| `dynamicCallbackAdapter.ts` | callee(호출 대상) `resolveAt()` | `calleeResolved.length === 0` | **집계 안 함**(commander 지정) | - |
+| `dynamicCallbackAdapter.ts` | enclosing function `resolveAt()` | `enclosingResolved.length === 0` 또는 `> 1` | **집계함**(둘로 분리) | `enclosing-function-unresolved`/`technique-blocked`, `multiple-source-candidates`/`backlog` |
+
+**집계 안 하는 3곳의 공통 이유**: 이 세 지점은 모두 "root가 실제로 이 지점과 관련된 진짜 관계의
+후보다"라는 사실 자체가 아직 확인되지 않은 단계에서 실패한다. target 참조가 0건이면 애초에
+`findDependsReferences()`가 잡은 텍스트 매치가 진짜 `Depends()` 참조가 아니었을 가능성이 더
+크고(참조 자체가 허상), handler/callee 인자가 안 풀리면 이 호출 지점이 진짜 콜백 슬롯 호출인지
+조차 모른다. 여기서 tally하면 adapter가 확인한 적 없는 관계의 존재를 단언하는 것이라 commander의
+셋째 기준에 정확히 걸린다.
+
+**집계하는 3곳의 공통 이유**: 이 세 지점에 도달했다는 것 자체가 이미 "root가 이 콜백 슬롯/
+`Depends()` 인자로 실제로 전달됐다(또는 신뢰하는 alias로 확인됐다)"는 관계 존재가 확인된
+뒤라는 뜻이다 - 남은 건 그 관계의 caller(감싸는 함수)를 못 좁힌 것뿐이므로 commander의 첫째
+기준("존재는 확인했고 좁히는 데 실패")에 해당한다. `> 1`(다중 후보) 쪽은 `backlog`로 분류했다
+- provider가 이미 쓸만한 다중 후보 답을 줬고, 부족한 건 `AugmentedEdge`가 후보를 하나 이상
+표현할 스키마 필드가 없다는 구현 갭이지 provider capability 문제가 아니기 때문이다(target 쪽에
+이미 있는 `resolution: 'multiple'`과 대칭되는 갭).
+
+이로써 "이번 PR이 실제로 만드는 tally에는 backlog 항목이 0건일 수 있다"(위 설계안 2의 정직한
+기록)는 상황이 바뀌었다 - `multiple-source-candidates`가 양쪽 adapter에 실제 코드 경로로
+생겼다. 다만 실제 LSP가 자연스럽게 복수 후보를 돌려주는 fixture는 아직 못 만들었다(아래 "남은
+검증 공백" 참고) - 뮤테이션으로 그 분기가 도달 가능함만 확인했다.
+
+### README "이제 조용히 사라지지 않습니다" 문장 — 5번째 "문서가 코드보다 앞서 나간" 사례
+
+commander 지적대로 이 절이 처음 쓴 문장("인식했지만 하나로 못 좁힌 경우 — 이제 조용히 사라지지
+않습니다")은 무조건문이었는데, 위 표의 "집계 안 함" 3곳(target/handler/callee 식별 자체가
+안 풀린 경우)은 애초에 "인식했지만"의 전제(root 관련 후보 존재 확인)가 충족되지 않으므로 이
+code로도 안 잡힌다 - 좁게 읽으면(= "인식" = provider가 실제로 확인해 준 경우) 문장은 참이지만,
+독자가 그 좁은 정의를 알 방법이 없으므로 넓게 읽으면 깨진 것처럼 보인다. **README에 명시적
+예외 조항을 추가했다**(callee/handler 식별 불가 시 아무것도 안 보인다는 사실을 이름 대서
+기술) - 코드를 문장에 맞추는 대신 문장이 코드의 실제 경계를 정확히 말하도록 고쳤다.
+
+`docs/work/task-m4-milestone-closure-audit.md`가 이미 추적 중인 "문서/주석이 코드가 실제로
+하는 일보다 더 많이 약속한다" 패턴의 **5번째 사례**로 기록한다(아래 그 문서 자체의 갱신 참고).
+앞의 네 사례와 다른 점: 그것들은 전부 **한 번은 사실이었다가 코드가 바뀌면서 stale해진 문서**였다
+- 이번 건은 그런 drift가 아니라 **이 PR이 새로 쓴 문장이 이 PR이 새로 쓴 코드보다 앞서 나간
+것**이다(문서 작성 시점에 코드의 정확한 경계를 충분히 검토하지 않고 목표(무조건 "안 사라짐")를
+그대로 문장으로 옮긴 것에 가깝다) - drift가 아니라 처음부터 범위가 안 맞은 경우.
+
+### 실측 재검증 — dispatch·vue-core, 6곳 반영 전후 byte-identical
+
+commander 요구("집계가 늘어 소음이 되는지 확인 후 merge 전 보고")에 따라 이 lane이 이미 설계
+검증에 쓴 두 참조 코퍼스에 대해 6곳 반영 전/후를 `git stash`로 격리해 재측정했다.
+
+- **FastAPI(dispatch)**: `dd2837e82a0bf5565b1b4b4b91ea30b7262d4061` pin, 기존 census에 쓴 8개
+  쿼리(`src/dispatch/auth/service.py`의 `get_current_role` 등) 전부 재실행 - `precisionCommand`
+  출력(edges/limitationDetails 포함) **전후 byte-identical**. `augmentation_inference_unresolved`
+  발생 건수·message 문구 변화 없음.
+- **JS/TS(vue-core)**: `54097087a0918b98f16c84599b1a6d654e952ca7`로 새로 클론(reviewer가 원래
+  고정했을 커밋과 다를 수 있음, 원 커밋 소재를 찾지 못해 새로 pin) -
+  `packages/runtime-dom/src/components/TransitionGroup.ts`의 `callPendingCbs` 쿼리(budget을
+  피하려 `workspace`를 `packages/runtime-dom`으로 좁힘, 17개 파일만 대상) 재실행 - **전후
+  byte-identical**.
+- **방법**: `git stash` → `npm run cli:build` → 측정(before) → `git stash pop` → `npm run
+  cli:build` → 측정(after) → diff. 두 코퍼스 모두 delta 0 - 6곳 반영이 이미 검증된 두 코퍼스
+  기준으로는 disclosure 건수를 전혀 늘리지 않았다(두 코퍼스가 우연히 이 6곳에 해당하는 코드
+  패턴을 안 가지고 있다는 뜻이지, 6곳이 다른 코퍼스에서도 항상 0건이라는 보장은 아니다 - 아래
+  "남은 검증 공백" 참고).
+
+### 뮤테이션 검증 — 6곳 새 분기가 실제로 살아있는지
+
+`enclosingResolved.length === 0` 분기를 양쪽 adapter에서 강제로 `true`(항상 미확정)로 바꿔
+재빌드 후 재실행 - `fastapiDependencyAdapter.ts` 쪽 7개, `dynamicCallbackAdapter.ts` 쪽 8개
+테스트가 각각 정확히 예상한 방식으로 실패(다른 테스트는 그대로 통과)함을 확인, `/tmp/fda2.bak`/
+`/tmp/dca2.bak`에서 원복 후 전체 재통과 확인.
+
+### 남은 검증 공백 (commander/reviewer에 공개, merge 판단에 반영 요청)
+
+`multiple-source-candidates`(`backlog`) 분기는 실제 LSP가 자연스럽게 복수 후보를 돌려주는
+fixture를 아직 만들지 못했다 - 뮤테이션(강제 `true`)으로 그 코드 경로가 도달 가능함만
+증명했고, 진짜 다중 정의(예: 같은 이름을 서로 다른 조건부 경로에서 두 번 정의)를 pyright/
+tsserver가 실제로 `> 1`개 심볼로 되돌려주는 자연 fixture는 구성 난이도가 높아 이번 라운드에서
+보류했다. 받아들일 수 있는 검증 공백인지 판단을 요청한다.

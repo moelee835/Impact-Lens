@@ -328,6 +328,15 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 **인식했지만 하나로 못 좁힌 경우 — 이제 조용히 사라지지 않습니다.** `limitationDetails`의
 `augmentation_inference_unresolved`(severity `warning`)로 개수와 이유가 보고됩니다. 이유는 세
 갈래로 나뉘고, 어느 쪽인지에 따라 "나중에 나아질 수 있는지"가 갈립니다:
+
+> [!NOTE]
+> 이 약속의 경계: adapter가 "여기 진짜 후보가 있다"까지 확인을 마친 경우에만 적용됩니다.
+> 예를 들어 JS/TS에서 전달된 인자 자체의 정체가 안 풀리거나(누구를 전달했는지 자체를 모름),
+> 호출된 함수가 `forEach`처럼 신뢰하는 표준 API인지 자체가 안 풀리는 경우(callback 자리인지조차
+> 모름)에는, "관계가 있는지조차 확인 못 했다"는 게 사실이라 이 code로도 안 잡힙니다 — 없는
+> 관계를 있다고 잘못 단언하는 것보다 안전한 선택이기 때문입니다. 이런 경우는 애초에 augmentation이
+> 아무것도 보고하지 않는 것으로 나타나며, 위 "여전히 완전히 안 보이는 형태"(router-level
+> `dependencies=[]`)와 같은 종류의 잔여입니다.
 - **backlog** — 지금 provider 기능만으로 원리적으로 풀리는데 아직 구현을 안 한 경우.
 - **capability-blocked** — provider의 `reference`/`definition` 같은 워크스페이스 전체 참조 추적
   기능이 있어야 풀리는 경우(예: Python에서 `XDep = Depends(fn)`처럼 모듈 최상위에서 alias로 선언한
