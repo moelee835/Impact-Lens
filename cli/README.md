@@ -106,7 +106,15 @@ Repeat the request with `"apply": true` and the preview's `"expectedToken"` to w
 - `provider` records the host, server identity, detected/requested language, selection source,
   advertised/observed capability, and last lifecycle stage.
 - `coverage.traversal` distinguishes complete, depth-limited, and node-limited traversal.
-- `coverage.semantic` is `static-only` until provenance-bearing augmentation is implemented.
+- `coverage.semantic` is `static-only` by default. Setting the request field `augmentationEnabled: true`
+  turns on framework/dynamic-dispatch adapters (`fastapi-static-v1` for Python, `dynamic-callback-static-v1`
+  for JS/TS) that look for additional candidate callers a static Call Hierarchy cannot see - when at
+  least one candidate is found, `coverage.semantic` becomes `static-plus-inference` and the candidates
+  appear in `data.augmentedEdges` (never `data.edges` - a candidate is never a confirmed caller). Off by
+  default in every host. A relationship an adapter recognized but could not resolve into one specific
+  caller is reported as the `augmentation_inference_unresolved` limitation, not silently dropped - see
+  the [Augmented (candidate) edges](../plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md)
+  section of the CLI contract for the full detection/non-detection boundary.
 - `coverage.indexing` (mirrored in `completion.indexingStatus`) is one of `unknown`, `working`, or `ready`.
   `bundled-typescript`, `bundled-pyright`, and `clangd` all declare no readiness profile, so
   TypeScript/JavaScript, Python, and C/C++ analysis only ever report `unknown` — an empty result under

@@ -720,6 +720,24 @@ test(
   },
 );
 
+// M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md,
+// closing IL-LIM-001 acceptance criterion 4 / IL-LIM-002 criterion 4): the SAME rejection the test above
+// pins as "zero augmented edges" must ALSO surface as `augmentation_inference_unresolved` - a real
+// reference recognized but not silently dropped. Real fixture, real query, not a stubbed adapter result.
+test(
+  'module-level Annotated[T, Depends(fn)] rejection surfaces as augmentation_inference_unresolved, capability-blocked - not a silent drop',
+  { timeout: 25000 },
+  () => {
+    const response = analyzeFile('module_level_alias_self_ref.py', 14, 5, true);
+    assert.equal(response.ok, true);
+    const detail = response.data.limitationDetails.find(entry => entry.code === 'augmentation_inference_unresolved');
+    assert.ok(detail, `expected augmentation_inference_unresolved in ${JSON.stringify(response.data.limitationDetails)}`);
+    assert.match(detail!.message, /fastapi-static-v1 recognized 1 relationship/);
+    assert.match(detail!.message, /waiting on a provider capability/);
+    assert.match(detail!.message, /caller list at these points may be incomplete/);
+  },
+);
+
 test(
   'module-level Annotated[T, Depends(fn)] with an unrelated def immediately above, module_level_alias_other_function.py: rejects rather than misattributing to the unrelated function',
   { timeout: 25000 },

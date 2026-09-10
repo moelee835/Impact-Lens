@@ -53,7 +53,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { externalRange, relativeFile, symbolKindName, uriFile } from '../impactHelpers';
-import { AugmentedEdge, CallHierarchyItem } from '../../types';
+import { AugmentedEdge, CallHierarchyItem, RejectedInferenceCategory, RejectedInferenceTally } from '../../types';
 import { AdapterInput, AdapterResult } from './types';
 
 const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', 'out', 'dist', 'build', '.pnpm-store']);
@@ -376,31 +376,50 @@ export function stripSameLineCommentsAndStrings(line: string): string | null {
  * fixtures (all pinned CURRENT behavior, not the shape this coupling would break) - only in real code,
  * the same "fixture passes, real code doesn't" shape this milestone has now hit four times.
  */
-function findEnclosingFunction(lines: readonly string[], fromLine: number): EnclosingFunction | undefined {
+/**
+ * M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+ * `reasonCode`/`category` are set only for the two "gave up on a real ambiguity" exits below
+ * (unparseable line, unrecognized scope opener) - both TECHNIQUE limits, per this file's own doc comment
+ * above (widening `ENCLOSING_FUNCTION_PATTERNS` risks new mis-attribution, gate 7's measured lesson).
+ * Reaching the top of the file with no enclosing scope at all is a genuinely correct answer (the call
+ * site really is at module top level) and is NOT tallied - `fn: undefined` with no `reasonCode` there
+ * means "there is no caller here", not "we could not tell".
+ */
+interface EnclosingFunctionResult {
+  readonly fn: EnclosingFunction | undefined;
+  readonly reasonCode?: string;
+  readonly category?: RejectedInferenceCategory;
+}
+
+function findEnclosingFunction(lines: readonly string[], fromLine: number): EnclosingFunctionResult {
   let depth = 0;
   for (let index = fromLine; index >= 0; index -= 1) {
     const line = lines[index];
     const stripped = stripSameLineCommentsAndStrings(line);
     if (stripped === null) {
-      return undefined;
+      return { fn: undefined, reasonCode: 'unparseable-line', category: 'technique-blocked' };
     }
     if (depth === 0) {
       for (const pattern of ENCLOSING_FUNCTION_PATTERNS) {
         const match = line.match(pattern);
         if (match) {
-          return { name: match[1], line: index, character: line.indexOf(match[1], match.index ?? 0) };
+          return { fn: { name: match[1], line: index, character: line.indexOf(match[1], match.index ?? 0) } };
         }
       }
       const unrecognizedMatch = line.match(UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER);
       if (unrecognizedMatch && !CONTROL_FLOW_KEYWORDS.has(unrecognizedMatch[1])) {
-        return undefined;
+        // reviewer's vue-core measurement (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+        // this exact branch accounted for all 6 rejected candidates in a 12-candidate sample from a real
+        // 520-file codebase, converging on ONE cause (method-shorthand/inline-arrow scope openers), not
+        // many - the structural finding, not the raw fraction, is what generalizes.
+        return { fn: undefined, reasonCode: 'unrecognized-scope-opener', category: 'technique-blocked' };
       }
     }
     const closes = stripped.split('}').length - 1;
     const opens = stripped.split('{').length - 1;
     depth = Math.max(0, depth + closes - opens);
   }
-  return undefined;
+  return { fn: undefined };
 }
 
 async function resolveAt(
@@ -550,6 +569,14 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
   const edges: AugmentedEdge[] = [];
   const seenPairs = new Set<string>();
   const walkState = { filesVisited: 0, maxFiles: input.budget.maxFiles, truncated: false };
+  // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+  // aggregated by reasonCode, never one entry per occurrence - reviewer's vue-core measurement found a
+  // single `onUpdated(() => {...})` registration point producing three occurrences by itself.
+  const rejectionTallies = new Map<string, RejectedInferenceTally>();
+  function recordRejection(reasonCode: string, category: RejectedInferenceCategory): void {
+    const existing = rejectionTallies.get(reasonCode);
+    rejectionTallies.set(reasonCode, { reasonCode, category, count: (existing?.count ?? 0) + 1 });
+  }
 
   await walkSourceFiles(input.workspace, walkState, async file => {
     let text: string;
@@ -574,6 +601,13 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
         // Axis 2: is `handler` really the target this run is looking for?
         const handlerResolved = await resolveAt(input, file, callSite.line, callSite.argumentCharacter);
         if (handlerResolved.length !== 1) {
+          // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-
+          // limitations.md, reviewer's six-site audit): NOT tallied, deliberately. This runs BEFORE any
+          // relevance-to-root check - a zero or ambiguous resolution here means the passed argument's own
+          // identity is unconfirmed, so it is not yet known whether a real "something calls root via this
+          // slot" relationship even exists at this call site (root might not be among an ambiguous set of
+          // candidates at all). Counting it would assert existence of a relationship this adapter never
+          // confirmed - the same reasoning as the callee-resolution check just below.
           continue;
         }
         const handlerId = input.idOf(handlerResolved[0]);
@@ -584,6 +618,20 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
         // Axis 1: is the callee really the trusted standard declaration the allowlist expects?
         const calleeResolved = await resolveAt(input, file, callSite.line, callSite.calleeCharacter);
         if (calleeResolved.length === 0) {
+          // M4 IL-LIM-001/002 inference-unresolved lane: NOT tallied, deliberately (reviewer's own
+          // "boundary case" call, confirmed by commander). If the callee itself does not resolve, this
+          // adapter does not even know whether this call site is a real callback-slot invocation at all -
+          // counting it would assert a relationship exists ("root is passed as a callback here") that was
+          // never actually confirmed, the opposite failure this lane also has to guard against.
+          //
+          // Why this differs from fastapiDependencyAdapter.ts's target-side check (also uncounted, same
+          // shape) is worth spelling out: FastAPI's target confirmation happens inside `Depends(...)`, a
+          // FRAMEWORK-SPECIFIC MARKER - the text match alone already carries a strong signal that a real
+          // relationship is plausible before any provider call. Here, "root is an argument to some call"
+          // alone is a weak signal - it could be an arbitrary function call entirely unrelated to callback
+          // registration. Until the callee is confirmed to be a trusted standard API, the premise "this is
+          // a callback slot" has not even been established yet, so there is nothing yet to count as
+          // "recognized but not narrowed".
           continue;
         }
         const calleeIsTrusted = calleeResolved.some(item => isTrustedStandardDeclaration(item.uri));
@@ -592,11 +640,30 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
         }
 
         const enclosing = findEnclosingFunction(lines, callSite.line);
-        if (!enclosing) {
+        if (!enclosing.fn) {
+          if (enclosing.reasonCode !== undefined && enclosing.category !== undefined) {
+            recordRejection(enclosing.reasonCode, enclosing.category);
+          }
           continue;
         }
-        const enclosingResolved = await resolveAt(input, file, enclosing.line, enclosing.character);
-        if (enclosingResolved.length !== 1) {
+        const enclosingResolved = await resolveAt(input, file, enclosing.fn.line, enclosing.fn.character);
+        if (enclosingResolved.length === 0) {
+          // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-
+          // limitations.md, reviewer's six-site audit): tallied - by this point both axes above already
+          // confirmed root really is passed into a real, trusted callback slot, so this call site's
+          // relationship to root is established; only the enclosing caller's identity could not be
+          // pinned. Same shape and same reasonCode as `fastapiDependencyAdapter.ts`'s identical
+          // enclosing-resolution-failed check.
+          recordRejection('enclosing-function-unresolved', 'technique-blocked');
+          continue;
+        }
+        if (enclosingResolved.length > 1) {
+          // M4 IL-LIM-001/002 inference-unresolved lane: tallied - the relationship is confirmed, the
+          // provider just named more than one real candidate for the enclosing caller and `AugmentedEdge`
+          // has no field to express more than one source (same reasoning, same reasonCode, as
+          // `fastapiDependencyAdapter.ts`'s identical case: a schema/implementation gap, not a missing
+          // provider capability, hence `backlog` rather than `capability-blocked`).
+          recordRejection('multiple-source-candidates', 'backlog');
           continue;
         }
         const { id: sourceId, endpoint: sourceEndpoint } = endpointFor(input, enclosingResolved[0]);
@@ -621,5 +688,5 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
     }
   });
 
-  return { edges, budgetExceeded: walkState.truncated };
+  return { edges, budgetExceeded: walkState.truncated, rejectedInferences: [...rejectionTallies.values()] };
 }

@@ -1,0 +1,68 @@
+{
+  "file": "29-augmentation-inference-unresolved-correctly-reported.json",
+  "name": "augmentation_inference_unresolved correctly reported using coverage.ts's own wording",
+  "description": "M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md): registered alongside coverage.ts's augmentationInferenceUnresolvedDetails() producer for the same reason 25-28 exist - an unregistered severity:'warning' code falls through surfacesLimitation()'s default and penalizes an honest disclosure using this code's own recommended wording. This code discloses relationships augmentation RECOGNIZED but could not resolve into a specific caller (gate 7 measured ~40% of real references silently dropped this way before this lane existed) - the message must state both halves commander required: the static graph is unaffected, AND the caller list at these points may be incomplete (understating impact), never only the first. Must-pass fixture, verified by running the engine.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": { "name": "@impact-lens/cli", "version": "0.9.0" },
+      "node": { "version": "22.0.0", "major": 22, "executable": "node" },
+      "runner": { "source": "checkout" }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "bundled-pyright",
+        "requestedLanguageId": "python",
+        "detectedLanguageId": "python",
+        "selectedBy": "bundled",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": { "callHierarchy": true, "diagnostics": true },
+        "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+        "lifecycle": { "stage": "query", "status": "ready" }
+      },
+      "coverage": {
+        "traversal": { "status": "complete", "requestedDepth": 5, "reachedDepth": 1, "maxNodes": 120 },
+        "semantic": { "status": "static-only", "evidenceSources": ["lsp-call-hierarchy"] },
+        "indexing": { "status": "ready", "evidence": { "signal": "work-done-progress", "detail": "indexing" } },
+        "reasons": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "augmentation_inference_unresolved"]
+      },
+      "completion": { "requestStatus": "succeeded", "traversalStatus": "exhausted", "semanticScope": "provider-static", "indexingStatus": "ready" },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "rootId": "root222222222222222222",
+      "nodes": [
+        { "id": "root222222222222222222", "name": "get_db" }
+      ],
+      "augmentedEdges": [],
+      "limitationDetails": [
+        { "code": "dynamic_calls_not_inferred", "severity": "info", "scope": "semantic", "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy." },
+        { "code": "unsaved_buffers_unavailable", "severity": "info", "scope": "request", "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk." },
+        { "code": "augmentation_inference_unresolved", "severity": "warning", "scope": "semantic", "message": "fastapi-static-v1 recognized 2 relationship(s) it could not resolve into a specific caller (1 waiting on a provider capability this analysis does not have, 1 blocked by the current detection technique (a safer, broader technique risks new false attributions)). The static call graph above is unaffected, but the caller list at these points may be incomplete, which can understate the actual impact radius.", "action": "This means augmentation recognized a pattern it could not confirm a specific target for - not that no such relationship exists; the categories above explain whether this may improve in a future release (backlog, capability-blocked) or is a structural limit of the current detection technique." }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "bundled-pyright",
+      "requestedLanguageId": "python",
+      "detectedLanguageId": "python",
+      "selectedBy": "bundled",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": { "callHierarchy": true, "diagnostics": true },
+      "observed": { "prepareCallHierarchy": true, "incomingCalls": true, "diagnostics": true },
+      "lifecycle": { "stage": "query", "status": "ready" }
+    },
+    "limitations": ["dynamic_calls_not_inferred", "unsaved_buffers_unavailable", "augmentation_inference_unresolved"],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from bundled-pyright with augmentation enabled; the provider index is ready. get_db has no confirmed incoming callers. Augmentation's fastapi-static-v1 adapter recognized 2 relationships it could not resolve into a specific caller (1 waiting on a provider capability this analysis does not have, 1 blocked by the current detection technique) - the static call graph above is unaffected, but the caller list at these points may be incomplete, which can understate the actual impact radius.",
+  "expect": "pass",
+  "expectedViolations": []
+}

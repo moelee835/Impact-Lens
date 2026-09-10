@@ -139,7 +139,13 @@ export async function analyzeImpact(
       symbolId,
     );
   } catch (error) {
-    augmentation = { edges: [], budgetExceededAdapterIds: [], mountUnresolvedAdapterIds: [], failedAdapters: [] };
+    augmentation = {
+      edges: [],
+      budgetExceededAdapterIds: [],
+      mountUnresolvedAdapterIds: [],
+      failedAdapters: [],
+      inferenceUnresolved: [],
+    };
     internalErrorKind = error instanceof Error ? error.name : 'unknown';
   }
   const augmentedEdges = [...augmentation.edges].sort((left, right) =>
@@ -194,6 +200,9 @@ export async function analyzeImpact(
       : {}),
     ...(augmentation.failedAdapters.length > 0
       ? { augmentationAdapterFailed: augmentation.failedAdapters }
+      : {}),
+    ...(augmentation.inferenceUnresolved.length > 0
+      ? { augmentationInferenceUnresolved: augmentation.inferenceUnresolved }
       : {}),
     ...(internalErrorKind !== undefined
       ? { augmentationInternalError: { errorKind: internalErrorKind } }

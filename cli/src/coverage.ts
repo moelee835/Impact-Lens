@@ -8,6 +8,8 @@ import {
   IndexingCoverage,
   LimitationDetail,
   PartialCompletion,
+  RejectedInferenceCategory,
+  RejectedInferenceTally,
   SemanticStatus,
   TraversalLimit,
   TraversalStatus,
@@ -310,6 +312,7 @@ function limitationDetailsFor(
   details.push(...mountUnresolvedDetails(observations.augmentationMountUnresolved));
   details.push(...augmentationAdapterFailedDetails(observations.augmentationAdapterFailed));
   details.push(...augmentationInternalErrorDetails(observations.augmentationInternalError));
+  details.push(...augmentationInferenceUnresolvedDetails(observations.augmentationInferenceUnresolved));
   return details;
 }
 
@@ -377,6 +380,73 @@ function augmentationAdapterFailedDetails(
     scope: 'semantic',
     message: `The following adapter(s) failed while looking for augmented edges: ${failures.map(failure => `${failure.adapterId} (${failure.errorKind})`).join(', ')}. Augmented edges from them are missing; the static call graph above is unaffected, and every other adapter's results are unaffected.`,
     action: 'This is the adapter failing to complete, not evidence that no augmented relationship exists; re-run if a complete augmented result is needed.',
+  }];
+}
+
+// M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md).
+// Fixed order, independent of input order, so the message never varies run-to-run for the same tallies -
+// `backlog` before `capability-blocked` before `technique-blocked`. `runtime-only` is deliberately absent
+// (see `AnalysisObservations.augmentationInferenceUnresolved`'s own doc comment in `types.ts`).
+const REJECTED_INFERENCE_CATEGORY_ORDER: readonly RejectedInferenceCategory[] = [
+  'backlog',
+  'capability-blocked',
+  'technique-blocked',
+];
+
+const REJECTED_INFERENCE_CATEGORY_PHRASE: Readonly<Record<RejectedInferenceCategory, string>> = {
+  backlog: 'not yet implemented',
+  'capability-blocked': 'waiting on a provider capability this analysis does not have',
+  'technique-blocked': 'blocked by the current detection technique (a safer, broader technique risks new false attributions)',
+};
+
+/** Sums tallies by category, in the fixed order above, and renders "N <phrase>" clauses - a category
+ * with zero occurrences is omitted, never rendered as "0 ...". */
+function summarizeByCategory(tallies: readonly RejectedInferenceTally[]): string {
+  const totals = new Map<RejectedInferenceCategory, number>();
+  for (const tally of tallies) {
+    totals.set(tally.category, (totals.get(tally.category) ?? 0) + tally.count);
+  }
+  return REJECTED_INFERENCE_CATEGORY_ORDER
+    .filter(category => (totals.get(category) ?? 0) > 0)
+    .map(category => `${totals.get(category)} ${REJECTED_INFERENCE_CATEGORY_PHRASE[category]}`)
+    .join(', ');
+}
+
+/**
+ * M4 IL-LIM-001/002 inference-unresolved lane, closing IL-LIM-001 acceptance criterion 4 ("미지원 동적
+ * 관계가 limitation과 사용자 문서에 명시된다") and IL-LIM-002 criterion 4 ("모호한 관계는 확정 edge로
+ * 생성되지 않고 limitation으로 보고된다") - gate 7 measured that roughly 40% of real references were
+ * silently dropped this way before this lane, with zero trace in the response.
+ *
+ * One entry PER ADAPTER, never per occurrence (commander's direction, grounded in reviewer's vue-core
+ * measurement: a single `onUpdated(() => {...})` registration point produced three rejected occurrences
+ * by itself - stacking one limitation entry per occurrence there would have been noise, not disclosure,
+ * the same shape `augmentation_adapter_failed`/`augmentation_budget_exceeded` above already avoid by
+ * naming adapters, not occurrences).
+ *
+ * The message deliberately does NOT end on "the static call graph is unaffected" alone - commander's
+ * finding, with a precedent in this same repository (`catalog.ts`'s `Depends()` wording was corrected
+ * once for the identical trap): stopping there reads as "so this doesn't matter", when the actual,
+ * actionable risk is the opposite - the caller list at these points may be missing real callers, which
+ * can UNDERSTATE the true impact radius. Both halves are true and both are required for this message to
+ * be honest.
+ */
+function augmentationInferenceUnresolvedDetails(
+  rejections: AnalysisObservations['augmentationInferenceUnresolved'],
+): readonly LimitationDetail[] {
+  if (rejections === undefined || rejections.length === 0) {
+    return [];
+  }
+  const perAdapter = rejections.map(rejection => {
+    const total = rejection.tallies.reduce((sum, tally) => sum + tally.count, 0);
+    return `${rejection.adapterId} recognized ${total} relationship(s) it could not resolve into a specific caller (${summarizeByCategory(rejection.tallies)})`;
+  }).join('; ');
+  return [{
+    code: 'augmentation_inference_unresolved',
+    severity: 'warning',
+    scope: 'semantic',
+    message: `${perAdapter}. The static call graph above is unaffected, but the caller list at these points may be incomplete, which can understate the actual impact radius.`,
+    action: 'This means augmentation recognized a pattern it could not confirm a specific target for - not that no such relationship exists; the categories above explain whether this may improve in a future release (backlog, capability-blocked) or is a structural limit of the current detection technique.',
   }];
 }
 

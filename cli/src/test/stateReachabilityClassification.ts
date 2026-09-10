@@ -48,6 +48,10 @@ export const CLASSIFIED_OBSERVATION_FIELDS: Readonly<Record<string, ObservationF
   // `await runAugmentation(...)` call itself throws (outside any adapter's own try/catch). Same producer
   // layer as the other augmentation-* fields above.
   augmentationInternalError: 'has-producer',
+  // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+  // impact.ts's analyzeImpact() sets this directly from runAugmentation()'s AugmentationResult.
+  // inferenceUnresolved when non-empty. Same producer layer as the other augmentation-* fields above.
+  augmentationInferenceUnresolved: 'has-producer',
 };
 
 /**
@@ -82,6 +86,7 @@ export const OBSERVATION_FIELD_PRODUCER: Readonly<Record<string, 'lsp-provider' 
   augmentationMountUnresolved: 'analyze-caller',
   augmentationAdapterFailed: 'analyze-caller',
   augmentationInternalError: 'analyze-caller',
+  augmentationInferenceUnresolved: 'analyze-caller',
 };
 
 export function fieldsClassified(classification: ObservationFieldClassification): readonly string[] {

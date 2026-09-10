@@ -72,6 +72,11 @@ function precisionCommand(args) {
   for (const e of edges) console.log('  -', JSON.stringify(e));
   const budgetExceeded = (response.data.limitationDetails ?? []).some(d => d.code === 'augmentation_budget_exceeded');
   console.log('augmentation_budget_exceeded:', budgetExceeded);
+  // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+  // re-measurement after wiring the six-site audit - printed so a re-run shows the real message, not just
+  // whether the code is present.
+  const inferenceUnresolved = (response.data.limitationDetails ?? []).find(d => d.code === 'augmentation_inference_unresolved');
+  console.log('augmentation_inference_unresolved:', inferenceUnresolved ? inferenceUnresolved.message : '(absent)');
 }
 
 function latencyCommand(args) {
