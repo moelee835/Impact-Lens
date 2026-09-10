@@ -94,7 +94,7 @@ capability가 없어서/지금 기법으로는 안전하게 못 판별해서/애
 ### code, severity, scope
 
 ```
-code: 'augmentation_inference_rejected'
+code: 'augmentation_inference_unresolved'
 severity: 'warning'
 scope: 'semantic'
 ```
@@ -172,14 +172,25 @@ function augmentationInferenceRejectedDetails(
     return `${rejection.adapterId} recognized ${total} relationship(s) it could not resolve into a specific caller (${byCategory})`;
   }).join('; ');
   return [{
-    code: 'augmentation_inference_rejected',
+    code: 'augmentation_inference_unresolved',
     severity: 'warning',
     scope: 'semantic',
-    message: `${perAdapter}. These relationships are not represented as augmented edges; the static call graph above and every confirmed caller are unaffected.`,
+    message: `${perAdapter}. The static call graph above is unaffected, but the caller list at these points may be incomplete, which can understate the actual impact radius.`,
     action: 'This means augmentation recognized a pattern it could not confirm a specific target for - not that no such relationship exists; the categories above explain whether this may improve in a future release (backlog, capability-blocked) or is a structural limit of static analysis (technique-blocked, runtime-only).',
   }];
 }
 ```
+
+**2026-09-10 commander 지적 반영 - "unaffected"로 끝내지 않는다.** 최초 초안은 뒷문장을
+`"These relationships are not represented as augmented edges; the static call graph above and
+every confirmed caller are unaffected."`로 썼다. **앞부분(정적 그래프는 안전하다)은 참이고
+유지한다** - 불필요한 공포를 막는다. 문제는 거기서 끝나면 "그러니 신경 안 써도 된다"로 읽힌다는
+것 - 사용자가 실제로 지는 위험은 정반대다: **caller 목록이 이 지점들에서 불완전할 수 있고, 그래서
+영향 범위를 과소평가할 수 있다.** 이 저장소에 같은 교정 전례가 있다 - pyright preset의
+`Depends()` 관련 문구가 초안에서 "not called at all, only referenced by name"이라고 적었다가
+"그러니 지워도 안전하다"는 오독을 정면으로 초대한다는 이유로 되돌려졌다(`catalog.ts` 주석). 위
+message는 "정적 그래프는 영향 없음" + "다만 이 지점들에서 caller 목록이 불완전할 수 있음(영향
+범위 과소평가 위험)" 두 절 모두를 담도록 고쳤다 - 둘 다 참이고, 둘 다 있어야 정직하다.
 
 **category → 사람이 읽는 문구 매핑안** (`summarizeByCategory`, 순서 고정 - backlog →
 capability-blocked → technique-blocked → runtime-only, 카테고리가 0건이면 그 구절 생략):
@@ -189,19 +200,15 @@ capability-blocked → technique-blocked → runtime-only, 카테고리가 0건�
 - `runtime-only` → `"N determined only at runtime, which static analysis cannot resolve in principle"`
 
 예시 문장(reviewer의 vue-core 표본을 예시로만 사용, 실제 코드에 하드코딩하지 않음):
-`"dynamic-callback-static-v1 recognized 6 relationship(s) it could not resolve into a specific caller (6 blocked by the current detection technique (a safer, broader technique risks new false attributions)). These relationships are not represented as augmented edges; the static call graph above and every confirmed caller are unaffected."`
-
-**reviewer/commander 검토를 위한 질문**: 이 message 문안이 실제로 사용자가 다음 행동을
-결정하는 데 충분한지(특히 "이게 나아질 수 있는지" 판단), 그리고 `action` 문구가
-`augmentation_adapter_failed`의 "This is the adapter failing to complete, not evidence that no
-augmented relationship exists" 톤과 일관되는지 확인 부탁.
+`"dynamic-callback-static-v1 recognized 6 relationship(s) it could not resolve into a specific caller (6 blocked by the current detection technique (a safer, broader technique risks new false attributions)). The static call graph above is unaffected, but the caller list at these points may be incomplete, which can understate the actual impact radius."`
 
 ### `LIMITATION_SURFACE_PATTERNS` 등록안
 
 ```js
-augmentation_inference_rejected: [
+augmentation_inference_unresolved: [
   /\brecognized\b[^.!?]{0,80}\bcould not resolve\b/i,
-  /\bnot represented as augmented edges\b/i,
+  /\bcaller list\b[^.!?]{0,40}\b(?:may be |might be )?incomplete\b/i,
+  /\bunderstate\b[^.!?]{0,40}\bimpact\b/i,
   /\bblocked by the current detection technique\b/i,
   /\bdetermined only at runtime\b/i,
 ],
@@ -218,8 +225,25 @@ augmentation_inference_rejected: [
 | `fastapi-static-v1` | `classifyDependsReferenceContext`의 분류 불가 unclosed call | `unclassified-enclosing-call` | **technique-blocked**(현재 paren-depth 스캔으로 안전하게 분류 불가) |
 | `dynamic-callback-static-v1` | `findEnclosingFunction`의 `UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER` 매치(method-shorthand/화살표) | `unrecognized-scope-opener` | **technique-blocked**(정규식을 넓히면 새 오귀속, gate 7이 이미 실측) |
 | `dynamic-callback-static-v1` | `stripSameLineCommentsAndStrings`가 null(문자열/주석 파싱 모호) | `unparseable-line` | **technique-blocked** |
-| (문서에만, 코드 경로 신설 안 함) | router/`include_router` 레벨 `dependencies=[]` | `router-level-dependencies` | **capability-blocked**("router membership" capability 필요) |
-| (gate C, 별도 fixture) | profile/conditional/programmatic registration/proxy-AOP | `runtime-determined-target` | **runtime-only** |
+| (인식기 자체 없음, 이번 lane 범위 밖) | router/`include_router` 레벨 `dependencies=[]` | 없음 - tally 대상 아님 | 없음(아래 "인식기 부재" 절 참고) |
+| (gate C, 별도 fixture, 설계 재작업 필요) | profile/conditional/programmatic registration/proxy-AOP | `runtime-determined-target`(안) | **runtime-only** |
+
+### `router-level dependencies=[]` — capability-blocked 목록에서 뺀다: 이 lane 이후에도 안 보인다 (2026-09-10 commander 지적)
+
+원래 표는 이 형태를 `capability-blocked`로 분류해 tally 대상에 넣으려 했다. **틀렸다.** capability-
+blocked/technique-blocked 두 축이 tally를 낼 수 있는 건 `classifyDependsReferenceContext()`/
+`findEnclosingFunction()`이 **일단 그 자리에 도달해서 reject를 반환하기 때문**이다 - 즉 "인식은
+했지만 좁히지 못했다"의 전제(인식)가 이미 충족돼 있다. router-level `dependencies=[]`는 다르다:
+`findDependsReferences()`가 애초에 이 형태를 검색하지 않으므로(router/`include_router` 호출의
+`dependencies=` 인자를 스캔하는 코드 자체가 없다) **분류할 대상 자체가 생기지 않는다** - reject를
+반환할 함수 호출까지 도달하지 못한다.
+
+**즉 인식기 자체가 없으면 집계도 못 하고, 따라서 limitation에도 안 잡힌다.** 이 lane이 만드는
+`augmentation_inference_unresolved`는 "adapter가 인식은 한 뒤 좁히지 못한 것"만 보이게 만든다 -
+router-level `dependencies=[]`처럼 **인식기 자체가 없는 형태는 집계 대상이 아니며, 이 lane
+이후에도 응답에서는 여전히 보이지 않는다.** 그 형태의 유일한 공개 창구는 사용자 문서다(아래
+설계안 4의 "무엇이 탐지되지 않는가" 절에 반드시 이름을 댄다) - 그러지 않으면 이 lane은 "조용한
+기각을 없앴다"고 주장하면서 조용한 기각 하나를 그대로 남기는 셈이 된다.
 
 **backlog 카테고리 사례가 지금 코드에 없는 이유**: commander의 네 축 정의(backlog = "지금 SPI만으로
 원리적으로 풀리는데 아직 안 한 것")에 해당하는 구체적 reject 사례를 이번 조사에서 찾지 못했다 -
@@ -228,33 +252,64 @@ augmentation_inference_rejected: [
 다만 이번 PR이 실제로 만드는 tally에는 backlog 항목이 0건일 수 있다는 것을 정직하게 기록한다(추측으로
 채우지 않는다).
 
-## 설계안 3 — gate C(runtime-only binding) fixture, 별도로 유지
+## 설계안 3 — gate C(runtime-only binding) fixture: 실측 결과, 셋 다 기각, 원인 분석과 재설계 필요
 
 **절대 gate 7 잔여 fixture와 합치지 않는다** - `il-lim-002`의 2026-09-04 정정이 "코드 경로도 개념도
 다르다"고 이미 명시했다. mount ambiguity(`isRouterMounted()`의 `nameAmbiguous`)는 기존 fixture로
 충족되고, gate C는 **완전히 새 fixture**가 필요하다.
 
-**fixture 후보 (FastAPI, 이미 확정 adapter가 있는 언어로 한정)**: `Depends()`의 대상 함수가 정적으로
-하나로 안 좁혀지는 경우 - 예를 들어
+**2026-09-10 commander 지시 - 원래 초안("조건부 재정의" 모양)은 폐기, 세 후보를 실측했다.**
+원래 초안은 stage 3이 이미 시도해서 실패한 모양(조건부 재정의 - pyright가 정확히 1개를 돌려줌)과
+같은 shape이었다 - commander가 즉시 잡아, 대신 세 후보(호출 결과를 `Depends()` 인자로 쓰는 것,
+registry 조회, `dependency_overrides`)를 제시하고 **설계 전에 먼저 돌려서 확인하라**고 지시했다.
+직접 스크래치 workspace를 만들어 실제 `cli/dist/index.js`(빌드된 CLI, 실제 bundled pyright)로
+돌렸다(전수 조사 아님, 세 후보를 시도했다는 것만 실측):
+
 ```python
-if os.environ.get("PROFILE") == "test":
-    get_db = get_test_db
-else:
-    get_db = get_prod_db
+def get_db_a(): ...
+def get_db_b(): ...
+def get_dependency_by_name(name): ...  # returns get_db_a or get_db_b
+def registry_lookup(): ...             # returns REGISTRY[os.environ.get("PROFILE")]
 
-@router.get("/items")
-def read_items(db = Depends(get_db)):
-    ...
+@app.get("/call-result-target")
+def read_by_call_result(db=Depends(get_dependency_by_name(os.environ.get("DEP", "a")))): ...
+
+@app.get("/registry-target")
+def read_by_registry(db=Depends(registry_lookup())): ...
 ```
-여기서 `get_db`는 module-level 변수지만, 그 변수에 대입되는 값 자체가 조건부라 정적으로 단 하나의
-함수를 가리키지 않는다(이미 module-level-alias reject로 걸리긴 하지만, **이 fixture가 검증해야 할
-것은 "alias를 못 따라가서"가 아니라 "따라가도 후보가 여러 개(또는 확정 불가)라서"**라는 다른
-주장이다 - 설계 단계에서 정확한 코드 shape은 reviewer와 함께 확정, 최소한 `runtime-only`로
-분류되는 real 코드 경로 하나를 검증 가능한 fixture로 고정하는 게 목표).
+`get_db_a`/`get_db_b`를 각각 root로 두 augmentation 쿼리 모두 `[실행]` **`augmentedEdges: []`**를
+확인했다 - 표면적으로는 "0 candidates"라 gate C 요구를 만족하는 것처럼 보인다.
 
-**이 fixture의 종료 조건**: `runtime-only` category tally가 최소 1 증가하고, `augmentedEdges`에는
-해당 관계의 edge가 **생기지 않는다**(현재 `resolution` 두 값 - `single`/`multiple` - 어디에도
-안 들어감, stage 1이 이미 정의해 둔 대로).
+**하지만 이건 gate C가 원하는 "0"이 아니다 - 코드를 다시 읽어 원인을 확인했다.** `findDependsReferences()`
+(`fastapiDependencyAdapter.ts`)는 쿼리 중인 root의 **이름 자체가 `Depends(<이름>`으로 바로 나타나는
+경우만** 찾는다. 위 두 fixture는 `Depends(get_dependency_by_name(...))`/`Depends(registry_lookup())`처럼
+**`get_db_a`/`get_db_b`라는 이름 자체가 `Depends(` 바로 뒤에 텍스트로 나타나지 않는다** - 그래서
+`classifyDependsReferenceContext()`(reject를 반환해 tally를 만드는 바로 그 함수)까지 **도달하지도
+않는다.** 즉 이 두 후보는 "인식했지만 좁히지 못함"(gate C가 원하는 모양)이 아니라 **"애초에
+인식기가 없음"**(바로 위 절의 router-level `dependencies=[]`와 정확히 같은 결함 모양)이다. 이
+fixture를 그대로 쓰면 gate C를 "닫았다"고 주장하면서 실제로는 또 다른 조용한 기각 사례를 만드는
+셈이 된다 - **채택하지 않는다.**
+
+**세 번째 후보(`dependency_overrides`)는 애초에 다른 개념이라 시도하지 않았다.** FastAPI의
+`app.dependency_overrides[get_db_a] = get_test_db`는 route handler의 `Depends(get_db_a)` 호출
+지점 자체는 완전히 평범하고 정적으로 확정 가능하다(`Depends(get_db_a)`가 문자 그대로 있다) - 다만
+**그 edge가 실제로 실행될 때 다른 함수로 대체될 수 있다**는, "후보를 못 좁힌다"가 아니라 "좁힌
+후보가 런타임에 바뀔 수 있다"는 별개의 주장이다. gate C의 정의("후보 target을 정적으로 단 하나도
+나열할 수 없음")에 맞지 않아 후보에서 제외한다.
+
+**결론 - commander에게 먼저 보고할 사실**: 세 후보 모두 gate C가 요구하는 "인식은 했지만 정적으로
+후보를 못 좁힌" 코드 경로를 만들지 못한다. **현재 SPI/두 adapter의 어떤 기존 코드 경로도
+`runtime-only` category를 실제로 만들어 내지 않는다** - `runtime-only`는 vocabulary에 값만 있고
+producer가 없는 상태(`AUGMENTED_EDGE_SOURCES`의 `runtime-observation`과 같은 모양의 위험)로 남을
+수 있다. gate C를 실제로 채우려면 **새로운, 좁은 detection 하나가 필요하다**: `Depends(...)`의
+인자가 bare identifier가 아닌 경우(호출식·subscript·attribute access 등)를 **root 이름과 무관하게
+workspace 전체에서** 스캔해 `runtime-only`로 tally하는 것 - 이건 이번 lane이 애초에 범위로 잡은
+"기존 reject 경로에 limitation을 연결한다"보다 넓은 새 코드다. **이 범위 확장을 임의로 진행하지
+않고 먼저 보고한다** - 아래 "commander/reviewer 확인 요청" 참고.
+
+**이 fixture의 종료 조건(재설계 확정 후 동일하게 적용)**: `runtime-only` category tally가 최소
+1 증가하고, `augmentedEdges`에는 해당 관계의 edge가 **생기지 않는다**(현재 `resolution` 두 값 -
+`single`/`multiple` - 어디에도 안 들어감, stage 1이 이미 정의해 둔 대로).
 
 ## 설계안 4 — 사용자 문서 3곳 수정안
 
@@ -268,7 +323,7 @@ def read_items(db = Depends(get_db)):
    `static-plus-inference`가 된다"는 사실을 정확히 반영.
 3. **`plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`**: `fastapi-static-v1`만
    나열된 곳(line 443 근처)에 `dynamic-callback-static-v1`을 추가하고, 새 limitation code
-   `augmentation_inference_rejected`도 기존 `framework_route_mount_unresolved`/
+   `augmentation_inference_unresolved`도 기존 `framework_route_mount_unresolved`/
    `augmentation_budget_exceeded` 절 옆에 같은 형식으로 문서화.
 
 ## 검증 계획(초안, 구현 단계에서 구체화)
@@ -288,12 +343,28 @@ def read_items(db = Depends(get_db)):
 - 문서 3곳 수정 후 response-policy의 doc invariant 테스트 영향 없음 확인(`cli-contract.md` 변경이
   기존 forbidden-phrase/working code span 검사를 안 깨는지).
 
-## 열린 질문 (commander/reviewer 검토 요청)
+## 2026-09-10 commander 확인 반영 — 1·2·4번 확정, 3번(gate C)만 재작업 필요
 
-1. **severity/message 문안**(위 설계안 1) - 특히 `action` 필드 톤과 category별 문구.
-2. **code 이름**(`augmentation_inference_rejected`) - 대안이 있다면.
-3. **gate C fixture의 정확한 코드 shape**(설계안 3의 예시가 실제로 "runtime-only"를 검증하는 데
-   충분한지, 아니면 profile 분기가 아닌 다른 shape - 정적으로 안 풀리는 conditional, programmatic
-   registration, proxy/AOP 중 어느 것을 대표로 삼을지).
-4. **router-level `dependencies=[]`를 이번 lane에서 코드 경로까지 만들지, 문서화만 할지**(현재
-   설계는 문서화만 - 위 "범위" 절 참고).
+1. **code 이름** → `augmentation_inference_unresolved`로 확정(위 "설계안 1" 전체에 반영 완료) -
+   "rejected"는 "우리가 아니라고 판단했다"로 오독되지만 실제로는 정반대(관계는 진짜일 가능성이
+   높은데 caller를 못 짚었다)이고, 이 저장소는 정확히 같은 상황에 이미 `unresolved`
+   (`framework_route_mount_unresolved`)를 쓰고 있어 어휘를 일관되게 맞췄다.
+2. **message** → "unaffected"로 끝내지 않고 "caller 목록이 이 지점들에서 불완전할 수 있고, 영향
+   범위를 과소평가할 수 있다"는 행동 가능한 절반을 추가(위 "설계안 1" message 절에 반영 완료) -
+   `catalog.ts`의 pyright `Depends()` 문구 교정 전례와 같은 함정("그러니 지워도/신경 안 써도
+   안전하다" 오독).
+3. **gate C fixture shape** → 원래 초안(조건부 재정의 모양)은 stage 3이 이미 실패를 확인한 모양과
+   같아 폐기, commander가 제시한 세 후보를 실측했으나 **셋 다 채택 불가**로 판정됐다(위 "설계안 3"
+   전체 재작성 참고) - 앞 두 후보는 `findDependsReferences()`가 애초에 인식하지 못해
+   router-level `dependencies=[]`와 같은 "인식기 부재" 결함이 되고, 세 번째(`dependency_overrides`)는
+   gate C와 다른 개념이다. **결론: 현재 SPI의 어떤 기존 코드 경로도 `runtime-only`를 만들어 내지
+   않는다** - 새로 좁은 detection(Depends()의 인자가 bare identifier가 아닌 경우를 root와 무관하게
+   workspace 전체에서 스캔)이 필요하고, 이건 이번 lane이 처음 잡은 범위(기존 reject 경로 연결)보다
+   넓다. **이 확장을 진행해도 되는지 확인 요청** - 안 된다면 `runtime-only`는 이번 PR에서 vocabulary
+   값만 예약하고 producer 0건인 상태로 정직하게 남기고(`AUGMENTED_EDGE_SOURCES`의
+   `runtime-observation`과 같은 모양, `stateReachability*.test.ts`류 감사로 고정), gate C 자체는
+   후속 lane으로 넘긴다.
+4. **router-level `dependencies=[]`** → 코드 경로 신설 안 함, 확정. 다만 "capability-blocked로
+   분류해 tally한다"는 원래 설계는 **틀렸다** - 인식기 자체가 없어 tally 대상이 되지도 못한다(위
+   "router-level dependencies=[] — capability-blocked 목록에서 뺀다" 절 참고). 이 lane 이후에도
+   응답에서 안 보인다는 사실을 작업 문서·PR 본문·사용자 문서 세 곳 모두에 명시한다.
