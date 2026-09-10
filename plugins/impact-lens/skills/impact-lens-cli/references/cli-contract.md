@@ -440,11 +440,19 @@ Every node in `data.nodes` carries `relation` (`root` | `direct` | `transitive` 
 
 ## Augmented (candidate) edges
 
-Set request field `augmentationEnabled: true` to turn on framework adapters (currently `fastapi-static-v1`
-for Python) that infer a caller a static Call Hierarchy provider cannot see on its own — a FastAPI route
-handler dispatched by the framework's router, or a function referenced only through `Depends(...)`. Default
-is `false`/absent. `data.edges` and `data.nodes` are byte-identical whether this is on or off; every
-inferred result goes only into a new field, `data.augmentedEdges`:
+Set request field `augmentationEnabled: true` to turn on framework/dynamic-dispatch adapters that infer a
+caller a static Call Hierarchy provider cannot see on its own. Two adapters ship today:
+
+- `fastapi-static-v1` (Python) — a FastAPI route handler dispatched by the framework's router, or a
+  function referenced only through `Depends(target)`/`Annotated[T, Depends(target)]` (parameter form or
+  route-decorator `dependencies=[Depends(target)]`).
+- `dynamic-callback-static-v1` (JS/TS) — a function passed by reference into a standard scheduling/event/
+  iteration callback slot (`setTimeout(handler, 0)`, `element.addEventListener('click', handler)`,
+  `arr.forEach(handler)`, ...), never called through a call expression a static Call Hierarchy can see at
+  the passing site.
+
+Default is `false`/absent for both. `data.edges` and `data.nodes` are byte-identical whether this is on or
+off; every inferred result goes only into a new field, `data.augmentedEdges`:
 
 ```json
 {
@@ -479,17 +487,46 @@ callers (a framework adapter's inference). Calling both "callers" in the same se
 — erases the distinction this feature exists to preserve, and is exactly the "guessed edge read as a
 confirmed one" failure `augmentedEdges` was designed to prevent.
 
-Two `limitationDetails` codes are specific to this feature:
+`limitationDetails` codes specific to this feature (all `warning`, `scope: semantic`):
 
-- `augmentation_budget_exceeded` (`warning`, `scope: semantic`) — an adapter's own exploration budget ran
-  out before it finished; the augmented findings it produced may be incomplete, but the static graph above
-  (`data.edges`/`data.nodes`) is entirely unaffected.
-- `framework_route_mount_unresolved` (`warning`, `scope: semantic`) — a route decorator was found, but no
-  `include_router(...)` call confirming its router is mounted could be found within the analyzed workspace.
-  This is not evidence the route is unreachable — the router may be mounted outside this workspace, through
-  a directory this scan does not reach, or through dynamic registration this scan cannot follow — only that
-  this specific scan could not confirm it. No `augmentedEdges` entry is produced for that route while this
-  is present.
+- `augmentation_budget_exceeded` — an adapter's own exploration budget ran out before it finished; the
+  augmented findings it produced may be incomplete, but the static graph above (`data.edges`/`data.nodes`)
+  is entirely unaffected.
+- `framework_route_mount_unresolved` — a route decorator was found, but no `include_router(...)` call
+  confirming its router is mounted could be found within the analyzed workspace. This is not evidence the
+  route is unreachable — the router may be mounted outside this workspace, through a directory this scan
+  does not reach, or through dynamic registration this scan cannot follow — only that this specific scan
+  could not confirm it. No `augmentedEdges` entry is produced for that route while this is present.
+- `augmentation_adapter_failed` — one or more adapters threw instead of returning a result; augmented
+  edges from them are missing, every other adapter's results and the static graph above are unaffected.
+- `augmentation_internal_error` — the augmentation orchestration itself broke (a bug in this codebase, not
+  an adapter reaching one of its documented failure modes); augmented edges are missing for this request,
+  the static graph above is unaffected.
+- `augmentation_inference_unresolved` — an adapter RECOGNIZED a relationship (it matched a supported
+  pattern) but could not resolve it into one specific caller, so no `augmentedEdges` entry was produced for
+  it either. **This is not evidence the relationship does not exist** — the message states both halves:
+  the static graph above is unaffected, but the caller list at these points may be incomplete, which can
+  understate the actual impact radius. Aggregated per adapter, per reason, as a count — never one entry
+  per occurrence. The message names why, as one of:
+  - `backlog` — buildable with today's provider capabilities, just not implemented yet.
+  - `capability-blocked` — needs a provider capability this SPI does not have (e.g. workspace-wide
+    `reference`/`definition` resolution to follow a Python module-level `Depends()` alias to where it is
+    used as a parameter default elsewhere).
+  - `technique-blocked` — today's detection technique (regex-based text scanning) cannot safely classify
+    it; widening it risks new false attributions, so a real parser or an accepted precision trade-off would
+    be needed first (e.g. a JS/TS callback registered inside an object-literal method shorthand or a class
+    method - a text scan cannot safely name the enclosing function without risking a wrong one).
+
+  A fourth category this milestone calls "runtime-only binding" (the target is determined only at runtime -
+  profile branching, programmatic registration, proxy/AOP - which static analysis cannot resolve in
+  principle) is **not yet represented anywhere in this vocabulary**: no shipped adapter has a code path
+  that produces it today, so it is not reserved as a value with zero producers.
+
+  **Some unsupported forms are not covered by this code at all, because no adapter recognizes them as a
+  candidate in the first place** - a router/`include_router`-level `dependencies=[Depends(target)]` in
+  FastAPI (as opposed to a per-route decorator's `dependencies=[...]`, which IS detected) is the known
+  example: it is invisible to `fastapi-static-v1` today, produces no `augmentedEdges` entry and no
+  `augmentation_inference_unresolved` tally, and has no other disclosure channel yet.
 
 ## Note list
 

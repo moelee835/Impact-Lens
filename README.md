@@ -311,6 +311,45 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 - CLI/Plugin 응답의 `runtime`은 CLI·Node version과 runner 선택 source를 경로·credential 없이 기록합니다.
 - 저장하지 않은 editor buffer는 Extension live analysis에는 반영되지만 독립 CLI에서는 사용할 수 없습니다.
 
+### augmentation(선택적 보조 추론) — 무엇을 찾고, 무엇을 왜 못 찾는지
+
+> [!NOTE]
+> augmentation은 **기본적으로 꺼져 있습니다**(CLI/Plugin/Extension 셋 다 기본값 `false`). 켜면
+> 정적 Call Hierarchy가 못 보는 관계 일부를 후보(`data.augmentedEdges`, 항상 `candidate caller`이지
+> 확정 caller가 아님)로 추가로 찾아줍니다 — 아래에서 이 lane이 새로 닫는 것은 "그 후보를 찾다가
+> 하나로 못 좁힌 경우, 지금까지는 아무 흔적도 안 남기고 조용히 사라졌다"는 문제입니다.
+
+**지금 탐지하는 것** (adapter 둘, 둘 다 정적 텍스트 스캔 + provider 재검증 조합):
+- `fastapi-static-v1`(Python): `Depends(target)`/`Annotated[T, Depends(target)]`을 함수 parameter나
+  route decorator의 `dependencies=[Depends(target)]`로 선언한 경우.
+- `dynamic-callback-static-v1`(JS/TS): `setTimeout`/`addEventListener`/`forEach` 등 표준 callback
+  slot에 함수를 그대로 전달한 경우.
+
+**인식했지만 하나로 못 좁힌 경우 — 이제 조용히 사라지지 않습니다.** `limitationDetails`의
+`augmentation_inference_unresolved`(severity `warning`)로 개수와 이유가 보고됩니다. 이유는 세
+갈래로 나뉘고, 어느 쪽인지에 따라 "나중에 나아질 수 있는지"가 갈립니다:
+- **backlog** — 지금 provider 기능만으로 원리적으로 풀리는데 아직 구현을 안 한 경우.
+- **capability-blocked** — provider의 `reference`/`definition` 같은 워크스페이스 전체 참조 추적
+  기능이 있어야 풀리는 경우(예: Python에서 `XDep = Depends(fn)`처럼 모듈 최상위에서 alias로 선언한
+  뒤 그 alias를 다른 함수의 parameter default로 쓰는 경우 - alias가 실제로 어디서 쓰이는지 추적하는
+  기능이 이 adapter에는 없습니다).
+- **technique-blocked** — 지금 쓰는 기법(정규식 기반 줄 스캔)으로는 안전하게 구분할 수 없는 경우.
+  기법을 넓히면 새로운 오귀속(잘못된 caller를 후보로 내놓는 것)이 생길 위험이 있어, 실제 parser를
+  도입하거나 오탐 위험을 받아들이는 결정이 먼저 필요합니다(예: JS/TS에서 object literal의 method
+  shorthand나 클래스 method 안에 있는 callback 등록 - 이 스코프를 감싸는 함수를 텍스트 스캔만으로
+  안전하게 알아내기 어렵습니다).
+
+**둘 다 아니고 여전히 완전히 안 보이는 형태 — 인식기 자체가 없습니다.** FastAPI의 router/
+`include_router` 레벨 `dependencies=[Depends(fn)]`(개별 route decorator가 아니라 router 전체에
+붙이는 형태)는 이번 lane으로도 여전히 조용히 사라집니다 - `augmentation_inference_unresolved`
+집계에도 안 잡힙니다, 애초에 이 형태를 찾아보는 코드가 없기 때문입니다. 이 형태를 쓰고 있다면 이
+문서가 유일한 안내입니다: 이 형태의 dependency 관계는 augmentation이 지금 못 찾는다는 것을 알고
+있어야 합니다.
+
+**"확정 caller를 못 찾았지만 특정할 수 없다"는 경우도 별도로 있습니다 — runtime-only binding.**
+profile 분기, programmatic registration, proxy/AOP처럼 대상이 실행 시점에야 정해져서 정적으로
+후보 자체를 하나도 댈 수 없는 경우입니다. 이 lane은 이 범주를 다루지 않습니다 - 후속 작업입니다.
+
 ### `complete: true`가 증명하지 않는 것
 
 `complete: true`는 **요청한 정적 traversal이 depth/node 제한 없이 끝났다**는 뜻만 담습니다(schema v1에서

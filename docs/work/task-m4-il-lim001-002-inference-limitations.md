@@ -399,3 +399,68 @@ case를 처리해야 하는, "정직"이 아니라 "유령 값으로 계약을 �
    분류해 tally한다"는 원래 설계는 **틀렸다** - 인식기 자체가 없어 tally 대상이 되지도 못한다(위
    "router-level dependencies=[] — capability-blocked 목록에서 뺀다" 절 참고). 이 lane 이후에도
    응답에서 안 보인다는 사실을 작업 문서·PR 본문·사용자 문서 세 곳 모두에 명시한다.
+
+## 작업 로그 — 구현 완료
+
+**변경 파일**:
+- `cli/src/types.ts` - `REJECTED_INFERENCE_CATEGORIES`(3값)/`RejectedInferenceCategory`/
+  `RejectedInferenceTally`/`AugmentationInferenceUnresolved` 신규 export,
+  `AnalysisObservations.augmentationInferenceUnresolved?` 필드 추가(named type, field-inventory
+  스캔 요구사항 준수).
+- `cli/src/test/stateReachabilityClassification.ts` - 새 필드를 `has-producer`/`analyze-caller`로
+  분류.
+- `cli/src/shared/adapters/types.ts` - `AdapterResult.rejectedInferences?` 추가.
+- `cli/src/shared/adapters/index.ts` - `AugmentationResult.inferenceUnresolved`(항상 배열) 추가,
+  `runAugmentation()`이 각 adapter 결과를 집계.
+- `cli/src/impact.ts` - `augmentation.inferenceUnresolved.length > 0` 조건으로 observation에 투영
+  (다른 augmentation-* 필드와 같은 관례).
+- `cli/src/coverage.ts` - `augmentationInferenceUnresolvedDetails()`(flat code, category 순서
+  고정, 0건 category 생략, adapter별 `; `로 나열) 신규, 파이프라인에 연결.
+- `cli/src/shared/adapters/fastapiDependencyAdapter.ts` - `classifyDependsReferenceContext`의
+  `reject` 두 갈래에 reasonCode/category 부여(module-level-alias → capability-blocked,
+  unclassified-enclosing-call → technique-blocked), `findEnclosingDef()`가 그 정보를 그대로
+  통과시키도록 반환 타입 변경, 호출부에서 tally 집계.
+- `cli/src/shared/adapters/dynamicCallbackAdapter.ts` - `findEnclosingFunction()`의 두 "포기"
+  경로(unparseable-line, unrecognized-scope-opener)에 technique-blocked 부여, 파일 최상단까지
+  스캔해도 못 찾는 경우(진짜로 감싸는 함수가 없는 정답)는 tally 안 함, 호출부에서 tally 집계.
+- `scripts/lib/response-policy-engine.mjs` - `augmentation_inference_unresolved` 등록.
+- `scripts/fixtures/response-policy/29-*.json`(긍정)/`30-*.json`(부정) 신규.
+- `cli/src/test/pythonFastapiIntegration.test.ts`/`dynamicCallbackIntegration.test.ts` - 기존
+  실제 fixture(모듈 레벨 alias, method-shorthand/화살표 계열 3건)로 새 code가 실제로 뜨는지 확인하는
+  end-to-end 테스트 추가.
+- `README.md` - "augmentation(선택적 보조 추론)" 신규 절(무엇을 찾는지 + 3축 + router-level
+  `dependencies=[]`처럼 여전히 안 보이는 형태를 명시적으로 이름 댐 + gate C는 이번 lane 범위 밖임을
+  명시).
+- `cli/README.md` - 거짓 문장(`coverage.semantic is static-only until provenance-bearing
+  augmentation is implemented`) 정정.
+- `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md` - adapter 목록에
+  `dynamic-callback-static-v1` 추가, limitation code 목록에 기존에 누락돼 있던
+  `augmentation_adapter_failed`/`augmentation_internal_error`까지 포함해 정리, 신규
+  `augmentation_inference_unresolved`를 3축 + router-level `dependencies=[]` 잔여와 함께 문서화.
+- `plugins/impact-lens/skills/impact-lens-cli/SKILL.md` - agent가 확인해야 할 limitation code
+  목록에 신규 code 추가(이 lane의 목적 자체가 "응답에 조용히 사라짐" 대신 정보를 남기는 것인데,
+  agent가 그 정보를 다시 요약에서 빠뜨리면 같은 실패가 한 층 위에서 재발하므로).
+
+**검증(전부 `[실행]`, `rm -rf out cli/dist` 후)**:
+- `npm run cli:test` - 507 tests, 504 pass, 0 fail, 3 skip(기존 gopls 실환경 skip, 무관).
+- `npm test`(Extension) - 84 tests, 84 pass, 0 fail(회귀 없음).
+- `npm run test:response-policy` - 38 checks 통과(fixture 29·30 포함, doc invariant 회귀 없음).
+- **실제 fixture로 end-to-end 확인** (스텁 아님): `module_level_alias_self_ref.py`(gate 7 fixture
+  재사용)를 실제 쿼리 → `augmentation_inference_unresolved` 발생, `capability-blocked` 1건 확인.
+  `handler.ts` 다중 fixture 쿼리(`dynamicCallbackIntegration.test.ts`가 이미 쓰는 공유 workspace) →
+  `technique-blocked` 3건 확인(vue-core가 실측한 것과 같은 채널 - method-shorthand/화살표/기타
+  scope-blind reject).
+- **뮤테이션 검증**: 두 adapter 모두에서 `recordRejection(...)` 호출을 주석 처리해 재빌드·재실행 →
+  각각 정확히 새로 추가한 테스트 1개만 실패, 다른 테스트는 전부 그대로 통과, 원복 후 재통과 확인.
+  `LIMITATION_SURFACE_PATTERNS`에서 새 code 등록을 제거해 재실행 → fixture 29만 실패
+  (`missing_high_severity_disclosure`), 원복 후 재통과 확인.
+
+**사용자 결과 vs 남은 것**: IL-LIM-001 수용 기준 4번과 IL-LIM-002 수용 기준 4번이 실제 코드로
+검증됐다 - augmentation이 인식했지만 하나로 못 좁힌 관계가 이제 `augmentation_inference_unresolved`
+limitation으로 사용자에게 보이고, 왜 못 좁혔는지(backlog/capability-blocked/technique-blocked)도
+같이 나온다. **아직 안 되는 것**: IL-LIM-002 수용 기준 5번(runtime-only binding, gate C)은 이
+lane이 안 닫는다 - 후속 lane 몫이고, 이번 lane의 실측이 그 후속 lane이 먼저 풀어야 할 더 근본적인
+질문(root 범위 분석에서 그 acceptance 문구 자체가 충족 가능한가)을 남겼다. router-level
+`dependencies=[]`는 여전히 완전히 안 보인다 - 사용자 문서가 유일한 공개 창구다. gate 1 전체
+(IL-LIM-001 수용 기준 5번의 언어 matrix 등)는 이 lane 범위 밖으로 계속 열려 있다. augmentation
+기본값은 이 lane 이후에도 여전히 꺼져 있다.
