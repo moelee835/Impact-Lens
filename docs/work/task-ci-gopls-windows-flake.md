@@ -1,9 +1,13 @@
-# CI flake: `gopls / windows-latest`가 간헐적으로 15분 job 제한에 걸린다
+# CI flake 관측: Windows job 둘이 오늘 각자 다른 이유로 불안정했다
 
-- 상태: **관측 기록 — 원인 조사 안 함.** 오늘 **다섯 번** 재현됐다(PR #111 1회, PR #117 1회,
-  이 관측 자체를 기록한 PR #121에서 **연속 2회**). 다섯 번 다 결국 재실행으로 통과했지만, PR
-  #121에서는 **재실행이 한 번으로 안 끝났다**(아래 참고) - "재실행하면 된다"는 전제 자체가
-  느슨해지고 있다는 신호로 남겨 둔다. 이 문서는 **관측 사실만** 적는다 - 원인은 안 봤다.
+- 상태: **관측 기록.** 오늘 windows-latest에서 **서로 다른 두 job이, 서로 다른 이유로** 불안정
+  했다 - **뭉뚱그리지 않는다.** 뭉뚱그리면 "Windows CI가 불안정하다"가 되고, 그건 둘 중 어느
+  쪽에 대해서도 행동으로 이어지지 않는다(commander 지적).
+  - **`gopls / windows-latest`**: **원인 미상인 우리 쪽 hang.** 이봉(bimodal) 분포, 재실행이
+    대체로(항상은 아니게) 통한다. 아래 "1. gopls/windows-latest" 절.
+  - **`clangd / windows-latest`**: **외부 패키지 피드(Chocolatey) 장애.** 원인이 로그에
+    명시적으로 찍혀 있다(`503 Service Unavailable`) - 추측할 게 없다. 아래 "2. clangd/windows-
+    latest" 절.
 
 ## 목적과 사용자 가치
 
@@ -11,6 +15,10 @@
 간헐적으로 제한에 걸리는 일이 반복되면, "CI green"이 재실행 횟수에 달린 상태가 되고, 그 순간
 CI 결과는 증거로서의 값을 잃는다. 지금 원인을 모른 채로도, **패턴이 있다는 사실 자체를 기록해
 두는 것**이 다음에 이 job을 보는 사람(원인을 조사할 사람)의 출발점이 된다.
+
+---
+
+# 1. `gopls / windows-latest` — 원인 미상, 우리 쪽 hang
 
 ## 관측한 것
 
@@ -116,3 +124,48 @@ CI 결과는 증거로서의 값을 잃는다. 지금 원인을 모른 채로도
 - 원인 조사를 시작한다면 `Run Agent CLI tests (gopls required, not optional)` step의 windows
   전용 동작(gopls 프로세스 기동·LSP handshake 타이밍)부터 볼 후보로 남긴다 - **후보일 뿐 확인된
   원인은 아니다.**
+
+---
+
+# 2. `clangd / windows-latest` — 외부 패키지 피드(Chocolatey) 장애
+
+**위 1번과 완전히 별개 현상이다 - 섞지 않는다.** 원인이 로그에 명시적으로 찍혀 있어 추정할 게
+없다("추정하지 마라"는 원인이 안 보일 때의 규율이지, 로그가 원인을 말해 주는데도 모른 척하라는
+뜻이 아니다).
+
+## 관측한 것 (PR #121, run `34470023604`)
+
+- attempt 1(`11:11:58`→`11:12:55`, 57초): `clangd / windows-latest` **`failure`**(`cancelled`
+  아님 - 제한 초과가 아니라 실제 실패). setup step(`checkout`/`setup-node`/`pnpm`/`install
+  dependencies`)은 전부 `success`, 멈춘 곳은 `Install clangd 22 (Windows, via Chocolatey...)`
+  step 자체가 **에러로 실패**(뒤 step들은 `skipped`).
+- 원문 로그: `Unable to connect to source 'https://community.chocolatey.org/api/v2/': Failed
+  to fetch results from V2 feed at '...Packages(Id='llvm',Version='22.1.7')' with following
+  message : Response status code does not indicate success: **503 (Service Unavailable)**.`
+- attempt 2(재실행, `11:17:39` 근방): **같은 `503`으로 다시 실패** - 즉시 재시도로는 안 풀렸다.
+- attempt 3(몇 분 더 기다린 뒤 재실행, `11:20:40`): **또 같은 `503`으로 실패** - 세 번 다
+  정확히 같은 메시지, 같은 패키지(`llvm` `22.1.7`). **몇 분 단위 대기로는 아직 안 풀린다** -
+  이 시점부터는 hammering을 멈추고 더 길게 기다린다(commander 지시대로 대안 설치 경로는
+  설계하지 않는다).
+
+## 이 저장소가 같은 피드를 이미 한 번 겪었다 — M2 clangd lane과의 연결
+
+`docs/work/task-m2-clangd-preset.md`(stage 5)가 이미 Chocolatey의 `llvm` 패키지 문제를
+실측으로 확인해 뒀다 - **그때는 지연(버전), 이번엔 가용성(장애)**, 같은 외부 피드가 두 가지
+다른 방식으로 문제를 낸 것:
+
+- **그때(M2)**: `choco install llvm --version=23.1.0`이 실패 - Chocolatey의 `llvm` 패키지가
+  **upstream LLVM보다 메이저 하나 뒤처져 있어서**(`23.x`를 아예 배포하지 않음, 당시 최신이
+  `22.1.7`) 어떤 `23.x` 버전 핀도 통하지 않았다. 고침: Windows만 `22.1.7`로 pin(Linux·macOS는
+  `23.x` 유지) - 지금 워크플로가 `choco install llvm --version=22.1.7`을 쓰는 이유가 이것이다.
+- **이번(오늘)**: 버전 문자열은 맞다(`22.1.7`) - 피드 자체가 `503`으로 응답하지 않는다.
+- **패턴**: 이 job은 Chocolatey라는 외부 피드에 **버전 지연·가용성 두 축 모두로 노출돼 있다**
+  - 하나를 고쳐도 다른 하나가 남는다는 뜻이다. **그 이상 파지 않는다** - 지금 필요한 건 관측
+  기록이지 대안 설치 경로(예: 다른 패키지 매니저, 직접 다운로드) 설계가 아니다(commander 지시).
+
+## 명시적으로 하지 않은 것
+
+- 대안 설치 경로를 설계하지 않았다 - Chocolatey를 계속 쓸지, 다른 경로로 바꿀지는 이 문서의
+  판단 범위 밖이다.
+- Chocolatey 자체의 장애 이력·SLA를 조사하지 않았다 - 이번 `503`이 얼마나 자주 있는 일인지는
+  모른다.
