@@ -65,9 +65,8 @@
   affected. Found via `tiangolo/full-stack-fastapi-template`: one query returned 2 real callers plus 2
   false positives, missing 4 of its 6 actual callers entirely; after the fix, the same query returns all
   6, with zero false positives. Re-measured separately against `Netflix/dispatch`'s 8-query census (used
-  throughout this release's other FastAPI numbers): false positives across those 8 queries dropped from
-  8 instances (6 of the 8 queries affected) to zero, with no regressions on the 2 queries that were
-  already correct.
+  throughout this release's other FastAPI numbers): 6 of those 8 queries returned a false positive before
+  the fix, and none do after, with no regressions on the 2 queries that were already correct.
 - Fixed six shapes of false route-mount attribution, where an unrelated variable that merely shared a
   router's name (a function parameter, a loop variable, an import, a dict or attribute value, a factory
   return, a non-`APIRouter` typed binding) was enough to make the analysis assert an entrypoint
