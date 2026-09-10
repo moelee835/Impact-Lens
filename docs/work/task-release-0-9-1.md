@@ -1,10 +1,9 @@
 # v0.9.1 릴리스 정합성
 
-- 상태: **PR #113 생성·CI 전체 green, merge 대기.** B-1(버전 소유 위치 재조사)·B-2(버전 선택
-  재확인)·CHANGELOG 사실 대조·B-3(실제 반영)·`test:vsix-contents`가 이 PR의 CI에서 실제로
-  실행·통과했는지 원문 로그로 재확인까지 완료. **B-4(공개 default-path 사후 검증)는 발행
-  후**(commander가 태그·Release를 발행한 다음). **태그 발행·GitHub Release 생성은 이 lane의
-  범위 밖**(commander 지시) — PR merge까지만 하고 발행은 commander가 진행한다.
+- 상태: **완료.** `v0.9.1` 태그·GitHub Release 발행(commander), 아티팩트 빌드·검증(PR #115),
+  B-4 공개 default-path 사후 검증까지 전부 끝났다 — 자세한 내용은
+  `docs/work/task-release-0-9-1-verification.md`. B-1/B-2/B-3/CHANGELOG 사실 대조는 이 문서에
+  기록된 그대로. **태그 발행·GitHub Release 생성은 commander가 진행**(이 lane의 범위 밖).
 - branch: `release/v0.9.1`
 - 선행: `docs/work/task-m4-release-0-9-0.md`(B-1~B-4 방법론의 직전 전례), PR #112(`0d5b5e7`,
   Call Graph webview `SyntaxError` 수정 — 이 릴리스의 유일한 코드 변경).
@@ -185,6 +184,21 @@ ls --no-yarn`/`vsce package`가 매번 파일을 **0개** 찾는다(`.vscodeigno
 명령이 정상 동작**했다(`vsce ls --no-yarn` → 40개 파일 나열, `out/extension.js`·`out/graphPanel.js`
 포함). **이걸로 결론**: 로컬 실패는 이 머신의 기본 Node 버전과 vsce의 호환성 문제이지, 코드나
 패키징 설정의 결함이 아니다. 다음 릴리스부터는 로컬에서 vsce를 돌릴 때 Node 22를 먼저 확인한다.
+
+> **2026-09-10 정정 — 위 문단은 "Node 버전 문제"라고 썼는데, 그건 관찰은 맞지만 기전(mechanism)
+> 설명으로는 부정확했다.** commander가 v0.9.0 작업 문서 쪽에 "이 진단은 이후 정정됐다"는 포인터를
+> 남겨 달라고 요청해 다시 파고든 결과: **이건 새 버그가 아니라 `docs/work/
+> task-m4-release-0-9-0-verification.md`("UUID 경로 함정")가 이미 정확히 root-cause한 바로 그
+> 버그다** — `npm list --production --parseable --depth=99999 --loglevel=error`가 UUID 형태
+> 경로 세그먼트를 `***`로 마스킹하고, `vsce`가 그 마스킹된 문자열을 그대로 파일 경로로 믿는 것.
+> **직접 재현으로 확인**: 같은 UUID 포함 디렉터리(`.../15cedb14-.../scratchpad/npm-mask-test`)에서
+> `npm list --production --parseable --depth=0 --loglevel=error`를 두 `npm` 바이너리로 각각
+> 실행 — **Node 25가 번들한 `npm 11.11.0`은 경로를 `***`로 마스킹**하고, **Node 22가 번들한
+> `npm 10.9.3`은 마스킹하지 않는다.** 즉 "Node 22로 바꾸면 된다"는 관찰은 맞지만, 그건 Node
+> 자체의 차이가 아니라 **그 Node가 번들한 npm 메이저 버전(11 vs 10)에서 마스킹 동작이 켜지고
+> 꺼진 차이**다. v0.9.0 문서의 진단은 **틀리지 않았다** — 이번 lane은 그걸 뒤집은 게 아니라
+> **재현으로 재확인하고, "npm 11.x에서 새로 생긴 동작"이라는 조건을 하나 더 밝혔을 뿐**이다.
+> commander에게도 이 구분을 그대로 보고한다.
 
 ### 산출물
 
