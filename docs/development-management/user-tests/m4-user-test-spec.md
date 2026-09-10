@@ -218,8 +218,9 @@ static-v1"`, `reasonCode: "callback-registration"` 항목이 있다(`setTimeout`
 수 있는 **`framework_route_mount_unresolved`**와 **`augmentation_inference_unresolved`**만
 과업으로 다룬다. `augmentation_adapter_failed`/`augmentation_internal_error`/`augmentation_
 budget_exceeded`는 정상적인 소스 코드로는 사용자가 임의로 유도할 수 없는 내부 실패/예산 상태이고
-CI의 mutation-검증 통합 테스트가 이미 덮는다(`cli/src/test/dynamicCallbackIntegration.test.ts`,
-`pythonFastapiIntegration.test.ts`) - 이 세 code까지 이 명세에서 인위적으로 유도하면 실제
+CI의 mutation-검증 통합 테스트가 이미 덮는다(`cli/src/test/augmentationBudgetExceededEndToEnd.
+test.ts`가 budget을, `cli/src/test/augmentationFailureIsolation.test.ts`가 adapter_failed/
+internal_error를 각각 덮는다) - 이 세 code까지 이 명세에서 인위적으로 유도하면 실제
 사용자가 만나지 않을 조작된 상태를 재는 것이 되어 오히려 오해를 만든다.
 
 ```sh
@@ -373,8 +374,15 @@ echo '{"workspace":"/tmp/il-a4","file":"target.go","line":3,"column":6,"depth":5
 
 각 과업은 M2와 같은 순서다: **자유 서술 단계 → 확인 단계.** 진행자는 자유 서술 단계에서 힌트를
 주지 않는다. 자유 서술이 끝나기 전에는 다음 단어를 진행자가 먼저 꺼내지 않는다: `확정`, `후보`,
-`추측`, `호출됨`, `참조`, `불완전`, `잡음`, `테스트 통과`. **"이건 확정된 관계인가요?" 같은
-답을 심는 질문은 금지한다** — M1 §6/§14, M2 §6이 이미 금지한 패턴과 같다.
+`추측`, `참조`, `불완전`, `잡음`, `테스트 통과`. **"이건 확정된 관계인가요?" 같은 답을 심는
+질문은 금지한다** — M1 §6/§14, M2 §6이 이미 금지한 패턴과 같다.
+
+**예외 - `호출(된다)`은 금지어가 아니다.** B2/B5의 질문 문구("몇 번 호출된다고 생각합니까")가
+이 단어를 쓴다 - 이 두 과업이 **재려는 대상 자체가 "호출 여부와 횟수"**이기 때문에, 그 동사
+없이는 질문 자체를 구성할 수 없다. 금지어 규칙의 취지는 **답을 미리 흘리지 않는 것**이지 특정
+단어를 봉인하는 것이 아니다 - "호출"은 참여자가 검증해야 할 대상의 이름일 뿐, 정답의 방향("맞다"/
+"아니다")을 심지 않는다(reviewer 확인). 이 예외를 여기 명시하는 이유는, 나중에 누군가 금지어
+목록과 질문 문구를 기계적으로 대조하면 위반처럼 보일 수 있기 때문이다.
 
 **B1 — `edges`와 `augmentedEdges`를 다른 강도로 읽는가.**
 
@@ -487,8 +495,10 @@ A3가 만든 것과 같은, `testRuleSuppressed`가 채워진 실제 node를 보
 - **B3에서 잡음으로 취급한 참여자가 과반이면 `augmentation_inference_unresolved`의 문구를
   재작업한다** - `catalog.ts`/`coverage.ts`의 message 자체가 대상이다.
 - **B4에서 테스트 통과로 오해한 참여자가 1명이라도 있으면 즉시 보류하고 `testRule` UI 표현을
-  재작업한다** - M2가 `provider_null_incoming_calls`에 적용한 것과 같은 0-tolerance 기준(안전
-  관련 오해는 다수결이 아니라 1건도 허용하지 않는다).
+  재작업한다** - M2가 `provider_null_incoming_calls`에 적용한 것과 같은 0-tolerance 기준이되,
+  근거는 더 강하다(reviewer 지적): B1~B3/B5는 "관계가 얼마나 확실한가"라는 **정도 문제**라
+  문구 조정으로 교정 가능하지만, B4는 **"실행 안 함"을 "통과함"으로 읽는 범주 오류**다 - 안전
+  신호 자체가 반전되므로 과반 기준을 적용할 수 없다.
 - **B5 - 이 명세의 핵심 연결점**: 3단계(경계 문구 공개) 후에도 이해가 바뀌지 않은 참여자가
   과반이면, **`#106`의 문서 수정만으로는 불충분하다고 판단하고, gate 1 lane D가 별도 이슈로
   미룬 `edges`의 caller/reference 라벨 부정확 해결(필터링/라벨링/계약 변경)의 우선순위를
