@@ -399,13 +399,40 @@ commander가 정확히 이 조건("오래된 쪽에서도 incoming이 멀쩡하�
 읽어야 한다 - 필요하면 언제든 `v1.46.0`을 추가로 재고 좁힐 수 있다(비용은 다운로드 하나,
 실행 몇 분).
 
+## 3순위 - Maven (commander 지시대로 Gradle 다음)
+
+Gradle과 정확히 같은 fixture(`directCaller`/`methodRefCaller`/`instanceRefCaller`/
+`lambdaCaller`) 내용을 Maven 프로젝트(`pom.xml`, 외부 dependency 없음, Maven Central의
+`maven-compiler-plugin` 등 Maven 자신의 기본 plugin만 필요)로 옮겨 v1.61.0으로 다시 쟀다.
+
+**jdtls는 이 lane이 따로 설치한 외부 Maven(`/tmp/maven-3.9.9`)을 전혀 쓰지 않았다** - 자기
+내장 M2Eclipse 기반 Maven 지원으로 `maven-clean-plugin`/`maven-jar-plugin` 등을 Maven Central
+에서 직접 받아 import를 끝냈다(진행 알림에 그대로 찍혀 있다). 결과:
+
+| target | incoming |
+| --- | --- |
+| `directTarget` | `directCaller` ✅ |
+| `methodRefTarget` | `methodRefCaller` ✅ |
+| `instanceRefTarget` | `instanceRefCaller` ✅ |
+| `lambdaTarget` | `accept(String)`(Gradle과 동일한 합성 caller) |
+
+**Gradle과 완전히 같은 패턴이다** - cold/warm 동일(여기서도 "Ready"가 첫 쿼리 전에 이미
+지나갔다, 같은 방법론적 한계), 네 케이스 다 정확. **entry gate의 핵심 결론이 build system을
+바꿔도 유지된다** - Maven이 Gradle과 다르게 동작할 가능성(위 "남은 공백"에 있던 항목)은 이제
+배제됐다.
+
 ## 이 실측이 preset 등재 여부에 주는 함의
 
 **entry gate 자체는 통과한다** - method reference로만 호출되는 메서드가 "caller 없음"으로
-잘못 보고될 위험은, 이번에 측정한 범위(standalone + 최소 Gradle, v1.45.0 + v1.61.0) 안에서는
-**배제됐다.** 이게 "Java preset을 지금 당장 등재해도 된다"는 뜻은 아니다 - story의 2·3·4단계
-(discovery/JDK compatibility, project import/readiness, Plugin E2E)가 여전히 안 끝났고,
-아래 "남은 공백"이 있다.
+잘못 보고될 위험은, 이번에 측정한 범위(standalone + 최소 Gradle + 최소 Maven, v1.45.0 +
+v1.61.0, 단일 파일·같은 모듈·cross-module) 안에서는 **배제됐다.** 이게 "Java preset을 지금
+당장 등재해도 된다"는 뜻은 아니다 - story의 2·3·4단계(discovery/JDK compatibility, project
+import/readiness, Plugin E2E)가 여전히 안 끝났고, 아래 "남은 공백"이 있다. **다만 timeout×
+import 상호작용(위 절)이 찾은 문제는 preset 구현 전에 미리 풀어야 할 구체적 과제로
+남는다** - 그리고 그건 **새로 설계할 문제가 아니라, `gopls`가 이미 쓰는 `readiness` 프로필
+메커니즘을 jdtls의 `language/status` 스트림에 연결하기만 하면 되는 문제**다(commander
+확인) - 다음 구현 lane이 처음부터 설계하지 않도록 이 문서와 story 문서 양쪽에 그대로
+적어 둔다.
 
 ## 남은 공백 (이 lane이 안 잰 것 - 숨기지 않는다)
 
@@ -414,15 +441,18 @@ commander가 정확히 이 조건("오래된 쪽에서도 incoming이 멀쩡하�
   단위로 걸리는 프로젝트에서 같은 "블로킹" 동작이 유지되는지는 여전히 안 잰다.
 - ~~멀티모듈, cross-file caller는 안 잰다~~ **후속 실측으로 확인함** - cross-module·같은
   모듈-다른 파일 둘 다 정확했다(위 "1순위" 절).
-- **`v1.45.0` × Gradle project 조합을 안 잰다** - 최신 버전(등재 후보)의 안전성만 실제
-  프로젝트 형태로 재확인했다. 멀티모듈 매트릭스도 `v1.61.0` 하나만 쟀다.
+- **`v1.45.0` × Gradle/Maven project 조합을 안 잰다** - 최신 버전(등재 후보)의 안전성만 실제
+  프로젝트 형태로 재확인했다. 멀티모듈 매트릭스, Maven 매트릭스 둘 다 `v1.61.0` 하나만 쟀다.
 - **interface default method, record compact constructor는 이번 lane의 범위 밖**(story
-  문서가 이미 별개 위험으로 분리해 둔 항목) - 여전히 미확인(commander 3순위 대상).
-- **Maven은 안 잤다** - Gradle만 확인했다(commander 2순위 대상, Gradle 다음 순서로 이미
-  정해짐).
-- **실제 외부 dependency가 있는 프로젝트는 안 잰다** - 이번 멀티모듈도 여전히 dependency
-  없음(commander 지시대로 "의존성 없음"을 유지) - "블로킹이 실제 분·초 단위 지연에서도
-  유지되는가"라는 새로 생긴 질문에는 아직 답이 없다.
+  문서가 이미 별개 위험으로 분리해 둔 항목) - 여전히 미확인, commander의 다음 순위 대상이 될
+  후보.
+- ~~Maven은 안 잤다~~ **후속 실측으로 확인함** - Gradle과 완전히 같은 패턴(위 "3순위" 절), 다만
+  여전히 dependency 없음.
+- **"블로킹이 실제 분·초 단위 지연에서도 유지되는가"는 부분적으로만 답했다** - Gradle +
+  Spring Boot starter web(dependency 하나) 기준 18,958ms로 30초 안에 들어왔다(위 "timeout
+  상호작용" 절). **이건 "이번엔 안 넘었다"이지 "더 많은 dependency에서도 항상 30초 안"이 아니다**
+  - Maven 쪽은 dependency 없는 상태로만 쟀고, 분 단위로 걸리는 실제 대형 프로젝트는 이 lane이
+  아직 아무 것도 재지 않았다.
 - **jdtls의 advertised capability(`callHierarchyProvider` 선언 값)를 정식으로 기록하지
   않았다** - raw `initialize` 응답에 있었지만 이 문서에 표로 옮기지 않았다(원본 JSON 로그에는
   있다).
