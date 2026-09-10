@@ -24,6 +24,7 @@ import {
   DEFAULT_SETTINGS_DELIVERY,
   JsonObject,
   JsonValue,
+  JVM_LANGUAGE_IDS,
   ProviderPreset,
   ProviderReadinessProfile,
   ProviderTier,
@@ -35,7 +36,7 @@ import { ProjectProviderChoice, readProjectProviderChoice } from './projectConfi
 // (`from '../providers/resolve'`, across impact.ts, doctor/checks.ts and providers.test.ts) keeps
 // working unchanged now that catalog.ts also needs AMBIGUOUS_LANGUAGE_ID and imports it from ./preset
 // directly, to avoid a circular edge (resolve.ts already imports PROVIDER_CATALOG from catalog.ts).
-export { AMBIGUOUS_LANGUAGE_ID, C_FAMILY_LANGUAGE_IDS };
+export { AMBIGUOUS_LANGUAGE_ID, C_FAMILY_LANGUAGE_IDS, JVM_LANGUAGE_IDS };
 
 /**
  * Everything provider selection decides before a process is spawned.

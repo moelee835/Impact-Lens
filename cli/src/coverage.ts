@@ -48,7 +48,8 @@ export const UNKNOWN_INDEXING_COVERAGE: IndexingCoverage = { status: 'unknown' }
  *
  * See docs/work/task-m1-completeness-emit.md decision D6 for the first two codes, and
  * docs/work/task-m2-python-preset.md stage 3 for `provider_null_incoming_calls`, and
- * docs/work/task-m2-clangd-preset.md stage 3 for the three `compile_database_*` codes. Emptying this
+ * docs/work/task-m2-clangd-preset.md stage 3 for the three `compile_database_*` codes, and
+ * docs/work/task-m3-java-project-import-readiness.md for `jvm_project_model_missing`. Emptying this
  * set is the whole change.
  */
 export const V1_WITHHELD_REASON_CODES: ReadonlySet<string> = new Set([
@@ -58,6 +59,7 @@ export const V1_WITHHELD_REASON_CODES: ReadonlySet<string> = new Set([
   'compile_database_missing',
   'compile_database_stale',
   'compile_database_ambiguous',
+  'jvm_project_model_missing',
 ]);
 
 /** How `completion.traversalStatus` is written in the v1 `coverage.traversal.status` field. */
@@ -240,6 +242,7 @@ function limitationDetailsFor(
     },
   ];
   details.push(...compileDatabaseDetails(observations.compileDatabase));
+  details.push(...jvmProjectModelDetails(observations.jvmProjectModel));
   if (!facts.diagnosticsSupported) {
     details.push({
       code: 'provider_diagnostics_unsupported',
@@ -584,5 +587,33 @@ function compileDatabaseDetails(observation: AnalysisObservations['compileDataba
     scope: 'provider',
     message: `${observation.relativePath} is older than CMakeLists.txt, so it may not reflect the current build configuration.`,
     action: 'Regenerate the compile database after your last build configuration change.',
+  }];
+}
+
+/**
+ * Surfaces "no build system found this workspace, and there is more than one source file" as a
+ * limitation - the same policy `compileDatabaseDetails` above applies for C/C++, chosen for the same
+ * reason: a hard gate (mirroring gopls's `requiredProjectFiles` for `go.mod`) would turn every
+ * already-working single-file standalone query `unsupported`, which this story's scope does not ask
+ * for (`docs/work/task-m3-java-project-import-readiness.md`'s own reasoning for why
+ * `requiredProjectFiles` was not reused on the `java.jdtls` preset).
+ *
+ * Deliberately unconditional on caller count, for the same reason `compileDatabaseDetails` is: a
+ * missing project model can produce an incomplete-but-nonzero caller list (a query that only needs
+ * same-file relationships still "works" by accident) just as easily as an empty one, so gating this on
+ * `incomingCallerCount === 0` would under-warn on every other outcome the same root cause can produce.
+ * Free to co-occur with `no_incoming_callers` and `index_state_unknown` - all three name different
+ * axes (semantic absence, indexing state, project-model absence) and none substitutes for the others.
+ */
+function jvmProjectModelDetails(observation: AnalysisObservations['jvmProjectModel']): readonly LimitationDetail[] {
+  if (observation === undefined || observation.status === 'present' || !observation.multipleSourceFiles) {
+    return [];
+  }
+  return [{
+    code: 'jvm_project_model_missing',
+    severity: 'warning',
+    scope: 'provider',
+    message: 'No Gradle or Maven project file was found for this multi-file Java workspace. The provider may not be able to see relationships across files without one, so a result reporting no callers is not evidence that none exist.',
+    action: 'Add a build.gradle(.kts) or pom.xml describing this project, or confirm the caller manually before removing this symbol.',
   }];
 }

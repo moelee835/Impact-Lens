@@ -220,6 +220,18 @@ export const AMBIGUOUS_LANGUAGE_ID = 'c-cpp-header';
  */
 export const C_FAMILY_LANGUAGE_IDS: ReadonlySet<string> = new Set(['c', 'cpp', AMBIGUOUS_LANGUAGE_ID]);
 
+/**
+ * `detectedLanguageId` values a JVM-toolchain-driven provider can apply to. Used to gate `impact.ts`'s
+ * read-only JVM project-model discovery (`providers/jvmProjectModel.ts`, Lane J,
+ * docs/work/task-m3-java-project-import-readiness.md), the same way `C_FAMILY_LANGUAGE_IDS` gates
+ * `compileDatabase.ts` above. Named for the toolchain, not the language, on purpose: `IL-LIM-016`
+ * (Kotlin) shares this JVM readiness/build-tool diagnostic ground with `IL-LIM-018` (Java) by design
+ * (see that story's own "의존성 및 위험" section) - `'kotlin'` is added here, not created as a second
+ * set, whenever Kotlin actually needs it, matching how `C_FAMILY_LANGUAGE_IDS` already covers multiple
+ * languages under one name.
+ */
+export const JVM_LANGUAGE_IDS: ReadonlySet<string> = new Set(['java']);
+
 export interface ProviderPreset {
   /** Stable identifier. A request's `providerPreset` and `doctor <preset>` name this. */
   readonly id: string;

@@ -240,6 +240,18 @@ const COMPILE_DATABASE_AMBIGUOUS_MARKERS = [
   /\bmultiple compile[ _-]?database\b/i,
 ];
 
+// M3 Java Lane J (task-m3-java-project-import-readiness.md): jvm_project_model_missing (coverage.ts) is
+// the Java analogue of compile_database_missing - same shape of risk (an incomplete answer that looks
+// complete), so it gets the same treatment: real teaching vocabulary from cli-contract.md's own wording
+// for this code, not just the underscored code name the generic fallback would produce.
+const JVM_PROJECT_MODEL_MISSING_MARKERS = [
+  /\bno (?:gradle|maven) project\b/i,
+  /\b(?:gradle|maven)\b[^.!?]*\b(?:missing|not found|absent)\b/i,
+  /\bmissing\b[^.!?]*\b(?:build\.gradle|pom\.xml)\b/i,
+  /\bno (?:build\.gradle|pom\.xml|build system)\b/i,
+  /\bno project model\b/i,
+];
+
 // M4 stage 3, plugin-doc prerequisite (docs/work/task-m4-stage2-fastapi-adapter.md's "필수 선행" item):
 // `data.augmentedEdges` (a candidate caller, e.g. a FastAPI Depends() inference) and `data.edges` (a
 // confirmed caller, from the Call Hierarchy provider itself) must never be described with the same bare
@@ -299,6 +311,7 @@ const LIMITATION_SURFACE_PATTERNS = {
   compile_database_missing: COMPILE_DATABASE_MISSING_MARKERS,
   compile_database_stale: COMPILE_DATABASE_STALE_MARKERS,
   compile_database_ambiguous: COMPILE_DATABASE_AMBIGUOUS_MARKERS,
+  jvm_project_model_missing: JVM_PROJECT_MODEL_MISSING_MARKERS,
   // M4 gate 4 reopening (docs/work/task-m4-gate4-mount-false-positive.md, post-hoc audit finding 5): these
   // two codes (coverage.ts's augmentationBudgetDetails()/mountUnresolvedDetails(), both `severity:
   // 'warning'`) had no entry here at all, so `surfacesLimitation()` fell through to its default -
@@ -532,9 +545,24 @@ export function evaluateSummary(response, summary) {
   // ever looked at indexingStatus/requestStatus - exactly the misreading this code exists to prevent (found
   // via direct measurement against the real engine, not assumed; see stage 6 of the same document).
   const nullIncomingCallsPresent = highSeverityLimitations(response).some(detail => detail.code === 'provider_null_incoming_calls');
+  // M3 Java Lane J (task-m3-java-project-import-readiness.md): jdtls can report indexingStatus: ready
+  // (its own indexing genuinely finished) while a build-system-free, multi-file workspace still has no
+  // project model that lets it see relationships across files - the exact same "ready is not enough on
+  // its own" shape provider_null_incoming_calls already exists for above, just from a different signal.
+  // Without this check, a "ready" + "succeeded" response with jvm_project_model_missing present let a
+  // "nothing calls this" conclusion through unflagged, because the pre-existing condition only ever
+  // looked at indexingStatus/requestStatus/nullIncomingCallsPresent - measured directly against a real
+  // response carrying this exact combination (jdtls, ready, jvm_project_model_missing), not assumed.
+  const jvmProjectModelMissingPresent = highSeverityLimitations(response).some(detail => detail.code === 'jvm_project_model_missing');
   const noImpactAsserted = sentences.some(sentence => matchesAny(NO_IMPACT_ASSERTION_PATTERNS, sentence) && !isNegated(sentence.toLowerCase()));
-  if (noImpactAsserted && (indexingStatus !== 'ready' || requestStatus === 'partial' || nullIncomingCallsPresent)) {
-    violations.push({ code: 'unsupported_no_impact_conclusion', message: `Summary asserts nothing calls the symbol, but indexingStatus is "${indexingStatus}" and requestStatus is "${requestStatus}"${nullIncomingCallsPresent ? ' and the provider answered this query with null (provider_null_incoming_calls)' : ''}, which does not support that conclusion.` });
+  if (noImpactAsserted && (indexingStatus !== 'ready' || requestStatus === 'partial' || nullIncomingCallsPresent || jvmProjectModelMissingPresent)) {
+    violations.push({
+      code: 'unsupported_no_impact_conclusion',
+      message: `Summary asserts nothing calls the symbol, but indexingStatus is "${indexingStatus}" and requestStatus is "${requestStatus}"`
+        + `${nullIncomingCallsPresent ? ' and the provider answered this query with null (provider_null_incoming_calls)' : ''}`
+        + `${jvmProjectModelMissingPresent ? ' and no Gradle/Maven project model was found for this multi-file workspace (jvm_project_model_missing)' : ''}`
+        + ', which does not support that conclusion.',
+    });
   }
 
   if (indexingStatus === 'unknown' && empty && !mentionsIndexUncertainty(summaryLower)) {
