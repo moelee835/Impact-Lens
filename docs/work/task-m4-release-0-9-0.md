@@ -1,8 +1,12 @@
 # M4 v0.9.0 release 정합성
 
-- 상태: 진행 중 — B-1(버전 소유 위치 재조사)·B-2(버전 선택)·CHANGELOG 사실 대조 완료, B-3(실제
-  반영)·B-4(공개 default-path 사후 검증) 진행 예정. **태그 발행·GitHub Release 생성은 이 lane의
-  범위 밖**(commander 지시) — PR merge까지만 하고 발행은 사용자 확인 후 commander가 진행한다.
+- 상태: **B-3까지 완료.** B-1(버전 소유 위치 재조사)·B-2(버전 선택)·CHANGELOG 사실 대조·B-3(실제
+  반영) 끝. **B-4(공개 default-path 사후 검증)는 아직 수행되지 않았다 — 발행된 아티팩트가 없어서
+  수행할 수 없다.** M2 전례(PR #69가 릴리스, 태그 발행, 그 다음 PR #70이 발행본 대상 B-4/B-5를
+  별도로 기록)와 같은 순서로, 이 PR은 **버전 반영과 PR merge까지만**이고 B-4는 **사용자 확인 후
+  commander가 태그·GitHub Release를 발행한 뒤, 발행본을 대상으로 별도 PR에서** 수행한다. **이 PR이
+  merge됐다는 것은 "발행 경로가 검증됐다"는 뜻이 아니다** — 발행 경로 검증(B-4)은 발행 후에만
+  가능하며 아직 수행되지 않았다.
 - branch: `release/v0.9.0`
 - 선행: `docs/work/task-m2-release-0-8-0.md`(B-1/B-2/B-4 방법론의 전례), M4 gate 1~8 전부 닫힘
   (PR #109가 M4 종료 처리를 reviewer 재확인 중).
@@ -147,16 +151,61 @@ limitation code를 각각 어떻게 요약할지, **Go/C에서 `data.edges`의 "
 신규 지침이므로 patch가 아니라 minor다. 필드 제거·재정의는 없다(두 diff 모두 순수 추가,
 `+139 -0`).
 
-## 다음 단계 (commander 확인 대기, 착수 안 함)
+## B-3. 실제 반영 (완료)
 
-1. B-1/B-2 확인 후 실제 반영: 위 표의 모든 위치를 `0.9.0`으로, plugin manifest 2개를
-   `0.5.0`으로, response-policy fixture 30개 전부(이미 앞서간 4개 포함) `0.9.0`으로 통일.
-2. CHANGELOG의 `## Unreleased`를 `## 0.9.0`으로 확정(이미 이 문서 상단 절에서 사실 대조·수정
-   완료).
-3. B-4(공개 default-path 사후 검증) — `task-m2-release-0-8-0.md`의 B-4와 같은 방법으로, 상위
-   우선순위 경로(explicit path, checkout, global 설치)를 전부 명시적으로 막고 `runner.source`가
-   실제로 `release-fallback`으로 떨어지는지 확인. **발행된 아티팩트가 아직 없으므로, 태그·Release
-   발행 후에만 실행 가능** — 이 lane은 PR merge까지만 하므로, B-4는 발행 후 별도로 수행하거나
-   commander가 발행 시점에 직접 수행한다(아래 "범위" 참고).
-4. 전체 재검증(`cli:test`/`test`/`test:response-policy`), commit, push, PR — **태그 발행·GitHub
-   Release 생성은 하지 않는다.**
+B-1 표의 모든 위치를 `0.9.0`으로, plugin manifest 2개를 `0.5.0`으로 갱신했다. `sed`로 일괄
+치환한 뒤, **눈으로 세지 않고 grep 카운트로** 전후 occurrence 수가 정확히 같은지 파일별로
+확인했다(치환이 새 occurrence를 만들거나 기존 것을 놓치면 카운트가 달라진다):
+
+| 파일 | 치환 전 `0.8.0` 개수 | 치환 후 `0.9.0` 개수 | 일치 |
+| --- | --- | --- | --- |
+| `README.md` | 5 | 5 | ✅ |
+| `INSTALL.md` | 17 | 17 | ✅ |
+| `docs/DEVELOPMENT.md` | 6 | 6 | ✅ |
+| `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md` | 3 | 3 | ✅ |
+
+`package.json`/`cli/package.json`/`cli/src/test/contract.test.ts`/`plugins/impact-lens/scripts/
+run-impact-lens`/plugin manifest 2개는 위치가 한 곳씩이라 직접 확인(개수 대조가 필요 없다).
+
+**response-policy fixture 30개 — "30개가 진짜 전부인지" 세는 방법(commander 요구)**:
+
+```sh
+DIR=scripts/fixtures/response-policy
+total=$(ls "$DIR"/*.json | wc -l)                              # 디렉터리의 실제 파일 총수
+has_version_field=$(grep -l '"version"' "$DIR"/*.json | wc -l)  # "version" 키를 가진 파일 수
+has_080=$(grep -l '"0\.8\.0"' "$DIR"/*.json | wc -l)
+has_090=$(grep -l '"0\.9\.0"' "$DIR"/*.json | wc -l)
+```
+
+치환 **전** 실행 결과: `total=30, has_version_field=30, has_0.8.0=26, has_0.9.0=4`. **30 =
+26 + 4**이고 **30 = has_version_field**라는 두 등식이 동시에 성립해야 "30개 파일 중 하나도
+빠짐없이 계산에 들어갔다"는 뜻이다 — `total`과 `has_version_field`가 같지 않으면 version 필드가
+없는 파일이 있다는 뜻이고, `has_0.8.0 + has_0.9.0`이 `total`보다 작으면 어느 쪽에도 안 잡힌
+파일(다른 값이거나 오탈자)이 있다는 뜻이다. 둘 다 성립함을 확인한 뒤 `"0.8.0"` → `"0.9.0"`
+일괄 치환하고, 치환 **후** 같은 스크립트로 `has_0.8.0=0, has_0.9.0=30`(= `total`)을 재확인했다.
+치환 후 30개 파일 전부 `node -e "JSON.parse(...)"`로 유효한 JSON임도 확인했다(sed 치환이 구문을
+깨지 않았는지).
+
+**전체 재검증**(치환 후, `rm -rf out cli/dist` 후):
+- `pnpm --dir cli run build` — 성공.
+- `pnpm --dir cli test` — gopls/clangd가 PATH에 없는 상태(로컬 기본): 516 tests, 511 pass, 0
+  fail, 5 skip(gopls/clangd 게이트 테스트, 정상적인 로컬 skip). **gopls v0.19.1/clangd 17.0.0를
+  PATH에 놓고 재실행하면 516/516 전부 통과**(재확인함) — skip은 실패가 아니라 바이너리 부재의
+  정상 동작이라는 것까지 직접 검증했다.
+- `pnpm test`(Extension) — 84/84 pass.
+- `npm run test:response-policy` — 38 checks 통과(fixture 30개 버전 치환 후에도 doc invariant
+  등 전부 그대로 통과, 회귀 없음).
+
+## 범위 — 이 PR이 끝나는 지점과 그 다음
+
+이 PR은 **B-3(버전 반영)과 CHANGELOG 확정까지만** 하고 commit·push·PR을 연다. **태그 발행·
+GitHub Release 생성은 하지 않는다**(commander 지시, 사용자 확인 후 commander가 직접 진행).
+
+**B-4(공개 default-path 사후 검증)는 이 PR에 포함되지 않는다 — 발행된 아티팩트가 없어서
+지금은 수행할 수 없다.** M2 전례(`task-m2-release-0-8-0.md`)가 정확히 같은 순서를 썼다: PR #69가
+릴리스(버전·CHANGELOG)와 태그 발행, 그 다음 **별도 PR #70**이 발행본을 대상으로 B-4/B-5를
+수행하고 기록했다. 이 lane도 같다 — 태그·Release가 발행된 뒤, 발행된 아티팩트(VSIX/tarball
+URL)를 대상으로 상위 우선순위 경로(explicit path, checkout, global 설치)를 전부 명시적으로 막고
+`runner.source`가 실제로 `release-fallback`으로 떨어지는지 확인하는 것은 **다음 lane의 몫**이다.
+**이 PR이 merge된다는 것은 "발행 경로가 검증됐다"는 뜻이 아니다** — PR 본문에도 같은 문장을
+남긴다.

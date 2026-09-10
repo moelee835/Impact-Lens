@@ -7,7 +7,7 @@
     "operation": "impact.analyze",
     "ok": true,
     "runtime": {
-      "cli": { "name": "@impact-lens/cli", "version": "0.8.0" },
+      "cli": { "name": "@impact-lens/cli", "version": "0.9.0" },
       "node": { "version": "22.0.0", "major": 22, "executable": "node" },
       "runner": { "source": "checkout" }
     },
