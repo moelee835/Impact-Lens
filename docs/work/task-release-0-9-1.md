@@ -186,6 +186,21 @@ ls --no-yarn`/`vsce package`가 매번 파일을 **0개** 찾는다(`.vscodeigno
 포함). **이걸로 결론**: 로컬 실패는 이 머신의 기본 Node 버전과 vsce의 호환성 문제이지, 코드나
 패키징 설정의 결함이 아니다. 다음 릴리스부터는 로컬에서 vsce를 돌릴 때 Node 22를 먼저 확인한다.
 
+> **2026-09-10 정정 — 위 문단은 "Node 버전 문제"라고 썼는데, 그건 관찰은 맞지만 기전(mechanism)
+> 설명으로는 부정확했다.** commander가 v0.9.0 작업 문서 쪽에 "이 진단은 이후 정정됐다"는 포인터를
+> 남겨 달라고 요청해 다시 파고든 결과: **이건 새 버그가 아니라 `docs/work/
+> task-m4-release-0-9-0-verification.md`("UUID 경로 함정")가 이미 정확히 root-cause한 바로 그
+> 버그다** — `npm list --production --parseable --depth=99999 --loglevel=error`가 UUID 형태
+> 경로 세그먼트를 `***`로 마스킹하고, `vsce`가 그 마스킹된 문자열을 그대로 파일 경로로 믿는 것.
+> **직접 재현으로 확인**: 같은 UUID 포함 디렉터리(`.../15cedb14-.../scratchpad/npm-mask-test`)에서
+> `npm list --production --parseable --depth=0 --loglevel=error`를 두 `npm` 바이너리로 각각
+> 실행 — **Node 25가 번들한 `npm 11.11.0`은 경로를 `***`로 마스킹**하고, **Node 22가 번들한
+> `npm 10.9.3`은 마스킹하지 않는다.** 즉 "Node 22로 바꾸면 된다"는 관찰은 맞지만, 그건 Node
+> 자체의 차이가 아니라 **그 Node가 번들한 npm 메이저 버전(11 vs 10)에서 마스킹 동작이 켜지고
+> 꺼진 차이**다. v0.9.0 문서의 진단은 **틀리지 않았다** — 이번 lane은 그걸 뒤집은 게 아니라
+> **재현으로 재확인하고, "npm 11.x에서 새로 생긴 동작"이라는 조건을 하나 더 밝혔을 뿐**이다.
+> commander에게도 이 구분을 그대로 보고한다.
+
 ### 산출물
 
 | 파일 | 경로 | 바이트 수(`ls -l`) | sha256 |
