@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   InvalidTestPatternsDocumentError,
+  unionTestPatternsDocuments,
   validateTestPatternsDocumentShape,
 } from '../shared/testPatternsDocument';
+import { CompiledTestPatterns } from '../shared/testFileClassifier';
 
 // IL-LIM-010 stage 1 completion (docs/work/task-m4-il-lim-010-stage1-completion.md). reviewer's finding:
 // before this module existed, `cli/src/testPatternsConfig.ts` (CLI) and `src/testPatternsStore.ts`
@@ -69,4 +71,33 @@ test('the thrown error carries which field the problem is in, when it is field-s
     assert.ok(error instanceof InvalidTestPatternsDocumentError);
     assert.equal(error.field, 'include');
   }
+});
+
+// --- unionTestPatternsDocuments(): reviewer's round-2 finding - this decision (union, never override)
+// used to be a plain array spread independently copy-pasted in both hosts' own files, with nothing
+// pinning it. Moved to this shared module; this test is what now pins it. -------------------------
+
+function fakePattern(source: string): CompiledTestPatterns['include'][number] {
+  return { source, regex: /^$/ };
+}
+
+test('local\'s "exclude" does not erase shared\'s "include" - this is a union, not an override', () => {
+  const shared: CompiledTestPatterns = { include: [fakePattern('e2e/**/*.contract.ts')], exclude: [] };
+  const local: CompiledTestPatterns = { include: [], exclude: [fakePattern('vendor/**')] };
+  const combined = unionTestPatternsDocuments(shared, local);
+  assert.deepEqual(combined.include.map(p => p.source), ['e2e/**/*.contract.ts']);
+  assert.deepEqual(combined.exclude.map(p => p.source), ['vendor/**']);
+});
+
+test('both sides\' include and exclude lists are concatenated, in shared-then-local order', () => {
+  const shared: CompiledTestPatterns = { include: [fakePattern('a')], exclude: [fakePattern('b')] };
+  const local: CompiledTestPatterns = { include: [fakePattern('c')], exclude: [fakePattern('d')] };
+  const combined = unionTestPatternsDocuments(shared, local);
+  assert.deepEqual(combined.include.map(p => p.source), ['a', 'c']);
+  assert.deepEqual(combined.exclude.map(p => p.source), ['b', 'd']);
+});
+
+test('two empty documents union to an empty document', () => {
+  const empty: CompiledTestPatterns = { include: [], exclude: [] };
+  assert.deepEqual(unionTestPatternsDocuments(empty, empty), { include: [], exclude: [] });
 });

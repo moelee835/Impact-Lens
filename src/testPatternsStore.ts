@@ -7,6 +7,7 @@ import {
 import {
   InvalidTestPatternsDocumentError,
   RawTestPatternsDocument,
+  unionTestPatternsDocuments,
   validateTestPatternsDocumentShape,
 } from '../cli/dist/shared/testPatternsDocument';
 
@@ -58,12 +59,13 @@ export class TestPatternsStore implements vscode.Disposable {
   }
 
   /**
-   * Compiled patterns for a workspace folder, unioned from its shared and local files (never one
-   * overriding the other - see `cli/src/testPatternsConfig.ts`'s identical reasoning). Rejects with an
-   * `Error` (not a `CliError` - this is Extension-side, there is no CLI envelope here) describing the
-   * problem and naming the actual file when either file is malformed - callers must let this propagate
-   * as an analysis failure (the existing `vscode.window.showErrorMessage` path in `controller.ts`),
-   * never catch and silently proceed with fewer patterns.
+   * Compiled patterns for a workspace folder, unioned from its shared and local files via
+   * `unionTestPatternsDocuments()` (never one overriding the other - see that shared function's own doc
+   * comment for why). Rejects with an `Error` (not a `CliError` - this is Extension-side, there is no
+   * CLI envelope here) describing the problem and naming the actual file when either file is malformed -
+   * callers must let this propagate as an analysis failure (the existing
+   * `vscode.window.showErrorMessage` path in `controller.ts`), never catch and silently proceed with
+   * fewer patterns.
    */
   async patternsFor(folder: vscode.WorkspaceFolder): Promise<CompiledTestPatterns> {
     const cacheKey = folder.uri.toString();
@@ -78,10 +80,11 @@ export class TestPatternsStore implements vscode.Disposable {
   private async load(folder: vscode.WorkspaceFolder): Promise<CompiledTestPatterns> {
     const shared = await this.readAndCompile(folder, SHARED_TEST_PATTERNS_FILE);
     const local = await this.readAndCompile(folder, LOCAL_TEST_PATTERNS_FILE);
-    return {
-      include: [...shared.include, ...local.include],
-      exclude: [...shared.exclude, ...local.exclude],
-    };
+    // Union, not override - see `unionTestPatternsDocuments()`'s own doc comment (`testPatternsDocument
+    // .ts`) for why. That is also where this decision's reasoning now lives - not duplicated here next
+    // to a plain array spread (reviewer's round-2 finding: this exact spread used to be independently
+    // copy-pasted in this file and in `cli/src/testPatternsConfig.ts`, with nothing enforcing agreement).
+    return unionTestPatternsDocuments(shared, local);
   }
 
   private async readAndCompile(folder: vscode.WorkspaceFolder, fileName: string): Promise<CompiledTestPatterns> {

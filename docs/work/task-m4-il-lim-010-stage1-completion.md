@@ -719,3 +719,26 @@ TypeScript LSP·번들 pyright 둘 다 실행해 `outsideWorkspace: false`가 �
 - `npm test`(Extension) - 84 tests, 84 pass, 0 fail(리팩터링이 `ImpactNode`/`classifyImpactRelation`
   동작을 안 바꿨음을 재확인).
 - `npm run test:response-policy` - 36 checks 통과.
+
+## 2026-09-10 추가 — reviewer가 직접 확인해 찾은 세 번째 잔여 중복, 이것도 고침
+
+commander가 나머지는 전부 승인하면서 하나를 직접 코드로 확인해 지적했다: shape 검증을 공유
+모듈로 합쳤는데도 `[...shared.include, ...local.include]`/`[...shared.exclude, ...local.exclude]`
+union spread 자체는 여전히 `cli/src/testPatternsConfig.ts`와 `src/testPatternsStore.ts` 양쪽에
+독립적으로 복붙돼 있었다 - **이것도 결정을 담은 코드다**(override가 아니라 union이라는 선택, 그
+근거는 CLI 쪽 주석에만 적혀 있었다), 그리고 방금 shape 검증에 대해 내린 것과 정확히 같은 이유로
+같은 위험(나중에 한쪽만 조용히 override로 바뀌면 두 host가 갈리고 아무것도 못 잡는다)을 안고 있다.
+
+**고침**: `unionTestPatternsDocuments(shared, local)`를 `cli/src/shared/testPatternsDocument.ts`에
+추가하고, "왜 override가 아니라 union인가"(개인 exclude가 공유 include 전체를 조용히 지우면 안
+된다, `notes.ts`의 local/shared 값 override와 다른 이유 - test pattern은 "정답 하나"가 아니라
+"방화벽 규칙 집합"에 가깝다)라는 결정 문장을 이제 유일한 구현 옆으로 옮겼다. 두 host 모두 이 함수
+하나만 호출한다. 고정 테스트 3개(`cli/src/test/testPatternsDocument.test.ts`) 추가, 뮤테이션
+검증(union을 "local이 있으면 local만" override로 바꿔 재실행 → 그 3개 + 기존 `testPatternsConfig
+.test.ts`의 union 테스트까지 정확히 실패 → 원복 후 재통과) 완료.
+
+이제 이 계층에 남는 중복은 파일 경로 상수(`SHARED_TEST_PATTERNS_PATH` 등) 둘뿐이다 - commander
+지적대로 이건 갈라지면 즉시 눈에 보이는 종류라 통합 대상이 아니다.
+
+**검증(3차, 전부 `[실행]`, `rm -rf out cli/dist` 후)**: `npm run cli:test` - 505 tests, 502 pass,
+3 skip. `npm test`(Extension) - 84/84. `npm run test:response-policy` - 36/36. 전부 회귀 없음.

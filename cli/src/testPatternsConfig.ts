@@ -6,6 +6,7 @@ import {
   InvalidTestPatternsDocumentError,
   RawTestPatternsDocument,
   TEST_PATTERNS_DOCUMENT_ALLOWED_FIELDS,
+  unionTestPatternsDocuments,
   validateTestPatternsDocumentShape,
 } from './shared/testPatternsDocument';
 
@@ -96,11 +97,11 @@ function readAndCompileOne(workspace: string, relativePath: string): CompiledTes
 }
 
 /**
- * Reads and compiles both workspace test-pattern files and unions them (never overrides - a personal
- * `exclude` must not silently drop the whole shared `include` list; see the work document's "설정 소스"
- * section for why union, not override, is the right precedence between the two files). Compiles each
- * file separately before merging so an invalid pattern's error always names the ACTUAL file it came
- * from, not a merged, ambiguous origin.
+ * Reads and compiles both workspace test-pattern files, then unions them via
+ * `unionTestPatternsDocuments()` (see that function's own doc comment for why this is a union, not an
+ * override - that decision now lives beside its only implementation, not duplicated in each host's file
+ * next to a plain array spread). Compiles each file separately before merging so an invalid pattern's
+ * error always names the ACTUAL file it came from, not a merged, ambiguous origin.
  *
  * Never throws for a missing file (the common case - most projects have neither file). Throws
  * `CliError('test_pattern_config_invalid', ...)` for a file that exists but is malformed or uses
@@ -111,8 +112,5 @@ function readAndCompileOne(workspace: string, relativePath: string): CompiledTes
 export function readProjectTestPatterns(workspace: string): CompiledTestPatterns {
   const shared = readAndCompileOne(workspace, SHARED_TEST_PATTERNS_PATH);
   const local = readAndCompileOne(workspace, LOCAL_TEST_PATTERNS_PATH);
-  return {
-    include: [...shared.include, ...local.include],
-    exclude: [...shared.exclude, ...local.exclude],
-  };
+  return unionTestPatternsDocuments(shared, local);
 }

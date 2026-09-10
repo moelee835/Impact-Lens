@@ -1,20 +1,30 @@
+import { CompiledTestPatterns } from './testFileClassifier';
+
 /**
- * Pure shape validation for `.impact-lens/test-patterns.json`/`.local.json` (IL-LIM-010 stage 1
- * completion, docs/work/task-m4-il-lim-010-stage1-completion.md). Shared by both hosts' file-reading
- * code (`cli/src/testPatternsConfig.ts`, `src/testPatternsStore.ts`) so "is this document shape valid"
- * has exactly one answer, computed in exactly one place.
+ * Pure shape validation (and, below, precedence) for `.impact-lens/test-patterns.json`/`.local.json`
+ * (IL-LIM-010 stage 1 completion, docs/work/task-m4-il-lim-010-stage1-completion.md). Shared by both
+ * hosts' file-reading code (`cli/src/testPatternsConfig.ts`, `src/testPatternsStore.ts`) so "is this
+ * document shape valid" and "how do the shared and local files combine" each have exactly one answer,
+ * computed in exactly one place.
  *
- * reviewer's finding: before this module existed, each host had its own hand-copied
+ * reviewer's finding (round 1): before this module existed, each host had its own hand-copied
  * `validateShape()`/`optionalStringArray()`, and nothing proved the two agreed - the same "same
  * classifier, different validation" gap PR #91 measured and fixed for path classification itself
- * (`testFileClassifier.ts`), reopened one file over for the settings that feed it. Extracting the
- * validation into a shared, dependency-free function (matching this repository's own precedent -
- * `compileTestPatterns()`/`classifyTestFile()` are shared for the identical reason) removes the class
- * of bug outright instead of merely testing that two independent copies happen to still agree.
+ * (`testFileClassifier.ts`), reopened one file over for the settings that feed it.
+ *
+ * reviewer's finding (round 2): even after that fix, the two hosts' `[...shared.x, ...local.x]` UNION
+ * spread was still independently copy-pasted in each host's own `readProjectTestPatterns()`/`load()` -
+ * a plain array spread looks too small to bother sharing, but it silently carries a real decision (see
+ * `unionTestPatternsDocuments()` below), and this repository's own PR #91 already showed that "two
+ * independently-written copies of one rule, unenforced" is exactly the shape that drifts. Moved here
+ * for the same reason as the shape validator above - it removes the class of bug outright instead of
+ * merely proving today's two copies agree.
  *
  * File I/O and the origin string used in error messages stay host-specific (Node `fs` vs
- * `vscode.workspace.fs`, `CliError` vs a plain `Error`) - only the JSON-shape question moves here. No
- * npm runtime dependency, matching every other module under `cli/src/shared/**` (VSIX require-boundary).
+ * `vscode.workspace.fs`, `CliError` vs a plain `Error`) - only the JSON-shape and precedence questions
+ * move here. No npm runtime dependency, matching every other module under `cli/src/shared/**` (VSIX
+ * require-boundary) - the only other shared module this one imports, `testFileClassifier.ts`, has none
+ * either, so this stays within the same boundary.
  */
 
 export const TEST_PATTERNS_DOCUMENT_ALLOWED_FIELDS = ['include', 'exclude'] as const;
@@ -70,5 +80,33 @@ export function validateTestPatternsDocumentShape(parsed: unknown): RawTestPatte
   return {
     include: validateStringArray(value.include, 'include'),
     exclude: validateStringArray(value.exclude, 'exclude'),
+  };
+}
+
+/**
+ * Combines the shared (committed, project-wide) and local (personal override) compiled test-pattern
+ * documents into one. This is a UNION, not an override, and that is a decision, not an implementation
+ * detail: a personal `test-patterns.local.json` exclude must never silently drop the whole shared
+ * `test-patterns.json` include list (or vice versa) just because both files happen to exist - a
+ * project-wide convention and a personal addition to it are not in conflict merely by both existing.
+ *
+ * This deliberately differs from `cli/src/notes.ts`'s local/shared note layers, which DO override each
+ * other (`local` wins outright when both are set) - a function note is a single value with one right
+ * answer per symbol, so "which one wins" is the only sensible question. A set of test patterns is
+ * closer to a firewall rule set: both sources' rules should all apply, and there is no single "the"
+ * pattern to pick between.
+ *
+ * Callers are expected to compile `shared` and `local` SEPARATELY before calling this (never merge the
+ * raw pattern-string arrays first) - that is what lets an invalid pattern's error name the actual file
+ * it came from instead of an ambiguous merged origin. This function only combines two already-compiled,
+ * already-valid results.
+ */
+export function unionTestPatternsDocuments(
+  shared: CompiledTestPatterns,
+  local: CompiledTestPatterns,
+): CompiledTestPatterns {
+  return {
+    include: [...shared.include, ...local.include],
+    exclude: [...shared.exclude, ...local.exclude],
   };
 }
