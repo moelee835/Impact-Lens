@@ -1,9 +1,12 @@
 # M3 lane G — `IL-LIM-018` 진입 gate: jdtls incoming call hierarchy 실측
 
-- 상태: **실측 완료 — 층 3.** 실제 jdtls 두 버전을 실제로 기동해 이 저장소의 fixture로
+- 상태: **일시 정지(2026-09-10, commander 지시) — 닫힘 아님.** 실측 완료 — 층 3까지. 실제
+  jdtls 두 버전을 실제로 기동해 이 저장소의 fixture로
   `prepareCallHierarchy`/`incomingCalls`/`outgoingCalls`를 직접 호출하고 응답을 관찰했다.
   **결론: incoming 방향에서는 이 버그가 관측되지 않았다** - 아래 "실측 결과" 참고. preset
   등재 여부에 대한 판단까지만 하고 구현(preset/catalog/CI)은 하지 않는다(commander 지시).
+  더 급한 사안(발행된 v0.9.0의 Call Graph 패널 미렌더링 결함, reviewer 수정에 대한 검토)
+  때문에 일시 정지됐다 - webview 수정이 정리되면 이 lane으로 돌아온다.
 - branch: `feat/m3-java-entry-gate`
 - 선행: `docs/development-management/stories/il-lim-018-java-language-support.md` 1단계 5번
   (2026-09-09 추가, entry gate), `docs/work/task-m3-java-kotlin-spring-planning-refinement.md`
@@ -443,9 +446,12 @@ import 상호작용(위 절)이 찾은 문제는 preset 구현 전에 미리 풀
   모듈-다른 파일 둘 다 정확했다(위 "1순위" 절).
 - **`v1.45.0` × Gradle/Maven project 조합을 안 잰다** - 최신 버전(등재 후보)의 안전성만 실제
   프로젝트 형태로 재확인했다. 멀티모듈 매트릭스, Maven 매트릭스 둘 다 `v1.61.0` 하나만 쟀다.
-- **interface default method, record compact constructor는 이번 lane의 범위 밖**(story
-  문서가 이미 별개 위험으로 분리해 둔 항목) - 여전히 미확인, commander의 다음 순위 대상이 될
-  후보.
+- **interface default method, record compact constructor, test caller 분류는 이번 lane의
+  범위 밖**(story 문서가 이미 별개 위험으로 분리해 둔 항목) - 여전히 미확인. **취소선을 긋지
+  않는다** - commander 지시(2026-09-10)로 이 lane은 v0.9.0 Call Graph 렌더링 결함 검토
+  때문에 일시 정지됐고, 이 항목은 우선순위가 낮아진 게 아니라 **preset 구현 lane이 자체
+  fixture를 만들 때 함께 닫는 것이 자연스럽다**는 판단으로 이월됐다 - 별도의 entry-gate
+  재측정 lane을 다시 열 필요는 없다.
 - ~~Maven은 안 잤다~~ **후속 실측으로 확인함** - Gradle과 완전히 같은 패턴(위 "3순위" 절), 다만
   여전히 dependency 없음.
 - **"블로킹이 실제 분·초 단위 지연에서도 유지되는가"는 부분적으로만 답했다** - Gradle +
