@@ -107,9 +107,9 @@ scope: 'semantic'
 `data.edges`(확정 caller)는 전혀 영향받지 않으므로 과장이다. `info`로 낮추면 이 milestone이
 반복해서 경계해 온 "조용한 기각"을 "안 읽어도 되는 잡음"으로 재포장하는 꼴이라 안 된다 -
 `augmentation_adapter_failed`도 "adapter가 실패했을 뿐 정적 결과는 안전하다"는 정확히 같은
-성격인데 `warning`이다. **`error`로 올릴 유일한 후보는 gate C(runtime-only binding)인데, 그것도
-"찾을 수 없다는 것을 안다"는 정직한 상태이지 분석 실패가 아니므로 같은 가족에 남긴다** - 아래
-설계안 4에서 gate C도 이 code를 쓰되 category만 `runtime-only`로 다르다는 점 참고.
+성격인데 `warning`이다. gate C(runtime-only binding)가 나중에 이 code를 쓸 때도(category만
+`runtime-only`로 추가) 같은 논리가 적용된다 - "찾을 수 없다는 것을 안다"는 정직한 상태이지 분석
+실패가 아니다. **다만 gate C 자체는 이번 PR 범위 밖이다** - 아래 "설계안 3" 참고.
 
 ### 데이터 모델 — occurrence마다 쌓지 않는다
 
@@ -117,11 +117,17 @@ commander 지시(`onUpdated` 실측이 근거): entry 하나 + message에 건수
 
 ```ts
 // cli/src/shared/adapters/types.ts
+// 2026-09-10 commander 최종 결정 - `runtime-only`는 이 배열에 없다. 이유는 아래 "gate C는 후속
+// lane" 절 참고 - 요약하면 "출하된 값을 빼는 것은 비싸지만 출하 안 된 값을 넣는 것은 싸다"는
+// `AUGMENTED_EDGE_SOURCES`의 `runtime-observation` 유지 근거를 그대로 반대 방향으로 적용한 것:
+// producer가 없는 값을 미리 예약하면 계약이 "유령 값"을 갖게 되고, 소비자는 절대 오지 않는 case를
+// 처리해야 한다. gate C lane이 실제 producer를 만들 때 값을 추가한다 - 그게 싼 쪽이다. 4축
+// 분석틀(backlog/capability-blocked/technique-blocked/runtime-only) 자체는 이 문서에 남기지만,
+// **코드에 싣는 건 producer가 있는 세 값뿐이다.**
 export const REJECTED_INFERENCE_CATEGORIES = [
   'backlog',
   'capability-blocked',
   'technique-blocked',
-  'runtime-only',
 ] as const;
 export type RejectedInferenceCategory = (typeof REJECTED_INFERENCE_CATEGORIES)[number];
 
@@ -176,7 +182,7 @@ function augmentationInferenceRejectedDetails(
     severity: 'warning',
     scope: 'semantic',
     message: `${perAdapter}. The static call graph above is unaffected, but the caller list at these points may be incomplete, which can understate the actual impact radius.`,
-    action: 'This means augmentation recognized a pattern it could not confirm a specific target for - not that no such relationship exists; the categories above explain whether this may improve in a future release (backlog, capability-blocked) or is a structural limit of static analysis (technique-blocked, runtime-only).',
+    action: 'This means augmentation recognized a pattern it could not confirm a specific target for - not that no such relationship exists; the categories above explain whether this may improve in a future release (backlog, capability-blocked) or is a structural limit of the current detection technique.',
   }];
 }
 ```
@@ -193,11 +199,11 @@ message는 "정적 그래프는 영향 없음" + "다만 이 지점들에서 cal
 범위 과소평가 위험)" 두 절 모두를 담도록 고쳤다 - 둘 다 참이고, 둘 다 있어야 정직하다.
 
 **category → 사람이 읽는 문구 매핑안** (`summarizeByCategory`, 순서 고정 - backlog →
-capability-blocked → technique-blocked → runtime-only, 카테고리가 0건이면 그 구절 생략):
+capability-blocked → technique-blocked, 카테고리가 0건이면 그 구절 생략. `runtime-only`는
+producer가 없어 이번 PR의 코드에 없다 - 위 "데이터 모델" 절 참고):
 - `backlog` → `"N not yet implemented"`
 - `capability-blocked` → `"N waiting on a provider capability this analysis does not have"`
 - `technique-blocked` → `"N blocked by the current detection technique (a safer, broader technique risks new false attributions)"`
-- `runtime-only` → `"N determined only at runtime, which static analysis cannot resolve in principle"`
 
 예시 문장(reviewer의 vue-core 표본을 예시로만 사용, 실제 코드에 하드코딩하지 않음):
 `"dynamic-callback-static-v1 recognized 6 relationship(s) it could not resolve into a specific caller (6 blocked by the current detection technique (a safer, broader technique risks new false attributions)). The static call graph above is unaffected, but the caller list at these points may be incomplete, which can understate the actual impact radius."`
@@ -210,7 +216,6 @@ augmentation_inference_unresolved: [
   /\bcaller list\b[^.!?]{0,40}\b(?:may be |might be )?incomplete\b/i,
   /\bunderstate\b[^.!?]{0,40}\bimpact\b/i,
   /\bblocked by the current detection technique\b/i,
-  /\bdetermined only at runtime\b/i,
 ],
 ```
 `augmentation_adapter_failed`가 이미 쓰는 "두 근거(코드 자신의 message + 예상 paraphrase)"
@@ -297,26 +302,50 @@ fixture를 그대로 쓰면 gate C를 "닫았다"고 주장하면서 실제로�
 후보가 런타임에 바뀔 수 있다"는 별개의 주장이다. gate C의 정의("후보 target을 정적으로 단 하나도
 나열할 수 없음")에 맞지 않아 후보에서 제외한다.
 
-**결론 - commander에게 먼저 보고할 사실**: 세 후보 모두 gate C가 요구하는 "인식은 했지만 정적으로
-후보를 못 좁힌" 코드 경로를 만들지 못한다. **현재 SPI/두 adapter의 어떤 기존 코드 경로도
-`runtime-only` category를 실제로 만들어 내지 않는다** - `runtime-only`는 vocabulary에 값만 있고
-producer가 없는 상태(`AUGMENTED_EDGE_SOURCES`의 `runtime-observation`과 같은 모양의 위험)로 남을
-수 있다. gate C를 실제로 채우려면 **새로운, 좁은 detection 하나가 필요하다**: `Depends(...)`의
-인자가 bare identifier가 아닌 경우(호출식·subscript·attribute access 등)를 **root 이름과 무관하게
-workspace 전체에서** 스캔해 `runtime-only`로 tally하는 것 - 이건 이번 lane이 애초에 범위로 잡은
-"기존 reject 경로에 limitation을 연결한다"보다 넓은 새 코드다. **이 범위 확장을 임의로 진행하지
-않고 먼저 보고한다** - 아래 "commander/reviewer 확인 요청" 참고.
+**결론 - 세 후보 모두 gate C가 요구하는 "인식은 했지만 정적으로 후보를 못 좁힌" 코드 경로를
+만들지 못한다.** 현재 SPI/두 adapter의 어떤 기존 코드 경로도 `runtime-only`에 해당하는 tally를
+실제로 만들어 내지 않는다.
 
-**이 fixture의 종료 조건(재설계 확정 후 동일하게 적용)**: `runtime-only` category tally가 최소
-1 증가하고, `augmentedEdges`에는 해당 관계의 edge가 **생기지 않는다**(현재 `resolution` 두 값 -
-`single`/`multiple` - 어디에도 안 들어감, stage 1이 이미 정의해 둔 대로).
+**2026-09-10 commander 최종 결정 - gate C는 후속 lane, 이번 PR 범위 밖으로 확정.** 이 lane은
+`IL-LIM-002` 수용 기준 5번("runtime-only binding이 확정·후보·미지원 관계로 구분된다")을
+**닫지 않는다** - PR 본문에도 명시한다. `runtime-only`는 vocabulary에 값으로도 넣지 않는다(위
+"데이터 모델" 절 참고 - `AUGMENTED_EDGE_SOURCES`의 `runtime-observation` 유지 근거를 정확히
+반대 방향으로 적용: 출하된 값을 빼는 건 비싸지만 출하 안 된 값을 넣는 건 싸므로, **만들어 낼 수
+없는 값은 출하하지 않는다**. producer 0건인 값을 계약에 미리 넣으면 소비자가 절대 오지 않는
+case를 처리해야 하는, "정직"이 아니라 "유령 값으로 계약을 채우는" 결과가 된다).
+
+**후속 lane에 반드시 넘기는 질문 - 이번 실측이 드러낸 진짜 문제**: `Depends()`의 대상을 하나도
+열거할 수 없다면, 그게 지금 쿼리한 root를 가리키는지도 알 수 없다. 그러면 응답에 뭘 적어야 하는가?
+- workspace 전체의 미해결 `Depends()`를 전부 보고 → 사용자가 `get_user`를 물었는데 무관한 라우트
+  12개의 동적 의존성을 듣는다 - 이건 공개가 아니라 소음이고, occurrence당 집계를 막은 것과 같은
+  실패 모양이다.
+- 아무것도 보고 안 함 → 지금 상태 그대로(이 lane이 존재하는 이유 자체가 무효화된다).
+- **가능한 중간 답(측정 없이 확정하지 않는다)**: 이미 이 분석의 그래프에 들어온 파일들로 범위를
+  좁혀 "이 분석에 등장한 파일에서 N개의 의존성을 확정하지 못했다"고 말하는 것 - root 관련성이
+  있고 경계도 있다. 다만 이건 설계 판단이고, 측정 없이 정하면 gate 7이 저지른 실수를 반복한다.
+
+**즉 gate C의 acceptance 문구가 root 범위 분석에서 원리적으로 충족 가능한지 자체가 아직 열린
+질문이다** - 후속 lane은 설계부터 시작하지 않고 이 질문부터 시작한다. `dependency_overrides`를
+후보에서 뺀 판단(안 돌려보고 개념으로 배제)도 같이 넘긴다 - "런타임에 대체될 수 있다"(전자)와
+"후보를 못 좁힌다"(gate C)는 다른 주장이고, 전자는 `Depends(get_db_a)` 호출 지점이 완전히
+정적으로 확정되는 경우라는 구분을 후속 lane도 다시 하지 않도록 여기 남긴다.
+
+**이 fixture의 종료 조건(후속 lane이 실제로 착수할 때 적용)**: `runtime-only`(또는 그때 확정되는
+이름)의 category tally가 최소 1 증가하고, `augmentedEdges`에는 해당 관계의 edge가 **생기지
+않는다**(현재 `resolution` 두 값 - `single`/`multiple` - 어디에도 안 들어감, stage 1이 이미
+정의해 둔 대로).
 
 ## 설계안 4 — 사용자 문서 3곳 수정안
 
 1. **`README.md`**: augmentation 언급이 0건 - 새 절 추가(위치는 기존 구조에 맞춰 결정, 초안은
    구현 단계에서). "무엇이 탐지되는가"(FastAPI Depends()/route, JS/TS 콜백·이벤트 등록)와 "무엇이
-   탐지되지 않으며 왜인가"를 4축(backlog/capability-blocked/technique-blocked/runtime-only)으로
-   설명.
+   탐지되지 않으며 왜인가"를 이번 PR이 실제로 만드는 세 축(backlog/capability-blocked/
+   technique-blocked)으로 설명한다. **router-level `dependencies=[]`처럼 인식기 자체가 없어
+   이번 PR로도 여전히 안 보이는 형태를 반드시 이름 대서 언급한다** - 그 형태의 유일한 공개
+   창구가 이 문서이기 때문이다(위 "router-level dependencies=[]" 절 참고). runtime-only binding
+   (gate C)은 이번 PR이 만들지 않으므로 이 문서에서도 "아직 별도로 다루지 않는다"로만 짧게
+   언급하고 4축 분석틀을 사용자 문서에까지 노출하지 않는다(코드가 없는 축을 사용자에게 약속하지
+   않는다).
 2. **`cli/README.md`**: 현재 거짓 문장(`"coverage.semantic is static-only until provenance-bearing
    augmentation is implemented"`, line 109)을 고친다 - `cli/src/impact.ts:171`이 이미
    `static-plus-inference`를 만들고 있다. 정정 문장은 "augmentation이 켜지면
@@ -336,14 +365,15 @@ workspace 전체에서** 스캔해 `runtime-only`로 tally하는 것 - 이건 �
   이상 발생 확인(gate 7 fixture 재사용, 새로 안 만듦).
 - 통합: `dynamic-callback-static-v1`의 vue-core 발견 패턴(method-shorthand)과 같은 shape의 fixture로
   `technique-blocked` tally 확인(이미 있는 gate 7 fixture 재사용 우선 검토).
-- 신규: gate C fixture(설계안 3) - `runtime-only` tally 확인 + `augmentedEdges`에 해당 edge 없음.
+- (후속 lane, 이번 PR에 없음): gate C fixture - `runtime-only` tally 확인 + `augmentedEdges`에
+  해당 edge 없음. 위 "설계안 3"의 "후속 lane에 반드시 넘기는 질문"부터 시작한다.
 - 뮤테이션: 이 milestone 관례대로, 실제로 tally 집계 코드를 무력화해 관련 테스트만 실패하는지 확인.
 - `LIMITATION_SURFACE_PATTERNS` 등록 후 `npm run test:response-policy` 무관 영역 회귀 없음 확인 +
   새 fixture 추가해 이 code의 disclosure 검출 확인.
 - 문서 3곳 수정 후 response-policy의 doc invariant 테스트 영향 없음 확인(`cli-contract.md` 변경이
   기존 forbidden-phrase/working code span 검사를 안 깨는지).
 
-## 2026-09-10 commander 확인 반영 — 1·2·4번 확정, 3번(gate C)만 재작업 필요
+## 2026-09-10 commander 확인 반영 — 넷 다 최종 확정
 
 1. **code 이름** → `augmentation_inference_unresolved`로 확정(위 "설계안 1" 전체에 반영 완료) -
    "rejected"는 "우리가 아니라고 판단했다"로 오독되지만 실제로는 정반대(관계는 진짜일 가능성이
@@ -357,13 +387,14 @@ workspace 전체에서** 스캔해 `runtime-only`로 tally하는 것 - 이건 �
    같아 폐기, commander가 제시한 세 후보를 실측했으나 **셋 다 채택 불가**로 판정됐다(위 "설계안 3"
    전체 재작성 참고) - 앞 두 후보는 `findDependsReferences()`가 애초에 인식하지 못해
    router-level `dependencies=[]`와 같은 "인식기 부재" 결함이 되고, 세 번째(`dependency_overrides`)는
-   gate C와 다른 개념이다. **결론: 현재 SPI의 어떤 기존 코드 경로도 `runtime-only`를 만들어 내지
-   않는다** - 새로 좁은 detection(Depends()의 인자가 bare identifier가 아닌 경우를 root와 무관하게
-   workspace 전체에서 스캔)이 필요하고, 이건 이번 lane이 처음 잡은 범위(기존 reject 경로 연결)보다
-   넓다. **이 확장을 진행해도 되는지 확인 요청** - 안 된다면 `runtime-only`는 이번 PR에서 vocabulary
-   값만 예약하고 producer 0건인 상태로 정직하게 남기고(`AUGMENTED_EDGE_SOURCES`의
-   `runtime-observation`과 같은 모양, `stateReachability*.test.ts`류 감사로 고정), gate C 자체는
-   후속 lane으로 넘긴다.
+   gate C와 다른 개념이다. **commander 최종 결정: gate C는 후속 lane, 이번 PR 범위 밖.** 그리고
+   `runtime-only`는 vocabulary 예약조차 하지 않는다 - `AUGMENTED_EDGE_SOURCES`의
+   `runtime-observation` 유지 근거("출하된 값을 빼는 게 더 비싸다")를 반대 방향으로 적용하면
+   "출하 안 된, 만들어 낼 수 없는 값은 넣지 않는다"가 된다(producer 0건인 값을 미리 넣으면
+   소비자가 절대 안 오는 case를 처리해야 하는 유령 값이 된다). **이번 PR의 코드가 싣는 category는
+   `backlog`/`capability-blocked`/`technique-blocked` 셋뿐이다.** 후속 lane에는 "gate C의
+   acceptance 문구가 root 범위 분석에서 원리적으로 충족 가능한가"라는, 이번 실측이 새로 드러낸
+   더 근본적인 질문을 함께 넘긴다(위 "설계안 3" 마지막 절 참고) - 설계부터 다시 시작하지 않게.
 4. **router-level `dependencies=[]`** → 코드 경로 신설 안 함, 확정. 다만 "capability-blocked로
    분류해 tally한다"는 원래 설계는 **틀렸다** - 인식기 자체가 없어 tally 대상이 되지도 못한다(위
    "router-level dependencies=[] — capability-blocked 목록에서 뺀다" 절 참고). 이 lane 이후에도
