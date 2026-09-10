@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/moelee835/Impact-Lens/releases/tag/v0.9.0"><img src="https://img.shields.io/badge/Release-v0.9.0-F5B942?style=for-the-badge" alt="Release v0.9.0"></a>
+  <a href="https://github.com/moelee835/Impact-Lens/releases/tag/v0.9.1"><img src="https://img.shields.io/badge/Release-v0.9.1-F5B942?style=for-the-badge" alt="Release v0.9.1"></a>
   <a href="INSTALL.md"><img src="https://img.shields.io/badge/VS_Code-1.96%2B-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.96+"></a>
   <a href="INSTALL.md#3-agent-cli-설치"><img src="https://img.shields.io/badge/Agent_CLI-Node_22%2B-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Agent CLI Node.js 22+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2EA44F?style=for-the-badge" alt="MIT License"></a>
@@ -49,10 +49,10 @@ Impact Lens는 함수 변경의 잠재 영향 범위를 탐색하는 **local-fir
 
 ### VS Code Extension
 
-[v0.9.0 VSIX](https://github.com/moelee835/Impact-Lens/releases/download/v0.9.0/impact-lens-0.9.0.vsix)를 내려받아 설치합니다.
+[v0.9.1 VSIX](https://github.com/moelee835/Impact-Lens/releases/download/v0.9.1/impact-lens-0.9.1.vsix)를 내려받아 설치합니다.
 
 ```sh
-code --install-extension ./impact-lens-0.9.0.vsix --force
+code --install-extension ./impact-lens-0.9.1.vsix --force
 ```
 
 VS Code를 reload한 뒤 함수 선언 위의 `Show impact`를 선택합니다.
@@ -61,7 +61,7 @@ VS Code를 reload한 뒤 함수 선언 위의 `Show impact`를 선택합니다.
 
 ```sh
 npm install --global \
-  https://github.com/moelee835/Impact-Lens/releases/download/v0.9.0/impact-lens-cli-0.9.0.tgz
+  https://github.com/moelee835/Impact-Lens/releases/download/v0.9.1/impact-lens-cli-0.9.1.tgz
 ```
 
 ```sh
@@ -199,6 +199,16 @@ CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는
 5. 위 네 단계 모두 실패하면 다른 언어의 provider로 대체하지 않고 `provider_required_for_language`로
    실패합니다.
 
+> **이 절은 Agent CLI 이야기입니다. VS Code Extension은 provider를 이렇게 고르지 않습니다.**
+> Extension은 **자기 언어 엔진을 갖고 있지 않고**, VS Code에 등록된 언어 서비스에 그대로 위임합니다 —
+> 즉 **그 언어의 확장을 사용자가 설치해 두었고, 그 확장이 Call Hierarchy를 구현할 때만** 동작합니다.
+> 예를 들어 **Python은 CLI에서는 아무것도 설치하지 않아도 되지만**(`bundled-pyright`가 CLI 안에 들어
+> 있습니다), **Extension에서는 Python 확장이 필요합니다.** 그 확장이 없으면 분석은 "이 언어에 Call
+> Hierarchy provider가 등록되지 않은 것"과 "요청한 위치에 callable symbol이 없는 것"을 **구분할 수
+> 없다고 보고합니다** — VS Code가 둘 중 어느 쪽인지 알려주지 않기 때문이며, 그 상태에서 둘 중 하나로
+> 단정하지 않는 것이 의도된 동작입니다. `Impact Lens: Run Provider Doctor`가 같은 구분을 그대로
+> 보여줍니다.
+
 **오늘 shipped catalog에는 preset이 네 개입니다: `bundled-typescript`, `gopls`, `bundled-pyright`,
 `clangd`.** Auto가 설정 없이 동작하는 언어는 TypeScript/JavaScript(`.ts`, `.tsx`, `.js`, `.jsx` 등)와
 Python(`.py`)이고, `gopls`가 PATH에 설치돼 있는 경우의 Go(`.go`)와 `clangd`가 PATH에 설치돼 있는 경우의
@@ -277,7 +287,7 @@ Claude Code에서는 slash command로도 직접 실행할 수 있습니다.
 /impact-lens:notes list
 ```
 
-plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.9.0 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요하며, 이 단계의 실패도 raw npm 출력이 아니라 단일 JSON 오류로 보고됩니다.
+plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고정된 v0.9.1 release package 순서로 실행 대상을 찾습니다. 응답의 `runtime.runner.source`로 실제 선택 경로를 확인할 수 있고, bundled TypeScript/JavaScript는 `doctor bundled-typescript --smoke`로 별도 provider 설정 없이 점검합니다. release fallback의 최초 실행에는 Node.js 22 이상, npm과 네트워크 접근이 필요하며, 이 단계의 실패도 raw npm 출력이 아니라 단일 JSON 오류로 보고됩니다.
 
 | Host | Manifest | Marketplace |
 | --- | --- | --- |

@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## 0.9.1
+
+- **The Call Graph panel now renders. It never did in v0.7.0, v0.8.0 or v0.9.0** — for anyone, on any
+  platform, in any language, with any data. The panel opened and stayed blank because the script
+  Impact Lens injects into it failed to parse: an escape sequence written inside the outer template
+  literal that builds the page was resolved too early, so a raw newline leaked into a single-quoted
+  string literal in the generated script. A single-quoted string cannot contain a raw newline, so the
+  browser threw `SyntaxError: Invalid or unexpected token` while tokenizing — before evaluating
+  anything, which is why no input ever made a difference. Two separate places had it; the second only
+  became visible after the first was fixed, because a parser stops at the first error.
+- **Why three releases of automated checks did not catch this.** `src/graphPanel.ts` cannot be
+  `require`d in this repository's plain `node --test` runner (it imports `vscode`), so every check it
+  had was a regular expression over its source text. Those checks confirmed the code was present; none
+  of them ever ran it. The generated page was never parsed, let alone rendered. This release adds a
+  test that imports `getHtml()` for real, extracts the `<script>` it produces and parses it, across ten
+  payload shapes (empty, long diagnostics, augmented edges present and absent, `</script>`, backticks,
+  U+2028/U+2029, remote paths). Reverting the fix makes all ten fail. A separate static sweep covers
+  the same escape class (`\n`, `\t`, `\r`, `\'`, `\\`) across the whole injected script and reports
+  zero remaining.
+- **What this means for a claim in the previous release.** M4's exit gate for distinguishing confirmed
+  from candidate relationships was closed partly on the graph rendering candidate edges with a
+  distinct marker. That gate was closed against source-structure assertions and mutation tests; the
+  graph itself had never rendered. The JSON half of that gate is unaffected and was verified by
+  execution. **The visual half was not, and is not, verified** — it now parses, which is a necessary
+  condition, not a sufficient one. Confirming that a user sees a correct graph remains the work
+  `docs/development-management/user-tests/m4-user-test-spec.md` defines and nobody has run.
+- The VS Code extension analyses through the language services registered in VS Code, which for Python
+  means an installed Python extension — it does **not** use the `bundled-pyright` that ships inside the
+  Agent CLI. With no such extension installed, an analysis reports that it cannot distinguish "no Call
+  Hierarchy provider is registered for this language" from "no callable symbol at this position",
+  because VS Code does not expose which. The README now says this next to the language-support list
+  instead of one line in a later section.
+
 ## 0.9.0
 
 - **Known limitation**: semantic augmentation — the whole headline capability of this release — is
