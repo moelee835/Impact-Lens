@@ -562,25 +562,26 @@ code로도 안 잡힌다 - 좁게 읽으면(= "인식" = provider가 실제로 �
 것**이다(문서 작성 시점에 코드의 정확한 경계를 충분히 검토하지 않고 목표(무조건 "안 사라짐")를
 그대로 문장으로 옮긴 것에 가깝다) - drift가 아니라 처음부터 범위가 안 맞은 경우.
 
-### 실측 재검증 — dispatch·vue-core, 6곳 반영 전후 byte-identical
+### 실측 재검증 — dispatch·vue-core, 6곳 반영 전후 delta 0 — 2026-09-10 reviewer 지적 반영: "소음 없음"이 아니라 "미관측"
 
-commander 요구("집계가 늘어 소음이 되는지 확인 후 merge 전 보고")에 따라 이 lane이 이미 설계
-검증에 쓴 두 참조 코퍼스에 대해 6곳 반영 전/후를 `git stash`로 격리해 재측정했다.
+**정정한다**: 아래 delta 0은 "소음이 안 늘었다"는 뜻이 아니라 **"새로 배선한 두 경로(6곳 중
+집계하는 3곳이 만드는 reasonCode)가 이 두 코퍼스에서 단 한 번도 실행되지 않았다"는 뜻이다.**
+reviewer가 CLI 응답이 아니라 **adapter를 직접 호출하는 프로브로 `rejectedInferences` 원본**을
+떠서 확인했다(CLI의 `limitationDetails` message는 category 단위로 뭉뚱그려 있어 reasonCode별
+raw tally가 안 보인다):
 
-- **FastAPI(dispatch)**: `dd2837e82a0bf5565b1b4b4b91ea30b7262d4061` pin, 기존 census에 쓴 8개
-  쿼리(`src/dispatch/auth/service.py`의 `get_current_role` 등) 전부 재실행 - `precisionCommand`
-  출력(edges/limitationDetails 포함) **전후 byte-identical**. `augmentation_inference_unresolved`
-  발생 건수·message 문구 변화 없음.
-- **JS/TS(vue-core)**: `54097087a0918b98f16c84599b1a6d654e952ca7`로 새로 클론(reviewer가 원래
-  고정했을 커밋과 다를 수 있음, 원 커밋 소재를 찾지 못해 새로 pin) -
-  `packages/runtime-dom/src/components/TransitionGroup.ts`의 `callPendingCbs` 쿼리(budget을
-  피하려 `workspace`를 `packages/runtime-dom`으로 좁힘, 17개 파일만 대상) 재실행 - **전후
-  byte-identical**.
-- **방법**: `git stash` → `npm run cli:build` → 측정(before) → `git stash pop` → `npm run
-  cli:build` → 측정(after) → diff. 두 코퍼스 모두 delta 0 - 6곳 반영이 이미 검증된 두 코퍼스
-  기준으로는 disclosure 건수를 전혀 늘리지 않았다(두 코퍼스가 우연히 이 6곳에 해당하는 코드
-  패턴을 안 가지고 있다는 뜻이지, 6곳이 다른 코퍼스에서도 항상 0건이라는 보장은 아니다 - 아래
-  "남은 검증 공백" 참고).
+- **FastAPI(dispatch)**: 7개 쿼리 전부 `unclassified-enclosing-call`/`module-level-alias`만
+  나왔다 - 이 lane이 이번 라운드에 새로 추가한 `enclosing-function-unresolved`/
+  `multiple-source-candidates` 두 reasonCode는 **0건**.
+- **JS/TS(vue-core)**: 12개 샘플 전부 `unrecognized-scope-opener`/`unparseable-line`만
+  나왔다 - 새 두 reasonCode 역시 **0건**(vue-core pin 차이는 reviewer가 자신의 원래 pin으로도
+  재확인, 결론 동일).
+
+**방법**: `git stash` → `npm run cli:build` → 측정(before) → `git stash pop` → `npm run
+cli:build` → 측정(after) → diff, CLI 응답(edges/limitationDetails) 기준으로는 전후 byte-
+identical. **하지만 이 byte-identical은 "이 두 코퍼스에서 새 경로가 한 번도 안 돌았다"는 뜻이지
+"소음이 안 늘어난다는 게 증명됐다"는 뜻이 아니다.** 두 코퍼스에서 자연 발생 0건, mutation
+coverage만 확인된 상태 - 아래 "남은 검증 공백"과 같은 성격의 정직한 기록이다.
 
 ### 뮤테이션 검증 — 6곳 새 분기가 실제로 살아있는지
 
@@ -612,28 +613,65 @@ enclosing.def.character })` 호출(enclosing 함수 자신의 이름 위치에 `
    옮김). **결과: `augmentedEdges` 1건, `resolution: 'single'`** - `Depends()`를 담은 그 특정
    `def` occurrence 자신의 위치에서 정확히 1개 반환, 같은 이름의 다른 branch와 섞이지 않았다.
 
-**두 시도 모두 앞서 stage 3이 target 쪽에서 확인한 것과 같은 모양의 결과를 냈다** - `prepare()`가
-텍스트상의 특정 위치(이 경우 `def` 키워드 자신의 이름 span)에 대해 물으면, 그 자리에 물리적으로
-존재하는 선언 하나만 돌려주는 것으로 보인다. 이는 target 쪽(참조 위치에 대한 질의, 실제로 여러
-후보 중 하나로 해소될 수 있는 질의)과 구조적으로 다르다 - `findEnclosingDef`가 찾는 자리는
-애초에 "이 파일에 실제로 적힌 `def` 문 하나"를 가리키므로, import alias처럼 여러 실제 정의로
-갈라질 수 있는 질의가 아닐 가능성이 있다(확정적 결론 아님 - 이 2회의 시도가 실패했다는 것만 실측).
+**합성 fixture로 이 분기를 흉내 내 "검증됨"이라고 적지 않는다** - 뮤테이션(강제 `true`)으로
+코드 경로 도달 가능성만 증명된 상태를 그대로 유지한다.
 
-**따라서 여전히 미확정이다**: `multiple-source-candidates`가 실제 pyright/tsserver에서 자연
-발생하는 구성을 이번에도 찾지 못했다. **합성 fixture로 이 분기를 흉내 내 "검증됨"이라고 적지
-않는다** - 뮤테이션(강제 `true`)으로 코드 경로 도달 가능성만 증명된 상태를 그대로 유지한다.
+### "유령 vs 미측정" — 2026-09-10 reviewer 재검토: 판정은 유지, 서술을 세 층으로 분리
 
-**`runtime-only` 미도입 결정과의 일관성 - 다른 상태다.** `backlog`의 유일한 producer가
-지금 `multiple-source-candidates`뿐이고 그게 자연 발생 fixture로 아직 안 뜬다면, `runtime-only`를
-뺀 것과 같은 잣대로 이것도 빼야 하는 것처럼 보일 수 있다 - **그렇지 않다.** `runtime-only`는
-**그 값을 방출할 코드 자체가 없었다**(어떤 입력을 줘도 절대 안 나온다 - 유령). `multiple-
-source-candidates`는 **코드가 있고 실제로 배선돼 있다** - `enclosingResolved.items.length > 1`이
-provider 응답에서 실제로 일어나는 순간 그대로 방출된다. 그 조건이 안 뜨는 건 우리 코드에 없어서가
-아니라 지금까지 시도한 fixture 구성들에서 provider가 그런 응답을 준 적이 없어서다. 게다가 이
-분기는 fixture 유무와 무관하게 반드시 존재해야 한다 - gate 4 전체의 교훈("후보가 여럿일 때
-하나로 임의 승격하지 않는다")이 그대로 여기 적용되는 방어 코드이기 때문이다. 즉 **"producer가
-없다"(유령, `runtime-only`)와 "producer는 있는데 자연 발생을 아직 못 봤다"(미측정,
-`multiple-source-candidates`)는 다른 상태**이고, 두 결정은 서로 모순되지 않는다.
+reviewer 판정: **"미측정" 쪽이 맞다. 다만 근거를 관측/가설/미시도로 분리해 적어야 한다** - 앞
+버전은 관측(4회 실패)과 그 원인 추정(구조적 성격일 가능성)을 한 문단에 섞어, "왜 안 나오는가"에
+대한 근거의 강도가 실제보다 세 보이게 적었다.
 
-받아들일 수 있는 검증 공백인지 최종 판단을 요청한다 - 시도한 두 구성 모두 재현 실패했다는
-사실과 그 이유(정의 위치 질의 자체의 구조적 성격일 가능성)까지 포함해서.
+**1. 관측 (사실)**: target 쪽 2회(stage 3, "조건부 재정의"/"try/except import fallback") +
+source 쪽 2회(이번 라운드, "`@overload` 스텁+구현"/"조건부 재정의") - **네 번 모두 정확히
+1개**를 반환했다.
+
+**2. 가설 (증명 아님)**: `prepareCallHierarchy`가 **선언(definition) 위치**에서 불리면 애매함을
+풀 이유가 자체가 없어 보인다 - 이는 **참조(reference) 위치에 대한 질의와 다른 질문**이기
+때문이다. 이 가설에는 이 저장소 안의 근거가 있다: **target 쪽의 `resolution: 'multiple'`이
+실제로 코드에 존재하고 실사용된다는 사실 자체가, "참조 위치에 대한 질의는 실제로 복수 후보로
+해소될 수 있다"는 것의 증거**다(`fastapiDependencyAdapter.ts`의 alias 후보 카운트 로직,
+`endpointFor`/`resolutionCandidateCount` 참고). 이 근거는 "관측 4회가 전부 1이었다"는 사실보다
+무게가 다르다 - **왜 안 나오는지에 대한 구조적 설명**이기 때문이다. 그래도 이건 가설이지 증명이
+아니다 - 선언 위치에 대한 질의가 pyright/bundled-typescript 내부에서 왜 참조 위치와 다르게
+동작하는지 소스 레벨로 확인한 적은 없다.
+
+**3. 아직 시도 안 한 구성 (다음 사람이 처음부터 다시 하지 않도록 이름을 남긴다)**:
+- Python `@overload` 데코레이터를 **enclosing 함수 자신에게** 붙이되, 구현부가 아니라 **스텁
+  자체의 위치**를 `enclosing.def`가 가리키게 만드는 구성(이번에 시도한 것은 구현부 위치만
+  겨냥했다 - 스텁 위치 자체는 안 쟀다).
+- `TYPE_CHECKING` 블록 안에서 enclosing 함수를 재정의하는 구성(`if TYPE_CHECKING: def
+  handler(...): ... else: def handler(...): ...`) - 조건부 재정의와 다른 카테고리로 pyright가
+  다르게 처리할 가능성이 있다.
+- 같은 파일 안에 **동명의 nested class method**(예: 서로 다른 클래스 안의 `class A: def
+  handler(self): ...` / `class B: def handler(self): ...`)를 두고, 그 중 하나의 메서드 안에서
+  `Depends()`를 참조하는 구성 - 모듈 레벨 함수 재정의와 다른 스코프 규칙이 적용될 수 있다.
+
+**결론**: 이 시스템이 실제로 쓰는 provider(pyright / bundled-typescript)에서는 구조적으로
+관측되기 어려워 보이지만, 그 이유(선언 위치 vs 참조 위치)는 **가설이지 증명이 아니다.**
+
+### `runtime-only` 미도입 결정과의 일관성 - 프로덕션 provider가 고정돼 있다는 사실도 함께 적는다
+
+`backlog`의 유일한 producer가 지금 `multiple-source-candidates`뿐이고 그게 자연 발생 fixture로
+아직 안 뜬다면, `runtime-only`를 뺀 것과 같은 잣대로 이것도 빼야 하는 것처럼 보일 수 있다 -
+**판정은 "미측정"으로 유지하되, 양쪽 근거를 다 적는다** (한쪽만 적으면 다음 사람이 반대쪽을
+새로 발견해 판정을 흔든다):
+
+- **유령 쪽으로 미는 근거(reviewer가 새로 짚음)**: `fastapi-static-v1`은 언어가 `python`으로
+  고정돼 있고, 이 저장소 catalog의 Python provider는 **pyright 하나뿐**이다.
+  `dynamic-callback-static-v1`도 TS/JS에 **bundled-typescript 하나뿐**이다. 즉 이 두 코드
+  경로가 프로덕션에서 실제로 만날 수 있는 provider는 이미 확정돼 있다 - "다른 provider에서는
+  다를 수 있다"는 방어는 **지금 이 시스템에 존재하지 않는 provider**를 가리키는 것이므로,
+  약한 방어다.
+- **미측정 쪽을 유지시키는 근거**: 그래도 판정을 뒤집지 못한다 - 시도한 구성이 넷뿐이고, 위
+  "아직 시도 안 한 구성" 셋이 남아 있다. `multiple-source-candidates`는 **코드가 있고 실제로
+  배선돼 있다** - `enclosingResolved.items.length > 1`이 provider 응답에서 실제로 일어나는
+  순간 그대로 방출된다(`runtime-only`처럼 방출할 코드 자체가 없는 유령과 다르다). 게다가 이
+  분기는 fixture 유무와 무관하게 반드시 존재해야 한다 - gate 4 전체의 교훈("후보가 여럿일 때
+  하나로 임의 승격하지 않는다")이 그대로 적용되는 방어 코드이기 때문이다.
+
+**최종 판정: 미측정 (유령 아님).** "producer가 없다"(유령, `runtime-only`)와 "producer는 있고
+배선도 됐는데 이 provider들에서 자연 발생을 아직 못 봤다"(미측정, `multiple-source-candidates`)는
+다른 상태이고, 두 결정은 서로 모순되지 않는다 - 다만 프로덕션 provider가 고정돼 있다는 사실은
+이 판정이 영구히 유지될 것이라는 보장이 아니라, 앞으로도 계속 열려 있는 질문이라는 뜻으로
+남겨 둔다.

@@ -623,6 +623,15 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
           // adapter does not even know whether this call site is a real callback-slot invocation at all -
           // counting it would assert a relationship exists ("root is passed as a callback here") that was
           // never actually confirmed, the opposite failure this lane also has to guard against.
+          //
+          // Why this differs from fastapiDependencyAdapter.ts's target-side check (also uncounted, same
+          // shape) is worth spelling out: FastAPI's target confirmation happens inside `Depends(...)`, a
+          // FRAMEWORK-SPECIFIC MARKER - the text match alone already carries a strong signal that a real
+          // relationship is plausible before any provider call. Here, "root is an argument to some call"
+          // alone is a weak signal - it could be an arbitrary function call entirely unrelated to callback
+          // registration. Until the callee is confirmed to be a trusted standard API, the premise "this is
+          // a callback slot" has not even been established yet, so there is nothing yet to count as
+          // "recognized but not narrowed".
           continue;
         }
         const calleeIsTrusted = calleeResolved.some(item => isTrustedStandardDeclaration(item.uri));
