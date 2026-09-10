@@ -86,6 +86,24 @@ const UNREACHABLE_SEMANTIC_SCOPES = [
   },
 ] as const;
 
+// M4 gate 1 lane D1 (docs/work/task-m4-gate1-lane-d-language-limitations.md): `AUGMENTED_EDGE_SOURCES`'s
+// `runtime-observation` value was documented (types.ts, PR #103's own comment) as "reserved, no code
+// path produces it today" but nothing enforced that claim - the exact "doc promises more than code"
+// shape this milestone has already caught five other times (task-m4-milestone-closure-audit.md). This
+// is the same technique as UNREACHABLE_SEMANTIC_SCOPES above, applied to `AugmentedEdge.evidenceSource`
+// instead of `AnalysisObservations.semantic.scope`: the moment IL-LIM-001/002's follow-up work (or any
+// future adapter) actually assigns `evidenceSource: 'runtime-observation'` anywhere outside a test, this
+// list's own test below fails loudly - forcing that line to be deleted here (and the milestone's own
+// vocabulary decision re-examined) instead of the doc silently going stale the way the C++ virtual-
+// dispatch "never" claim did.
+const UNREACHABLE_EDGE_SOURCES = [
+  {
+    edgeSource: 'runtime-observation',
+    reason: 'no adapter records a runtime trace and assigns it as an AugmentedEdge.evidenceSource; runtime observation evidence does not exist in the product yet - both current adapters (fastapi-static-v1, dynamic-callback-static-v1) only ever emit "static-inference".',
+    story: 'IL-LIM-002, accepted for M4 (augmented evidence from runtime observation) - same underlying gap as UNREACHABLE_SEMANTIC_SCOPES.static-plus-observation above, tracked separately because evidenceSource and semantic.scope are different fields with different producers.',
+  },
+] as const;
+
 /** True when `key: 'value'` (either quote style) appears as an object-literal assignment anywhere in
  * `sources` - narrower than `hasColonKeyProducer`, for a field whose key is now genuinely produced with
  * one value (e.g. `semantic.scope: 'static-plus-inference'`) but not another. */
@@ -124,6 +142,20 @@ test('nothing outside tests and types.ts produces observations.semantic.scope ==
     'reachable list in stateReachability.integration.test.ts in the same change, per IL-LIM-002.',
   );
   assert.equal(UNREACHABLE_SEMANTIC_SCOPES.length, 1);
+});
+
+test('nothing outside tests and types.ts produces AugmentedEdge.evidenceSource === "runtime-observation"', () => {
+  const sources = readSources(nonTestSources());
+  assert.equal(
+    hasKeyValueProducer('evidenceSource', 'runtime-observation', sources),
+    false,
+    'a production producer of `evidenceSource: "runtime-observation"` appeared. That means runtime-' +
+    'observation evidence is now reachable - update AUGMENTED_EDGE_SOURCES\'s own doc comment (types.ts) ' +
+    'to stop calling it "reserved, no producer", move it out of UNREACHABLE_EDGE_SOURCES here, and add a ' +
+    'runtime-reachable check the same way stateReachability.integration.test.ts\'s AUGMENTATION_REACHABLE ' +
+    'does for semantic.scope, per IL-LIM-002.',
+  );
+  assert.equal(UNREACHABLE_EDGE_SOURCES.length, 1);
 });
 
 // ---------------------------------------------------------------------------
