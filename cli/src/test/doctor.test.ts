@@ -6,6 +6,8 @@ import * as path from 'node:path';
 import test from 'node:test';
 import { DoctorCheck } from '../doctor/checks';
 import { runDoctor } from '../doctor/index';
+import { jdkBuildToolCheck, jdkProjectHintCheck, jdkRuntimeCheck, resolveJdkRuntimeExecutable } from '../doctor/jdkChecks';
+import { findExecutable } from '../providers/discovery';
 import { PROVIDER_CATALOG } from '../providers/catalog';
 import { ProviderPreset } from '../providers/preset';
 import { PROJECT_PROVIDER_CONFIG_PATH } from '../providers/projectConfig';
@@ -98,6 +100,141 @@ test('an unknown preset is refused with the list of presets that do exist', asyn
       && error.exitCode === 2
       && (error.details as { knownPresetIds: string[] }).knownPresetIds.includes('bundled-typescript'),
   );
+});
+
+// ---------------------------------------------------------------------------
+// Raw custom command diagnosis (no catalog preset) - `doctor --stdin`. Added so a language with no
+// preset yet (the motivating case: Java/jdtls JDK-compatibility checks) has somewhere to run doctor
+// against the exact command it actually uses, the same raw-command path `analyze` already has via
+// `chooseProvider()`'s "raw wins outright" priority - `resolveSession()` was already calling the
+// shared `resolveProvider()`, just hardcoding `undefined` for the raw-command parameter.
+// ---------------------------------------------------------------------------
+
+test('a raw command with no preset is diagnosed by --stdin, not a preset id', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-raw-ready-');
+  // languageId deliberately NOT 'java' here - this test is about the general raw-command response
+  // shape, and 'java' would also activate the JDK checks below, whose own tests cover that gate.
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: { command: process.execPath, args: ['--version'], languageId: 'go' },
+    env: {},
+  });
+  assert.equal(data.status, 'ready');
+  assert.equal(data.mode, 'preflight');
+  assert.deepEqual(data.command, { command: process.execPath, args: ['--version'], languageId: 'go', languageSource: 'command' });
+  // Never a `preset` key alongside `command` - a `tier: 'custom'` placeholder would let a consumer read
+  // "no data" as "verified empty", which is exactly what this shape exists to avoid.
+  assert.equal('preset' in data, false);
+  const checks = data.checks as readonly DoctorCheck[];
+  assert.deepEqual(checks.map(entry => entry.id), ['node-engine', 'cli-package', 'provider-executable', 'settings-keys', 'project-config']);
+  assert.equal(check(checks, 'provider-executable').status, 'pass');
+});
+
+test('a raw command that does not resolve to an executable fails the same way a missing preset executable does', async t => {
+  const data = await runDoctor(undefined, {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-missing-ws-'),
+    command: { command: 'impact-lens-absent-raw-command' },
+    lookup: { env: { PATH: syntheticPosixDirectory(t, 'doctor-raw-nobin-') }, platform: 'linux' },
+    env: {},
+  });
+  const executable = check(data.checks as DoctorCheck[], 'provider-executable');
+  assert.equal(executable.status, 'fail');
+  assert.equal(executable.code, 'provider_executable_not_found');
+  assert.equal(executable.recovery, 'install_the_language_server_manually');
+  assert.equal(data.status, 'blocked');
+});
+
+test('with no --file and no command languageId, the response says there was no language signal - not "plaintext"', async t => {
+  const data = await runDoctor(undefined, {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-nolang-'),
+    command: { command: process.execPath, args: ['--version'] },
+    env: {},
+  });
+  const command = data.command as { languageId: string | null; languageSource: string };
+  // This is the distinction commander flagged: a user diagnosing Java who forgot --file must not see
+  // "Detected language: plaintext" and read that as a verdict on their project - it means nothing was
+  // given to detect from, a different state from a real (if unrecognised) extension.
+  assert.equal(command.languageId, null);
+  assert.equal(command.languageSource, 'none');
+});
+
+test('with --file given but its extension unrecognised, "plaintext" is reported honestly - a real file WAS given', async t => {
+  const data = await runDoctor(undefined, {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-plaintext-'),
+    command: { command: process.execPath, args: ['--version'] },
+    file: 'Fixture.unknownext',
+    env: {},
+  });
+  const command = data.command as { languageId: string | null; languageSource: string };
+  assert.equal(command.languageId, 'plaintext');
+  assert.equal(command.languageSource, 'file');
+});
+
+test('a command languageId wins over --file, matching resolveProvider\'s own precedence', async t => {
+  const data = await runDoctor(undefined, {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-precedence-'),
+    command: { command: process.execPath, args: ['--version'], languageId: 'java' },
+    file: 'Fixture.py',
+    env: {},
+  });
+  const command = data.command as { languageId: string | null; languageSource: string };
+  assert.equal(command.languageId, 'java');
+  assert.equal(command.languageSource, 'command');
+});
+
+test('a preset id and a raw --stdin command together are rejected, not silently prioritised', async () => {
+  await assert.rejects(
+    () => runDoctor('bundled-typescript', { command: { command: process.execPath } }),
+    (error: unknown) => error instanceof CliError && error.code === 'invalid_request' && error.exitCode === 2,
+  );
+});
+
+test('neither a preset id nor a raw command is a bad request, not an internal error', async () => {
+  await assert.rejects(
+    () => runDoctor(undefined, {}),
+    (error: unknown) => error instanceof CliError && error.code === 'invalid_command' && error.exitCode === 2,
+  );
+});
+
+test('--fixture on a raw command is rejected before any check runs - not downgraded to --smoke', async t => {
+  const log: string[] = [];
+  await assert.rejects(
+    () => runDoctor(undefined, {
+      mode: 'fixture',
+      command: { command: process.execPath, args: ['--version'] },
+      workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-fixture-'),
+      env: {},
+      log: line => log.push(line),
+    }),
+    (error: unknown) => error instanceof CliError && error.code === 'invalid_request' && error.exitCode === 2,
+  );
+  // Proves the rejection happens before the smoke check would start a process, not just that it
+  // eventually happens - `capabilitySmokeCheck` logs this exact line before it spawns anything.
+  assert.equal(log.length, 0);
+});
+
+test('the CLI surface accepts doctor --stdin and combines it with --file, --workspace and --smoke', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'impact-lens-doctor-raw-cli-'));
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [EXECUTABLE, 'doctor', '--stdin', '--file', 'Fixture.java', '--workspace', workspace],
+      { encoding: 'utf8', input: JSON.stringify({ provider: { command: process.execPath, args: ['--version'] } }) },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const response = JSON.parse(result.stdout);
+    assert.equal(response.ok, true);
+    assert.equal(response.data.mode, 'preflight');
+    assert.equal((response.data.command as { languageId: string }).languageId, 'plaintext');
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('doctor --stdin with no provider field is the same invalid_command as no presetId at all', () => {
+  const result = spawnSync(process.execPath, [EXECUTABLE, 'doctor', '--stdin'], { encoding: 'utf8', input: '{}' });
+  assert.equal(result.status, 2);
+  assert.equal(JSON.parse(result.stderr).error.code, 'invalid_command');
 });
 
 // ---------------------------------------------------------------------------
@@ -511,4 +648,223 @@ test('compile-database sample never leaks a secret via: a Windows-style absolute
 
   assert.doesNotMatch(JSON.stringify(result), /abc123secret/);
   assert.match(rawContent, /abc123secret/);
+});
+
+// ---------------------------------------------------------------------------
+// JDK compatibility axes (IL-LIM-018 stage 2, docs/work/task-m3-java-discovery-jdk.md) - only run for
+// a raw command whose resolved language is `java`, and only through `doctor --stdin` (no jdtls preset
+// exists in this catalog - that registration is explicitly out of this lane's scope).
+// ---------------------------------------------------------------------------
+
+function javaCommand(overrides: Partial<{ languageId: string }> = {}): { command: string; args?: string[]; languageId?: string } {
+  return { command: process.execPath, args: ['--version'], languageId: 'java', ...overrides };
+}
+
+test('the JDK checks only run when the resolved language is java, not for an unrelated raw command', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-gate-');
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: { command: process.execPath, args: ['--version'], languageId: 'python' },
+    env: {},
+  });
+  const ids = (data.checks as readonly DoctorCheck[]).map(entry => entry.id);
+  assert.ok(!ids.includes('jdk-runtime'), ids.join(', '));
+});
+
+/**
+ * A cross-platform stand-in for "java" that `jdkRuntimeCheck` can actually spawn, on every OS this
+ * suite runs on (windows-latest included). Copies `process.execPath` - the real running node binary -
+ * to the exact path `resolveJdkRuntimeExecutable` would resolve from `JAVA_HOME` (`bin/java` on POSIX,
+ * `bin\java.exe` on Windows). A POSIX shebang script at that path is NOT a substitute: Windows has no
+ * kernel-level shebang interpretation, so a text file named `java.exe` is simply not a valid executable
+ * there - this was assumed to work and was wrong, caught only by actually running this suite on
+ * windows-latest and reading why four tests failed (three gave a real, unpredictable answer from
+ * whatever "java" genuinely exists on that runner's PATH after JAVA_HOME silently failed to resolve;
+ * one failed because the JDK-25 fixture never took effect either). Fixed at the source, not worked
+ * around: `jdkRuntimeCheck` gained an optional `probeArgs` parameter (default `['-version']`, the one
+ * argument jdtls.py itself ever passes in production) so a test can point the copied node binary at a
+ * fixture script instead - the exact `process.execPath` + fixture-script pattern `versionProbe.test.ts`
+ * already uses for the same reason, for gopls.
+ */
+/**
+ * Writes a fixture script for `jdkRuntimeCheck`'s `executable`/`probeArgs` test overrides to run via
+ * `process.execPath` (the real running node binary, used directly - never copied, symlinked or
+ * relocated). Earlier drafts of this suite tried faking a "java" binary two different ways and both
+ * broke on a real CI machine, not just in theory - recorded so the next person does not try either
+ * again: a POSIX shebang script named `java`/`java.exe` is not an executable at all on Windows (no
+ * kernel-level shebang interpretation there, caught by running this suite on windows-latest); a plain
+ * filesystem copy of `process.execPath` crashed at launch with a dynamic-library-not-found error on
+ * this machine's own macOS Node build (`node` here is linked against a sibling `.dylib` resolved by
+ * relative path from the ORIGINAL binary location - a copy breaks that resolution, caught by running
+ * the copy directly and reading dyld's own error). `jdkRuntimeCheck`'s `executable` override sidesteps
+ * both: `process.execPath` is used completely unmodified, in place, exactly as `versionProbe.test.ts`
+ * already does for gopls's own version-probe tests - the one pattern proven to work everywhere in this
+ * codebase already, rather than a third home-grown attempt at a fake cross-platform binary.
+ */
+function fakeJdkVersionScript(t: { after(fn: () => void): void }, body: string): string {
+  const directory = temporaryDirectory(t, 'impact-lens-fake-java-script-');
+  const script = path.join(directory, 'version.js');
+  fs.writeFileSync(script, body);
+  return script;
+}
+
+test('jdk-runtime resolves JAVA_HOME before PATH, matching bin/jdtls\'s own order', t => {
+  // `resolveJdkRuntimeExecutable` never spawns what it finds - only `fs.statSync(...).isFile()` - so
+  // proving this ordering needs no fake executable at all, just a real file at the JAVA_HOME-resolved
+  // path. Kept separate from the pass/fail/timeout tests below, which exercise the spawn+parse side
+  // through the `executable` test override instead and do not need JAVA_HOME to resolve to anything.
+  //
+  // Non-vacuity, explicitly (commander's instruction after the windows-latest catch above - "CI passed"
+  // is not "the fixture was actually exercised", the exact way this lane's own bug hid earlier): the
+  // `env.PATH: ''` alone is not enough on its own to prove this - passing `lookup: undefined` would let
+  // `findExecutable`'s PATH fallback read the REAL `process.env.PATH` of whatever machine runs this
+  // test if the JAVA_HOME branch silently failed, exactly the failure shape that hid the first version
+  // of this suite's bug (a real, unpredictable answer instead of an obvious one). An explicit `lookup`
+  // with its own empty PATH closes that: if JAVA_HOME resolution ever breaks, this returns `undefined`,
+  // not a real system java that might coincidentally still satisfy the assertion.
+  const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-order-');
+  fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
+  const javaPath = path.join(javaHome, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+  fs.writeFileSync(javaPath, ''); // content irrelevant - never spawned by this function
+  const resolved = resolveJdkRuntimeExecutable({ JAVA_HOME: javaHome, PATH: '' }, { env: { PATH: '' } });
+  assert.equal(resolved, javaPath);
+});
+
+test('jdk-runtime falls back to PATH when JAVA_HOME is unset - delegates to the same findExecutable() every other preset uses', t => {
+  // Deliberately does not build or compare an explicit path of its own under a forced `platform:
+  // 'linux'` lookup - testFsHelpers.ts documents that this exact shape (a `path.join()`-built string
+  // compared against a platform-simulated result) has broken this suite on a real Windows host twice
+  // before, in ways invisible until Windows CI actually ran it. Instead this asserts delegation: with
+  // no JAVA_HOME, `resolveJdkRuntimeExecutable`'s result must equal calling the already-proven-safe
+  // `findExecutable('java', lookup)` directly with the exact same lookup - whatever platform-specific
+  // path shape that produces, both sides produce it identically, so there is nothing left to compare
+  // unsafely.
+  const binDirectory = syntheticPosixDirectory(t, 'doctor-jdk-runtime-path-');
+  // The one file write in this test, matching providers.test.ts's own established `writeExecutable()`
+  // shape exactly (same file, same real disk I/O via path.join(), which is the part that IS safe to do
+  // this way per testFsHelpers.ts's own comment - only comparing a *separately hand-built* path against
+  // a platform-simulated result is the documented pitfall, not writing the fixture file itself).
+  fs.writeFileSync(path.join(binDirectory, 'java'), '', { mode: 0o755 });
+  const lookup = { env: { PATH: binDirectory }, platform: 'linux' as const };
+  const resolved = resolveJdkRuntimeExecutable({}, lookup);
+  // Non-vacuous: proves something was actually found, not just that two undefineds matched.
+  assert.notEqual(resolved, undefined);
+  assert.equal(resolved, findExecutable('java', lookup));
+});
+
+// Both version strings below (`9999.0.1`, `0.0.1`) are deliberately impossible for any real JDK
+// release to ever report - not just plausible-looking placeholders like "21.0.5". Non-vacuity,
+// explicitly (commander's instruction after the windows-latest catch: "CI passed" does not by itself
+// prove a fixture was actually used - the exact way this lane's own tests hid a real bug earlier,
+// getting a real, unpredictable answer from whatever "java" genuinely existed on that runner instead of
+// an obvious mismatch). Two guarantees stack here, not one: structurally, `executable: process.execPath`
+// bypasses `resolveJdkRuntimeExecutable`'s JAVA_HOME/PATH search entirely, so there is no code path left
+// that could reach a real system java - and even if that guarantee were somehow wrong, an assertion
+// against `9999.0.1`/`0.0.1` could never coincidentally pass against a real JDK's real version string.
+
+test('jdk-runtime reports pass for a real JDK 21+', t => {
+  const script = fakeJdkVersionScript(t, 'process.stderr.write(\'openjdk version "9999.0.1" 2026-01-01\\n\');\n');
+  const runtime = jdkRuntimeCheck({}, undefined, 5000, { executable: process.execPath, probeArgs: [script] });
+  assert.equal(runtime.status, 'pass');
+  assert.equal(runtime.detected, '9999.0.1');
+  // The basename of whatever executable answered - `node` here, since the test override bypasses
+  // JAVA_HOME/PATH resolution entirely - never an absolute path (executableCheck's own redaction rule).
+  assert.doesNotMatch(JSON.stringify(runtime), /[\\/]/);
+});
+
+test('jdk-runtime fails, not warns, for a real JDK below 21', t => {
+  const script = fakeJdkVersionScript(t, 'process.stderr.write(\'openjdk version "0.0.1" 2025-01-01\\n\');\n');
+  const runtime = jdkRuntimeCheck({}, undefined, 5000, { executable: process.execPath, probeArgs: [script] });
+  assert.equal(runtime.status, 'fail');
+  assert.equal(runtime.code, 'jdk_runtime_unsupported');
+  assert.equal(runtime.detected, '0.0.1');
+});
+
+test('jdk-runtime reports fail with jdk_runtime_not_found when no java resolves anywhere', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-runtime-missing-');
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    lookup: { env: { PATH: syntheticPosixDirectory(t, 'doctor-jdk-nobin-') }, platform: 'linux' },
+    env: {},
+  });
+  const runtime = check(data.checks as readonly DoctorCheck[], 'jdk-runtime');
+  assert.equal(runtime.status, 'fail');
+  assert.equal(runtime.code, 'jdk_runtime_not_found');
+});
+
+test('jdk-runtime warns (not fails) when the version probe times out - "could not tell" differs from "incompatible"', t => {
+  // Busy-waits longer than the short timeoutMs this test passes below - a real `probeVersion` timeout,
+  // not a script that finishes early with no version to report (a different failure shape this check
+  // already distinguishes: `no-version-in-output` vs `timeout`).
+  const script = fakeJdkVersionScript(t, 'const start = Date.now();\nwhile (Date.now() - start < 2000) { /* busy-wait past the check\'s timeout */ }\n');
+  const runtime = jdkRuntimeCheck({}, undefined, 300, { executable: process.execPath, probeArgs: [script] });
+  assert.equal(runtime.status, 'warn');
+  assert.equal(runtime.code, 'jdk_runtime_version_unreadable');
+  assert.equal(runtime.reason, 'timeout');
+});
+
+test('jdk-project-hint reads Gradle\'s JavaLanguageVersion.of(N) toolchain form and warns on a real mismatch', t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-hint-mismatch-');
+  fs.writeFileSync(
+    path.join(workspace, 'build.gradle'),
+    'plugins { id "java" }\njava { toolchain { languageVersion = JavaLanguageVersion.of(17) } }\n',
+  );
+  // jdkProjectHintCheck takes the detected runtime major as a plain number - no process spawn of its
+  // own, so no fake executable is needed to test it, unlike jdk-runtime above.
+  const hint = jdkProjectHintCheck(workspace, 21);
+  assert.ok(hint);
+  assert.equal(hint!.status, 'warn');
+  assert.equal(hint!.declared, 17);
+  assert.equal(hint!.runtimeDetected, 21);
+  assert.equal(hint!.source, 'build.gradle');
+});
+
+test('jdk-project-hint is omitted, not a false pass, when no build file declares a JDK level', t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-hint-absent-');
+  assert.equal(jdkProjectHintCheck(workspace, 21), undefined);
+});
+
+// This is the test that actually proves jdk-buildtool never spawns Gradle - not the one below named
+// for it (reviewer's catch: that one's workspace has no gradle-wrapper.properties at all, so the
+// function returns before it could ever reach a spawn either way - it proves the function short-
+// circuits on a missing file, a different and weaker property). THIS test reaches a real `fail` result
+// on the exact combination - `jdkBuildToolCheck` never spawns anything at all (it only reads
+// gradle-wrapper.properties), so unlike jdk-runtime this needs no fake executable and no PATH
+// restriction to prove it: there is no spawn call in this function for an empty PATH to have caught.
+test('jdk-buildtool fires only on the exact reproduced combination: Gradle 8.14 + JDK major 25', t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-buildtool-hit-');
+  fs.mkdirSync(path.join(workspace, 'gradle', 'wrapper'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, 'gradle', 'wrapper', 'gradle-wrapper.properties'),
+    'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14-bin.zip\n',
+  );
+  const buildTool = jdkBuildToolCheck(workspace, 25);
+  assert.ok(buildTool);
+  assert.equal(buildTool!.status, 'fail');
+  assert.equal(buildTool!.code, 'jdk_buildtool_incompatible');
+  assert.equal(buildTool!.buildToolVersion, '8.14');
+  // The message stays inside what was actually observed - "observed to fail", never "does not work".
+  assert.match(buildTool!.reason as string, /observed to fail/);
+  assert.doesNotMatch(buildTool!.reason as string, /does not work|never works|is unsupported/);
+});
+
+test('jdk-buildtool is omitted, never pass, for a Gradle version outside the one reproduced combination', t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-buildtool-miss-');
+  fs.mkdirSync(path.join(workspace, 'gradle', 'wrapper'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, 'gradle', 'wrapper', 'gradle-wrapper.properties'),
+    'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.10.2-bin.zip\n',
+  );
+  assert.equal(jdkBuildToolCheck(workspace, 25), undefined);
+});
+
+test('jdk-buildtool is omitted (not thrown or hung) when there is no gradle-wrapper.properties at all', t => {
+  // A weaker property than its name once implied (reviewer's catch, kept honest here rather than
+  // relabeled quietly): with no gradle-wrapper.properties file, the check returns before it could ever
+  // reach a spawn call either way, so passing here does not by itself prove the check is spawn-free -
+  // it proves the missing-file case short-circuits cleanly. The test above this one, on the exact
+  // Gradle-8.14/JDK-25 combination, is what actually proves spawn-freedom (see its own comment).
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-buildtool-nospawn-');
+  assert.equal(jdkBuildToolCheck(workspace, 25), undefined);
 });
