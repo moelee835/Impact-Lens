@@ -28,7 +28,7 @@
   **`data.edges` is byte-for-byte unaffected by this release** — not one existing value changed
   meaning, which is why the new relationships needed a field of their own rather than a new optional
   property on an existing one.
-- A candidate carries what it actually claims, in two independent axes: `source`
+- A candidate carries what it actually claims, in two independent axes: `evidenceSource`
   (`static-inference`) and `resolution` (`single`/`multiple`). **The word `confirmed` is deliberately
   absent** from that vocabulary — an augmented edge is by definition something the provider did not
   confirm. And the callback adapter's claim is precisely "a function was passed into a position the
@@ -62,15 +62,23 @@
 - Fixed a FastAPI defect that made most multi-route files return wrong dependency relationships: the
   scanner searched *below* a `Depends()` reference for the enclosing function, while the decorator that
   names the route sits *above* it. Any file with more than one route — an extremely common shape — was
-  affected. The same eight real-project queries went from 2 clear false positives and 3 misses to 6 of 6
-  correct.
+  affected. Found via `tiangolo/full-stack-fastapi-template`: one query returned 2 real callers plus 2
+  false positives, missing 4 of its 6 actual callers entirely; after the fix, the same query returns all
+  6, with zero false positives. Re-measured separately against `Netflix/dispatch`'s 8-query census (used
+  throughout this release's other FastAPI numbers): false positives across those 8 queries dropped from
+  8 instances (6 of the 8 queries affected) to zero, with no regressions on the 2 queries that were
+  already correct.
 - Fixed six shapes of false route-mount attribution, where an unrelated variable that merely shared a
-  router's name (a function parameter, a loop variable, an import, a dict value, a factory return, a
-  non-`APIRouter` typed binding) was enough to make the analysis assert an entrypoint reachability it
-  had not established.
-- Fixed candidate-caller mis-attribution in the callback adapter: a callback registered inside a method
-  written in shorthand form, or inside an inline arrow function, was attributed to the wrong enclosing
-  scope rather than being abandoned.
+  router's name (a function parameter, a loop variable, an import, a dict or attribute value, a factory
+  return, a non-`APIRouter` typed binding) was enough to make the analysis assert an entrypoint
+  reachability it had not established.
+- Fixed candidate-caller mis-attribution in the callback adapter for a callback registered inside a
+  method written in object-literal or class shorthand form: found via this repo's own real code, where a
+  shim's `prepare` method was the actual caller but the adapter reported the unrelated outer factory
+  that merely returns it. A related, still-open channel — a callback wrapped in an inline arrow function
+  (`items.forEach((x) => setTimeout(handler, 0))`) — was measured against this repo's own 31 real call
+  sites and found not to currently mis-attribute, but only because two separate recognition gaps happen
+  to stack; it is left as a named, unfixed residual rather than silently closed by this change.
 - Test nodes in the graph no longer borrow VS Code's **passing-test** color. Impact Lens never runs
   tests, and the data model has no way to express a passed state at all — the palette was asserting in
   color exactly what the model deliberately refuses to assert.
