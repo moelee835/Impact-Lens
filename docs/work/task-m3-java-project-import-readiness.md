@@ -38,14 +38,25 @@
 lane(스토리 4단계, "verified scope에서 반복 가능한 Plugin 결과")이 있다면 이 관찰을 재현 대상
 목록에 넣어야 한다.
 
-아직 시작 안 함(더 큰 조사/작업이 필요해 별도 체크인으로 남김):
-- Gradle/Maven marker read-only 조사(story 3단계 항목 1) — readiness 배선이 "project not
-  imported / indexing / ready / query failure" 구분의 상당 부분을 이미 부산물로 해결한다는 것을
-  위 실행으로 확인했다(제네릭 `ReadinessTracker`/`awaitReadiness()` 메커니즘이 gopls와 동일하게
-  `java.jdtls`에도 그대로 적용됨, `lspProvider.ts` 코드 변경 없이). 남는 건 "이게 Gradle/Maven/
-  standalone 중 무엇으로 돌고 있는지"를 사용자에게 알려주는 진단 정보 정도로 범위가 좁아졌다 —
-  정합성 요구사항이 아니라 진단 편의 기능에 가까워졌으므로, 이걸 이 lane에서 마저 할지 별도로
-  남길지 확인이 필요하다.
+**2026-09-10 정정 — 항목 1은 "진단 편의"가 아니었다(commander 지적, 반영 완료).** 위에서 "진단
+편의 기능에 가까워졌다"고 판단한 게 틀렸다: 빌드 시스템 없는 multi-file standalone에서
+`incomingCalls`가 빈 배열로 나온 발견 자체가 정확히 그 반례다 — jdtls는 `ready`를 보고했지만
+(readiness는 뒤의 셋만 구분), project 모델이 있는지는 readiness가 못 보는 축이라 "project not
+imported"가 구분 안 됐다. `jvm_project_model_missing`(`coverage.ts`, `V1_WITHHELD_REASON_CODES`)을
+새 코드로 추가해 구현 완료 — `compileDatabase.ts`와 완전히 같은 모양(read-only, caller count와
+무관, `no_incoming_callers`/`index_state_unknown`과 동시 발생 가능)으로 워크스페이스 루트의
+Gradle/Maven marker를 확인하고, 마커 없이 `.java` 파일이 2개 이상이면(entry gate가 실제로
+검증한 건 단일 파일뿐이므로) 경고를 붙인다. `requiredProjectFiles`(gopls의 all-or-nothing 게이트)는
+의도적으로 재사용하지 않았다 — Gradle **or** Maven **or** 단일 파일 standalone 중 하나면 되는
+OR 조건이라 안 맞는다는 판단을 코드로 확인했다. 실제 jdtls로 재실행해 정확히 재현했던 케이스에서
+`jvm_project_model_missing`이 `no_incoming_callers`와 함께 뜨는 것도 확인했다(`f24afac`).
+`cli-contract.md`와 `response-policy-engine.mjs`(+eval fixture 2개)도 같이 갱신했고,
+fixture 32를 만들다가 `response-policy-engine.mjs` 자신의 독립된 결함도 하나 찾아 고쳤다 —
+`unsupported_no_impact_conclusion` 체크가 `indexingStatus: ready`만으로 "no impact" 결론을
+통과시켜 왔는데, `jvm_project_model_missing`이 있으면 그것도 결론을 뒷받침 못 한다는 걸
+놓치고 있었다(`provider_null_incoming_calls`는 이미 고려돼 있었다 — 같은 종류를 하나 더 놓친
+것).
+
 - timeout 문구 고도화 — readiness 배선 자체가 이미 raw LSP 메서드 이름 노출을 막는다(색인 중이면
   `lifecycle: working`으로 먼저 나옴). 색인 완료 **후**의 진짜 timeout과의 구분이 실제로 의미
   있게 갈리는지는 실사용 시나리오로 아직 확인 안 됨.
