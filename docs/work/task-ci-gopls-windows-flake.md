@@ -32,8 +32,9 @@ CI 결과는 증거로서의 값을 잃는다. 지금 원인을 모른 채로도
   PR #111과 **같은 패턴**(같은 step에서 멈춤: `Run Agent CLI tests (gopls required, not
   optional)`, 그 앞 setup step들은 전부 `success`).
 - 같은 attempt에서 `gopls / macos-latest`(3분 22초)·`gopls / ubuntu-latest`(2분 29초)는 정상.
-- **재실행(attempt 2)**: commander가 트리거, 이 문서 작성 시점 기준 진행 중 - 결과는 확인되는
-  대로 이 절에 추가한다.
+- **재실행(attempt 2)**: commander가 트리거, `10:03:54` 시작 `10:08:20` 완료(4분 26초) -
+  **`success`**. PR #111과 같은 패턴(같은 코드, 재실행만으로 정상 시간 통과) - 이걸로 표본이
+  둘로 늘었다.
 
 ## 관측한 패턴 (추정 아님)
 
