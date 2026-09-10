@@ -2,6 +2,102 @@
 
 ## Unreleased
 
+## 0.9.0
+
+- **Known limitation**: semantic augmentation — the whole headline capability of this release — is
+  **off by default in both hosts and is not recommended to be turned on by default yet**
+  (`impactLens.augmentationEnabled`, and the CLI's `--augmentation`, both default to `false`). Its
+  measured recall against real projects is roughly 57%, it carries seven named residuals, and **no
+  actual user has yet done real work with it**. That validation is a separate, deliberately deferred
+  step: `docs/development-management/user-tests/m4-user-test-spec.md` defines it, and writing a spec is
+  not running it.
+- **Known limitation**: in Go and C/C++, an entry reported as a caller **may be a plain reference rather
+  than a call**. `gopls` and `clangd` both report a bare mention of a function — no invocation anywhere —
+  as `relation: direct`, indistinguishable in the response from a real call site; `bundled-typescript`
+  and `bundled-pyright` do not. The relationship itself is real (change the signature and that code
+  breaks, so impact analysis should show it), but "called from 3 places" can mean "called from 2,
+  referenced from 1". Measured directly against real `gopls v0.19.1` and Apple `clangd 17.0.0` by two
+  independent sessions with separate fixtures. No filtering or relabeling is attempted in this release —
+  a reference cannot be told from a call without information the Call Hierarchy does not carry, and
+  relabeling `data.edges` is a contract change this release deliberately does not make.
+- Impact analysis can now surface **candidate callers that a static Call Hierarchy cannot see on its
+  own** — a FastAPI route handler reached only through `Depends()`, a router mounted with
+  `include_router`, or a function handed to a spec-designated callback position such as
+  `addEventListener`/`setTimeout`/`forEach`. They arrive in a **new top-level field,
+  `data.augmentedEdges`**, and in the VS Code graph as visually distinct candidate edges.
+  **`data.edges` is byte-for-byte unaffected by this release** — not one existing value changed
+  meaning, which is why the new relationships needed a field of their own rather than a new optional
+  property on an existing one.
+- A candidate carries what it actually claims, in two independent axes: `evidenceSource`
+  (`static-inference`) and `resolution` (`single`/`multiple`). **The word `confirmed` is deliberately
+  absent** from that vocabulary — an augmented edge is by definition something the provider did not
+  confirm. And the callback adapter's claim is precisely "a function was passed into a position the
+  framework's own spec designates as a callback", never "it is called": `[].forEach(cb)` calls zero
+  times, a `setTimeout` can be cleared, an event may never fire.
+- **Relationships the analysis recognized but could not narrow to a specific caller are now reported
+  instead of silently dropped** (`augmentation_inference_unresolved`, severity `warning`). Previously
+  they vanished with no trace and a shorter result read as "this is the whole impact". The message says
+  both halves that matter: the static call graph is unaffected, **and** the caller list may be
+  incomplete at those points, which can understate the real impact radius. One entry per analysis with
+  per-category counts, never one per occurrence — a single callback-registration site in real code was
+  measured producing three rejections on its own.
+- **Turning augmentation off is a complete rollback**, and an adapter failure can no longer take the
+  static graph down with it. Every adapter runs inside its own guard, and the orchestration around them
+  inside another, reported as two separate codes (`augmentation_adapter_failed` for an adapter,
+  `augmentation_internal_error` for our own bug) so that our defect never reads as a framework's
+  limitation.
+- Related-test discovery now **tells you why a file was classified as a test**, and lets you correct it.
+  Each test node carries `testRule` (which rule matched), and a project can add its own patterns in
+  `.impact-lens/test-patterns.json` (plus `.impact-lens/test-patterns.local.json` for personal ones,
+  the same shared/local pair notes already use). Excludes always win over includes and there is no
+  un-exclude, reproducing Jest's `testPathIgnorePatterns` model. **Both hosts read the same workspace
+  file** rather than each having its own source, and an unusable pattern is rejected with an error that
+  names what *is* supported (`test_pattern_config_invalid`, exit code 8) instead of being silently
+  ignored — including patterns that are syntactically valid but can never match, such as a leading or
+  trailing `/`.
+- Fixed a defect that misclassified **every file as a test** when the workspace path itself contained a
+  segment like `test` — measured at 468 of 468 rows under a path such as `/Users/test/…`. The two hosts
+  had drifted into two different classifiers; they now share one, with stable rule ids and each rule
+  citing the framework whose default discovery it reproduces.
+- Fixed a FastAPI defect that made most multi-route files return wrong dependency relationships: the
+  scanner searched *below* a `Depends()` reference for the enclosing function, while the decorator that
+  names the route sits *above* it. Any file with more than one route — an extremely common shape — was
+  affected. Found via `tiangolo/full-stack-fastapi-template`: one query returned 2 real callers plus 2
+  false positives, missing 4 of its 6 actual callers entirely; after the fix, the same query returns all
+  6, with zero false positives. Re-measured separately against `Netflix/dispatch`'s 8-query census (used
+  throughout this release's other FastAPI numbers): 6 of those 8 queries returned a false positive before
+  the fix, and none do after, with no regressions on the 2 queries that were already correct.
+- Fixed six shapes of false route-mount attribution, where an unrelated variable that merely shared a
+  router's name (a function parameter, a loop variable, an import, a dict or attribute value, a factory
+  return, a non-`APIRouter` typed binding) was enough to make the analysis assert an entrypoint
+  reachability it had not established.
+- Fixed candidate-caller mis-attribution in the callback adapter for a callback registered inside a
+  method written in object-literal or class shorthand form: found via this repo's own real code, where a
+  shim's `prepare` method was the actual caller but the adapter reported the unrelated outer factory
+  that merely returns it. A related, still-open channel — a callback wrapped in an inline arrow function
+  (`items.forEach((x) => setTimeout(handler, 0))`) — was measured against this repo's own 31 real call
+  sites and found not to currently mis-attribute, but only because two separate recognition gaps happen
+  to stack; it is left as a named, unfixed residual rather than silently closed by this change.
+- Test nodes in the graph no longer borrow VS Code's **passing-test** color. Impact Lens never runs
+  tests, and the data model has no way to express a passed state at all — the palette was asserting in
+  color exactly what the model deliberately refuses to assert.
+- `fastapi-static-v1`'s file budget rose from 200 to 1,500 files, derived from the latency budget rather
+  than picked: at 200, a real 717-file open-source FastAPI project returned nothing at all for 7 of 8
+  queries. The budget is now per adapter, so a number derived from one adapter's cost no longer silently
+  applies to another that walks a different path.
+- Corrected a published Go limitation that measurement showed was wrong: a reflective call written as
+  `reflect.ValueOf(Target).Call(...)` **is** found — but not because `gopls` resolves reflection. It is
+  found because `gopls` reports the identifier reference itself (see the second known limitation above).
+  True name-string reflection (`MethodByName("Target")`, with no static reference anywhere) is still
+  invisible, as documented. The old wording asserted the absence unconditionally and would have kept
+  reading as true forever.
+- Every language whose provider ships in the catalog — TypeScript/JavaScript, Python, Go, C — now has a
+  **repeating fixture that re-measures its documented dynamic-dispatch limitation against a real
+  language server in CI**, instead of a one-time manual probe recorded once in prose. This matters
+  because the one such claim that had ever been converted to a repeating fixture turned out to be false
+  the moment it was: an unqualified "never" that three operating systems contradicted on the fixture's
+  first real run.
+
 ## 0.8.0
 
 - **Known limitation**: Python (`bundled-pyright`), Go (`gopls`), and C/C++ (`clangd`) are new in this

@@ -647,6 +647,25 @@ router/include_router-level `dependencies=[]`)는 이번 fix가 직접 겨냥한
 `APIRouter(`/`include_router(`이므로) — **새 오탐이 아니라는 뜻이지, 이 shape을 다룬다는 뜻은
 아니다.** 이 shape은 아직 아무도 안 다룬다 — 위 새 다섯 번째 능력-공백 항목이 그 사실을 기록한다.
 
+> **2026-09-10 정정 — reviewer가 위 요약 문단 자신의 내부 불일치를 발견, 미해소로 기록한다
+> (해결한 게 아니라 재실행으로 확정하지 않았다는 뜻).** 위 요약의 "오탐 8개"가 세 곳과 서로
+> 안 맞는다:
+> - **쿼리별 표를 직접 합산하면 7개**다(`get_organization_path` 1 + `get_current_user`의
+>   self-ref·`healthcheck` 2 + `common_parameters` 1 + `get_db` 1 + `get_current_case` 1 +
+>   `get_current_incident` 1 = 7 — `get_current_role`/`get_body`는 이미 정답이라 오탐이 없다).
+> - **"모듈-레벨 별칭 6곳 전부 자기참조"라는 괄호 안 근거도, 이 문서 자신의 "dispatch 14개
+>   참조" 정의 표가 대는 B(모듈-레벨 별칭) 개수 "5개"와 다르다** — 요약은 6곳, 정의 표는 5개.
+> - **가설(확인 안 됨)**: reference 단위(텍스트로 몇 번 나타나는가)와 도구가 실제로 낸
+>   candidate edge 단위(같은 caller/target 쌍은 `seenPairs`로 dedup되는 등, 참조 여러 개가
+>   candidate 하나로 접힐 수 있다)를 섞어 센 것으로 보인다 — 그러나 **이 가설을 검증할 재실행은
+>   하지 않았다.**
+> - **판단(commander)**: 두 historic commit(`61d055c`/`f8bb0ff`)을 다시 빌드해 재실행하면
+>   확정할 수 있지만, 이 숫자 하나 때문에 릴리스를 붙잡을 만큼 중요하지 않다고 판단해 **재실행
+>   하지 않기로 했다.** 이 정정은 숫자를 8→7로 "고치는" 것이 아니라, **8/7/5 중 어느 것도
+>   확정되지 않았다는 사실 자체를 남기는 것**이다. **정성적 결론(오탐이 0이 됐다, 8개 쿼리 중
+>   6개가 영향받았다)은 어느 집계를 쓰든 바뀌지 않는다** — v0.9.0 CHANGELOG는 이 정성적 결론만
+>   쓰고 확정 안 된 개수(8)는 신지 않았다.
+
 `tiangolo/full-stack-fastapi-template`(43개 `.py` 파일, `maxFiles: 200`에 전혀 안 걸림 —
 `get_current_active_superuser`/`get_db`도 같은 방식으로 고치기 전/후 대조):
 
