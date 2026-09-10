@@ -1,10 +1,9 @@
 # v0.9.1 릴리스 정합성
 
-- 상태: **PR #113 생성·CI 전체 green, merge 대기.** B-1(버전 소유 위치 재조사)·B-2(버전 선택
-  재확인)·CHANGELOG 사실 대조·B-3(실제 반영)·`test:vsix-contents`가 이 PR의 CI에서 실제로
-  실행·통과했는지 원문 로그로 재확인까지 완료. **B-4(공개 default-path 사후 검증)는 발행
-  후**(commander가 태그·Release를 발행한 다음). **태그 발행·GitHub Release 생성은 이 lane의
-  범위 밖**(commander 지시) — PR merge까지만 하고 발행은 commander가 진행한다.
+- 상태: **완료.** `v0.9.1` 태그·GitHub Release 발행(commander), 아티팩트 빌드·검증(PR #115),
+  B-4 공개 default-path 사후 검증까지 전부 끝났다 — 자세한 내용은
+  `docs/work/task-release-0-9-1-verification.md`. B-1/B-2/B-3/CHANGELOG 사실 대조는 이 문서에
+  기록된 그대로. **태그 발행·GitHub Release 생성은 commander가 진행**(이 lane의 범위 밖).
 - branch: `release/v0.9.1`
 - 선행: `docs/work/task-m4-release-0-9-0.md`(B-1~B-4 방법론의 직전 전례), PR #112(`0d5b5e7`,
   Call Graph webview `SyntaxError` 수정 — 이 릴리스의 유일한 코드 변경).
