@@ -4,6 +4,7 @@ import { discoverExecutable } from '../providers/resolve';
 import { inspectCompileDatabase } from '../providers/compileDatabase';
 import {
   describeVersionRange,
+  findExecutable,
   isVersionSupported,
   probeVersion,
 } from '../providers/discovery';
@@ -21,7 +22,7 @@ import {
   inspectBundledTypeScriptArtifact,
   runtimeMetadata,
 } from '../runtime';
-import { CliError } from '../types';
+import { CliError, ProviderCommand } from '../types';
 
 /**
  * The individual diagnoses doctor makes.
@@ -131,6 +132,50 @@ export function executableCheck(
     status: 'pass',
     executable: path.basename(found),
     candidates,
+  };
+}
+
+/**
+ * `executableCheck`'s sibling for a raw command with no catalog preset - the same shape and the same
+ * `code`/`recovery` vocabulary, but resolving the one command the caller actually named instead of a
+ * preset's ordered candidate list. `command.command` is checked as-is: `findExecutable` already treats
+ * a path-shaped string as a path to verify directly rather than a PATH-relative name to search for
+ * (see its own comment), so this is correct whether the raw command is a bare name or an absolute path.
+ */
+export function rawExecutableCheck(
+  command: ProviderCommand,
+  lookup: ExecutableLookupOptions | undefined,
+): DoctorCheck {
+  if (command.command === '') {
+    return {
+      id: 'provider-executable',
+      status: 'fail',
+      code: 'invalid_request',
+      detail: 'No command was given to diagnose.',
+    };
+  }
+  let found: string | undefined;
+  try {
+    found = findExecutable(command.command, lookup);
+  } catch (error) {
+    return { id: 'provider-executable', status: 'fail', command: command.command, ...failureFields(error) };
+  }
+  if (found === undefined) {
+    return {
+      id: 'provider-executable',
+      status: 'fail',
+      code: 'provider_executable_not_found',
+      command: command.command,
+      // Impact Lens never installs a provider, configures a build or synchronises a package manager.
+      recovery: 'install_the_language_server_manually',
+    };
+  }
+  return {
+    id: 'provider-executable',
+    // The basename only. Which file answers is the finding; the layout of this machine is not.
+    status: 'pass',
+    executable: path.basename(found),
+    command: command.command,
   };
 }
 

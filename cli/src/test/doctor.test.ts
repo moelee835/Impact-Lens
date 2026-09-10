@@ -101,6 +101,139 @@ test('an unknown preset is refused with the list of presets that do exist', asyn
 });
 
 // ---------------------------------------------------------------------------
+// Raw custom command diagnosis (no catalog preset) - `doctor --stdin`. Added so a language with no
+// preset yet (the motivating case: Java/jdtls JDK-compatibility checks) has somewhere to run doctor
+// against the exact command it actually uses, the same raw-command path `analyze` already has via
+// `chooseProvider()`'s "raw wins outright" priority - `resolveSession()` was already calling the
+// shared `resolveProvider()`, just hardcoding `undefined` for the raw-command parameter.
+// ---------------------------------------------------------------------------
+
+test('a raw command with no preset is diagnosed by --stdin, not a preset id', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-raw-ready-');
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: { command: process.execPath, args: ['--version'], languageId: 'java' },
+    env: {},
+  });
+  assert.equal(data.status, 'ready');
+  assert.equal(data.mode, 'preflight');
+  assert.deepEqual(data.command, { command: process.execPath, args: ['--version'], languageId: 'java', languageSource: 'command' });
+  // Never a `preset` key alongside `command` - a `tier: 'custom'` placeholder would let a consumer read
+  // "no data" as "verified empty", which is exactly what this shape exists to avoid.
+  assert.equal('preset' in data, false);
+  const checks = data.checks as readonly DoctorCheck[];
+  assert.deepEqual(checks.map(entry => entry.id), ['node-engine', 'cli-package', 'provider-executable', 'settings-keys', 'project-config']);
+  assert.equal(check(checks, 'provider-executable').status, 'pass');
+});
+
+test('a raw command that does not resolve to an executable fails the same way a missing preset executable does', async t => {
+  const data = await runDoctor(undefined, {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-missing-ws-'),
+    command: { command: 'impact-lens-absent-raw-command' },
+    lookup: { env: { PATH: syntheticPosixDirectory(t, 'doctor-raw-nobin-') }, platform: 'linux' },
+    env: {},
+  });
+  const executable = check(data.checks as DoctorCheck[], 'provider-executable');
+  assert.equal(executable.status, 'fail');
+  assert.equal(executable.code, 'provider_executable_not_found');
+  assert.equal(executable.recovery, 'install_the_language_server_manually');
+  assert.equal(data.status, 'blocked');
+});
+
+test('with no --file and no command languageId, the response says there was no language signal - not "plaintext"', async t => {
+  const data = await runDoctor(undefined, {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-nolang-'),
+    command: { command: process.execPath, args: ['--version'] },
+    env: {},
+  });
+  const command = data.command as { languageId: string | null; languageSource: string };
+  // This is the distinction commander flagged: a user diagnosing Java who forgot --file must not see
+  // "Detected language: plaintext" and read that as a verdict on their project - it means nothing was
+  // given to detect from, a different state from a real (if unrecognised) extension.
+  assert.equal(command.languageId, null);
+  assert.equal(command.languageSource, 'none');
+});
+
+test('with --file given but its extension unrecognised, "plaintext" is reported honestly - a real file WAS given', async t => {
+  const data = await runDoctor(undefined, {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-plaintext-'),
+    command: { command: process.execPath, args: ['--version'] },
+    file: 'Fixture.unknownext',
+    env: {},
+  });
+  const command = data.command as { languageId: string | null; languageSource: string };
+  assert.equal(command.languageId, 'plaintext');
+  assert.equal(command.languageSource, 'file');
+});
+
+test('a command languageId wins over --file, matching resolveProvider\'s own precedence', async t => {
+  const data = await runDoctor(undefined, {
+    workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-precedence-'),
+    command: { command: process.execPath, args: ['--version'], languageId: 'java' },
+    file: 'Fixture.py',
+    env: {},
+  });
+  const command = data.command as { languageId: string | null; languageSource: string };
+  assert.equal(command.languageId, 'java');
+  assert.equal(command.languageSource, 'command');
+});
+
+test('a preset id and a raw --stdin command together are rejected, not silently prioritised', async () => {
+  await assert.rejects(
+    () => runDoctor('bundled-typescript', { command: { command: process.execPath } }),
+    (error: unknown) => error instanceof CliError && error.code === 'invalid_request' && error.exitCode === 2,
+  );
+});
+
+test('neither a preset id nor a raw command is a bad request, not an internal error', async () => {
+  await assert.rejects(
+    () => runDoctor(undefined, {}),
+    (error: unknown) => error instanceof CliError && error.code === 'invalid_command' && error.exitCode === 2,
+  );
+});
+
+test('--fixture on a raw command is rejected before any check runs - not downgraded to --smoke', async t => {
+  const log: string[] = [];
+  await assert.rejects(
+    () => runDoctor(undefined, {
+      mode: 'fixture',
+      command: { command: process.execPath, args: ['--version'] },
+      workspace: temporaryDirectory(t, 'impact-lens-doctor-raw-fixture-'),
+      env: {},
+      log: line => log.push(line),
+    }),
+    (error: unknown) => error instanceof CliError && error.code === 'invalid_request' && error.exitCode === 2,
+  );
+  // Proves the rejection happens before the smoke check would start a process, not just that it
+  // eventually happens - `capabilitySmokeCheck` logs this exact line before it spawns anything.
+  assert.equal(log.length, 0);
+});
+
+test('the CLI surface accepts doctor --stdin and combines it with --file, --workspace and --smoke', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'impact-lens-doctor-raw-cli-'));
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [EXECUTABLE, 'doctor', '--stdin', '--file', 'Fixture.java', '--workspace', workspace],
+      { encoding: 'utf8', input: JSON.stringify({ provider: { command: process.execPath, args: ['--version'] } }) },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const response = JSON.parse(result.stdout);
+    assert.equal(response.ok, true);
+    assert.equal(response.data.mode, 'preflight');
+    assert.equal((response.data.command as { languageId: string }).languageId, 'plaintext');
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('doctor --stdin with no provider field is the same invalid_command as no presetId at all', () => {
+  const result = spawnSync(process.execPath, [EXECUTABLE, 'doctor', '--stdin'], { encoding: 'utf8', input: '{}' });
+  assert.equal(result.status, 2);
+  assert.equal(JSON.parse(result.stderr).error.code, 'invalid_command');
+});
+
+// ---------------------------------------------------------------------------
 // The five failure kinds the Wave 1 gate asks doctor to keep apart
 // ---------------------------------------------------------------------------
 

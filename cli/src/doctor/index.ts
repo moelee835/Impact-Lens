@@ -6,7 +6,7 @@ import { PROVIDER_CATALOG, findPreset, presetIds } from '../providers/catalog';
 import { ExecutableLookupOptions } from '../providers/discovery';
 import { JsonObject, ProviderPreset } from '../providers/preset';
 import { readProjectProviderChoice } from '../providers/projectConfig';
-import { ProviderResolutionOptions, resolveProvider, resolveSessionValues } from '../providers/resolve';
+import { ProviderResolutionOptions, languageId as detectLanguageId, resolveProvider, resolveSessionValues } from '../providers/resolve';
 import { CliError, ProviderCommand } from '../types';
 import {
   DoctorCheck,
@@ -17,6 +17,7 @@ import {
   languageSupportCheck,
   nodeEngineCheck,
   projectConfigCheck,
+  rawExecutableCheck,
   settingsKeysCheck,
   versionCheck,
 } from './checks';
@@ -58,17 +59,47 @@ export interface DoctorOptions {
   readonly catalog?: readonly ProviderPreset[];
   readonly lookup?: ExecutableLookupOptions;
   readonly env?: NodeJS.ProcessEnv;
+  /**
+   * A raw command to diagnose instead of a catalog preset - the language a raw-command user actually
+   * runs, for a language with no preset yet (this is what motivated adding it: a Java/jdtls doctor
+   * check has nowhere to register itself while jdtls stays unregistered). Mutually exclusive with a
+   * presetId; `runDoctor` rejects both being set the same way `analyze` rejects `provider` and
+   * `providerPreset` together, rather than silently picking one.
+   */
+  readonly command?: ProviderCommand;
   /** Progress sink. Defaults to stderr; tests pass their own to prove stdout stays clean. */
   readonly log?: (line: string) => void;
 }
 
 export async function runDoctor(
-  presetId: string,
+  presetId: string | undefined,
   options: DoctorOptions = {},
 ): Promise<Record<string, unknown>> {
+  if (presetId !== undefined && options.command !== undefined) {
+    throw new CliError(
+      'invalid_request',
+      'A preset id and a raw command cannot both be diagnosed in one doctor run.',
+      2,
+    );
+  }
+  if (presetId === undefined && options.command === undefined) {
+    throw new CliError('invalid_command', 'doctor requires a preset id or a raw provider command.', 2);
+  }
+  if (presetId === undefined && (options.mode ?? 'preflight') === 'fixture') {
+    // Rejected before any check runs, including the smoke check `mode !== 'preflight'` would
+    // otherwise pay for first - a raw command structurally cannot have a catalog fixture (fixtures are
+    // how a preset earns `verified-external`, a promotion mechanism the user's own command was never
+    // entered into), and silently downgrading to `--smoke` behavior would narrow the contract without
+    // saying so. This says so instead, and does it before spending the cost of starting the process.
+    throw new CliError(
+      'invalid_request',
+      '--fixture has no meaning for a raw command diagnosed via --stdin - it only applies to a catalog preset, which declares its own fixture.',
+      2,
+    );
+  }
   const catalog = options.catalog ?? PROVIDER_CATALOG;
-  const preset = findPreset(catalog, presetId);
-  if (preset === undefined) {
+  const preset = presetId === undefined ? undefined : findPreset(catalog, presetId);
+  if (presetId !== undefined && preset === undefined) {
     // Nothing to diagnose. This is the one hard failure doctor has, and it is a bad request rather
     // than a provider problem.
     throw new CliError('invalid_command', `Unknown provider preset: ${presetId}`, 2, false, {
@@ -84,38 +115,81 @@ export async function runDoctor(
 
   const project = readProjectChoice(workspace);
   const resolution = resolveSession(preset, options, project.choice);
-  checks.push(executableCheck(preset, options.lookup));
-  const versionResult = versionCheck(preset, resolution.executable);
-  if (versionResult !== undefined) {
-    checks.push(versionResult);
+  checks.push(
+    preset === undefined
+      ? rawExecutableCheck(resolution.command, options.lookup)
+      : executableCheck(preset, options.lookup),
+  );
+  if (preset !== undefined) {
+    const versionResult = versionCheck(preset, resolution.executable);
+    if (versionResult !== undefined) {
+      checks.push(versionResult);
+    }
+    checks.push(languageSupportCheck(preset, options.file));
+    const compileDatabaseResult = await compileDatabaseCheck(preset, workspace);
+    if (compileDatabaseResult !== undefined) {
+      checks.push(compileDatabaseResult);
+    }
   }
-  checks.push(languageSupportCheck(preset, options.file));
+  // `settingsKeysCheck`/`projectConfigCheck` read the resolved settings tree and the project config
+  // file respectively - neither depends on there being a catalog preset, so both run for a raw command
+  // exactly as they do for a preset.
   checks.push(settingsKeysCheck(resolution.settings));
   checks.push(projectConfigCheck(project.state, project.error));
-  const compileDatabaseResult = await compileDatabaseCheck(preset, workspace);
-  if (compileDatabaseResult !== undefined) {
-    checks.push(compileDatabaseResult);
-  }
 
   if (mode !== 'preflight') {
     checks.push(await capabilitySmokeCheck(resolution.command, workspace, preset, options, log));
   }
   if (mode === 'fixture') {
-    checks.push(await fixtureCheck(resolution.command, preset, options, log));
+    // `preset` is guaranteed defined here: the `--fixture`-with-no-preset case was already rejected
+    // above, before any check ran.
+    checks.push(await fixtureCheck(resolution.command, preset!, options, log));
   }
 
   return {
     status: aggregate(checks),
     mode,
-    preset: {
-      id: preset.id,
-      displayName: preset.displayName,
-      tier: preset.tier,
-      languageIds: preset.languageIds,
-      ...(preset.lastVerified === undefined ? {} : { lastVerified: preset.lastVerified }),
-      ...(preset.docs?.limitations === undefined ? {} : { limitations: preset.docs.limitations }),
-    },
+    ...(preset === undefined
+      ? { command: rawCommandSummary(resolution.command, options.file) }
+      : {
+        preset: {
+          id: preset.id,
+          displayName: preset.displayName,
+          tier: preset.tier,
+          languageIds: preset.languageIds,
+          ...(preset.lastVerified === undefined ? {} : { lastVerified: preset.lastVerified }),
+          ...(preset.docs?.limitations === undefined ? {} : { limitations: preset.docs.limitations }),
+        },
+      }),
     checks,
+  };
+}
+
+/**
+ * The raw-command sibling of the `preset` block - deliberately not a `preset` object with placeholder
+ * fields (`tier: 'custom'`, no `displayName`/`lastVerified`/`docs`). A placeholder would let a
+ * consumer read "no data" as "verified empty", the exact ambiguity this contract's other rules already
+ * forbid (a provider failure must never read as a successful empty graph). This field exists in
+ * neither branch's shape by accident of a missing key - a raw-command response always carries
+ * `command`, never `preset`, and vice versa.
+ *
+ * `languageId` is reported only when there was a real signal to report - the command's own declared
+ * `languageId`, or a `--file` whose extension `languageId()` actually read. Neither given means this
+ * doctor run had nothing to detect from, and that is a different state from "detected, and the answer
+ * is plaintext" - collapsing the two would show a user diagnosing Java "Detected language: plaintext"
+ * for a command that never got a file to look at, which reads as a diagnosis of their project rather
+ * than as "you didn't pass --file". `languageId()`'s honest `'plaintext'` answer for an unrecognised
+ * extension is preserved as-is when a `--file` WAS given - that case has a real file to be honest about.
+ */
+function rawCommandSummary(command: ProviderCommand, file: string | undefined): JsonObject {
+  const resolvedLanguageId = command.languageId ?? (file === undefined ? undefined : detectLanguageId(file));
+  return {
+    command: command.command,
+    ...(command.args === undefined ? {} : { args: command.args }),
+    ...(resolvedLanguageId === undefined ? { languageId: null, languageSource: 'none' } : {
+      languageId: resolvedLanguageId,
+      languageSource: command.languageId !== undefined ? 'command' : 'file',
+    }),
   };
 }
 
@@ -168,37 +242,49 @@ interface Resolution {
  * value overrides are passed through instead, which produces the same merged tree.
  */
 function resolveSession(
-  preset: ProviderPreset,
+  preset: ProviderPreset | undefined,
   options: DoctorOptions,
   choice: ReturnType<typeof readProjectProviderChoice>,
 ): Resolution {
-  const probeFile = `impact-lens-doctor${preset.extensions[0] ?? ''}`;
+  // Only ever fed into `resolveProvider()`'s internal `chooseProvider()` call, which never consults
+  // the detected language for a raw command (it wins outright on priority alone - see `chooseProvider`
+  // in resolve.ts). So this placeholder is safe for that internal use even with no real file signal;
+  // it is never what gets reported to the user - `rawCommandSummary()` computes that separately, from
+  // `options.file` or `command.languageId` only, never from this placeholder.
+  const probeFile = preset === undefined
+    ? options.file ?? 'impact-lens-doctor'
+    : `impact-lens-doctor${preset.extensions[0] ?? ''}`;
   const resolution: ProviderResolutionOptions = {
-    providerPreset: preset.id,
+    ...(preset === undefined ? {} : { providerPreset: preset.id }),
     catalog: options.catalog,
     lookup: options.lookup,
     env: options.env,
   };
   let settings: JsonObject = {};
-  try {
-    settings = resolveSessionValues(preset, choice, resolution).settings;
-  } catch {
-    // A manifest that cannot even be validated is reported by the checks that touch it; an empty
-    // tree here only keeps the remaining checks running.
+  if (preset !== undefined) {
+    try {
+      settings = resolveSessionValues(preset, choice, resolution).settings;
+    } catch {
+      // A manifest that cannot even be validated is reported by the checks that touch it; an empty
+      // tree here only keeps the remaining checks running.
+    }
   }
+  // A raw command has no manifest, so there is nothing analogous to resolve here - `settings` stays
+  // `{}`, and `settingsKeysCheck({})` reports a trivial pass rather than being skipped, which is the
+  // honest answer ("no unreachable keys" is true of an empty tree, not a lie about one that exists).
   try {
-    const resolved = resolveProvider(probeFile, undefined, resolution);
+    const resolved = resolveProvider(probeFile, options.command, resolution);
     return { command: resolved.command, executable: resolved.command.command, settings };
   } catch {
     // The executable and artifact checks report this in their own words; this only has to survive.
-    return { command: { command: '' }, settings };
+    return { command: options.command ?? { command: '' }, settings };
   }
 }
 
 async function capabilitySmokeCheck(
   command: ProviderCommand,
   workspace: string,
-  preset: ProviderPreset,
+  preset: ProviderPreset | undefined,
   options: DoctorOptions,
   log: (line: string) => void,
 ): Promise<DoctorCheck> {
@@ -207,13 +293,13 @@ async function capabilitySmokeCheck(
       id: 'initialize-capability-smoke',
       status: 'fail',
       code: 'provider_executable_not_found',
-      detail: 'No executable was resolved for this preset.',
+      detail: preset === undefined ? 'No executable was resolved for this command.' : 'No executable was resolved for this preset.',
     };
   }
-  log(`impact-lens doctor: initializing ${preset.id}`);
+  log(`impact-lens doctor: initializing ${preset === undefined ? 'the raw command' : preset.id}`);
   const provider = new LspCallHierarchyProvider(
     workspace,
-    `impact-lens-doctor${preset.extensions[0] ?? ''}`,
+    preset === undefined ? (options.file ?? 'impact-lens-doctor') : `impact-lens-doctor${preset.extensions[0] ?? ''}`,
     command,
     options.timeoutMs ?? 15000,
   );

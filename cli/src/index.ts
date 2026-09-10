@@ -37,7 +37,23 @@ export async function run(argv: readonly string[]): Promise<Record<string, unkno
   const parsed = parseCommand(argv);
   const input = parsed.options.has('stdin') ? await readStdinJson() : undefined;
   if (parsed.operation === 'provider.doctor') {
-    return envelope(parsed.operation, await runDoctor(argv[1] ?? '', {
+    // `--stdin` names a raw command to diagnose (no catalog preset); a positional presetId names a
+    // catalog entry. Both present is a conflict, same reasoning as `analyze`'s existing
+    // `provider`+`providerPreset` rejection (R6) - not a priority order to silently apply.
+    const presetId = argv[1] === '--stdin' ? undefined : argv[1];
+    const rawCommand = parsed.options.has('stdin') ? providerObject((asObject(input ?? {})).provider) : undefined;
+    if (presetId !== undefined && rawCommand !== undefined) {
+      throw new CliError(
+        'invalid_request',
+        'A preset id and --stdin\'s provider cannot both be set. Name a preset, or diagnose a raw command via --stdin, not both.',
+        2,
+      );
+    }
+    if (presetId === undefined && rawCommand === undefined) {
+      throw new CliError('invalid_command', 'doctor requires a preset id or --stdin with a provider command.', 2);
+    }
+    return envelope(parsed.operation, await runDoctor(presetId, {
+      command: rawCommand,
       mode: parsed.options.get('fixture') === true
         ? 'fixture'
         : parsed.options.get('smoke') === true ? 'smoke' : 'preflight',
@@ -156,7 +172,11 @@ function envelope(operation: string, data: object): Record<string, unknown> {
 
 function parseCommand(argv: readonly string[]): ParsedCommand {
   const operation = operationName(argv);
-  const consumed = operation.startsWith('note.') || operation === 'provider.doctor' ? 2 : 1;
+  // `doctor --stdin` has no positional presetId - argv[1] is already the first option flag, not a
+  // name to consume. `doctor <presetId>` still consumes two tokens, same as every `note.*` operation.
+  const consumed = operation === 'provider.doctor'
+    ? (argv[1] === '--stdin' ? 1 : 2)
+    : operation.startsWith('note.') ? 2 : 1;
   const options = new Map<string, string | true>();
   for (let index = consumed; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -183,7 +203,13 @@ function parseCommand(argv: readonly string[]): ParsedCommand {
       throw new CliError('invalid_request', `Option --${key} is not valid for ${operation}.`, 2);
     }
   }
-  if (options.has('stdin') && options.size > 1) {
+  // `impact.analyze`/`note.*` read the WHOLE request from `--stdin`'s JSON body, so any other flag
+  // would either be ignored or silently disagree with the same field inside that body - rejected
+  // outright rather than picking a winner. `provider.doctor` is different: its `--stdin` body carries
+  // only `provider` (there is no CLI-flag equivalent to raw a command), and `--file`/`--workspace`/
+  // `--smoke`/`--fixture`/`--timeout-ms` have no field inside that body to disagree with - no ambiguity
+  // to reject, so they combine freely (`doctor --stdin --file Foo.java --smoke < body.json`).
+  if (options.has('stdin') && options.size > 1 && operation !== 'provider.doctor') {
     throw new CliError('invalid_request', '--stdin cannot be combined with other options.', 2);
   }
   return { operation, options };
@@ -206,7 +232,9 @@ function allowedOptions(operation: string): ReadonlySet<string> {
     return new Set(['workspace', 'file', 'line', 'column', 'scope', 'apply', 'expected-token', 'timeout-ms', 'provider-config', 'stdin']);
   }
   if (operation === 'provider.doctor') {
-    return new Set(['smoke', 'fixture', 'timeout-ms', 'workspace', 'file']);
+    // `stdin` carries a raw `{ provider: {...} }` body for diagnosing a command with no catalog
+    // preset - the same shape `impact.analyze` already accepts, parsed by the same `providerObject()`.
+    return new Set(['smoke', 'fixture', 'timeout-ms', 'workspace', 'file', 'stdin']);
   }
   return new Set();
 }
@@ -221,6 +249,11 @@ function operationName(argv: readonly string[]): string {
   // Any preset name, not one hard-coded id. The name is validated against the catalog by the doctor
   // itself, which can then say which presets do exist.
   if (argv[0] === 'doctor' && argv[1] !== undefined && !argv[1].startsWith('--')) {
+    return 'provider.doctor';
+  }
+  // `doctor --stdin`: no presetId, diagnoses a raw command supplied on stdin instead (mirrors
+  // `analyze`'s existing raw-command path - see `providerObject()`).
+  if (argv[0] === 'doctor' && argv[1] === '--stdin') {
     return 'provider.doctor';
   }
   return 'unknown';
