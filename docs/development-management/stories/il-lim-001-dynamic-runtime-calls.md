@@ -259,24 +259,42 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
 >
 > | 언어 | gap 문서화 | 근거 인용 | 반복 검증 fixture |
 > | --- | --- | --- | --- |
-> | C | 있음(function pointer) | 직접 probe 인용(Apple clangd 17.0.0) | 있음 — `clangdIntegration.test.ts` |
-> | C++ | 있음(virtual dispatch) | 직접 probe, 버전 3종 교차 | 있음 — 버전 분기까지 |
+> | C — function pointer | 있음 | 직접 probe(Apple clangd 17.0.0), **1회성** | **없음** |
+> | C++ — virtual dispatch | 있음 | 직접 probe, 버전 3종 교차 | **있음** — `clangdIntegration.test.ts`, 버전 분기까지 |
 > | Go | 있음(reflection·runtime dispatch) | stage 2 직접 probe 인용 | **없음**(1회성 probe) |
 > | Python | 있음(reflection·runtime dispatch) | **없음** — 같은 preset의 framework gap 줄은 실제 계측까지 했지만 이 줄은 근거 인용이 없다 | **없음** |
 > | TS/JS | 있음(한 줄) | **없음** | **없음** |
 >
-> **"근거 인용 없는 문장"과 "반복 검증되는 fixture"의 차이는 이 저장소가 이미 실제로 겪었다.** clangd의
-> derived-override virtual dispatch는 **버전에 따라 동작이 바뀌었다** — Apple clangd 17.0.0에서는
-> caller가 안 잡혔지만 upstream 22.1.7/23.1.0/23.1.1에서는 잡힌다(`clangdIntegration.test.ts`가 버전별
-> 분기로 이 사실을 붙들고 있다). 반복 fixture가 없었다면 "안 잡힌다"는 문장이 문서에 **영원히 참인 것처럼
-> 남았을 것이다.** 즉 반복 검증이 없는 gap 문서화는 **썩는 메커니즘이 이 저장소에서 관측된 적이 있는
-> 주장**이다.
+> **위 두 행은 원래 "C" 한 행으로 뭉쳐 "fixture 있음"이라고 적혀 있었다 — 그것이 틀렸다는 것을
+> reviewer가 잡았고 직접 재확인했다.** `clangdIntegration.test.ts`가 덮는 것은
+> method/overload/virtual-dispatch뿐이고, **function pointer는 그 lane의 범위 밖이라고 그 파일 자신이
+> 적어 뒀다.** 즉 C의 function pointer는 Go의 "직접 probe 1회, fixture 없음"과 **증거 강도가 완전히
+> 같다.** 뭉쳐 적은 표는 같은 기준을 C에는 관대하게, Go에는 엄격하게 적용하고 있었다.
+>
+> **그 과정에서 새 사례가 하나 더 나왔다** `[층 2]`: `clangdIntegration.test.ts`의 주석은 function
+> pointer가 "already fixture-backed differently, see the story doc"이라고 적지만, 실제로 `IL-LIM-014`가
+> 대는 근거는 **fixture가 아니라 1회성 probe**다. 이 저장소가 이미 세 건 기록해 둔 **"주석이 주장하는
+> 보장과 코드가 실제로 하는 일이 어긋난 사례"의 네 번째**다.
+>
+> **정확히 세면, 다섯 언어의 다섯 gap 줄 중 반복 검증되는 것은 C++ virtual dispatch 하나뿐이다.**
+>
+> **그리고 그 하나는, 반복 검증으로 바꾸는 순간 주장이 틀렸다는 게 드러난 바로 그 줄이다.** 원래 문구는
+> derived override에 caller가 **"never"** 붙지 않는다고 단언했는데, 1회성 probe를 반복 fixture로 바꾸자
+> 첫 3-OS CI 실행이 세 OS에서 동일하게 실패했다 — upstream clangd 22.1.7/23.1.0/23.1.1은 **붙인다.**
+> Apple clangd 17.0.0을 잰 probe가 틀린 게 아니라, **버전을 안 밝힌 "never"가 과장이었다.**
+>
+> 이 사실이 나머지 네 줄에 대해 말하는 바는 분명하다: **반복 검증으로 바꿔 본 표본이 1건이고, 그 1건이
+> 곧바로 뒤집혔다.** 검증되지 않은 네 줄이 지금 참이라고 믿을 근거는 없다.
 >
 > **가장 약한 칸이 TS/JS라는 것이 이 표의 가장 불편한 부분이다** — 이 마일스톤이 두 번째 adapter를 실제로
 > 만든, 가장 많이 작업한 언어인데 그 언어의 gap 근거가 다섯 중 가장 얇다.
 >
-> 따라서 이 기준을 닫는 데 필요한 것은 "fixture를 새로 대량 생산"이 아니라 **약한 층을 올리고 층 차이를
-> 문서에서 보이게 하는 것**이다. 어디까지 올릴지는 gate 1 판정 lane이 정한다.
+> **따라서 이 기준은 문서만 고쳐서 닫을 수 없다.** 이 정정의 초안은 "fixture 대량 생산이 아니라 약한 층을
+> 올린다"고 적었는데, 위 재계산 뒤에는 그 표현이 헐겁다 — 다섯 중 넷이 fixture가 없는 상태에서 "층을
+> 올린다"는 사실상 "fixture를 만든다"와 같은 말이다. 요구를 명시적으로 적는다: **각 언어의 대표 gap 줄
+> 최소 하나를 `C++ virtual dispatch`가 이미 도달한 수준(직접 probe + 자동 재검증되는 fixture)까지
+> 끌어올린다.** 어느 gap을 대표로 삼을지와 순서는 gate 1 판정 lane이 정하되, **문서 문구만 손보고 닫는
+> 것은 이 기준을 충족하지 않는다.**
 
 ## rollout과 관측
 

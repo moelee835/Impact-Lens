@@ -92,11 +92,23 @@ preset은 TS/JS·Go·Python·C/C++ 넷뿐 — **Swift와 Kotlin은 분석할 pro
 
 | 언어 | gap 문서화 | 근거 인용 | 반복 검증 fixture |
 | --- | --- | --- | --- |
-| C | 있음(function pointer) | 직접 probe(Apple clangd 17.0.0) | 있음 |
-| C++ | 있음(virtual dispatch) | 직접 probe, 버전 3종 교차 | 있음, 버전 분기까지 |
-| Go | 있음(reflection·runtime dispatch) | stage 2 직접 probe | **없음** |
-| Python | 있음(reflection·runtime dispatch) | **없음** | **없음** |
-| TS/JS | 있음(한 줄) | **없음** | **없음** |
+| C — function pointer | 있음 | 직접 probe(Apple clangd 17.0.0), 1회성 | **없음** |
+| C++ — virtual dispatch | 있음 | 직접 probe, 버전 3종 교차 | **있음**, 버전 분기까지 |
+| Go — reflection·runtime dispatch | 있음 | stage 2 직접 probe, 1회성 | **없음** |
+| Python — reflection·runtime dispatch | 있음 | **없음** | **없음** |
+| TS/JS — dynamic dispatch·reflection | 있음(한 줄) | **없음** | **없음** |
+
+**이 표의 첫 두 행은 초안에서 "C" 한 행으로 뭉쳐 "fixture 있음"이라고 적혀 있었다 — reviewer가 그것이
+틀렸다고 잡았고 직접 재확인했다.** `clangdIntegration.test.ts`가 덮는 것은 method/overload/
+virtual-dispatch뿐이고 **function pointer는 그 lane의 범위 밖이라고 그 파일 자신이 적어 뒀다.** C의
+function pointer는 Go와 **증거 강도가 완전히 같다.** 뭉쳐 적은 표는 같은 기준을 C에는 관대하게, Go에는
+엄격하게 적용하고 있었다 — 표가 스스로 세운 기준을 표 자신이 어긴 것이다.
+
+**그 과정에서 새 사례가 하나 더 나왔다** `[층 2]`: `clangdIntegration.test.ts`의 주석은 function pointer가
+"already fixture-backed differently, see the story doc"이라고 적지만, `IL-LIM-014`가 실제로 대는 근거는
+**fixture가 아니라 1회성 probe**다. 이 저장소가 `task-m4-milestone-closure-audit.md`에 이미 세 건 기록해
+둔 **"주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례"의 네 번째**이고, 앞의 셋과 마찬가지로
+**읽기가 아니라 대조로** 발견됐다.
 
 Python 칸에 주석이 필요하다: **같은 preset의 framework gap 줄(route handler/`Depends()`)은 실제
 계측까지 돼 있다** — 실제 `fastapi==0.128.8`에 계측을 걸어 확인하고 wire 수준까지 확인한 기록이 주석에
@@ -112,8 +124,23 @@ Python 칸에 주석이 필요하다: **같은 preset의 framework gap 줄(route
 **가장 약한 칸이 TS/JS라는 것이 이 표의 가장 불편한 부분이다** — 이 마일스톤이 두 번째 adapter를 실제로
 만든, 가장 많이 작업한 언어인데 gap 근거가 다섯 중 가장 얇다.
 
-**따라서 이 기준을 닫는 데 필요한 것은 "fixture 대량 생산"이 아니라 약한 층을 올리고 층 차이를 문서에서
-보이게 하는 것이다.** 어디까지 올릴지는 gate 1 판정 lane이 정한다 — 이 lane은 정하지 않는다.
+**정확히 세면, 다섯 언어의 다섯 gap 줄 중 반복 검증되는 것은 C++ virtual dispatch 하나뿐이다.**
+
+**그리고 그 하나는, 반복 검증으로 바꾸는 순간 주장이 틀렸다는 게 드러난 바로 그 줄이다** `[다른 lane의
+층 3 인용]`. 원래 문구는 derived override에 caller가 **`never`** 붙지 않는다고 단언했는데, 1회성 probe를
+반복 fixture로 바꾸자 **첫 3-OS CI 실행이 세 OS에서 동일하게 실패했다** — upstream clangd
+22.1.7/23.1.0/23.1.1은 붙인다. Apple clangd 17.0.0을 잰 probe가 틀린 게 아니라 **버전을 안 밝힌
+`never`가 과장이었다.**
+
+이 사실이 나머지 네 줄에 대해 말하는 바는 분명하다: **반복 검증으로 바꿔 본 표본이 1건이고, 그 1건이
+곧바로 뒤집혔다.** 검증되지 않은 네 줄이 지금 참이라고 믿을 근거는 없다.
+
+**따라서 이 기준은 문서만 고쳐서 닫을 수 없다.** 이 문서의 초안은 "fixture 대량 생산이 아니라 약한 층을
+올린다"고 적었다 — 위 재계산 뒤에는 그 표현이 헐겁다. 다섯 중 넷이 fixture가 없는 상태에서 "층을 올린다"는
+사실상 "fixture를 만든다"와 같은 말이고, 방치하면 다음 사람이 "문서만 고치면 된다"로 읽는다(reviewer
+지적). 요구를 명시적으로 적는다: **각 언어의 대표 gap 줄 최소 하나를 `C++ virtual dispatch`가 이미 도달한
+수준(직접 probe + 자동 재검증되는 fixture)까지 끌어올린다.** 어느 gap을 대표로 삼을지와 순서는 gate 1
+판정 lane이 정하되, **문구만 손보고 닫는 것은 이 기준을 충족하지 않는다.**
 
 ## 정정 4 — "미실행 테스트를 성공으로 표시 안 함"은 부재에 의한 통과다 (`IL-LIM-010` 수용 기준 4)
 
