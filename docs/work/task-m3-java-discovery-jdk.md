@@ -77,15 +77,63 @@ reviewer가 실측한 Gradle 8.14×JDK 25 실패(JDK 21에서는 동작)가 **�
 | --- | --- | --- | --- |
 | **jdtls 자신의 runtime** | jdtls를 실행하는 JVM 자체가 JDK 21+(entry gate lane에서 확인한 요구사항) | jdtls를 실행할 JVM을 찾아 `java -version` 프로브(gopls의 `probeVersion`과 같은 패턴, 다만 jdtls는 `JAVA_HOME`/`JDTLS_JAVA_HOME`류 환경변수 또는 PATH의 `java`로 별도 결정 - jdtls 자신의 launcher 스크립트가 이미 하는 결정 로직을 read-only로 재현해야 한다, 아래 "확인 필요" 참고) | `code: jdk_runtime_incompatible`, "jdtls는 JDK 21 이상이 필요합니다" |
 | **분석 대상 project가 요구하는 JDK** | project의 `sourceCompatibility`/`targetCompatibility`(Gradle) 또는 `maven.compiler.source/target`(Maven)이 명시하는 언어 레벨 | `build.gradle`/`build.gradle.kts`/`pom.xml`을 **read-only로 텍스트 검사**(실행하지 않음 - readiness.ts의 "generate/build/sync 안 함" 원칙과 동일) | `code: jdk_project_requirement_unmet` - 다만 이건 "실행이 안 된다"가 아니라 "결과가 project 의도와 다를 수 있다"는 **경고**에 가깝다(project 요구 JDK 버전이 다르다고 jdtls 실행 자체가 막히는 건 아니다 - 이 구분을 doctor 응답에 명시해야 한다) |
-| **build tool(Gradle/Maven) 자신이 요구하는 JDK** | Gradle 8.14가 JDK 25에서 실패하고 21에서 동작한다는 reviewer 실측 - Gradle/Maven 버전과 그 도구를 실행할 JVM 사이의 호환성 | Gradle: `gradle/wrapper/gradle-wrapper.properties`의 버전 문자열을 read-only로 읽어 알려진 비호환 조합과 대조(**"알려진 조합"의 출처는 이 lane이 직접 실측한 것만 - 추측으로 표를 채우지 않는다**, reviewer의 이번 실측 하나가 유일한 데이터 포인트다). Maven: 비슷한 위치(`.mvn/wrapper/maven-wrapper.properties`) | `code: jdk_buildtool_incompatible` - **jdtls 자신의 runtime과는 다른 JVM이 이 축의 주체다**(jdtls가 project를 import할 때 내부적으로 Gradle/Maven을 실행하는 JVM은 jdtls 자신의 runtime JVM과 같을 수도 다를 수도 있다 - entry gate lane에서 jdtls가 "자기 내장 Maven 지원"을 썼다는 관찰이 있었지만 Gradle은 확인 안 함, 이 lane에서 확인 필요) |
+| **build tool(Gradle) 자신이 요구하는 JDK** | Gradle 8.14가 JDK 25에서 실패하고 21에서 동작 - **reviewer가 직접 재현해 원문을 보냈다(2026-09-10, commander 요약이 아니라 원문)**, 아래 상세 참고 | `gradle/wrapper/gradle-wrapper.properties`의 버전 문자열을 read-only로 읽어 알려진 비호환 조합과 정확히 일치할 때만 `fail` | `code: jdk_buildtool_incompatible` - **jdtls 자신의 runtime과는 다른 JVM이 이 축의 주체다**(jdtls가 project를 import할 때 내부적으로 Gradle을 실행하는 JVM은 jdtls 자신의 runtime JVM과 같을 수도 다를 수도 있다 - entry gate lane에서 jdtls가 Maven은 "자기 내장 지원"을 썼다는 관찰이 있었지만 Gradle은 확인 안 함, 이 lane에서 확인 필요) |
+
+### `jdk-buildtool` 축 상세 - reviewer의 실제 재현 (2026-09-10, 원문 직접 수신)
+
+**commander의 최초 요약("Gradle 8.14가 JDK 25에서 내부 오류로 실패")은 부정확했다** - reviewer가
+직접 재현해 보낸 원문은 그보다 **더 정확하고 더 좁다.**
+
+- **환경**: Gradle `8.14`(공식 배포), JDK Adoptium Temurin, `gradle build --no-daemon
+  --stacktrace`.
+- **JDK 25.0.4.1 + Kotlin DSL(`build.gradle.kts`)**: `IllegalArgumentException: 25.0.4.1` -
+  스택트레이스가 `org.gradle.kotlin.dsl.*`/`org.jetbrains.kotlin.com.intellij.util.lang.
+  JavaVersion.parse` - **프로젝트의 Kotlin 코드가 아니라 Gradle 자신이 빌드 스크립트
+  파일(`.kts`)을 해석하는 데 쓰는, Gradle에 번들된 Kotlin DSL 컴파일러**가 JDK 버전 문자열
+  `"25.0.4.1"`을 파싱하다 죽는다. **프로젝트 설정 평가 전, 스크립트 컴파일 단계에서 실패.**
+- **reviewer가 직접 갈라 확인**: Kotlin 플러그인이 전혀 없는 순수 Java 프로젝트를 `.kts`로
+  만들어도 **똑같이 실패**(Kotlin 프로젝트 여부와 무관 - Gradle의 Kotlin DSL **파일 형식** 자체
+  문제) - **같은 프로젝트를 Groovy DSL(`build.gradle`, `.kts` 아님)로 바꾸면 다른 에러**로
+  실패: `Unsupported class file major version 69`(JDK 25의 class file major version - Gradle
+  번들 ASM이 아직 모르는 값). **DSL 형식과 무관하게 Gradle 8.14 + JDK 25 조합 자체가 깨진다 -
+  단지 깨지는 메커니즘이 둘(Kotlin DSL 버전 문자열 파싱 vs Groovy DSL class file 버전 인식)이다.**
+- **JDK 21.0.12.1 + 같은 프로젝트**: clean 상태에서 재확인, `BUILD SUCCESSFUL in 6s`.
+- **reviewer가 명시적으로 가른 "안 본 것"**: JDK 22/23/24 - 21과 25 사이 경계 불명. 더 최신
+  Gradle(8.14 이후, 9.x)이 JDK 25를 지원하는지 안 봄. Maven·다른 build tool 안 봄. **"Gradle
+  8.14는 JDK 25를 지원 안 한다"까지만 관측 - "Gradle이 JDK 25를 영영 지원 안 한다"나 "이
+  버전까지만 된다"는 관측 밖.**
+
+**`jdk-buildtool` check 설계(이제 확정, commander 정정 반영)**: `gradle-wrapper.properties`의
+`distributionUrl`에서 Gradle 버전을 read-only로 추출하고, jdk-runtime과 같은 방식(JAVA_HOME →
+PATH)으로 실제 쓰일 JVM major 버전을 확인한 뒤, **정확히 "Gradle 8.14 + JDK major 25" 조합일
+때만** `fail`한다. 그 외 조합(JDK 22/23/24, Gradle 8.14보다 위 버전, Maven 등)은 **`pass`가
+아니라 check 자체를 안 낸다** - `compileDatabaseCheck`가 C-family가 아니면 `undefined`를
+반환하는 것과 같은 패턴("모른다"를 "안전하다"로 착각시키지 않는다, 이전 초안의 모순 - "pass"와
+"check 생략" 둘 다 적어 뒀던 것 - 정리함).
+
+**이 축은 Kotlin 전용 각주가 아니다(commander 정정) - 세 축 중 가장 넓게 걸리는 축이고, 이미
+이 lane 자신의 전제다.** reviewer의 재현이 밝힌 것: 깨지는 지점이 **project의 Kotlin 코드가
+아니라 Gradle 자신이 빌드 스크립트를 해석하는 데 쓰는 번들 컴포넌트**이고, Kotlin 플러그인이
+전혀 없는 **순수 Java 프로젝트도 똑같이 깨진다**(DSL 형식만 바꿔 가며 직접 확인됨). 이 lane의
+fixture는 전부 Gradle 위에 있다 - 사용자가 JDK 25 + Gradle 8.14를 쓰고 있으면 **Java 분석
+자체가 성립하지 않는다**, 그리고 그 증상은 다른 timeout류 증상들과 마찬가지로 "Impact Lens가
+Java에서 안 된다"로 오독되기 쉽다. **severity를 다른 두 축과 같은 수준으로 두지 않는다** - 이건
+"launch가 막힌다"가 아니라 **project import 자체가 실패**하는, 세 축 중 가장 심각한 축이다.
+
+**doctor 메시지 문구는 관측 경계를 넘지 않는다(commander 지시)**: "이 조합은 안 된다"가 아니라
+**"이 조합에서 실패가 관측됐다 / 무엇을 확인하라"** 형태로 쓴다 - 예: `"Gradle 8.14 with JDK 25
+has been observed to fail during build-script evaluation (two independent causes, both inside
+Gradle's own bundled tooling, not the project's code). Try JDK 21, or a newer Gradle if
+available."`류. reviewer가 명시한 "안 본 것"(JDK 22-24 경계, 더 최신 Gradle의 지원 여부, Maven)
+을 넘어서는 주장을 하지 않는다 - 표를 관측보다 넓히면 오늘 이 저장소가 이미 여러 번 만난 실수와
+같은 모양이 된다.
 
 **doctor 응답에서 세 축을 어떻게 구분해 보여줄지(설계)**: `executableCheck`/`versionCheck`
 패턴을 따라 **check id를 축마다 분리**한다 - `jdk-runtime`(jdtls 자신), `jdk-project-hint`
-(project 요구, `status: warn`만 가능 - 안 막는다), `jdk-buildtool`(Gradle/Maven 요구, 알려진
-비호환 조합이 있을 때만 `fail`, 모르면 아예 check를 안 낸다 - `compileDatabaseCheck`가
-C-family가 아니면 `undefined`를 반환하는 것과 같은 패턴). 세 check가 각자 자기 축만 말하고,
-합쳐서 "왜 안 되는지"를 사용자가 스스로 조립할 수 있게 한다 - 하나의 뭉뚱그린 "JDK
-incompatible" 메시지로 합치지 않는다(오늘 CI flake 문서를 쓰면서 배운 것과 같은 교훈 -
+(project 요구, `status: warn`만 가능 - 안 막는다), `jdk-buildtool`(위 설계, 확인된 비호환
+조합일 때만 `fail`, 그 외엔 check 생략). 세 check가 각자 자기 축만 말하고, 합쳐서 "왜 안
+되는지"를 사용자가 스스로 조립할 수 있게 한다 - 하나의 뭉뚱그린 "JDK incompatible" 메시지로
+합치지 않는다(오늘 CI flake 문서를 쓰면서 배운 것과 같은 교훈 -
 "뭉뚱그리면 행동으로 이어지지 않는다").
 
 ## standalone jdtls discovery — 단일 바이너리가 아니다
@@ -148,14 +196,31 @@ discovery, JDK-runtime 축의 `java -version` 프로브 패턴, doctor check id 
 
 ## 확인이 필요한 것 (구현 전 실측 계획)
 
-1. jdtls의 JDK-runtime 결정 로직 - `bin/jdtls` 래퍼 스크립트(Python)가 실제로 어떤 순서로
-   JVM을 찾는지 스크립트 자체를 읽어 확인(entry gate lane이 이미 `jdtls.py`를 한 번 열어본
-   적 있음 - 이번엔 JDK 탐색 로직에 초점을 맞춰 다시 읽는다).
-2. Homebrew 등 패키지 매니저의 `jdtls` PATH 진입점 존재 여부.
-3. Gradle 8.14×JDK 25 실패의 정확한 에러 모양(reviewer의 실측 원문을 요청해 인용 - 이 문서는
-   아직 그 실측을 직접 보지 못했고, commander의 요약만 인용했다는 것을 명시해 둔다).
-4. jdtls가 project import 시 내부적으로 쓰는 JVM이 자기 runtime JVM과 같은지 별도인지(entry
-   gate lane은 Maven만 "자체 내장 지원"을 관찰했고 Gradle은 확인 안 함).
+1. ~~jdtls의 JDK-runtime 결정 로직~~ **확인 완료 - `/tmp/jdtls-1.61.0/bin/jdtls.py`를 직접
+   읽었다(22-51번째 줄).** 순서: `--java-executable` 플래그(이 CLI는 안 씀) → **`JAVA_HOME`
+   환경변수**가 있으면 `$JAVA_HOME/bin/java[.exe]`가 실제 파일이어야 씀 → 없으면 **문자열
+   `'java'` 그대로**(subprocess가 PATH에서 resolve). 버전 검증은 `java -version`의 stderr를
+   정규식 `(?<=version\s\")(?P<major>\d+)`로 파싱해 **21 미만이면 예외**("jdtls requires at
+   least Java 21"). **jdtls 고유의 별도 환경변수(`JDTLS_JAVA_HOME`류)는 없다** - 이 문서 초안의
+   추측이 틀렸다, `JAVA_HOME` 하나뿐이다. `jdk-runtime` doctor check는 이 순서를 정확히
+   재현(read-only로 - 직접 실행하지 않고 `JAVA_HOME`/PATH를 같은 순서로 확인만)해야 jdtls가
+   실제로 쓸 JVM과 다른 JVM을 진단하는 실수를 피한다.
+2. Homebrew 등 패키지 매니저의 `jdtls` PATH 진입점 존재 여부 - **여전히 미확인.**
+3. ~~Gradle 8.14×JDK 25~~ **확인 완료 - reviewer가 직접 재현한 원문을 받았다(2026-09-10).**
+   상세는 위 "`jdk-buildtool` 축 상세" 절.
+4. jdtls가 project import 시 내부적으로 쓰는 JVM이 자기 runtime JVM과 같은지 별도인지 -
+   여전히 미확인(entry gate lane은 Maven만 "자체 내장 지원"을 관찰했고 Gradle은 확인 안 함).
+
+**추가로 이번에 새로 발견한 것(읽다가 나온 것, 원래 계획에 없던 항목)**: `-data` 인자를
+안 주면 jdtls.py가 **자기 cwd의 basename만 sha1 해시**해서 기본 경로를 계산한다(`jdtls.py:83,
+98-99` - `cachedir/jdtls/jdtls-<sha1(basename(cwd))>`). **경로 전체가 아니라 마지막 디렉터리
+이름만 해시하므로, 이름이 같은 서로 다른 두 프로젝트(`backend`라는 이름의 폴더가 여러 곳에
+있는 흔한 경우)가 같은 `-data` 디렉터리를 공유하게 된다** - 이건 jdtls 자신의 설계이지 이
+CLI가 만든 문제가 아니지만, **이 CLI가 `-data`를 명시적으로 안 주면 그 충돌을 그대로 물려받는다.**
+**설계 함의**: `-data`는 명시적으로 넘겨야 한다(전체 절대 경로 기반, 예를 들어 workspace의
+절대 경로를 해시) - 이건 "새 `$ref` 종류가 필요한가"라는 원래 질문(기존 초안 참고)이 실제로
+**그렇다**로 좁혀졌다는 뜻이다. 이 lane이 그 `$ref`를 catalog에 실제로 쓰지는 않지만(catalog
+등재 금지), **stage 3/preset 구현 lane을 위해 이 필요성을 명시적으로 기록해 둔다.**
 
 ## 종료 조건 (story 그대로)
 
@@ -163,10 +228,24 @@ provider launch 전에 복구 가능한 runtime 문제를 식별한다 - 세 JDK
 missing/incompatible/ambiguous를 구분된 doctor check로 보여주고, 절대 경로·환경변수 값은
 기본 출력에서 안 보인다.
 
+## 원문을 직접 요구한 것이 왜 값어치 있었는가 (commander 지적, 기록해 둔다)
+
+commander의 최초 요약("Gradle 8.14가 JDK 25에서 실패")은 **틀리지 않았다.** 그런데 그 요약
+위에 이 축을 설계했다면 "Kotlin 프로젝트 호환성"이라는 **잘못된 축**으로 좁혀 잡았을 것이다 -
+reviewer의 원문을 받고 나서야 이게 **project의 Kotlin 여부와 무관한, Gradle 자신의 빌드
+스크립트 해석 문제**라는 게 드러났고, 그래서 이 lane의 Gradle 기반 fixture 전체를 막는
+**가장 넓은 축**이라는 게 밝혀졌다. **"인용은 열어 보기 전까지 근거가 아니다"의 두 번째
+이유** - 첫째는 인용이 틀릴 수 있다는 것이고, 둘째는 **원문을 열면 요약에 없던 것이 보인다는
+것**이다(commander의 표현 그대로). 이번 경우는 인용이 틀린 게 아니라, 원문을 열어서야 보이는
+것이 실제로 있었다.
+
 ## 이 문서가 아직 답하지 못한 것 (숨기지 않는다)
 
-- "확인이 필요한 것" 네 항목 전부 - 이 설계안은 그 실측 전에 쓰였다. commander 확인 후
-  실측부터 시작한다.
+- "확인이 필요한 것" 남은 두 항목(패키지 매니저 PATH 진입점, jdtls의 Gradle-import용 내부
+  JVM이 자기 runtime과 같은지) - commander 확인 후 실측부터 시작한다.
+- `jdk-buildtool` check가 "확인된 비호환 조합일 때만 fail, 그 외엔 생략"이라는 설계가
+  맞는지 - commander가 방금 확인했으므로(이 절 작성 시점 기준) 이 부분은 사실상 확정으로
+  본다.
 - `doctor`의 raw-command 확장이 정확히 어떤 CLI 옵션 모양이 될지 - 설계 방향만 적었고
   구체적 옵션 이름·스키마는 commander 확인 후 정한다.
 - Gradle/Maven wrapper 버전과 JDK 비호환의 "알려진 조합" 표는 지금 데이터 포인트가
