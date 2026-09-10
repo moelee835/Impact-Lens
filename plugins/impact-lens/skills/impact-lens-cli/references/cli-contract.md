@@ -326,6 +326,16 @@ declared it needs (`ok: false`, `details.stage: "indexing"`, exit 5, `details.mi
 workspace-relative paths). Impact Lens deliberately never generates, builds, or syncs these files. Tell the
 user which files are missing and that they must supply them; do not offer to create them.
 
+`error.code: "timeout"` (`ok: false`, `details.stage: "query"`, `details.method` naming the raw LSP method,
+exit 6, `retryable: true`, message `"Language Server request timed out: <method>"`) is a *different* failure
+from `provider_not_ready` above and is not replaced by a preset declaring `readiness` — confirmed by
+execution (`docs/work/task-m3-java-project-import-readiness.md`), not assumed: readiness can settle
+normally (the server genuinely announced ready) and a specific query can still exceed the request timeout
+afterward, which surfaces this code with the raw protocol method name in the message, exactly as it always
+has. `provider_not_ready` as `error.code` only ever fires before the first query is sent; `timeout` can fire
+on any individual request, before or after readiness settled. Do not read a `timeout` failure as evidence
+about indexing state one way or the other.
+
 ## Fixed summary shape
 
 State a summary in this order, conclusion last, because readers act on the first sentence:
