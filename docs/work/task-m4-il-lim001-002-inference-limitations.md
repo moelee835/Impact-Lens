@@ -589,10 +589,51 @@ commander 요구("집계가 늘어 소음이 되는지 확인 후 merge 전 보�
 테스트가 각각 정확히 예상한 방식으로 실패(다른 테스트는 그대로 통과)함을 확인, `/tmp/fda2.bak`/
 `/tmp/dca2.bak`에서 원복 후 전체 재통과 확인.
 
-### 남은 검증 공백 (commander/reviewer에 공개, merge 판단에 반영 요청)
+### 남은 검증 공백 (commander/reviewer에 공개, merge 판단에 반영 요청) — 2026-09-10 재작성
 
-`multiple-source-candidates`(`backlog`) 분기는 실제 LSP가 자연스럽게 복수 후보를 돌려주는
-fixture를 아직 만들지 못했다 - 뮤테이션(강제 `true`)으로 그 코드 경로가 도달 가능함만
-증명했고, 진짜 다중 정의(예: 같은 이름을 서로 다른 조건부 경로에서 두 번 정의)를 pyright/
-tsserver가 실제로 `> 1`개 심볼로 되돌려주는 자연 fixture는 구성 난이도가 높아 이번 라운드에서
-보류했다. 받아들일 수 있는 검증 공백인지 판단을 요청한다.
+**"못 만들었다"가 아니라 "두 구성을 시도했는데 둘 다 안 됐다"로 정정한다** (commander 지적).
+stage 3의 정확히 같은 전례("조건부 재정의", "try/except import fallback" 둘 다 pyright가
+언제나 정확히 1개를 돌려줌)를 **target 쪽에서 source(enclosing) 쪽으로 옮겨 다시 실측**했다 -
+stage 3의 측정 결과 자체는 target 쪽 것이라 그대로 옮겨오지 않는다(commander 지적대로, 자리가
+다르면 더 쉬울 수도 어려울 수도 있어 재측정이 필요했다).
+
+빌드된 실제 CLI(`cli/dist/index.js`, 실제 bundled pyright)로 `fastapiDependencyAdapter.ts`의
+`enclosingResolved = await resolveEndpoint(input, file, { line: enclosing.def.line, character:
+enclosing.def.character })` 호출(enclosing 함수 자신의 이름 위치에 `prepare()`를 거는 지점)을
+직접 겨냥해 두 구성을 시도했다:
+
+1. **`@overload` 스텁 + 구현** - `Depends(get_db)`를 담은 실제 구현 `def handler(...)` 바로 위에
+   타입이 다른 `@overload def handler(...)` 둘을 얹었다. `enclosing.def`가 가리키는 자리는
+   구현부 자신의 이름 위치이므로, 오버로드 스텁이 같은 이름을 공유해도 `prepare()`가 그 위치를
+   모호하게 볼지 확인하려는 시도. **결과: `augmentedEdges` 1건, `resolution: 'single'`** - 구현부
+   자신만 정확히 1개 반환, 오버로드 스텁과 섞이지 않았다.
+2. **조건부 재정의(enclosing 함수 자체)** - `if/else`로 `handler`를 두 번 정의하고, 그 중 하나의
+   본문에만 `Depends(get_db)`를 넣었다(stage 3이 target에 썼던 정확히 같은 shape을 source에
+   옮김). **결과: `augmentedEdges` 1건, `resolution: 'single'`** - `Depends()`를 담은 그 특정
+   `def` occurrence 자신의 위치에서 정확히 1개 반환, 같은 이름의 다른 branch와 섞이지 않았다.
+
+**두 시도 모두 앞서 stage 3이 target 쪽에서 확인한 것과 같은 모양의 결과를 냈다** - `prepare()`가
+텍스트상의 특정 위치(이 경우 `def` 키워드 자신의 이름 span)에 대해 물으면, 그 자리에 물리적으로
+존재하는 선언 하나만 돌려주는 것으로 보인다. 이는 target 쪽(참조 위치에 대한 질의, 실제로 여러
+후보 중 하나로 해소될 수 있는 질의)과 구조적으로 다르다 - `findEnclosingDef`가 찾는 자리는
+애초에 "이 파일에 실제로 적힌 `def` 문 하나"를 가리키므로, import alias처럼 여러 실제 정의로
+갈라질 수 있는 질의가 아닐 가능성이 있다(확정적 결론 아님 - 이 2회의 시도가 실패했다는 것만 실측).
+
+**따라서 여전히 미확정이다**: `multiple-source-candidates`가 실제 pyright/tsserver에서 자연
+발생하는 구성을 이번에도 찾지 못했다. **합성 fixture로 이 분기를 흉내 내 "검증됨"이라고 적지
+않는다** - 뮤테이션(강제 `true`)으로 코드 경로 도달 가능성만 증명된 상태를 그대로 유지한다.
+
+**`runtime-only` 미도입 결정과의 일관성 - 다른 상태다.** `backlog`의 유일한 producer가
+지금 `multiple-source-candidates`뿐이고 그게 자연 발생 fixture로 아직 안 뜬다면, `runtime-only`를
+뺀 것과 같은 잣대로 이것도 빼야 하는 것처럼 보일 수 있다 - **그렇지 않다.** `runtime-only`는
+**그 값을 방출할 코드 자체가 없었다**(어떤 입력을 줘도 절대 안 나온다 - 유령). `multiple-
+source-candidates`는 **코드가 있고 실제로 배선돼 있다** - `enclosingResolved.items.length > 1`이
+provider 응답에서 실제로 일어나는 순간 그대로 방출된다. 그 조건이 안 뜨는 건 우리 코드에 없어서가
+아니라 지금까지 시도한 fixture 구성들에서 provider가 그런 응답을 준 적이 없어서다. 게다가 이
+분기는 fixture 유무와 무관하게 반드시 존재해야 한다 - gate 4 전체의 교훈("후보가 여럿일 때
+하나로 임의 승격하지 않는다")이 그대로 여기 적용되는 방어 코드이기 때문이다. 즉 **"producer가
+없다"(유령, `runtime-only`)와 "producer는 있는데 자연 발생을 아직 못 봤다"(미측정,
+`multiple-source-candidates`)는 다른 상태**이고, 두 결정은 서로 모순되지 않는다.
+
+받아들일 수 있는 검증 공백인지 최종 판단을 요청한다 - 시도한 두 구성 모두 재현 실패했다는
+사실과 그 이유(정의 위치 질의 자체의 구조적 성격일 가능성)까지 포함해서.
