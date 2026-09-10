@@ -101,6 +101,13 @@ const bundledTypeScript: ProviderPreset = {
   docs: {
     install: 'https://github.com/typescript-language-server/typescript-language-server#installing',
     limitations: [
+      // M4 gate 1 lane D (docs/work/task-m4-gate1-lane-d-language-limitations.md): this line previously
+      // had no cited evidence at all - measured directly (before this fixture was written, per that
+      // lane's own rule) against real bundled-typescript 6.0.0, and confirmed with a repeating fixture,
+      // gate1LanguageLimitations.test.ts: neither a computed-property call through an object literal
+      // (`methods['run']()`) nor `Reflect.apply(fixtureTarget, ...)` produces a caller. Unlike gopls/
+      // clangd (see those presets' own limitations), a value-only reference (no call at all) also
+      // produces no caller here - confirmed with the same fixture file's second test.
       'Dynamic dispatch and reflection-based calls are not part of the Call Hierarchy result.',
       'Cross-file results depend on the project being described by a tsconfig.json or jsconfig.json.',
     ],
@@ -199,13 +206,53 @@ const gopls: ProviderPreset = {
       // Observed directly (stage 1's AdHoc-mode probe): without a go.mod describing the module, gopls
       // cannot reliably resolve cross-package references, which is why this preset requires one.
       'Cross-package results depend on the project being described by a go.mod.',
-      // The universal static-analysis gap, not specific to gopls: calls reached only through
-      // reflection (the `reflect` package) or other runtime-constructed dispatch are not part of the
-      // Call Hierarchy result. (Ordinary interface method calls are resolved correctly — verified
-      // directly during stage 2 by probing a call through an interface-typed parameter and confirming
-      // it reached its concrete implementation; stage 1 did not test this, see
-      // docs/work/task-m2-gopls-preset.md.)
-      'Calls made only through reflection are not part of the Call Hierarchy result.',
+      // M4 gate 1 lane D (docs/work/task-m4-gate1-lane-d-language-limitations.md): the previous version
+      // of this line ('Calls made only through reflection are not part of the Call Hierarchy result.')
+      // was an unqualified overclaim, caught by measuring against real gopls v0.19.1 before designing a
+      // fixture (reproduced independently by a second measurement, not this session's alone) - the exact
+      // same "unversioned absolute claim was an overstatement" shape the C++ virtual-dispatch line below
+      // in the clangd preset already caught once for a different axis (clangd version, not reflection
+      // shape). See gate1LanguageLimitations.test.ts for the repeating fixtures backing both halves below.
+      'Genuine name-based reflection (reflect.Value.MethodByName("...") or similar, where the target name ' +
+      'appears only as a runtime string with no static identifier reference to it anywhere in source) is ' +
+      'not part of the Call Hierarchy result.',
+      // (Ordinary interface method calls are resolved correctly — verified directly during stage 2 by
+      // probing a call through an interface-typed parameter and confirming it reached its concrete
+      // implementation; stage 1 did not test this, see docs/work/task-m2-gopls-preset.md.)
+      //
+      // The more common reflection shape - obtaining a function VALUE through a direct identifier
+      // reference and invoking it reflectively (reflect.ValueOf(target).Call(...)) - DOES appear in the
+      // Call Hierarchy result, but not because gopls resolves the reflective call: confirmed directly
+      // that an identical, call-free reference (assigning the same identifier to a variable and never
+      // calling it at all, through reflection or otherwise) produces the exact same result. gopls's
+      // callHierarchy/incomingCalls reports any static reference to a function name as a caller,
+      // independent of whether that reference is ever invoked - see the "reference vs. call" line below,
+      // which names this precisely and is not specific to reflection.
+      'A function VALUE obtained through a direct identifier reference (assignment, variable capture, or ' +
+      'passing it to reflect.ValueOf(...)) is reported as a caller at that reference\'s own position, even ' +
+      'when the reference is never actually invoked anywhere, through reflection or otherwise - see the ' +
+      '"reference vs. call" line below.',
+      // M4 gate 1 lane D: gopls's incomingCalls conflates "referenced" with "called" - confirmed with a
+      // call-free control (a function assigned to a variable and never called, through any mechanism,
+      // still produces a caller entry at the assignment). The relationship is real (a value reference is
+      // a genuine dependency that breaks if the target's signature changes), but the word "caller" claims
+      // more precision than gopls's answer actually carries: some entries may be references, not calls.
+      // clangd exhibits the identical behavior for C/C++ (see that preset's own limitations below) -
+      // bundled-typescript and bundled-pyright do not do this, confirmed with the same control.
+      //
+      // THIS ENTRY DOES NOT BELONG IN THIS ARRAY'S IMPLICIT CONTRACT, and that is deliberate and
+      // temporary: every other line here says "X is not found" (an absence); this line says "an entry
+      // found here may not mean what its own field name says" - the opposite direction, about `data.edges`
+      // itself rather than about this preset's coverage. Commander's call: ship the fact now via the
+      // cheapest path that needs no contract change, rather than wait for a dedicated field - "shipping a
+      // known gap silently is worse than a documentation array holding one item outside its own implicit
+      // shape." A real fix (a dedicated `ProviderPreset.docs` field, filtering, or relabeling) is tracked
+      // as a separate cross-cutting issue, not this lane's or this array's job - see the work document's
+      // "이 발견이 M4의 어느 gate에도 안 걸린다는 사실" section.
+      'A `data.edges` entry for this preset is not proof that an actual call happens at that site - it may ' +
+      'be a reference to the function\'s value with no invocation anywhere. The relationship itself is ' +
+      'still real (the reference is a genuine dependency), but the count of `data.edges` entries should not ' +
+      'be read as an exact call count.',
       'Code produced by go:generate is only visible if it has already been generated on disk.',
     ],
   },
@@ -299,6 +346,12 @@ const bundledPyright: ProviderPreset = {
   docs: {
     install: 'https://microsoft.github.io/pyright/#/installation',
     limitations: [
+      // M4 gate 1 lane D (docs/work/task-m4-gate1-lane-d-language-limitations.md): this line previously
+      // had no cited evidence at all - measured directly (before this fixture was written, per that
+      // lane's own rule) against real bundled-pyright 1.1.413, and confirmed with a repeating fixture,
+      // gate1LanguageLimitations.test.ts: `getattr(module, 'name_string')()` produces no caller. Unlike
+      // gopls/clangd (see those presets' own limitations), a value-only reference (no call at all) also
+      // produces no caller here - confirmed with the same fixture file's second test.
       'Calls made only through reflection or other runtime-constructed dispatch are not part of the Call Hierarchy result.',
       // The observed pyright/Pyrefly null-vs-[] divergence for exactly this shape (Depends()-style
       // reference-only calls) is what task-m2-python-preset.md stage 3's `provider_null_incoming_calls`
@@ -456,10 +509,29 @@ const clangd: ProviderPreset = {
     // project's own judgment - commander's explicit stage 4 instruction. Every scenario below was run
     // against real clangd (Apple 17.0.0), not assumed from general C/C++ static-analysis knowledge.
     limitations: [
-      // Probed directly: a function pointer initialized to fixture_target and invoked as `fp()`.
-      // incomingCalls on fixture_target returned only the assignment site (surfaced as a reference
-      // named "fp"), never the function that performed the indirect call through the pointer.
+      // Probed directly (stage 4, and again with a repeating fixture in M4 gate 1 lane D,
+      // docs/work/task-m4-gate1-lane-d-language-limitations.md): a function pointer initialized to
+      // fixture_target and invoked as `fp()`. incomingCalls on fixture_target returned only the
+      // assignment site (surfaced as a reference named "fp"), never the function that performed the
+      // indirect call through the pointer.
       'Calls made only through a function pointer invocation are not part of the Call Hierarchy result; only the pointer\'s own assignment site may appear as a reference.',
+      // M4 gate 1 lane D: this preset's own line above already hedged correctly ("may appear as a
+      // reference", not "is reported as a caller") - this is the second-most-important finding of that
+      // measurement, spelled out explicitly rather than left implicit. Confirmed directly with a
+      // call-free control (an assignment with no subsequent call at all, through the pointer or
+      // otherwise) that this is the SAME reference-reported-as-caller behavior gopls exhibits for Go
+      // reflection (see that preset's own limitations above) - not a coincidence of wording, a shared
+      // provider trait. As with gopls, the relationship is real but "caller" is not fully accurate.
+      //
+      // THIS ENTRY DOES NOT BELONG IN THIS ARRAY'S IMPLICIT CONTRACT, and that is deliberate and
+      // temporary - see the identical note on the gopls preset's own version of this line above for why
+      // (commander's call: ship the fact now via the cheapest path needing no contract change; the real
+      // fix is a separate cross-cutting issue, not this array's job).
+      'A `data.edges` entry for this preset is not proof that an actual call happens at that site - it may ' +
+      'be a reference to the function\'s (or function pointer\'s) value with no invocation anywhere, ' +
+      'reproduced even when the pointer is never called through at all. The relationship itself is still ' +
+      'real (the reference is a genuine dependency), but the count of `data.edges` entries should not be ' +
+      'read as an exact call count.',
       // Probed directly, twice, with different outcomes - a real version-dependent behavior change,
       // not a flake: a virtual method Derived::target overriding Base::target, called through a
       // Base* as `b->target()`. incomingCalls on Base::target correctly included the call site under

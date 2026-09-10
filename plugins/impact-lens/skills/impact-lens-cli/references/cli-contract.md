@@ -487,6 +487,15 @@ callers (a framework adapter's inference). Calling both "callers" in the same se
 — erases the distinction this feature exists to preserve, and is exactly the "guessed edge read as a
 confirmed one" failure `augmentedEdges` was designed to prevent.
 
+**"Confirmed" above is accurate for `bundled-typescript`/`bundled-pyright`, but weaker for `gopls`/`clangd`
+(Go, C/C++).** Measured directly (M4 gate 1 lane D, `docs/work/task-m4-gate1-lane-d-language-limitations.md`,
+independently reproduced twice): both `gopls` and `clangd` can report a function referenced only as a
+value - never actually called - as a `data.edges` caller (a variable assignment, a captured function
+value, an argument to `reflect.ValueOf(fn)`). The relationship itself is real (the reference is a genuine
+dependency), but the "caller" label is not accurate for these two providers - some `data.edges` entries for
+Go/C/C++ may be references, not calls. `data.edges` is still `bundled-typescript`/`bundled-pyright`'s exact
+call-expression answer with no such caveat.
+
 `limitationDetails` codes specific to this feature (all `warning`, `scope: semantic`):
 
 - `augmentation_budget_exceeded` — an adapter's own exploration budget ran out before it finished; the
