@@ -36,6 +36,33 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
 - [ ] 미지원 동적 관계가 limitation과 사용자 문서에 명시된다.
 - [ ] 지원 후보 언어마다 대표 dynamic-dispatch gap과 확정할 수 없는 이유가 fixture로 기록된다.
 
+> **2026-09-10 정정(M4 gate 1 대조, `docs/work/task-m4-gate1-story-contract-corrections.md`)**: 위
+> 다섯 기준 중 **1번과 5번은 "통과/미통과" 한 글자로 잘리지 않는다** — 어느 쪽으로 잘라 적어도 사실과
+> 어긋나서, 판정 근거를 여기 명시한다.
+>
+> **1번("정적, 추론, 외부 관측 관계가 모델과 출력에서 구별된다")의 "외부 관측"은 예약된 값이다.**
+> `cli/src/types.ts`의 `AUGMENTED_EDGE_SOURCES`에 `runtime-observation`이 선언돼 있지만, 이 값을
+> 만들어 내는 코드가 저장소 전체에 **없다**(선언 한 줄 외에 producer·consumer·test 0건, 직접 확인).
+> 유일한 producer는 이 story의 **4단계(trace import)**이고, 4단계는 자기 종료 조건에 "보안 검토와 실제
+> 수요가 확인된 경우에만 별도 구현 Issue로 승격"이라고 적어 **설계상 미뤄** 뒀다 — 즉 이건 M4가 못 한
+> 일이 아니라 **하지 않기로 정해 둔 일**이다. 정적(`edges`)과 추론(`data.augmentedEdges`,
+> `source: 'static-inference'`) 두 갈래는 실제로 구별된다.
+>
+> **값은 계약에서 빼지 않는다.** JSON enum에서 값을 제거하는 것이 나중에 값을 추가하는 것보다 소비자에게
+> 더 큰 사건이고(그 값을 이미 옵션으로 다루던 코드는 값이 사라질 때 깨지지만, 새 값이 생기는 건 대부분의
+> 소비자에게 무해하다), 이 저장소는 같은 모양의 문제를 이미 한 번 같은 방향으로 풀었다 —
+> `resolution: 'multiple'`을 2026-09-04 정정이 "코드는 유지하되 gate 대상에서 뺀다"로 처리했다.
+>
+> **대신 "현재 어떤 경로도 이 값을 생산하지 않는다"는 사실 자체를 실행으로 지키는 장치를 둔다.**
+> `stateReachability*.test.ts`가 이미 `AnalysisObservations`의 각 필드에 대해 정확히 같은 감사(producer가
+> 있는가 없는가를 분류)를 하고 있으므로, **새 harness를 만들지 말고 그것을 `AugmentedEdgeSource`까지
+> 확장한다** — 같은 패턴을 두 번 발명하지 않는 것이 이 저장소 자신의 관례다. 그러면 4단계가 언젠가
+> producer를 만드는 순간 그 테스트가 먼저 깨져서, 이 문단이 조용히 낡는 일이 없다.
+>
+> **5번("지원 후보 언어마다 대표 dynamic-dispatch gap ... fixture로 기록된다")은 아래 테스트 계획 표의
+> 같은 날짜 정정과 함께 읽어야 한다** — 이 기준이 실제로 구속하는 언어 집합이 그 표에 적힌 것과 다르고,
+> 실제 공백도 "있다/없다"가 아니라 **근거의 층**이다.
+
 ## 검증
 
 - 확정 edge와 추론 edge가 혼합된 graph/JSON contract 테스트
@@ -162,6 +189,25 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
 
 종료 조건: 선정한 두 패턴에서 정해진 정확도 기준을 충족하고 일반 코드의 오탐 fixture가 통과한다.
 
+> **2026-09-10 확인(M4 gate 1 대조)**: 위 "선정한 두 패턴"의 **현재 상태를 명시한다.** 이 정정을 쓰는
+> lane이 처음에 "event subscription은 실측으로 불가능 판정됐다"고 적으려다 reviewer의 반박으로
+> 바로잡은 부분이라, 같은 오독이 다시 생기지 않도록 남긴다.
+>
+> **event subscription 패턴은 구현돼 있다.** `dynamic-callback-static-v1`이 `addEventListener`(DOM)
+> 경로를 `reasonCode: event-subscription`으로 실제로 만들고, 통과하는 통합 테스트가 존재한다
+> (`cli/src/test/dynamicCallbackIntegration.test.ts`, `"button.addEventListener('click', handler):
+> reasonCode event-subscription"`). 빠진 것은 **패턴이 아니라 그 패턴의 구현체 하나** — Node
+> `EventEmitter`의 `emitter.on(...)`이다. `prepare()`가 `emitter` 변수 위에서 빈 배열을 돌려줘 재확인
+> 축이 성립하지 않기 때문인데, **왜 그런지는 아직 원인 미확인이다** — 세 위치에서 실측했고 대조군까지
+> 확인했지만 원인은 못 밝혔다(추정하지 않는다. 같은 테스트 파일이 이 사실을 그대로 테스트 이름에 적어
+> 뒀다: `"capability absence - EventEmitter.on does not resolve via prepare() the way addEventListener
+> does (unexplored why, not needed for v1)"`).
+>
+> 따라서 **수용 기준 2번("최소 2개 동적 호출 유형")은 충족된다** — `dynamic-callback-static-v1`의
+> 허용목록이 지연·예약 호출, 이벤트 구독, 고차함수 순회 세 계열을 덮고 양성·부정 fixture가 둘 다 있다.
+> 남는 `EventEmitter.on()` 하나는 이 기준의 미충족 사유가 아니라 **원인 미확인 상태로 기록된 구현체
+> 공백**이다.
+
 ### 4단계 — 관측 edge import 검토
 
 1. trace import의 최소 JSON 계약과 workspace/symbol mapping 전략을 설계한다.
@@ -190,6 +236,47 @@ event bus와 런타임 dispatch가 provider 결과에 없으면 실제 caller가
 | 부정 | 같은 이름, 다른 scope·문자열 callback | 확정 또는 inferred edge가 생성되지 않음 |
 | 계약 | 기존 schema consumer | 새 optional 필드가 기존 필드를 변경하지 않음 |
 | 성능 | 중간 규모 workspace | 설정한 파일·시간 budget 안에서 종료하고 취소 가능 |
+
+> **2026-09-10 정정(M4 gate 1 대조, `docs/work/task-m4-gate1-story-contract-corrections.md`)**: 위 표의
+> **"언어 matrix" 행이 이 저장소의 실제 상태와 두 방향으로 어긋난다.** 원래 행은 위에 그대로 두고 여기서
+> 다시 적는다. 수용 기준 5번을 판정하는 근거는 원래 행이 아니라 이 정정이다.
+>
+> **(1) 표가 이름 댄 네 언어 중 둘은 M4 안에서 원리적으로 불가능하다.** `cli/src/providers/catalog.ts`에
+> 실재하는 preset은 TS/JS·Go·Python·C/C++ 넷뿐이고, **Swift와 Kotlin은 분석할 provider 자체가 없다.**
+> 이건 노력으로 좁힐 수 있는 공백이 아니라 `IL-LIM-002` 5단계(Spring adapter가 Java/Kotlin 언어 지원을
+> 기다리는 것)와 **같은 구조의 이월**이다. 두 언어의 gap fixture는 `IL-LIM-015`(Swift)/
+> `IL-LIM-016`(Kotlin)이 닫힐 때 그 story의 gate로 이어받는다. **이 기준이 M4 안에서 구속하는 언어
+> 집합은 preset이 실재하는 넷이다.**
+>
+> **(2) 표가 이름조차 대지 않은 두 언어가 M4 안에서 도달 가능하다 — Go와 Python.** 둘 다 preset이
+> 실재하는데(gopls, pyright) 표에 없어서 **표만 보고 판정하면 이 둘의 상태가 보이지 않는다.**
+> Swift/Kotlin만 이월로 적고 이 둘을 안 적으면 "이름 댄 넷 중 둘만 못 했다"로 읽히고, 실제로 할 수
+> 있는 쪽이 조용히 빠진다.
+>
+> **(3) 그리고 실제 공백은 "있다/없다"가 아니라 근거의 층이다.** 다섯 언어 **전부** `catalog.ts`의
+> `docs.limitations`에 dynamic-dispatch gap이 문장으로 적혀 있다. 갈라지는 건 그 문장 뒤에 무엇이
+> 있느냐다(전부 직접 확인):
+>
+> | 언어 | gap 문서화 | 근거 인용 | 반복 검증 fixture |
+> | --- | --- | --- | --- |
+> | C | 있음(function pointer) | 직접 probe 인용(Apple clangd 17.0.0) | 있음 — `clangdIntegration.test.ts` |
+> | C++ | 있음(virtual dispatch) | 직접 probe, 버전 3종 교차 | 있음 — 버전 분기까지 |
+> | Go | 있음(reflection·runtime dispatch) | stage 2 직접 probe 인용 | **없음**(1회성 probe) |
+> | Python | 있음(reflection·runtime dispatch) | **없음** — 같은 preset의 framework gap 줄은 실제 계측까지 했지만 이 줄은 근거 인용이 없다 | **없음** |
+> | TS/JS | 있음(한 줄) | **없음** | **없음** |
+>
+> **"근거 인용 없는 문장"과 "반복 검증되는 fixture"의 차이는 이 저장소가 이미 실제로 겪었다.** clangd의
+> derived-override virtual dispatch는 **버전에 따라 동작이 바뀌었다** — Apple clangd 17.0.0에서는
+> caller가 안 잡혔지만 upstream 22.1.7/23.1.0/23.1.1에서는 잡힌다(`clangdIntegration.test.ts`가 버전별
+> 분기로 이 사실을 붙들고 있다). 반복 fixture가 없었다면 "안 잡힌다"는 문장이 문서에 **영원히 참인 것처럼
+> 남았을 것이다.** 즉 반복 검증이 없는 gap 문서화는 **썩는 메커니즘이 이 저장소에서 관측된 적이 있는
+> 주장**이다.
+>
+> **가장 약한 칸이 TS/JS라는 것이 이 표의 가장 불편한 부분이다** — 이 마일스톤이 두 번째 adapter를 실제로
+> 만든, 가장 많이 작업한 언어인데 그 언어의 gap 근거가 다섯 중 가장 얇다.
+>
+> 따라서 이 기준을 닫는 데 필요한 것은 "fixture를 새로 대량 생산"이 아니라 **약한 층을 올리고 층 차이를
+> 문서에서 보이게 하는 것**이다. 어디까지 올릴지는 gate 1 판정 lane이 정한다.
 
 ## rollout과 관측
 
