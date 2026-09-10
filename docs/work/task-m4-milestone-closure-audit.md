@@ -1,6 +1,11 @@
 # M4 마일스톤 종료 gate 대조
 
 - 상태: 대조 완료, 기록 lane — 코드 변경 없음
+- **2026-09-10 최종: 8개 gate 중 7개 닫힘(gate 1 포함). 남은 것은 gate 8(사용자 테스트 명세) 하나이며
+  사용자가 후속으로 미뤘다 — 문서 맨 아래 "Gate 1 판정" 절 참고.** 아래 본문과 판정표는 **작성 당시의
+  스냅샷**이고 갱신하지 않는다(이 저장소의 "원문 보존 + 날짜 붙은 정정" 관례). 그래서 본문이 "닫힌
+  것은 1개"라고 말하는 곳이 여럿 있다 — **그건 이 문서가 처음 쓰인 시점의 사실이지 현재 상태가
+  아니다.** 현재 상태를 알려면 이 줄과 맨 아래 판정 절을 본다.
 - branch: `docs/m4-milestone-closure-audit`
 - 선행: PR #72(stage 1)·#73(stage 2)·#75~#79(stage 3) merge 완료. `m2-closure` lane(PR #67, *"M2
   milestone closure processing: what's proven, what isn't"*)과 같은 성격의 작업.
