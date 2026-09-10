@@ -1,9 +1,10 @@
 # v0.9.1 릴리스 정합성
 
-- 상태: 진행 중 — B-1(버전 소유 위치 재조사)·B-2(버전 선택 재확인)·CHANGELOG 사실 대조·B-3(실제
-  반영) 완료. **B-4(공개 default-path 사후 검증)는 발행 후**(commander가 태그·Release를 발행한
-  다음). **태그 발행·GitHub Release 생성은 이 lane의 범위 밖**(commander 지시) — PR merge까지만
-  하고 발행은 commander가 진행한다.
+- 상태: **PR #113 생성·CI 전체 green, merge 대기.** B-1(버전 소유 위치 재조사)·B-2(버전 선택
+  재확인)·CHANGELOG 사실 대조·B-3(실제 반영)·`test:vsix-contents`가 이 PR의 CI에서 실제로
+  실행·통과했는지 원문 로그로 재확인까지 완료. **B-4(공개 default-path 사후 검증)는 발행
+  후**(commander가 태그·Release를 발행한 다음). **태그 발행·GitHub Release 생성은 이 lane의
+  범위 밖**(commander 지시) — PR merge까지만 하고 발행은 commander가 진행한다.
 - branch: `release/v0.9.1`
 - 선행: `docs/work/task-m4-release-0-9-0.md`(B-1~B-4 방법론의 직전 전례), PR #112(`0d5b5e7`,
   Call Graph webview `SyntaxError` 수정 — 이 릴리스의 유일한 코드 변경).
@@ -129,6 +130,12 @@ Python 스크립트로 위 표의 모든 위치에서 `0.9.0` → `0.9.1` 일괄
   job 이름이 `${{ matrix.os }} / Node 22`라 `gh pr checks`에서 다른 workflow와 이름이 겹쳐
   보인다 — 혼동하기 쉬운 지점이라 기록해 둔다). **이번 PR(v0.9.1)에서도 같은 job이 통과하는지
   merge 전에 반드시 다시 확인한다** — 로컬 실패를 이유로 건너뛰지 않는다.
+  **PR #113 자체의 CI로 재확인 완료**: `gh run view ... --log`로 `ubuntu-latest / Node 22`
+  job의 원문 로그를 직접 확인 — `npm run test:vsix-contents`가 `impact-lens@0.9.1`로 실제
+  실행됐고 "What this proves: the packaged vsix's file list and size are what this lane
+  intends." 출력과 함께 통과했다. 세 OS(`macos-latest`/`ubuntu-latest`/`windows-latest`) 모두
+  `pass`. 로컬 재현 실패의 근본 원인은 여전히 미규명이지만, 패키징 검사 자체는 이 릴리스 대상
+  커밋에서 실제로 돌고 통과한다는 것이 원문 로그로 확인됐다.
 
 ## 다음 단계
 
