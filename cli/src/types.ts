@@ -258,6 +258,53 @@ export interface CallHierarchyProvider {
 }
 
 export type ImpactRelation = 'root' | 'direct' | 'transitive' | 'test';
+
+// ---------------------------------------------------------------------------
+// Node-level test classification evidence (IL-LIM-010 stage 1 completion, schemaVersion 1, additive - see
+// docs/work/task-m4-il-lim-010-stage1-completion.md).
+//
+// `relation`'s own meaning does not change: it is still computed the same way and still means the same
+// thing (M4 stage 1 / X3's precedent for adding a sibling field instead of overloading an existing one -
+// `data.augmentedEdges` next to `data.edges`, `limitationDetails` next to `limitations`). These two types
+// are the sibling for "why was this node classified the way it was", carried per node as `testRule` and
+// `testRuleSuppressed` (added at the two node-construction call sites, `cli/src/impact.ts` and
+// `src/impactAnalyzer.ts` - not here, since this file declares shapes, not node literals).
+//
+// Deliberately not named `testEvidence`: the story's own "recommended response" section already reserves
+// that name for a larger stage-2/3 union (`call-hierarchy` | `path-convention` | `framework-adapter` |
+// `coverage-observation`). `TestClassificationRule` is scoped to the `path-convention` case only, so it
+// can be absorbed as `TestEvidence.pathConvention` later without a rename of a field consumers already
+// read.
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a node was classified `relation: 'test'`.
+ *
+ * `id` is either a default-convention rule's stable id (`test-directory` | `dot-suffix` |
+ * `underscore-prefix` | `underscore-suffix` | `pascal-suffix`, from `cli/src/shared/testFileClassifier.ts`'s
+ * `RULES`) or, when a user include pattern is what matched, the literal pattern string itself - a user's
+ * own glob has no other stable identifier, and the pattern text is the most useful thing to show back to
+ * them.
+ */
+export interface TestClassificationRule {
+  readonly id: string;
+  readonly source: 'default-convention' | 'user-include';
+}
+
+/**
+ * Why a node that a default rule (or a user include pattern) would otherwise have classified as a test is
+ * NOT `relation: 'test'` - a user exclude pattern overrode that match. Mutually exclusive with
+ * `TestClassificationRule` on the same node: an exclude match always wins, so a node can carry one or the
+ * other but never both (see `testRule`/`testRuleSuppressed` at the node-construction call sites).
+ */
+export interface SuppressedTestRule {
+  /** The default-convention rule id that would have matched, or null if none would have (a pure
+   * "extra safety exclude" with nothing to suppress). */
+  readonly ruleId: string | null;
+  /** The user exclude pattern string that suppressed the match. */
+  readonly excludePattern: string;
+}
+
 // Request-side vocabularies are runtime arrays for the same reason the response ones above are: only a
 // value that exists at runtime can be compared against `cli/schemas/request.schema.json`. Until this
 // change nothing read the request schema at all, so the published request contract and the parser could

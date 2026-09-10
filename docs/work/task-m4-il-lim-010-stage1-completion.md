@@ -1,6 +1,6 @@
 # IL-LIM-010 1단계 완결 — 분류 근거 노출과 사용자 pattern (branch `feat/il-lim-010-stage1-evidence-and-patterns`)
 
-- 상태: 설계 (구현 전 — commander 지시대로 사전 작업 문서·계약 설계안까지만 하고 보고)
+- 상태: 구현 완료, 검증 완료 — commit·push 및 완료 보고 대기
 - **2026-09-10 범위 축소 — reviewer의 gate 1 전수 감사 반영**: 원래 지시의 4개 항목(근거 노출,
   사용자 pattern precedence, 언어 matrix, 미실행-테스트-성공-아님)에서 reviewer 독립 감사가 2개를
   이미 통과로 판정했다. **언어 matrix(구 3번)**는 PR #91이 JS/TS/Python/Go/Java/Ruby 규칙과 30개
@@ -20,6 +20,13 @@
 - 상위 gate: `docs/work/task-m4-milestone-closure-audit.md`의 gate 1(IL-LIM-001·002·010 수용 기준
   14개) — M4 8개 gate 중 열려 있는 두 gate(1·8) 중 하나. gate 8(사용자 테스트 명세)은 사용자 지시로
   후속으로 미뤄졌고, 지금은 gate 1이 유일한 대상.
+- **2026-09-10 commander 승인 + 조건 4건 반영**: 설계는 승인됐고 아래 조건이 이 문서에 이미
+  반영돼 있다(각 절에 인라인 표시) — (1) 사용자 pattern의 소스는 VS Code 설정이 아니라 **두 host가
+  공유하는 workspace 파일**(`noteStore.ts`의 `.impact-lens/notes.json` 전례)로 교체, (2)
+  `suppressedRuleId`(신규 이름 `testRuleSuppressed`)를 이번 PR의 노출 필드에 포함, (3) 직접 만드는
+  glob 매칭기에 **부정 corpus를 양성과 같은 무게로** 요구(callback adapter가 같은 결함을 네 채널
+  연달아 낸 전례 때문), (4) `types.ts`/`errors.ts`/`schemas` 변경은 `il-contract-architect`
+  경유 — 이미 그 subagent에 위임해 병행 진행 중.
 
 ## 목적과 사용자 가치
 
@@ -63,11 +70,12 @@ M4는 8개 중 6개가 닫혀 열린 건 gate 1·8뿐이다. gate 1의 세 story
   뽑아 `ImpactRelation`(`'root'|'direct'|'transitive'|'test'`) 하나로 뭉갠다** — `ruleId`는 두
   얇은 어댑터(`cli/src/testFile.ts`의 `classifyRelation()`, `src/testFile.ts`의
   `classifyImpactRelation()`) 안에서 계산됐다가 반환값에서 버려진다.
-- 사용자 pattern을 위한 설정 표면은 CLI·Extension 어디에도 없다. Extension은
-  `impactLens.*` workspace 설정(`package.json`의 `contributes.configuration`)을 이미 쓰고 있고,
-  CLI는 워크스페이스가 신뢰하는 committed 설정 파일 관례(`.impact-lens/provider.json`,
-  `cli/src/providers/projectConfig.ts`)를 이미 갖고 있다 — 이번 lane은 새 메커니즘을 발명하지 않고
-  이 두 기존 관례를 그대로 재사용한다.
+- 사용자 pattern을 위한 설정 표면은 CLI·Extension 어디에도 없다. **(2026-09-10 정정)** 최초
+  초안은 "Extension은 `impactLens.*` VS Code 설정, CLI는 committed 파일"로 host마다 다른 소스를
+  제안했으나, commander가 이건 classifier 입력 자체가 host마다 갈라지는 것이라 지적해 철회했다
+  (아래 "설정 소스" 절). 최종 설계는 두 host 모두 같은 workspace 파일 쌍(`.impact-lens/
+  test-patterns.json`/`.local.json`)을 읽는다 - `src/noteStore.ts`/`cli/src/notes.ts`가 이미
+  `.impact-lens/notes.json`(공유)+`notes.local.json`(개인)로 이 정확한 패턴을 쓰고 있다.
 - invalid 설정을 "에러로 보이게" 만드는 전례도 이미 있다: `readProjectProviderChoice()`는 committed
   `.impact-lens/provider.json`이 이해 불가능하면 `provider_config_invalid`(`invalid_request`와는
   다른, 파일이 원인임을 명시하는 code)를 던진다(`cli/src/providers/manifest.ts:63`,
@@ -94,11 +102,10 @@ M4는 8개 중 6개가 닫혀 열린 건 gate 1·8뿐이다. gate 1의 세 story
   아니다(IL-LIM-018/M3 미구현, provider 자체가 없음). story의 테스트 계획 표는 Java도 이름을
   대지만, **명시적으로 범위 밖으로 남기고 M3(Java provider 착수) 이후로 이월한다** — 조용히 빼지
   않고 아래 "언어 목록과 이월 목록" 절에 남긴다.
-- **제외(이번 PR)**: `TestFileClassification`의 `source`/`suppressedRuleId` 내부 필드 중
-  `user-exclude` 경우의 "어떤 기본 규칙이 억제됐는지"를 사용자에게 보이는 JSON에까지 노출하는 것 —
-  내부적으로는 계산하지만(디버깅·후속 stage 2 근거로 남김), 이번 PR이 노출하는 건 `relation ===
-  'test'`인 노드의 근거뿐이다(아래 계약 설계안 참고). 조용히 버리는 게 아니라 명시적으로 이번 PR
-  범위 밖으로 남긴다.
+- **~~제외(이번 PR)~~ → 2026-09-10 철회, 이번 PR에 포함**: 원래는 `suppressedRuleId`를 JSON에
+  안 싣기로 했었다. commander가 반대해(사용자의 진짜 불만은 "왜 없지"이지 "왜 있지"가 아니다) 이번
+  PR이 `testRuleSuppressed` 필드로 노출한다 - 아래 "새 필드: `testRuleSuppressed`" 절 참고. 원문을
+  지우지 않고 취소선으로 남긴다.
 
 ## 1번 계약 설계안 — 분류 근거를 어디에, 어떤 모양으로 노출하는가
 
@@ -150,6 +157,43 @@ testRule: relation === 'test' ? TestClassificationRule : null,
   필요해진다(그 자체가 "기존 필드 의미가 조용히 바뀐다" 위험). `testRule`은 stage 2에서
   `TestEvidence.pathConvention`으로 그대로 흡수될 수 있는 좁은 이름이다.
 
+### 새 필드: `testRuleSuppressed` (2026-09-10 추가 — commander 조건 2)
+
+원래 설계는 `suppressedRuleId`를 내부 계산만 하고 JSON에는 안 실었다. **commander가 반대했다** —
+사용자가 실제로 하는 불평은 "이 파일이 왜 테스트로 잡혔지"가 아니라 "내 테스트가 왜 목록에 없지"이고,
+`testRule`은 받아들인 것만 설명하고 기각한 것에는 침묵한다는 지적이다. 이 milestone이 이미
+"인식했는데 조용히 버린다" 모양을 세 번(FastAPI `Depends()`의 40% 무단 기각, callback adapter의
+limitation 0건, 그리고 지금 이것) 만났다는 근거도 붙었다 - 받아들인다. classifier가 이미 **그래프에
+들어온 모든 node**에 대해 호출되므로(사용자 exclude로 억제된 파일도 이미 node로 존재), 필드가 놓일
+자리는 이미 있다 - 계산 비용도 없다(`compileTestPatterns()`가 exclude 매치 시 이미 `suppressedRuleId`/
+`matchedPattern`을 계산하고 있었으므로, 이걸 노출만 하면 된다).
+
+```ts
+// cli/src/types.ts (신규 export)
+export interface SuppressedTestRule {
+  /** 이 pattern이 아니었다면 맞았을 기본 규칙의 id, 또는 기본 규칙 자체가 없었으면 null(순수하게
+   * "혹시 몰라 넣은" exclude가 아무것도 억제 안 한 경우와 구분할 필요가 없어 null로 합친다 - "억제된
+   * 게 있다"는 사실 자체는 이 필드가 non-null이라는 것으로 이미 드러난다). */
+  readonly ruleId: string | null;
+  /** 실제로 매치해 억제한 사용자 exclude pattern 문자열. */
+  readonly excludePattern: string;
+}
+```
+
+```ts
+// node 객체에 추가되는 필드 - testRule과 상호 배타적(동시에 non-null일 수 없다, exclude가 항상
+// 이겨서 isTest를 false로 뒤집기 때문)
+testRuleSuppressed: classification.source === 'user-exclude'
+  ? { ruleId: classification.suppressedRuleId, excludePattern: classification.matchedPattern! }
+  : null,
+```
+
+`testRule`과 별개 필드로 둔 이유: `testRule`은 "왜 test로 분류됐는가"라는 하나의 의미만 갖고,
+`relation === 'test'`일 때만 의미가 있다. `testRuleSuppressed`는 정반대 의미("왜 test로 분류되지
+않았는가", `relation`이 `'direct'`/`'transitive'`여도 의미가 있다)라 하나의 discriminated union으로
+합치면 소비자가 매번 `relation`과 필드 내용을 함께 봐야 뜻을 알 수 있는 필드가 된다 - 이름과 null
+여부만으로 뜻이 드러나는 두 필드가 더 안전하다.
+
 ### `classifyTestFile()`의 반환 타입 확장 — 기존 소비자에게 무엇이 안 바뀌는가
 
 ```ts
@@ -166,8 +210,9 @@ export interface TestFileClassification {
    * 문자열 원문. */
   readonly matchedPattern: string | null;
   /** 신규. `source === 'user-exclude'`일 때만 의미 있음 - 이 pattern이 아니었다면 어느 기본
-   * 규칙이 맞았을지(있었다면). 이번 PR은 이 필드를 계산은 하지만 JSON 응답에는 아직 안 싣는다
-   * (위 "범위에서 제외" 참고) - 내부 디버깅과 stage 2 근거로만 쓴다. */
+   * 규칙이 맞았을지(있었다면). **2026-09-10 갱신**: 이번 PR은 이 필드를 JSON 응답에도 싣는다
+   * (node의 `testRuleSuppressed` 필드로 - 아래 "새 필드: `testRuleSuppressed`" 절 참고,
+   * commander 조건 2 반영. 최초 설계는 내부 전용으로 남기려 했으나 철회했다). */
   readonly suppressedRuleId: string | null;
 }
 ```
@@ -199,12 +244,14 @@ export function classifyTestFile(
 cli/references/cli-contract.md`)에는 새 필드를 설명하는 절을 추가해야 한다(`data.augmentedEdges`
 절과 같은 자리) - 구현 단계 산출물로 넣는다.
 
-### `il-contract-architect` 경계
+### `il-contract-architect` 경계 (2026-09-10 — commander 조건 4, 이미 위임함)
 
 이 저장소는 "상태 어휘나 응답 필드를 바꾸는 작업"을 `il-contract-architect` 전담으로 명시한다.
 commander가 이 lane을 이 세션에 직접 배정했지만, `types.ts`/`errors.ts`/JSON schema 변경은 그
-경계를 건드리는 작업이다 - 구현 PR에서 이 설계안을 그대로 반영하되, reviewer의 gate 1 감사에 이
-경계 문제를 명시적으로 노출한다(아래 "reviewer 감사와의 정합" 참고).
+경계를 건드리는 작업이라 **commander도 "제가 대신 정하지 않습니다"로 명시**했다. `TestClassificationRule`/
+`SuppressedTestRule`/두 host의 node 필드 추가, 그리고 `test_pattern_config_invalid`의 exit code
+배정을 `il-contract-architect` subagent에 위임했다(설계는 이 문서 그대로, 재설계가 아니라 계약
+파일 반영과 exit tier 판단만 요청) - 결과가 오면 이 문서와 구현에 반영한다.
 
 ## 2번 precedence 규칙 초안
 
@@ -257,6 +304,31 @@ commander가 이 lane을 이 세션에 직접 배정했지만, `types.ts`/`error
   스타일의 "디렉터리 이름 하나만 써도 어디서든 매치"는 지원하지 않는다 - 그 확장은 필요성이
   확인되면 후속.
 
+### glob 구현의 검증 방침 (2026-09-10 commander 조건 3)
+
+**이 저장소는 손수 만든 패턴 매칭으로 이미 lane 하나(gate 7 이전, callback adapter)를 통째로 썼다** -
+같은 결함 모양(스코프 판단 오류)이 문자열 → 정규식 리터럴 → method-shorthand opener → arrow scope
+네 채널로 연달아 나왔고, 매번 그때까지의 fixture를 전부 통과했다(`m4-gate7-real-code-measurement`
+메모리 참고). 이 lane의 glob-to-regex 컴파일러도 같은 종류의 코드(문자열을 스캔해 경계를 판단하는
+순수 함수)라 같은 위험이 있다고 가정하고 구현한다:
+
+- **양성 fixture만큼 부정 fixture를 만든다.** 특히: 사용자 pattern에 포함된 **regex 특수문자가
+  아닌 리터럴로 취급**되는지(`foo.test.ts`가 glob 컴파일 결과 `fooXtestXts`에 매치하면 안 된다 -
+  `.`을 이스케이프하지 않으면 정확히 이 사고가 난다), `*`가 **`/`를 절대 넘지 않는지**(`test/*.ts`가
+  `test/sub/a.ts`에 매치하면 안 된다), `**`는 **0개 디렉터리도 포함하는지**(`**/*.spec.ts`가 최상위
+  `a.spec.ts`에도 매치해야 한다 - Jest의 실제 동작과 일치), 완전 매치가 **부분 매치로 새지 않는지**
+  (`test.ts`가 `not-a-test.ts.bak`에 매치하면 앵커링이 깨진 것이다).
+- 이 부정 fixture들은 "이번에 새로 아는 채널"이 아니라 **정확히 저 4채널 결함과 같은 종류의 실수를
+  glob 컴파일러에서 미리 찾는 것**이 목적이다 - 양성 테스트만으로는 이 결함 모양이 안 잡힌다는 게
+  이미 네 번 증명됐다.
+- `*`/`**` 외 메타문자(`?`, `[`, `]`, `{`, `}`, `!`, `\`)를 조용히 리터럴로 오매칭하지 않고 명시적으로
+  거부하는 극성(위 "invalid의 정의")은 이 조건이 그대로 유지하라고 확인한 부분이다 - 바꾸지 않는다.
+
+**오류 메시지는 "무엇이 잘못됐다"가 아니라 "무엇이 지원되는가"를 말한다 (2026-09-10 commander 조건
+3)**: 사용자는 `?`/`[]`를 왜 못 쓰는지 모른다. 메시지 형태: `Test pattern "<pattern>" is not
+supported: only "*" (within one path segment) and "**" (across path segments) are recognized;
+"?", "[...]", "{...}", "!" and "\\" are not.` - "invalid"라고만 말하고 끝내지 않는다.
+
 **에러로 보이게 하는 경로 (두 host 대칭)**:
 - **CLI**: `.impact-lens/test-patterns.json`(`.impact-lens/provider.json`과 나란한 새 파일,
   `{"include": [...], "exclude": [...]}`)을 읽는 시점에 즉시 컴파일을 시도하고, invalid pattern이
@@ -267,15 +339,57 @@ commander가 이 lane을 이 세션에 직접 배정했지만, `types.ts`/`error
   같은 모양으로 담는다 - **`limitationDetails`가 아니라 최상위 `ok: false` 에러**로 만든다(분석이
   잘못된 pattern으로 계속 진행되는 것 자체가 이 항목이 막으려는 "조용한 무시"이기 때문에,
   경고가 아니라 요청 실패가 맞다).
-- **Extension**: workspace 설정 `impactLens.testPatterns.include`/`impactLens.testPatterns.exclude`
-  (`string[]`, 기본값 `[]`)를 읽어 같은 컴파일 함수에 넣는다. invalid pattern이 있으면 분석 시작
-  시점에 예외를 던지고, 이미 있는 실패 경로(`controller.ts:440`/`486`의
+- **Extension**: 같은 파일을 읽는다(아래 "설정 소스" 절 참고 - VS Code 설정이 아니다). invalid
+  pattern이 있으면 분석 시작 시점에 예외를 던지고, 이미 있는 실패 경로(`controller.ts:440`/`486`의
   `vscode.window.showErrorMessage`)를 그대로 태워 보낸다 - 새 UI 컴포넌트를 만들지 않는다.
 - 두 경로 모두 **컴파일 함수 자체는 공유 모듈**(`cli/src/shared/testFileClassifier.ts`에 추가할
   `compileTestPatterns(include, exclude): CompiledTestPatterns`, 실패 시 `throw`)에 있다 - "invalid를
   무엇으로 보이게 할지"만 host별로 다르고(CLI는 CliError, Extension은 기존 에러 표시 경로), "무엇이
   invalid인지" 판정은 한 곳에서만 한다. 두 host가 다시 갈라지는 재발을 이 lane 자체가 막아야 한다는
   PR #91의 교훈을 그대로 잇는다.
+
+### 설정 소스 — 2026-09-10 재설계 (commander 조건 1, 최우선 반영)
+
+**원래 설계(Extension은 `impactLens.testPatterns.*` workspace 설정, CLI는 `.impact-lens/
+test-patterns.json`)는 폐기한다.** commander가 정확히 지적했다: classifier는 통합했는데 그
+classifier에 들어가는 **입력이 host마다 다른 곳에서 오면**, 같은 workspace를 두 host로 열었을 때
+답이 갈라진다 - PR #91이 실측으로 찾아 고친 바로 그 결함 모양이 pattern 설정이라는 한 층 위에서
+그대로 되살아난다. story 1단계 종료 조건("Extension과 CLI가 같은 path matrix에 동일 결과·근거를
+반환한다")을 정면으로 어긴다.
+
+**해법**: 이 저장소는 이미 두 host가 같은 workspace 파일을 공유하는 메커니즘을 갖고 있다 -
+`src/noteStore.ts`가 `.impact-lens/notes.json`을 `createFileSystemWatcher('**/.impact-lens/
+notes.json')`로 Extension에서 직접 읽고, `cli/src/notes.ts`가 같은 파일을 Node `fs`로 읽는다.
+그리고 `notes.json`(committed, 팀 공유)과 `notes.local.json`(개인, 보통 `.gitignore` 대상)이라는
+"공유 vs 개인" 2단 계층도 이미 있다. **이번 lane은 이 정확히 같은 두 파일 관례를 test pattern에도
+그대로 적용한다** - 새 메커니즘을 발명하지 않는다:
+
+- `.impact-lens/test-patterns.json` - committed, 프로젝트 전체가 공유하는 convention.
+- `.impact-lens/test-patterns.local.json` - 개인 override, `.gitignore`에 이미 있는 `notes.local
+  .json` 패턴을 그대로 따른다(레포의 기존 `.gitignore` 항목 재사용, 새로 추가할 필요 있는지 구현
+  시점에 확인).
+- 두 파일 모두 `{"include": [...], "exclude": [...]}` 모양. **precedence**: `local`의 include/
+  exclude가 `shared`의 include/exclude와 각각 **합집합**된다(하나가 다른 하나를 대체하지 않는다 -
+  `notes.ts`의 local/shared가 "값이 있으면 그걸 쓴다"는 override 모델인 것과 다르게, pattern은
+  "각자 추가한 것을 모두 적용한다"는 합집합 모델이 더 안전하다: 개인이 로컬에 exclude 하나를
+  추가했다고 프로젝트 공유 include 전체가 사라지면 안 된다). 두 파일의 pattern이 같은 파일에 대해
+  서로 반대 방향(하나는 include, 하나는 exclude)이면, 위 "우선순위" 절의 "exclude가 항상 이긴다"가
+  local/shared 구분과 무관하게 그대로 적용된다.
+- **VS Code 설정은 만들지 않는다.** commander는 "설정을 남기고 싶다면 개인 override로 정의하고
+  우선순위를 명시하라"고 조건부로 허용했지만, `test-patterns.local.json` 파일이 이미 정확히 그
+  "개인 override" 역할을 하므로 같은 개념을 두 가지 다른 메커니즘(파일 + VS Code 설정)으로
+  이중화할 이유가 없다고 판단했다 - 이중화 자체가 새로운 병합 로직과 새로운 정합성 검증 표면을
+  만들고, 그게 정확히 이번 조건이 막으려는 위험이다. VS Code 설정 없이도 Extension 사용자는
+  워크스페이스에 `.impact-lens/test-patterns.local.json`을 두면 되고, `.gitignore`에 이미 있는
+  `notes.local.json` 관례와 정확히 같은 조작감을 준다. **이 결정은 "설정을 남겨도 된다"는 조건의
+  범위 안에서 내린 선택이다** - commander/reviewer가 VS Code 설정 표면 자체를 원한다면 재조정
+  가능하다는 걸 여기 명시해 둔다.
+- 두 host의 읽기 구현: CLI는 `cli/src/providers/projectConfig.ts`의 `readProjectProviderChoice()`
+  와 같은 모양(`fs.readFileSync`, 파일 없으면 `undefined`, JSON 파싱 실패나 스키마 위반이면
+  `throw`)으로 `cli/src/notes.ts`가 이미 하듯 두 경로(`sharedPath`/`localPath`)를 읽는다. Extension은
+  `noteStore.ts`와 같은 모양(`vscode.workspace.fs.readFile` + `createFileSystemWatcher`)으로 읽되,
+  변경 시 재컴파일해 다음 분석부터 반영한다(매 분석마다 파일을 다시 열 필요는 없다 - `noteStore.ts`가
+  이미 이 캐시+watcher 패턴을 갖고 있으므로 그대로 재사용).
 
 ### `LIMITATION_SURFACE_PATTERNS` 등록 필요 여부
 
@@ -341,10 +455,13 @@ Ruby(`.rb`, `underscore-suffix` 규칙 보유)는 CLI에 provider가 없어 이 
 ## 4번 항목 — "실행하지 않은 테스트를 성공으로 표시하지 않는다": 이미 통과, 그러나 공백에 의한 통과
 
 **2026-09-10 reviewer 판정 반영 — 이 항목을 위해 새 상태·모델을 만들지 않는다.**
-`TestFreshness`(Extension, `src/types.ts:11`)는 `'notRun' | 'outdated'` 둘뿐이고, `'passed'`/
-`'failed'` 계열 - 즉 "실행해서 성공/실패했다"를 뜻하는 값 자체가 **타입에 존재하지 않는다**.
-`src/impactAnalyzer.ts:119`도 `isTest ? 'notRun' : undefined`로, test 후보는 항상 `notRun`이다.
-CLI JSON 쪽은 `testFreshness`에 대응하는 필드 자체가 없다.
+`TestFreshness`(**Extension 전용** - `src/types.ts:11`)는 `'notRun' | 'outdated'` 둘뿐이고,
+`'passed'`/`'failed'` 계열 - 즉 "실행해서 성공/실패했다"를 뜻하는 값 자체가 **타입에 존재하지
+않는다**. `src/impactAnalyzer.ts:119`도 `isTest ? 'notRun' : undefined`로, test 후보는 항상
+`notRun`이다. **CLI(`cli/src/types.ts`)에는 test 실행 어휘 자체가 아예 없다** - `TestFreshness`에
+대응하는 타입도 필드도 없다(commander가 직접 확인). 즉 이 판정은 두 host에 대해 각각 다른 근거로
+성립한다: Extension은 "타입은 있지만 그 안에 위반할 값이 없다", CLI는 "그 개념 자체가 없다" - 둘
+다 "위반할 기능이 없어서 위반이 불가능하다"는 같은 결론에 이르지만, 코드 근거는 host마다 다르다.
 
 **이 판정의 성격을 정확히 기록한다**: 이 acceptance criterion은 오늘 위반되지 않지만, 그 이유는
 "위반을 막는 안전장치가 검증됐다"가 아니라 **"위반할 수 있는 기능 자체가 없다"**이다 - `'passed'`라고
@@ -360,13 +477,21 @@ CLI JSON 쪽은 `testFreshness`에 대응하는 필드 자체가 없다.
 이유로 진짜 위험(3단계에서 처음 생기는 위반 가능성)을 그냥 지나칠 수 있다.
 
 **산출물**: 새 코드는 만들지 않는다. 대신
-1. 이 문서에 위 판정(공백에 의한 통과 + 3단계 도래 시 재판정 필요)을 남긴다(지금 이 절).
-2. `src/types.ts`의 `TestFreshness` 타입 선언 바로 옆에 같은 취지의 주석을 추가한다 - "이 타입에
-   `'passed'`/`'failed'`가 없는 것은 지금은 우연히 안전장치 역할도 하지만(실행 결과를 표시할 방법이
-   없으므로 실행 안 한 걸 성공으로 잘못 표시할 수도 없다), 3단계가 그 값을 추가하는 순간 이 안전은
-   사라지므로 그때 별도로 재검증해야 한다"는 내용. 코드 동작은 안 바꾼다 - 순수 주석 추가.
-3. closure audit(`task-m4-milestone-closure-audit.md`)의 gate 1 항목에도 "구 4번은 공백에 의한
-   통과"라는 같은 문장을 남겨, gate 1 전체를 나중에 다시 읽는 사람이 같은 오해를 하지 않게 한다.
+1. 이 문서에 위 판정(공백에 의한 통과 + 3단계 도래 시 재판정 필요, host별로 다른 근거)을 남긴다
+   (지금 이 절).
+2. `src/types.ts`의 `TestFreshness` 타입 선언 바로 옆에 **Extension 범위로 좁힌** 주석을 추가한다 -
+   "이 타입에 `'passed'`/`'failed'`가 없는 것은 지금은 우연히 안전장치 역할도 하지만(실행 결과를
+   표시할 방법이 없으므로 실행 안 한 걸 성공으로 잘못 표시할 수도 없다), 3단계가 그 값을 추가하는
+   순간 이 안전은 사라지므로 그때 별도로 재검증해야 한다"는 내용 - "이 저장소에 pass/fail 상태가
+   없다"처럼 CLI까지 포함한 문장으로 쓰지 않는다(CLI는 애초에 이 타입 자체가 없어 같은 자리에 같은
+   주석을 붙일 곳이 없다).
+3. `cli/src/types.ts`에는 대응하는 타입이 없으므로 같은 자리에 주석을 붙이지 않는다 - 대신
+   `cli/src/impact.ts`의 node 생성부(현재 `testDistance` 계산 근처)에 짧게 "CLI에는 test 실행
+   상태 개념 자체가 없다(`TestFreshness`는 Extension 전용, `src/types.ts` 참고) - 이 gate 판정이
+   CLI에도 적용되는 근거"라는 주석을 남긴다.
+4. closure audit(`task-m4-milestone-closure-audit.md`)의 gate 1 항목에도 "구 4번은 공백에 의한
+   통과, host별 근거 다름"이라는 같은 문장을 남겨, gate 1 전체를 나중에 다시 읽는 사람이 같은
+   오해를 하지 않게 한다.
 
 ## reviewer 감사와의 정합
 
@@ -376,19 +501,117 @@ lane의 범위를 바꿀 수 있다고 명시했다. 이 설계안은 그 감사
 경계(위 "1번 계약 설계안" 절 마지막)와 `test_pattern_config_invalid`의 exit code 배정은 reviewer
 감사에서 다른 관점이 나올 수 있는 지점으로 미리 표시해 둔다.
 
-## 다음 단계
+## 작업 로그
 
-이 문서는 설계 단계에서 멈춘다. 구현은 commander의 확인(및 reviewer 감사와의 대조) 이후, 이 문서의
-"단계별 구현 계획"을 아래처럼 채워 시작한다(지금은 목차만):
+commander가 4개 조건과 함께 설계를 승인한 뒤 구현했다. 계약 파일(`types.ts`/`errors.ts`/
+`response.schema.json`/`cli-contract.md`)은 `il-contract-architect` subagent(`il-lim-010-contract`)에
+위임했다 - 그 결과와 나머지 전부를 이 세션이 통합했다.
 
-1. **공유 모듈 확장**: `classifyTestFile()` 시그니처 확장, `compileTestPatterns()` 신규, glob
-   매칭 순수 함수, 단위 테스트(패턴 없음 = 기존 30개 경로 corpus 전부 회귀 없음 포함).
-2. **두 host 배선**: `cli/src/impact.ts`/`src/impactAnalyzer.ts`에 `testRule` 필드 추가,
-   `.impact-lens/test-patterns.json` 읽기(CLI), `impactLens.testPatterns.*` 설정 읽기(Extension),
-   invalid pattern 에러 경로 양쪽 배선.
-3. **공백-통과 판정 기록**: `src/types.ts`의 `TestFreshness` 옆 주석 + closure audit 갱신(코드
-   동작 변경 없음).
-4. 문서(`cli-contract.md`, story rollout 절, closure audit) 갱신.
+**subagent와의 조율 - 중간에 실제로 벌어진 일도 그대로 남긴다**: 위임 브리핑에서 "plumbing(파일
+읽기 모듈, projection helper)은 네가 써도 되고 내가 써도 된다"고 여지를 남겼는데, 이 세션이 이미
+`cli/src/testPatternsConfig.ts`를 직접 작성한 뒤에도 그 subagent가 (아마 "보고를 다시 보내 달라"는
+후속 메시지를 이어진 작업 요청으로 받아들여) 같은 파일과 `cli/src/testFile.ts`의 projection
+helper(`toTestRule`/`toSuppressedTestRule`), 그리고 `cli/src/impact.ts`의 실제 배선까지 **독립적으로
+계속 작성**했다 - 같은 worktree를 공유하는 두 작업자가 같은 파일을 동시에 건드리면서 서로의 변경을
+덮어쓸 뻔한 상황이었다. 발견 즉시 그 subagent에 "여기서 멈추라"고 메시지를 보내고, 디스크에 남은
+최종 상태를 직접 diff로 검토했다 - 결과물은 품질이 좋았고(같은 판단·같은 패턴을 재현했다) 내가 이미
+써 둔 테스트(`testPatternsConfig.test.ts`)가 그 구현에 대해서도 그대로 통과해 기능적으로 동등함을
+확인했으므로, 버리지 않고 그대로 받아들여 이어서 작업했다. **교훈**: subagent에게 "이 파일은 내가
+쓸 수도 있다"는 여지를 주는 대신, 실제로 먼저 쓰기 시작했다면 즉시 "이 부분은 내가 담당한다"고
+좁혀 알렸어야 서로 다른 파일을 동시에 건드리는 위험을 피할 수 있었다.
 
-각 단계는 AGENTS.md 2절 기준대로 독립 commit 가능 단위인지 구현 착수 시점에 재확인한다(1·2번은
-컴파일 의존성이 있어 합칠 가능성이 높다 - PR #91의 선례와 같은 이유).
+**변경 파일**:
+- `cli/src/shared/testFileClassifier.ts` - `compileTestPatterns()`/`validateTestPattern()`/
+  `InvalidTestPatternError`(신규), glob-to-regex 컴파일러(`*`/`**`만, 라이브러리 없음),
+  `TestFileClassification`에 `source`/`matchedPattern`/`suppressedRuleId` 추가, `classifyTestFile()`
+  세 번째 인자로 `CompiledTestPatterns` 수용(선택, 생략 시 기존 동작과 동일).
+- `cli/src/testFile.ts`/`src/testFile.ts` - `classifyRelationDetailed()`(신규, 전체 classification
+  반환) + `classifyRelation`/`classifyImpactRelation`(기존 시그니처 그대로, 새 함수의 `relation`만
+  반환하는 얇은 wrapper로 재구현). `toTestRule()`/`toSuppressedTestRule()` projection helper.
+- `cli/src/testPatternsConfig.ts`(신규) - `.impact-lens/test-patterns.json`/`.local.json` 읽기·검증,
+  `test_pattern_config_invalid` 발생.
+- `src/testPatternsStore.ts`(신규) - Extension 쪽 동일 파일 읽기(`NoteStore`의 워치 패턴 재사용).
+- `cli/src/impact.ts`/`src/impactAnalyzer.ts` - `userTestPatterns`를 traversal 시작 전에 한 번
+  읽어 모든 node에 재사용, `testRule`/`testRuleSuppressed` 필드 배선, "공백에 의한 통과" 주석
+  (CLI 쪽, `TestFreshness`가 아예 없다는 사실 근거).
+- `src/extension.ts` - `TestPatternsStore` 생성·주입·`context.subscriptions`에 dispose 등록.
+- `cli/src/types.ts`/`src/types.ts`(il-contract-architect) - `TestClassificationRule`/
+  `SuppressedTestRule`, `ImpactNode`에 `testRule`/`testRuleSuppressed`(필수 필드), `TestFreshness`
+  옆 "공백에 의한 통과" 주석(Extension 범위로 한정).
+- `cli/src/errors.ts`(il-contract-architect) - `test_pattern_config_invalid`, exit 8(신설 tier,
+  provider 전용 exit 5와 분리 - 근거는 코드 주석에 있음).
+- `.gitignore` - `.impact-lens/test-patterns.local.json` 추가(`notes.local.json`과 같은 취급).
+- 문서: `docs/development-management/provider-coverage-contract.md`,
+  `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`, `cli/README.md`
+  (전부 il-contract-architect), 이 문서, `docs/work/task-m4-milestone-closure-audit.md`(gate 1
+  진행상황 갱신, gate 1 자체는 안 닫음).
+- 신규 테스트: `cli/src/test/testPatternGlob.test.ts`(glob 컴파일러, 부정 corpus를 양성만큼),
+  `cli/src/test/testPatternsConfig.test.ts`, `cli/src/test/testFileClassifier.test.ts`에 pattern
+  상호작용·회귀 케이스 추가, `cli/src/test/impact.test.ts`에 실제 `.impact-lens/test-patterns.json`
+  파일로 `analyzeImpact()`를 실제로 구동하는 end-to-end 테스트 2개(rescue+suppress 성공 경로,
+  invalid pattern 실패 경로).
+
+**뮤테이션 검증**: 새 end-to-end 테스트가 실제로 배선을 지키는지 확인하기 위해 `cli/src/impact.ts`의
+`classifyRelationDetailed(entry.depth, relativeItemFile, userTestPatterns)`에서 세 번째 인자를
+일부러 제거해 재빌드·재실행 - **정확히 새 end-to-end 테스트 1개만 실패**(`'direct' !== 'test'`),
+원복 후 전체 재통과 확인.
+
+**테스트 fixture 자체의 결함 하나를 실행 중 발견·수정**: 새 end-to-end 테스트를 처음 실행했을 때
+`rescued` 노드가 `'test'`가 아니라 `'direct'`로 나왔다 - 원인은 `impact.test.ts`의 기존
+`workspaceFixture()` 헬퍼가 `os.tmpdir()`의 raw 경로(macOS에서 `/var/folders/...`)를 그대로
+반환하는데, `analyzeImpact()`는 `canonicalWorkspace()`(`fs.realpath`, macOS에서 `/private/var/
+folders/...`로 바뀜)를 내부적으로 쓴다는 점이었다. 이 저장소가 프로덕션 코드에서 이미 한 번 고친
+"절대경로 결함"(PR #91)과 같은 뿌리 - 상대화 기준이 벌어지면 분류기 입력이 조용히 절대경로로
+새는 것 - 이 이번엔 **테스트 fixture 안에서** 재현됐다. `test-directory` 규칙처럼 경로 어디에
+있어도 걸리는 규칙은 이 어긋남을 가려 왔지만, 이번에 추가한 `contracts/**/*.contract.ts`처럼 앞을
+고정하는 pattern은 그 어긋남을 그대로 드러냈다. `workspaceFixture()`가 반환 전에 `fs.realpath()`를
+한 번 거치도록 고쳐 해결 - 기존 테스트 전부 회귀 없이 통과.
+
+**2026-09-10 commander 확인 — production 경로에는 이 mismatch가 없다, 근거와 함께.** commander가
+`cli/src/index.ts:51-53`을 직접 확인해, 실제 CLI 진입점은 `canonicalWorkspace()`를 먼저 호출하고
+그 canonical 값 하나로 provider와 `analyzeImpact` 둘 다 구성한다는 것 - 즉 raw 경로가 provider로
+들어가는 production 경로가 없다는 것 - 을 확인했다. 이 저장소에는 이미 같은 현상의 전례가 있다:
+`cli/src/test/stateReachability.integration.test.ts`의 `realGoplsWorkspace()`가 정확히 같은 이유로
+같은 수정(`fs.realpath()`)을 이미 하고 있고, 그 함수 자신의 주석이 "not a gopls or readiness-signal
+defect - a test bug"라고 결론 내려 뒀다 - `workspaceFixture()`의 주석에 그 인용을 추가했다.
+gate 7에서 commander 스스로가 겪은 "이 머신에서 재현된다"와 "제품이 이렇게 동작한다"를 혼동한
+실수(`.claude/worktrees` 사본 548개를 제품 결함으로 처음 발표했다가 자체 정정)와 같은 종류의
+질문을 이번엔 구현 전에 먼저 물어 봐서, 공개 주장이 되기 전에 정정됐다.
+
+**하지만 조용히 닫지 않고 남기는 잔여 두 건(commander 지시)**:
+1. **`outsideWorkspace` 필드를 검증하는 테스트가 저장소 전체에 0건이다**(`grep -rn
+   "outsideWorkspace" cli/src/test/` 무응답, 이번 조사에서 처음 확인). 사용자에게 나가는 필드인데
+   어떤 테스트도 그 값을 주장하지 않는다 - 위 "production은 canonical로 흐른다"는 결론도 코드
+   추적이지 실행 검증은 아니다. 이번 lane에서 고치지 않는다 - 발견만 기록한다.
+2. **풀리지 않은 질문**: canonical root를 받은 **실제 서버**(gopls/pyright/clangd/tsserver)가
+   workspace 안에 있는 symlink된 소스(예: pnpm의 symlink farm)에 대해 non-canonical URI를 돌려줄
+   수 있는가? 그렇다면 workspace **안**의 파일이 `outsideWorkspace: true`로 잘못 나가고 경로도
+   상대화되지 않는 실제 production 결함이 된다. 이건 "없다"가 아니라 "확인 안 됐다" - 어느 쪽으로도
+   실행 검증되지 않았다.
+
+**가장 값진 관찰(commander 표현) — 기본 규칙 다섯의 견고함은 설계가 아니라 우연이다.**
+`test-directory`는 위치와 무관하게 전 세그먼트를 훑고 나머지 네 규칙은 basename만 보기 때문에,
+절대경로가 섞여 들어와도 우연히 견디는 경우가 많다 - 이번에 추가한 anchored glob(`contracts/**/
+*.contract.ts`)은 그 우연에 기대지 않아서 결함을 처음으로 드러냈다. "기존 fixture가 절대경로에도
+통과한다"를 "절대경로를 넘겨도 된다"로 읽지 않도록 `testFileClassifier.ts`의 계약 주석 옆에 이
+구분을 코드 주석으로 남겼다.
+
+**검증 결과(전부 `[실행]`, `rm -rf out cli/dist` 후)**:
+- `npm run cli:test` - 489 tests, 486 pass, 0 fail, 3 skip(기존 gopls 실환경 skip, 무관).
+- `npm test`(Extension) - 84 tests, 84 pass, 0 fail(host parity 테스트 포함, 회귀 없음).
+- `npm run test:response-policy` - 36 checks 통과(무관 영역, cli-contract.md 갱신에도 doc invariant
+  안 깨짐 확인).
+- `npm run test:vsix-contents` - **worktree에서 실행 불가**(`vsce ls`가 이 worktree에서 파일을
+  0개 반환 - 이전 lane이 이미 진단한 worktree/vsce 환경 한계, 이번 lane이 새로 만든 결함 아님. 같은
+  명령을 worktree 밖 메인 트리에서 실행하면 정상 동작함을 직접 확인했다). 위험은 낮게 평가한다 -
+  이번 변경은 `cli/src/shared/` 아래 새 파일을 추가하지 않았고(기존 `testFileClassifier.ts`만
+  내용을 확장), require-boundary가 실제로 검사하는 대상(새 경로의 존재 여부)에 변화가 없다. 이
+  검증은 실제 merge 전에 메인 트리에서 별도로 재실행해야 한다 - **완료로 간주하지 않는다.**
+
+**사용자 결과 vs 남은 것**: `ruleId`가 이제 두 host의 실제 응답 JSON에 `testRule`로 실려 나가고,
+사용자가 `.impact-lens/test-patterns.json`/`.local.json`으로 자신의 관례를 추가·제외할 수 있다 -
+이번 lane이 약속한 사용자 가치 4개 항목(위 "목적과 사용자 가치") 중 처음 세 개는 실제 코드로
+검증됐다. **아직 안 되는 것**: gate 1 전체(IL-LIM-001·002의 남은 격차)는 이 lane 범위 밖으로 여전히
+열려 있고, `test:vsix-contents`는 메인 트리에서 재확인이 필요하며, Extension 쪽 `TestPatternsStore`는
+실제 VS Code extension host에서 구동해 본 적이 없다(이 저장소에 그 harness가 없다는 기존 한계 -
+`test:vsix-contents`의 자체 주석이 이미 밝힌 것과 같은 종류의 잔여).

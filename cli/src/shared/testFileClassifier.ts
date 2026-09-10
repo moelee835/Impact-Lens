@@ -17,6 +17,20 @@
 // INSIDE a workspace would defeat the point of this contract: an ancestor directory that is merely part
 // of the machine's own filesystem layout (a home directory named `test`, a checkout under
 // `.../spec/...`) must never itself be mistaken for a test directory of the project being analyzed.
+//
+// 2026-09-10 (IL-LIM-010 stage 1 completion, commander's observation): the five DEFAULT rules below
+// happen to tolerate an unrelativized absolute path more often than not - `test-directory` scans every
+// path segment regardless of depth, and the naming rules only ever look at the basename - so an
+// accidentally-absolute input frequently still lands on the intended answer. That tolerance is a
+// COINCIDENCE of how these five rules are written, not a design guarantee this module makes anywhere
+// (the paragraph above is explicit that relativizing is the caller's job). Do not read the fact that
+// existing fixtures "still pass" with an absolute path as evidence that passing one is fine: a caller-
+// supplied USER PATTERN (`compileTestPatterns()` below) has no such accidental tolerance - an anchored
+// pattern like `contracts/**/*.contract.ts` requires the path to literally start with `contracts/`, and
+// a stray absolute-path prefix breaks that match with no warning. This exact gap was found in a TEST
+// FIXTURE, not production code, by `cli/src/test/impact.test.ts`'s `workspaceFixture()` - see that
+// function's own comment for the mechanism and `docs/work/task-m4-il-lim-010-stage1-completion.md` for
+// the full account.
 
 const TEST_DIRECTORIES = new Set(['__tests__', 'test', 'tests', 'spec', 'specs']);
 
@@ -123,23 +137,183 @@ const RULES: readonly ClassificationRule[] = [
 
 export interface TestFileClassification {
   readonly isTest: boolean;
-  /** The rule that matched, or null when `isTest` is false. */
+  /** Unchanged meaning (IL-LIM-010 stage 1 completion, docs/work/task-m4-il-lim-010-stage1-
+   * completion.md): the default-convention rule's stable id when one matched, else null. A user
+   * include pattern match does NOT populate this - a user's own glob text is not the kind of stable,
+   * do-not-rename identifier this field has always promised callers. */
   readonly ruleId: string | null;
+  /** Which channel decided the final `isTest` value. */
+  readonly source: 'default-convention' | 'user-include' | 'user-exclude' | 'none';
+  /** The literal user pattern that matched, when `source` is `'user-include'`/`'user-exclude'`; null
+   * otherwise (including `'default-convention'` - a default rule has a stable `ruleId`, not a pattern
+   * string, to report). */
+  readonly matchedPattern: string | null;
+  /** Only meaningful when `source === 'user-exclude'`: the default-convention rule id that would have
+   * matched had the exclude pattern not suppressed it, or null when no default rule would have (the
+   * exclude pattern matched a path nothing was otherwise going to classify as a test - there is
+   * nothing to report as "suppressed", so this collapses to the same null rather than inventing a
+   * distinct "pointless exclude" state). */
+  readonly suppressedRuleId: string | null;
 }
 
-export function classifyTestFile(filePath: string): TestFileClassification {
+/** One compiled user pattern, keeping the original text alongside the compiled matcher so a match can
+ * be reported back to the user verbatim (see `TestFileClassification.matchedPattern`). */
+export interface CompiledTestPattern {
+  readonly source: string;
+  readonly regex: RegExp;
+}
+
+export interface CompiledTestPatterns {
+  readonly include: readonly CompiledTestPattern[];
+  readonly exclude: readonly CompiledTestPattern[];
+}
+
+/** Thrown by `compileTestPatterns()` for a pattern this module cannot understand - callers turn this
+ * into a host-appropriate visible failure (CLI: `test_pattern_config_invalid`; Extension: the existing
+ * analysis-failure error path) rather than silently dropping the pattern. Never thrown for I/O or
+ * missing-file reasons - those are the caller's concern, this module only validates pattern syntax. */
+export class InvalidTestPatternError extends Error {
+  constructor(
+    readonly pattern: string,
+    readonly field: 'include' | 'exclude',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'InvalidTestPatternError';
+  }
+}
+
+// Deliberately narrow: `cli/src/shared/**` ships into the Extension's VSIX with a hard require-
+// boundary check against npm runtime dependencies (`scripts/test-vsix-contents.mjs`), so a glob
+// library (minimatch/micromatch/...) is not an option here - this is a hand-rolled compiler instead.
+// This repository has already paid for exactly this class of mistake once: the callback adapter's
+// scope-boundary defect surfaced through FOUR separate channels (a brace inside a string, then inside
+// a regex literal, then an unrecognized method-shorthand opener, then an inline arrow scope), and every
+// one of those four passed every fixture that existed at the time (see the m4-gate7 lane's own account
+// of that history). Treat this compiler as carrying the same risk: validated with a NEGATIVE fixture
+// suite at least as large as the positive one (`cli/src/test/testPatternGlob.test.ts`), not just enough
+// positive cases to look correct.
+const UNSUPPORTED_GLOB_CHARACTERS = /[\\?[\]{}!]/;
+const UNSUPPORTED_PATTERN_HELP =
+  'only "*" (matches within one path segment) and "**" (matches across path segments, including zero) '
+  + 'are supported; "?", "[...]", "{...}", "!" and "\\" are not';
+
+/** Returns a human-readable problem description, or null when `pattern` is supported syntax. Says what
+ * IS supported rather than just "invalid" - a user who reaches for `?`/`[...]` has no way to guess why
+ * it failed otherwise. */
+export function validateTestPattern(pattern: string): string | null {
+  if (pattern.length === 0) {
+    return `pattern must not be empty (${UNSUPPORTED_PATTERN_HELP})`;
+  }
+  if (UNSUPPORTED_GLOB_CHARACTERS.test(pattern)) {
+    return `pattern "${pattern}" is not supported: ${UNSUPPORTED_PATTERN_HELP}`;
+  }
+  if (/\*{3,}/.test(pattern)) {
+    return `pattern "${pattern}" is not supported: three or more consecutive "*" have no defined `
+      + `meaning here (${UNSUPPORTED_PATTERN_HELP})`;
+  }
+  return null;
+}
+
+// Every character a JS RegExp gives special meaning to, apart from `*` (handled by the tokenizer below,
+// never reaches this function) and `/` (a plain literal here - it has no special regex meaning either).
+const REGEXP_SPECIAL_CHARACTER = /[.+^${}()|[\]\\]/;
+
+function escapeLiteralCharacter(char: string): string {
+  return REGEXP_SPECIAL_CHARACTER.test(char) ? `\\${char}` : char;
+}
+
+// Compiles one already-validated pattern into a whole-path-anchored RegExp. A single "*" matches any
+// run of characters except "/" (never crosses a path segment); a double "*" token immediately followed
+// by a "/" separator compiles to an OPTIONAL ".*"-then-"/" group so a pattern that starts with that
+// double-star-slash idiom followed by "*.spec.ts" matches both a top-level "a.spec.ts" (zero leading
+// directories) and a nested "e2e/sub/a.spec.ts" (any number) - this mirrors Jest's own default
+// testMatch, which begins with exactly that idiom; a bare double "*" anywhere else matches any run of
+// characters INCLUDING "/". Every other character is escaped as a regex literal - this is the step
+// that keeps a pattern like "foo.test.ts" from ever accidentally matching "fooXtestXts" (an un-escaped
+// "." would make that happen silently, exactly the kind of scope-boundary mistake this module's own
+// comment above warns about).
+//
+// NOTE for anyone editing this comment: do not write the two-star-then-slash token followed
+// immediately by another star as a literal example inside this block comment - that four-character
+// sequence closes a block comment early and breaks the parser. Spell it out in words instead, as above.
+function compileGlobToRegExp(pattern: string): RegExp {
+  let source = '';
+  let index = 0;
+  while (index < pattern.length) {
+    const char = pattern[index];
+    if (char === '*' && pattern[index + 1] === '*') {
+      if (pattern[index + 2] === '/') {
+        source += '(?:.*/)?';
+        index += 3;
+      } else {
+        source += '.*';
+        index += 2;
+      }
+    } else if (char === '*') {
+      source += '[^/]*';
+      index += 1;
+    } else {
+      source += escapeLiteralCharacter(char);
+      index += 1;
+    }
+  }
+  return new RegExp(`^${source}$`);
+}
+
+function compilePatternList(patterns: readonly string[], field: 'include' | 'exclude'): readonly CompiledTestPattern[] {
+  return patterns.map(pattern => {
+    const problem = validateTestPattern(pattern);
+    if (problem !== null) {
+      throw new InvalidTestPatternError(pattern, field, problem);
+    }
+    return { source: pattern, regex: compileGlobToRegExp(pattern) };
+  });
+}
+
+/** Compiles a project's user-defined test patterns once, up front, so `classifyTestFile()` never has to
+ * touch pattern SYNTAX (only matching) per call. Throws `InvalidTestPatternError` on the first
+ * unsupported pattern - callers read `.impact-lens/test-patterns.json`/`.local.json` (see the work
+ * document's "설정 소스" section for why both hosts read the same files) and are expected to let this
+ * throw turn into a visible failure, never to catch-and-ignore it. */
+export function compileTestPatterns(include: readonly string[], exclude: readonly string[]): CompiledTestPatterns {
+  return {
+    include: compilePatternList(include, 'include'),
+    exclude: compilePatternList(exclude, 'exclude'),
+  };
+}
+
+export function classifyTestFile(filePath: string, userPatterns?: CompiledTestPatterns): TestFileClassification {
   const normalized = filePath.replace(/\\/g, '/');
   const segments = normalized.split('/').filter(Boolean);
   const fileName = segments.at(-1) ?? '';
   const directorySegments = segments.slice(0, -1);
-  for (const rule of RULES) {
-    if (hasScopedExtension(fileName, rule.extensions) && rule.matches(fileName, directorySegments)) {
-      return { isTest: true, ruleId: rule.id };
-    }
+
+  const defaultRule = RULES.find(
+    rule => hasScopedExtension(fileName, rule.extensions) && rule.matches(fileName, directorySegments),
+  );
+  const includeMatch = userPatterns?.include.find(pattern => pattern.regex.test(normalized));
+  const excludeMatch = userPatterns?.exclude.find(pattern => pattern.regex.test(normalized));
+  const wouldBeTest = defaultRule !== undefined || includeMatch !== undefined;
+
+  if (wouldBeTest && excludeMatch !== undefined) {
+    return {
+      isTest: false,
+      ruleId: null,
+      source: 'user-exclude',
+      matchedPattern: excludeMatch.source,
+      suppressedRuleId: defaultRule?.id ?? null,
+    };
   }
-  return { isTest: false, ruleId: null };
+  if (defaultRule !== undefined) {
+    return { isTest: true, ruleId: defaultRule.id, source: 'default-convention', matchedPattern: null, suppressedRuleId: null };
+  }
+  if (includeMatch !== undefined) {
+    return { isTest: true, ruleId: null, source: 'user-include', matchedPattern: includeMatch.source, suppressedRuleId: null };
+  }
+  return { isTest: false, ruleId: null, source: 'none', matchedPattern: null, suppressedRuleId: null };
 }
 
-export function isTestFilePath(filePath: string): boolean {
-  return classifyTestFile(filePath).isTest;
+export function isTestFilePath(filePath: string, userPatterns?: CompiledTestPatterns): boolean {
+  return classifyTestFile(filePath, userPatterns).isTest;
 }

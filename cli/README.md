@@ -150,6 +150,8 @@ Exit codes:
 - `5`: provider unavailable or missing Call Hierarchy support
 - `6`: timeout
 - `7`: unsupported CLI Node.js runtime
+- `8`: invalid committed project configuration file, non-provider (`test_pattern_config_invalid` for a
+  malformed `.impact-lens/test-patterns.json`/`test-patterns.local.json`)
 - `10`: unexpected internal error
 
 ## Provider doctor

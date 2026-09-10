@@ -8,8 +8,35 @@ import type { AugmentedEdge } from '../cli/dist/types';
 
 export type ImpactRelation = 'root' | 'direct' | 'transitive' | 'test';
 export type ImpactAnalysisState = 'current' | 'stale' | 'analyzing' | 'partial' | 'failed';
+// This has only ever had `'notRun'`/`'outdated'`, never a `'passed'`/`'failed'` value - so far that has
+// been a coincidental safety property, not a verified one: nothing in this type PREVENTS misreporting an
+// unexecuted test as having passed, there has simply never been a code path that tries. IL-LIM-010 stage
+// 3 (test-run-result import, out of this lane's scope - docs/work/task-m4-il-lim-010-stage1-completion.md)
+// is expected to add such a value; the moment it does, "does an unrun test ever get reported as passed"
+// needs to be re-verified against the new code, not assumed still true because it was true here before.
 export type TestFreshness = 'notRun' | 'outdated';
 export type TraversalLimit = 'depth' | 'nodes';
+
+// ---------------------------------------------------------------------------
+// Node-level test classification evidence (IL-LIM-010 stage 1 completion, mirrors
+// `cli/src/types.ts` - see that file's comment for why these are separate from `ImpactRelation` and why
+// they are not named `testEvidence`). Duplicated rather than imported for the same reason the vocabulary
+// arrays above are: the Extension and the CLI are separate TypeScript projects with separate packaging.
+// ---------------------------------------------------------------------------
+
+/** Why a node was classified `relation: 'test'`. See `cli/src/types.ts`'s `TestClassificationRule`. */
+export interface TestClassificationRule {
+  readonly id: string;
+  readonly source: 'default-convention' | 'user-include';
+}
+
+/** Why a node that would otherwise be `relation: 'test'` is not - a user exclude pattern overrode the
+ * match. Mutually exclusive with `TestClassificationRule` on the same node. See `cli/src/types.ts`'s
+ * `SuppressedTestRule`. */
+export interface SuppressedTestRule {
+  readonly ruleId: string | null;
+  readonly excludePattern: string;
+}
 
 // This vocabulary is the same contract the Agent CLI serializes, declared by
 // `cli/schemas/response.schema.json`. It is duplicated rather than imported because the Extension and the
@@ -115,6 +142,12 @@ export interface ImpactNode {
   changed: boolean;
   reviewed: boolean;
   testFreshness?: TestFreshness;
+  /** Non-null if and only if `relation === 'test'` - the classification evidence for that verdict. */
+  readonly testRule: TestClassificationRule | null;
+  /** Non-null if and only if a user exclude pattern is the reason this node is NOT `relation: 'test'`.
+   * Can be true even when `relation` is `'direct'`/`'transitive'` - the classifier runs on every graph
+   * node regardless of relation. Mutually exclusive with `testRule`. */
+  readonly testRuleSuppressed: SuppressedTestRule | null;
 }
 
 export interface ImpactEdge {

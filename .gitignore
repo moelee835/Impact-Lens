@@ -6,5 +6,6 @@ out/
 .claude/settings.local.json
 .vscode-test/
 .impact-lens/notes.local.json
+.impact-lens/test-patterns.local.json
 cli/dist/
 .claude/worktrees/
