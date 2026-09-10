@@ -1,8 +1,54 @@
 # M3 Java 3단계: project import와 readiness — 사전 작업 문서 (초안)
 
-- 상태: 초안, commander 결정 대기(아래 "선행 질문 조사 결과" 참고 — 구현 착수 전 필수)
+- 상태: 구현 진행 중(commander 승인, 2026-09-10) — 아래 "구현 진행 상황" 참고
 - 관련 스토리: [`IL-LIM-018`](../development-management/stories/il-lim-018-java-language-support.md) 3단계
 - 선행 lane: [Lane I(2단계, discovery/JDK compatibility)](task-m3-java-discovery-jdk.md), PR #122(`7349b60`)
+
+## 구현 진행 상황(2026-09-10)
+
+완료(전부 테스트 통과, `feat/m3-java-project-import-readiness` 브랜치):
+1. `workspaceRoot` $ref 추가, `-data` 인자에 연결 — `-data` 충돌 실제로 고쳐짐(`7dd84c6`).
+2. `autoDiscover()`에서 `tier: 'unsupported'` 배제 — Auto 비선택이 실행 테스트로 pin됨(`7dd84c6`).
+3. `java.jdtls` catalog 등재(`tier: 'unsupported'`, readiness, docs.limitations) + `.java` →
+   `'java'` languageId 매핑 추가(`f9fdd26`).
+4. doctor의 "검증되지 않음" 보고 확인(`f9fdd26`) — 실행 테스트로 pin됨.
+5. README 갱신(`b44458d`).
+
+**추가로, 실제 jdtls 바이너리(v1.61.0)와 JDK 21로 `analyze` 전체 경로를 실제 실행했다(계획에
+없었지만, 등재한 메커니즘이 진짜로 동작하는지 실행 없이는 알 수 없어서 직접 확인함):**
+- `providerPreset: "java.jdtls"`로 실제 jdtls를 기동, `-data` 인자를 실제로 받아들였다(PATH의
+  `jdtls` 래퍼가 정상 실행됨).
+- 응답의 `coverage.indexing`이 `{"status":"ready","evidence":{"signal":"notification","detail":
+  "language/status"}}`로 나왔다 — `language/status`→`ServiceReady` readiness 신호가 실제
+  jdtls 프로세스에서 정확히 매치됐다는 뜻이다(추측이 아니라 실행 확인).
+- `lifecycle.status: "ready"`, `provider.selectedBy: "preset"` — Auto가 아니라 명시적 선택
+  경로로만 접근됨도 같은 실행에서 확인됐다.
+
+**다만 이 실행에서 발견한 것 하나, 고치지 않고 기록만 한다**: standalone(빌드 시스템 없는)
+**여러 파일**로 구성한 fixture(`Target.java`+`Caller.java`, 서로 다른 파일)에서 `incomingCalls`가
+**빈 배열**로 나왔다 — `no_incoming_callers` limitation으로 정직하게 보고됐지만(침묵하는 빈 결과는
+아니다), 실제로는 `Caller.java`가 `Target.fixtureTarget`을 호출한다. entry gate lane의 "standalone"
+검증(`task-m3-java-entry-gate.md:68`)은 **단일 파일**(`Fixture.java` 하나)이었다고 적혀 있어 -
+**여러 파일로 구성된, 빌드 시스템이 없는 standalone Java 프로젝트의 cross-file 해석**은 entry gate가
+실제로 검증한 것과 다른 경우일 수 있다. 이게 jdtls 자체의 한계인지(빌드 시스템 없이는 여러 파일을
+하나의 classpath로 못 묶는다), 이 lane의 fixture 설정 문제인지(예: 더 긴 색인 시간이 필요했거나,
+`-data` 디렉터리가 매 실행마다 새로 만들어져 warm 색인이 아니었을 가능성) **원인을 이 lane이
+분리하지 않았다** — `unsupported` tier가 정확히 이런 경우를 위해 존재한다(정확도를 주장하지
+않는다)는 점에서 이 lane의 범위를 벗어나는 조사이지만, 다음에 이 preset의 정확도를 실제로 검증하는
+lane(스토리 4단계, "verified scope에서 반복 가능한 Plugin 결과")이 있다면 이 관찰을 재현 대상
+목록에 넣어야 한다.
+
+아직 시작 안 함(더 큰 조사/작업이 필요해 별도 체크인으로 남김):
+- Gradle/Maven marker read-only 조사(story 3단계 항목 1) — readiness 배선이 "project not
+  imported / indexing / ready / query failure" 구분의 상당 부분을 이미 부산물로 해결한다는 것을
+  위 실행으로 확인했다(제네릭 `ReadinessTracker`/`awaitReadiness()` 메커니즘이 gopls와 동일하게
+  `java.jdtls`에도 그대로 적용됨, `lspProvider.ts` 코드 변경 없이). 남는 건 "이게 Gradle/Maven/
+  standalone 중 무엇으로 돌고 있는지"를 사용자에게 알려주는 진단 정보 정도로 범위가 좁아졌다 —
+  정합성 요구사항이 아니라 진단 편의 기능에 가까워졌으므로, 이걸 이 lane에서 마저 할지 별도로
+  남길지 확인이 필요하다.
+- timeout 문구 고도화 — readiness 배선 자체가 이미 raw LSP 메서드 이름 노출을 막는다(색인 중이면
+  `lifecycle: working`으로 먼저 나옴). 색인 완료 **후**의 진짜 timeout과의 구분이 실제로 의미
+  있게 갈리는지는 실사용 시나리오로 아직 확인 안 됨.
 
 ## 목적과 사용자 가치
 
