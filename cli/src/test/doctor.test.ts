@@ -713,11 +713,20 @@ test('jdk-runtime resolves JAVA_HOME before PATH, matching bin/jdtls\'s own orde
   // proving this ordering needs no fake executable at all, just a real file at the JAVA_HOME-resolved
   // path. Kept separate from the pass/fail/timeout tests below, which exercise the spawn+parse side
   // through the `executable` test override instead and do not need JAVA_HOME to resolve to anything.
+  //
+  // Non-vacuity, explicitly (commander's instruction after the windows-latest catch above - "CI passed"
+  // is not "the fixture was actually exercised", the exact way this lane's own bug hid earlier): the
+  // `env.PATH: ''` alone is not enough on its own to prove this - passing `lookup: undefined` would let
+  // `findExecutable`'s PATH fallback read the REAL `process.env.PATH` of whatever machine runs this
+  // test if the JAVA_HOME branch silently failed, exactly the failure shape that hid the first version
+  // of this suite's bug (a real, unpredictable answer instead of an obvious one). An explicit `lookup`
+  // with its own empty PATH closes that: if JAVA_HOME resolution ever breaks, this returns `undefined`,
+  // not a real system java that might coincidentally still satisfy the assertion.
   const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-order-');
   fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
   const javaPath = path.join(javaHome, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
   fs.writeFileSync(javaPath, ''); // content irrelevant - never spawned by this function
-  const resolved = resolveJdkRuntimeExecutable({ JAVA_HOME: javaHome, PATH: '' }, undefined);
+  const resolved = resolveJdkRuntimeExecutable({ JAVA_HOME: javaHome, PATH: '' }, { env: { PATH: '' } });
   assert.equal(resolved, javaPath);
 });
 
@@ -743,22 +752,32 @@ test('jdk-runtime falls back to PATH when JAVA_HOME is unset - delegates to the 
   assert.equal(resolved, findExecutable('java', lookup));
 });
 
+// Both version strings below (`9999.0.1`, `0.0.1`) are deliberately impossible for any real JDK
+// release to ever report - not just plausible-looking placeholders like "21.0.5". Non-vacuity,
+// explicitly (commander's instruction after the windows-latest catch: "CI passed" does not by itself
+// prove a fixture was actually used - the exact way this lane's own tests hid a real bug earlier,
+// getting a real, unpredictable answer from whatever "java" genuinely existed on that runner instead of
+// an obvious mismatch). Two guarantees stack here, not one: structurally, `executable: process.execPath`
+// bypasses `resolveJdkRuntimeExecutable`'s JAVA_HOME/PATH search entirely, so there is no code path left
+// that could reach a real system java - and even if that guarantee were somehow wrong, an assertion
+// against `9999.0.1`/`0.0.1` could never coincidentally pass against a real JDK's real version string.
+
 test('jdk-runtime reports pass for a real JDK 21+', t => {
-  const script = fakeJdkVersionScript(t, 'process.stderr.write(\'openjdk version "21.0.5" 2026-01-01\\n\');\n');
+  const script = fakeJdkVersionScript(t, 'process.stderr.write(\'openjdk version "9999.0.1" 2026-01-01\\n\');\n');
   const runtime = jdkRuntimeCheck({}, undefined, 5000, { executable: process.execPath, probeArgs: [script] });
   assert.equal(runtime.status, 'pass');
-  assert.equal(runtime.detected, '21.0.5');
+  assert.equal(runtime.detected, '9999.0.1');
   // The basename of whatever executable answered - `node` here, since the test override bypasses
   // JAVA_HOME/PATH resolution entirely - never an absolute path (executableCheck's own redaction rule).
   assert.doesNotMatch(JSON.stringify(runtime), /[\\/]/);
 });
 
 test('jdk-runtime fails, not warns, for a real JDK below 21', t => {
-  const script = fakeJdkVersionScript(t, 'process.stderr.write(\'openjdk version "17.0.9" 2025-01-01\\n\');\n');
+  const script = fakeJdkVersionScript(t, 'process.stderr.write(\'openjdk version "0.0.1" 2025-01-01\\n\');\n');
   const runtime = jdkRuntimeCheck({}, undefined, 5000, { executable: process.execPath, probeArgs: [script] });
   assert.equal(runtime.status, 'fail');
   assert.equal(runtime.code, 'jdk_runtime_unsupported');
-  assert.equal(runtime.detected, '17.0.9');
+  assert.equal(runtime.detected, '0.0.1');
 });
 
 test('jdk-runtime reports fail with jdk_runtime_not_found when no java resolves anywhere', async t => {

@@ -301,6 +301,40 @@ PATH의 **진짜** java(windows-latest 러너에 실제로 설치된 것)로 넘
 ('java', lookup)`을 직접 불러 그 결과와 비교하는 방식(경로를 내가 새로 만들지 않고, 이미
 안전하다고 증명된 같은 함수를 양쪽에 동일하게 써서 위임을 확인하는 것)으로 바꿨다.
 
+## 이 결함의 정확한 성격 - "windows에서 안 깨진다"와 "windows에서 fixture를 실제로 탔다"는 다르다
+## (commander 지시)
+
+**첫 수정(windows CI가 초록이 된 것)만으로는 안 끝난다는 지적을 받아 다시 확인했다.** 이
+결함은 macOS에서 통과하면서 windows에서는 **공허했던 게 아니라 더 나빴다** - 그 러너에 실제로
+설치된 `java`에서 **예측 불가능한 진짜 답**을 받고 있었다. 우연히 기대값과 맞아 통과할 수도,
+안 맞아 실패할 수도 있는 상태였다 - "CI가 초록"이라는 사실 자체로는 fixture가 실제로 쓰였는지
+알 수 없다.
+
+**commander가 M4 gate 4 lane의 전례를 짚었다**: 여섯 개 fixture의 비공허성을 개발자의 LF
+checkout에서 뮤테이션으로 증명했는데, windows에서는 그 predicate가 모든 파일에 대해 false를
+돌려줘서 전부 다른 분기로 "우연히" 정답을 냈던 사례 - "한 플랫폼에서의 비공허성 증명은 그
+플랫폼에 대한 증명일 뿐"이라는 문장이 그 lane에서 나왔다. 오늘은 방향이 반대였다(개발자 쪽이
+아니라 CI 쪽에서 먼저 깨졌다)는 것만 다르고, 형태는 같다.
+
+**재확인한 결과 - 두 겹의 보장이 있다**:
+
+1. **구조적 보장**: `jdkRuntimeCheck`가 `testOverrides.executable`을 받으면
+   `resolveJdkRuntimeExecutable`(JAVA_HOME/PATH 탐색)을 **아예 호출하지 않는다**(`const
+   executable = testOverrides.executable ?? resolveJdkRuntimeExecutable(...)`) - `executable:
+   process.execPath`를 쓰는 세 테스트(pass/fail/timeout)는 실제 시스템 java에 도달할 코드
+   경로 자체가 없다.
+2. **값 자체의 보장**: 그 구조적 보장이 혹시 틀렸더라도, 검증에 쓴 버전 문자열을 **실제 어떤
+   JDK도 절대 낼 수 없는 값**(`9999.0.1`, `0.0.1`)으로 바꿔 - 우연히 일치할 여지 자체를
+   없앴다. `21.0.5`/`17.0.9`처럼 그럴듯한 값이었던 이전 버전은 이론상 어느 CI 러너에 그 정확한
+   버전이 깔려 있으면 우연히 통과할 여지가 있었다.
+
+**PATH-fallback delegation 테스트(`resolveJdkRuntimeExecutable(...) === findExecutable('java',
+lookup)`)도 같은 이유로 다시 봤다** - `lookup`을 `undefined`로 뒀던 최초 버전은, JAVA_HOME
+분기가 조용히 실패하면 `findExecutable`이 **이 테스트를 실행하는 실제 머신의 진짜
+`process.env.PATH`**를 뒤져 진짜 java를 찾을 수 있었다 - 정확히 이 결함이 처음에 숨었던 바로
+그 경로다. `lookup`에 빈 PATH를 명시적으로 넘기도록 고쳤다 - JAVA_HOME 분기가 깨지면 이제
+`undefined`가 나오지, 우연히 맞는 실제 시스템 java가 나오지 않는다.
+
 ## 관측: spawn-family 감사(`buildInvocation.sources.test.ts`)의 탐지 방식이 코드·주석의 표현에
 ## 비용을 물린다 (commander 지시 - 관측만, 개선안 없음)
 
