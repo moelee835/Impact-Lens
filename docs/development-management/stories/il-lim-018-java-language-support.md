@@ -202,6 +202,18 @@ Java 개발자로서 검증된 Java LSP와 JDK/build(Gradle 또는 Maven) 조건
 > 수정 릴리스 번호는 더 좁히지 않았다 - **Impact Lens가 incoming만 쓰는 한 이 번호는 preset
 > 등재 판단에 영향을 주지 않는다**는 것이 이번 실측의 결론이다.
 >
+> **2026-09-10 정정(M3 stage 3 lane, `docs/work/task-m3-java-project-import-readiness.md`,
+> commander 지시) - 바로 위 문단이 넓게 읽힐 수 있다, 원문은 지우지 않는다.** "standalone·
+> 최소 Gradle·멀티모듈(cross-file·cross-module) 전부에서... 정확했다"는 **method reference
+> 해석이라는 한 가지 질문**에 대해서만 참이다. **cross-file 자체의 정확성 확인은 Gradle
+> 프로젝트 안에서만 이뤄졌다** (`task-m3-java-entry-gate.md`의 "1순위 - cross-file /
+> multi-module (Gradle)" 절 제목이 스스로 밝힌다) - standalone 항목은 시종일관 **단일 파일**
+> (`Fixture.java`) 하나였다. 빌드 시스템 없이 **여러 파일**로 구성된 project의 cross-file
+> 해석은 이 entry gate가 측정한 적이 없다. Lane J(stage 3)가 이 미측정 조합을 실제로 돌려
+> `Target.java`/`Caller.java` 두 파일 사이의 실제 호출이 `incomingCalls`에서 빈 배열로
+> 나오는 것을 확인했다(`no_incoming_callers`로 정직하게 보고됨) - entry gate가 배제했다고
+> 적은 위험이 이 조합에서는 배제되지 않았다는 뜻이다. 원인은 분리되지 않았다.
+>
 > **다만 entry gate 통과 과정에서 이번 마일스톤이 계속 다뤄 온 것과 같은 축의 문제를
 > 하나 더 찾았다(commander 지적).** lambda 본문 안에서 직접 호출되는 메서드의 incoming
 > caller가 사용자가 작성한 이름(`lambdaCaller`)이 아니라 **컴파일러가 만든 합성 메서드**

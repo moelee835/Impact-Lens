@@ -495,6 +495,22 @@ project(예: 수천 파일 + 여러 외부 dependency)는 이 lane이 안 쟀다
 
 ## 이 실측이 preset 등재 여부에 주는 함의
 
+> **2026-09-10 정정(M3 stage 3 lane, `docs/work/task-m3-java-project-import-readiness.md`,
+> commander 지시) - "standalone"의 범위를 좁힌다, 원문은 지우지 않는다.** 아래 문단과 위 "남은
+> 공백"의 "멀티모듈, cross-file caller는 안 잰다 → 후속 실측으로 확인함"이 **"standalone +
+> Gradle + Maven 셋 다 cross-file이 정확하다"로 읽힐 수 있게 적혀 있는데, 실제로는 그렇지
+> 않다.** cross-file/multi-module 확인은 **"1순위 - cross-file / multi-module (Gradle)"**
+> 절 제목이 스스로 밝히듯 **Gradle 프로젝트 안에서만** 이뤄졌다 - `settings.gradle`이 모듈을
+> 선언하고 빌드 시스템이 project 모델을 구성해 준 상태였다. **standalone(빌드 시스템 없음)
+> 항목은 이 lane 전체에서 시종일관 단일 파일**(`/tmp/jdtls-fixture/Fixture.java`) 하나뿐이었다
+> - 빌드 시스템 없이 **여러 파일**로 구성된 project의 cross-file 해석은 **이 lane이 실제로
+> 측정한 적이 없다.** Lane J(stage 3)가 바로 이 미측정 조합(빌드 시스템 없는 multi-file
+> standalone)을 실제로 돌려 봤고, `Target.java`/`Caller.java` 두 파일 사이의 실제 호출 관계가
+> `incomingCalls`에서 빈 배열로 나오는 것을 확인했다(`no_incoming_callers`로 정직하게
+> 보고됨, 조용한 침묵은 아님) - 이 lane이 "배제됐다"고 적은 위험이 바로 이 조합에서는 배제되지
+> 않았다는 뜻이다. 원인(jdtls 자체 한계 vs 그 lane의 fixture 설정)은 Lane J가 분리하지
+> 않았다 - 여기서도 단정하지 않는다.
+
 **entry gate 자체는 통과한다** - method reference로만 호출되는 메서드가 "caller 없음"으로
 잘못 보고될 위험은, 이번에 측정한 범위(standalone + 최소 Gradle + 최소 Maven, v1.45.0 +
 v1.61.0, 단일 파일·같은 모듈·cross-module) 안에서는 **배제됐다.** 이게 "Java preset을 지금
