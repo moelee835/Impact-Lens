@@ -1,6 +1,18 @@
 # M4 동적 호출·DI·테스트 의미 보완
 
-- 상태: Planned
+- 상태: **8개 종료 gate 전부 닫힘**(`docs/work/task-m4-milestone-closure-audit.md`) — 각 gate가 안고
+  닫힌 잔여는 위 gate 목록에 항목별로 적혀 있다. **gate가 전부 닫힌 것은 이 마일스톤 범위의 구현·검증이
+  끝났다는 뜻이지 기능을 기본값으로 켜도 된다는 뜻이 아니다** — semantic augmentation은
+  `impactLens.augmentationEnabled`/CLI `--augmentation` 둘 다 **기본값 `false`로 남고**, 실측 recall
+  약 57%·명시된 잔여·**실사용자 검증 0건**이라는 근거로 지금도 기본값 on을 권하지 않는다(사용자 결정,
+  2026-09-10). `user-tests/m4-user-test-spec.md`는 **작성·검토 완료이며 실행되지 않았다.**
+  이 마일스톤 밖으로 이월된 것: `IL-LIM-002` 5단계(Spring — Java/Kotlin 언어 지원 선행),
+  `IL-LIM-001` 4단계(trace import = `runtime-observation`, 별도 승인 사항), `IL-LIM-001` 수용 기준
+  5의 Swift·Kotlin 칸(provider 부재). **세 story의 상태는 그대로 `Backlog`다** — 수용 기준이 통과하는
+  것과 story가 닫히는 것은 다른 측정이고, 셋 다 이 마일스톤 밖의 후속 단계를 갖는다.
+  **어느 gate에도 걸리지 않은 발견 하나**를 판정문에 별도로 기록했다: `gopls`·`clangd`가 호출 없는
+  순수 참조를 `relation: direct`로 보고하므로 **`data.edges`의 caller 라벨이 두 언어에서 부정확하다.**
+  문서화는 완료(PR #106), 필터링·라벨링 수정은 별도 이슈이며 M4 범위 밖이다.
 - 완료 소유: IL-LIM-001, IL-LIM-002, IL-LIM-010
 - 릴리스 성격: semantic evidence preview/minor release
 
@@ -84,9 +96,9 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
 
 ## 종료 gate
 
-- [ ] IL-LIM-001, IL-LIM-002, IL-LIM-010의 수용 기준이 통과한다.
-- [ ] LSP 확정 edge와 추론/framework/runtime evidence가 JSON과 UI에서 구분된다.
-- [ ] ~~Spring constructor/field/method injection의 대표 fixture가 bean candidate와 ambiguity를
+- [x] IL-LIM-001, IL-LIM-002, IL-LIM-010의 수용 기준이 통과한다. — 14개 수용 기준 전수 대조(planner·reviewer 독립 수행 후 교차), **통과 12 / 부분 1 / 세 번째 상태 1**로 **명시된 잔여를 안고 닫힘**(PR #103·#104·#105·#106·#107). 이월 셋(Spring 5단계, trace import=`runtime-observation`, Swift·Kotlin 칸)은 전부 M4 안에서 착수 불가한 것이고, **"할 수 있는데 안 한 것"은 이월에 없다.** gate C는 이월도 미통과도 아닌 세 번째 상태로 기록됐다 — 열린 것이 구현이 아니라 **문구**다. 근거: `docs/work/task-m4-milestone-closure-audit.md` "Gate 1 판정".
+- [x] LSP 확정 edge와 추론/framework/runtime evidence가 JSON과 UI에서 구분된다. — JSON은 `data.edges`/`data.augmentedEdges` 분리와 `source`/`resolution` 두 축으로, UI는 별도 candidate marker·라벨로 구분된다(PR #72·#75·#87·#88·#89). **UI 쪽은 명시된 미검증 범위를 안고 닫혔다** — 이 저장소에 extension-host harness가 없어 실제 webview 렌더, marker의 시각적 구별, 라벨 겹침은 소스 구조 assertion과 뮤테이션으로만 확인됐고 VS Code를 실제로 띄워 본 적은 없다. 그 잔여는 `user-tests/m4-user-test-spec.md`가 이어받는다.
+- [x] ~~Spring constructor/field/method injection의 대표 fixture가 bean candidate와 ambiguity를
   재현한다.~~ **2026-09-03 정정**: Java/Kotlin 언어 지원이 없어 이 마일스톤에서 이 gate를 이
   형태로 통과시킬 수 없다 — Spring은 M3 이후로 연기됐다(위 참고). **이 마일스톤의 실제 종료
   gate로 대신 쓴다**: FastAPI **import alias, sub-dependency(중첩 dependency)와 cross-file
@@ -113,12 +125,24 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
   > 만족하면 된다. `resolution: 'multiple'`이라는 코드 분기 자체(`resolutionCandidateCount > 1
   > ? 'multiple' : 'single'`)는 그대로 둔다 — 언젠가 실제로 트리거하는 구성이 발견되면 fixture로
   > 추가하되, 지금 이 gate를 통과시키는 조건은 아니다.
-- [ ] 모호한 DI/dynamic target은 하나의 확정 caller로 임의 승격되지 않는다.
-- [ ] path convention만으로 가짜 call edge나 test passed 상태를 만들지 않는다.
-- [ ] augmentation을 끄면 기존 LSP-only graph로 안전하게 rollback된다.
-- [ ] 지원 언어 fixture에서 정해진 false-positive와 latency budget을 통과한다.
-- [ ] `user-tests/m4-user-test-spec.md`가 evidence 이해도와 실제 누락·오탐 검토를 포함해 승인됐으며,
-  사용자 결과 또는 보류 사유가 adapter rollout 결정에 연결된다.
+  > **2026-09-10 판정**: 대체 gate로 닫힘 — alias(양성 `alias_caught_consumer.py` + 음성
+  > `alias_uncaught_consumer.py`, 대상 정의는 `alias_target.py`),
+  > sub-dependency(`nested_dependency_config.py`/`nested_dependency_db.py`/
+  > `nested_dependency_consumer.py` — 평평한 세 파일이지 중첩 디렉터리가 아니다),
+  > cross-file dependency(`consumer.py`/`real_module.py`, 음성 대조군 `decoy_module.py`),
+  > 그리고 ambiguity(mount name-collision
+  > 계열)가 전부 fixture로 재현된다. "복수 후보" 요구는 2026-09-04 정정이 제거했다 — 서로 다른 두
+  > 자연스러운 구성으로 직접 시도했으나 pyright가 두 번 다 정확히 1개를 돌려줬다(**전수 조사가 아니라
+  > 시도한 두 구성에서 못 찾았다는 것만 실측**). **원래 gate가 요구한 Spring 형태는 이 마일스톤에서
+  > 대체됐을 뿐 충족되지 않았다** — `IL-LIM-002` 5단계로 이월되며, `IL-LIM-018`(Java) 또는
+  > `IL-LIM-016`(Kotlin)이 닫혀야 착수 가능하고 **둘 다** 닫혀야 완결된다.
+
+- [x] 모호한 DI/dynamic target은 하나의 확정 caller로 임의 승격되지 않는다. — 네 라운드에 걸쳐 여섯 가지 오탐 형태를 닫았다(PR #81·#84·#85·#86). **수용된 잔여 1건을 안고 닫힘**: 다중 세그먼트 절대 import가 여전히 경로 접미사로 일치하므로 동일한 dotted path로 끝나는 두 트리(vendored 사본)가 둘 다 만족한다 — `KNOWN, ACCEPTED RESIDUAL FALSE POSITIVE` 단위 테스트로 고정했고, **정밀도 corpus에서는 일부러 제외**했다(진짜 오탐을 정탐으로 세면 정밀도 주장 자체가 거짓이 된다).
+- [x] path convention만으로 가짜 call edge나 test passed 상태를 만들지 않는다. — path convention이 단독으로 edge를 만들지 못한다는 것은 gate 4의 재확인 구조가 보장한다. 나머지 절반은 **성격이 다른 두 근거**로 닫혔고, 뭉뚱그리면 안 된다. **(a) 모델 쪽은 부재다**: `TestFreshness = 'notRun' | 'outdated'`이고 CLI에는 실행 어휘가 아예 없어, **test passed를 표현할 값 자체가 없다** — 안전장치가 검증된 것이 아니라 위반할 기능이 없는 것이다. **(b) UI 쪽은 능동적 수정이다**: graph가 VS Code의 진짜 *테스트 통과* 토큰(`--vscode-testing-iconPassed`)을 test 노드에 빌려 쓰고 있었고, **그 코드는 v0.8.0으로 이미 출시된 상태였다** — 즉 배포된 제품이 색으로 거짓을 주장하고 있었고 PR #82가 그것을 찾아 중립색으로 고쳤다. **모델이 일부러 주장하지 않기로 한 것을 색이 주장하고 있었다.** (a)는 `IL-LIM-010` 3단계(실행 결과 import)가 도래하면 **재판정되어야 한다**.
+- [x] augmentation을 끄면 기존 LSP-only graph로 안전하게 rollback된다. — `impactLens.augmentationEnabled`/CLI `--augmentation` 둘 다 기본값 `false`이고, 끄면 `edges`/`nodes`가 byte-identical이다. 회귀 테스트는 **"다를 수 있는 필드만 지우고 나머지 전부 비교"** 극성으로 작성됐다(PR #79) — 비교 대상을 열거하면 나중에 추가되는 필드가 조용히 면제된다. adapter 예외도 정적 그래프를 무너뜨리지 못한다(PR #97).
+- [x] 지원 언어 fixture에서 정해진 false-positive와 latency budget을 통과한다. — **fixture가 아니라 실제 오픈소스 코드로** 측정했고, 숫자를 정하기 전에 결함 다섯 건이 먼저 나왔다(PR #99·#100·#101·#102). **명시된 잔여 7건을 안고 닫힘** — recall 약 57%, 조용한 기각(PR #105가 이후 일부 해소), corpus 2개, `Security()` 미인식, TS adapter 자기 budget 미실측(이후 vue-core 520파일로 초과 실측됨), extension host latency 미측정, dot-디렉터리 필터링. **gate가 닫히는 것과 기본값을 켜는 것은 별개다.**
+- [x] `user-tests/m4-user-test-spec.md`가 evidence 이해도와 실제 누락·오탐 검토를 포함해 승인됐으며,
+  사용자 결과 또는 보류 사유가 adapter rollout 결정에 연결된다. — 명세 작성 완료·검토 완료(PR #108). **실행은 하지 않았다.** gate 문구가 "사용자 결과 **또는 보류 사유**"를 허용하므로, 보류 사유(naive 참여자 미모집)와 그것이 rollout 결정에 갖는 연결(**augmentation 기본값 off 유지**)을 명세 §10이 명시함으로써 닫힌다. 명세는 유지보수자가 지금 혼자 수행 가능한 Part A와 naive 참여자가 있어야만 성립하는 Part B로 갈려 있고, **Part A를 전부 통과해도 그것은 사용자 검증이 아니다**라고 문서가 스스로 적는다.
 
 ## 제외 범위
 
