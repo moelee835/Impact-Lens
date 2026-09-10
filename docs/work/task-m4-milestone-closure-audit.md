@@ -768,7 +768,9 @@ gate 문구가 **"사용자 결과 또는 보류 사유"**를 허용한다. 그�
 **누군가 인용된 파일을 실제로 열었다.**
 
 - `m4-user-test-spec.md`(PR #108): 세 limitation code가 CI에서 덮인다는 **주장은 참인데** 인용한 테스트
-  파일 둘에는 그 code가 한 번도 안 나온다. 실제 커버리지는 다른 두 파일에 있었다.
+  파일 둘에는 그 code가 한 번도 안 나온다. 실제 커버리지는 다른 두 파일에 있었다. **이 항목은 위
+  "사례" 목록의 6번과 같은 사건이다** — 마일스톤 누적 기록과 종료 단계 클러스터라는 두 관점에서 각각
+  적힌 것이니 **두 번 세지 않는다**(reviewer 지적).
 - 이 문서의 gate 3 판정 초안: alias 양성 fixture로 `alias_target.py`를 들었는데 **그건 분석 대상이
   정의된 파일이지 양성 fixture가 아니다**(실제는 `alias_caught_consumer.py`).
 - 같은 문단: sub-dependency fixture를 `nested_dependency_config/db/consumer.py`라고 적었는데 **그런
