@@ -597,7 +597,11 @@ gate 7에서 commander 스스로가 겪은 "이 머신에서 재현된다"와 "�
 구분을 코드 주석으로 남겼다.
 
 **검증 결과(전부 `[실행]`, `rm -rf out cli/dist` 후)**:
-- `npm run cli:test` - 489 tests, 486 pass, 0 fail, 3 skip(기존 gopls 실환경 skip, 무관).
+- `npm run cli:test` - 489 tests, 486 pass, 0 fail, 3 skip(기존 gopls 실환경 skip, 무관). 한 번의
+  전체 실행에서 `pythonFastapiIntegration.test.js` 안 테스트 하나가 실패했으나(이번 lane이 손대지
+  않은 영역 - 실제 pyright 프로세스를 띄우는 통합 테스트), 그 파일만 단독 재실행하면 52/52 전부
+  통과하고 전체 스위트를 다시 돌려도 재현되지 않음을 확인 - 부하에 따른 flake로 판단, 실제
+  회귀 아님(원인을 실행으로 재현·배제했지 추측으로 넘기지 않았다).
 - `npm test`(Extension) - 84 tests, 84 pass, 0 fail(host parity 테스트 포함, 회귀 없음).
 - `npm run test:response-policy` - 36 checks 통과(무관 영역, cli-contract.md 갱신에도 doc invariant
   안 깨짐 확인).
