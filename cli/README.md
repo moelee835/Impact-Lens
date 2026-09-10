@@ -231,6 +231,27 @@ generate — see "Compile database state (C/C++)" below. Every other language st
 `provider_required_for_language` unless a custom `provider` or a project preset is configured — this is
 today's shipped state, not a preview of languages that will arrive soon.
 
+### `data.edges` labels a call - for two providers, a value reference can pass as one too
+
+`data.edges` is meant to hold confirmed callers - a real call expression the provider's own Call
+Hierarchy resolved. For `gopls` (Go) and `clangd` (C/C++), that is not quite true: a function
+referenced only as a *value* - assigned to a variable, captured for later use, passed into
+`reflect.ValueOf(fn)` - can appear in `incomingCalls` at the reference's own position, even when
+that reference is never actually invoked anywhere. Measured directly (M4 gate 1 lane D,
+`docs/work/task-m4-gate1-lane-d-language-limitations.md`): a Go file that only assigns a function to
+a variable and never calls it, and a C file that only assigns a function pointer and never calls
+through it, both still produce a caller entry for the assignment site - confirmed independently by
+two separate measurements (this session's and a reviewer's own, each installing `gopls`/`clangd`
+fresh). `bundled-typescript` and `bundled-pyright` do not do this - a value-only reference produces
+no caller entry for either.
+
+The relationship itself is real - code that references a function's value genuinely depends on that
+function's signature, and a real caller is not fabricated here. What is inaccurate is the label:
+`data.edges` calls it a caller ("this function is called from N places") when for Go/C some of those
+N may be references, not calls. This is not a filtering or relabeling fix (out of scope here - a
+separate issue tracks it), but it is worth knowing before trusting an exact caller count for Go or
+C/C++: a reported caller is not proof an actual call happens at that site for these two providers.
+
 ### Compile database state (C/C++)
 
 `clangd` needs a `compile_commands.json` to know each file's compiler flags, defines, and include paths;

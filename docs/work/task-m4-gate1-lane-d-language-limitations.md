@@ -191,19 +191,46 @@ FastAPI route handler/`Depends()` 대상이 "프레임워크가 실제로 호출
 | gopls v0.19.1 | Go | `var storedRef = FixtureTarget` / `var f func() int = FixtureTarget; _ = f` | **1건(각각) - 참조 자체를 caller로 잡음** |
 | clangd 17.0.0 | C | `void (*fp)(void) = fixture_target; (void)fp;` (호출 전혀 없음) | **1건 - 참조(대입 지점) 자체를 caller로 잡음** |
 
-**결론 - gopls만의 결함이 아니다. 두 provider군이 `incomingCalls`의 의미를 다르게 구현한다.**
-`gopls`와 `clangd`(둘 다 `verified-external` tier, 외부 LLVM/Go 툴체인 바이너리)는 **참조 자체를
-caller로 보고**하고, `bundled-typescript`와 `bundled-pyright`(둘 다 `bundled` tier, npm 패키지)는
-**진짜 호출 표현식만** caller로 잡는다. **같은 모양의 코드(호출 없이 함수를 값으로만 참조)가
-언어에 따라 다른 답을 받는다** - 사용자에게는 provider 구현 세부가 아니라 이 제품이 보이는
-행동이므로, 이건 언어 하나의 문제가 아니라 이 제품 전체의 provider-간 일관성 문제다.
+**결론 - gopls만의 결함이 아니다. 네 provider 중 gopls와 clangd는 참조 자체를 caller로 보고하고,
+bundled-typescript와 bundled-pyright는 진짜 호출 표현식만 caller로 잡는다.**
 
-**C 쪽은 사실 이미 정확하게 적혀 있었다** - 기존 문서 문장(`'...only the pointer's own assignment
-site may appear as a reference.'`)이 "caller로 확정된다"가 아니라 "참조로 나타날 *수도* 있다"는
-더 약한 표현을 이미 쓰고 있다. Go의 기존 문장(`'Calls made only through reflection are not part of
-the Call Hierarchy result.'`)만 이 nuance 없이 "안 잡힌다"로 무조건 단정하고 있었다 - 즉 이번
-발견은 "Go만 이상하다"가 아니라 "**Go의 문서만 clangd가 이미 하고 있는 정확한 표현 방식을
-따라가지 못했다**"는 것에 더 가깝다.
+**2026-09-10 commander 정정 - tier로 귀속하지 않는다.** 앞 버전은 이 경계를 `verified-external`
+tier(gopls/clangd, 외부 바이너리) vs `bundled` tier(TS/pyright, npm 패키지)로 설명했다 -
+**틀린 일반화다.** n=4에 2대2인 표본에서 나온 겹침이지, tier(바이너리를 어떻게 배포하는가)와
+`incomingCalls`를 어떻게 구현하는가 사이에 확인된 인과관계는 없다. 이대로 문서에 적으면 다음에
+추가되는 external provider(예: 다른 언어의 LSP 서버)에 대해 아무도 재지 않은 예측을 하는 셈이고,
+이 저장소가 반복해서 잡아 온 과잉 일반화와 정확히 같은 모양이다. **그래서 이 결과는 tier가 아니라
+네 provider의 이름으로만 적는다: gopls와 clangd는 참조를 caller로 보고하고, bundled-typescript와
+bundled-pyright는 안 한다. tier 경계와 겹친다는 관찰 자체는 흥미롭지만, 우연일 수 있고 인과는
+확인되지 않았다는 점을 함께 적는다.**
+
+**C 쪽은 사실 이미 정확하게 적혀 있었다 - 이번 측정에서 두 번째로 중요한 발견이다.** 기존 문서
+문장(`'...only the pointer's own assignment site may appear as a reference.'`)이 "caller로
+확정된다"가 아니라 "참조로 나타날 *수도* 있다"는 더 약한 표현을 이미 쓰고 있다. 이 표현을 쓴
+사람은 이 동작을 실제로 봤다 - "caller로 잡힌다"고 안 하고 "참조로 나타날 수 있다"고 약하게
+쓴 것이 우연일 리 없다. **즉 이 동작은 이 저장소에서 이미 한 번 관측됐고, C 문장에만 살아남아
+있었다.** Go의 기존 문장(`'Calls made only through reflection are not part of the Call Hierarchy
+result.'`)만 같은 nuance 없이 "안 잡힌다"로 무조건 단정했다. **이건 "Go 문서가 틀렸다"보다
+더 근본적인 문제다 - 같은 관측이 한 언어의 문서에만 보존되고 다른 언어로 전파되지 않았다는
+뜻이다.** 다음에 다섯 번째 언어를 추가하는 사람이 C의 정확한 표현을 참고하지 않으면 같은 누락을
+반복할 수 있다 - 그래서 이 사실 자체(관측이 문서 간에 전파되지 않는다)를 이 작업 문서에 별도로
+남긴다. `docs.limitations`는 언어별로 각자 작성되는 배열이라, 한 언어가 얻은 정확한 교훈이
+다른 언어에 자동으로 반영될 메커니즘이 이 저장소에 없다 - 이건 이 lane의 fixture로 고칠 수 있는
+문제가 아니라, 다음에 언어를 추가하는 사람에게 남기는 기록이다.
+
+### 심각도 재서술 — 2026-09-10 commander 정정: "없는 caller"가 아니라 "잘못된 라벨"
+
+앞 버전은 이 발견을 "존재하지 않는 caller를 있다고 믿게 한다"고 적었다 - **과장이다.** 참조는
+진짜 의존 관계다: `FixtureTarget`을 값으로 넘기는 코드는 그 함수의 시그니처가 바뀌면 실제로
+깨진다. 영향도 분석 관점에서 그 관계는 봐야 하는 게 맞다 - **관계 자체는 실재한다.**
+
+**실제 결함은 조작이 아니라 라벨이다.** 제품이 그것을 "호출"이라고 부른다. 사용자는 "이 함수는
+3곳에서 호출된다"고 읽지만 실제로는 2곳에서 호출되고 1곳에서는 참조만 된다 - 이건 "가짜
+관계"보다는 덜 심각하지만 여전히 거짓이다. M4가 `edges`(확정)와 `augmentedEdges`(후보)를 가른
+이유 전체가 관계의 성격을 정확히 말하는 것이었는데, 이 발견은 `edges` 안에서도 "호출"과 "참조"라는
+서로 다른 성격의 관계가 같은 라벨 아래 섞여 나온다는 것이다. 문서 문안은 이 정확도로 써야 한다 -
+"없는 호출자가 나온다"가 아니라 **"호출자로 보고된 항목 중 일부는 호출이 아니라 참조이며, 관계
+자체는 실재하지만 성격이 다르다"**로.
 
 **Q1 답 (commander 방향 확정, 반영 완료)**: C의 macro/virtual-dispatch 절과 같은 형식으로
 갈랐다 - 정적 식별자 참조가 있는 리플렉션(잡힘, 그런데 "리플렉션을 이해해서"가 아니라 "참조를
@@ -211,15 +238,17 @@ the Call Hierarchy result.'`)만 이 nuance 없이 "안 잡힌다"로 무조건 
 "잡힌다"고만 쓰지 않고 이유(참조 보고, 진짜 호출 이해 아님)까지 명시한다 - 아래 "제안 문장" 절.
 
 **Q2 답 (commander 확정)**: **수정은 별도 lane, 기록·문서화는 이번 lane.** 이유-
-- 결함 종류가 다르다: 이 lane은 과소 보고(gap), 이건 과다 보고(존재하지 않는 caller를 있다고
-  믿게 함) - 정반대 방향.
+- 결함 종류가 다르다: 이 lane은 과소 보고(gap), 이건 라벨 부정확(호출과 참조가 같은 이름
+  아래 섞임) - 위 "심각도 재서술" 절 참고, 방향은 다르지만 "없는 관계"가 아니라 "성격이 다른
+  진짜 관계"다.
 - 영향 범위가 다르다: augmentation이 아니라 `edges` 자체 - M4가 계약을 안 건드리기로 한 그 필드다.
 - 고치는 방법이 자명하지 않다(필터링? 라벨링? `edges`의 계약 변경?) - 측정 없이 정할 문제가
   아니다.
 - **다만 문서화는 미루지 않는다** - "알면서 출하하는 것이 문서 불일치보다 나쁘다"(commander).
-  사용자가 알아야 할 사실: **"Go/C에서 caller로 보고된 항목 중 일부는 실제 호출이 아니라
-  참조일 수 있다."** `docs.limitations`는 원래 "안 잡히는 것" 목록이라 이 범주(과다 보고)가
-  안 맞는다 - 별도 필드나 섹션이 필요하다는 뜻으로, 아래 "문서화 위치" 절에서 제안한다.
+  사용자가 알아야 할 사실은 위 "심각도 재서술"의 정확한 문안대로: **"Go/C에서 호출자로 보고된
+  항목 중 일부는 호출이 아니라 참조이며, 관계 자체는 실재하지만 성격이 다르다."**
+  `docs.limitations`는 원래 "안 잡히는 것" 목록이라 이 범주(반대 방향 서술)가 안 맞는다 -
+  아래 "문서화 위치" 절에서 임시 경로와 별도 이슈 분리를 제안한다.
 
 reviewer에게 Go 발견의 독립 재현을 별도로 요청했다(commander) - 사용자 문서에 들어갈 주장이라
 한 세션의 측정만으로 확정하지 않는다는 방침.
@@ -244,36 +273,106 @@ reviewer에게 Go 발견의 독립 재현을 별도로 요청했다(commander) -
 > identical result). The same reference-reported-as-caller behavior gopls exhibits for Go reflection
 > applies here.
 
-## 문서화 위치 제안 (과다 보고, 별도 lane에서 수정 - 이번 lane은 기록만)
+## 문서화 위치 제안 — 2026-09-10 commander 확정: 계약 변경 없이 가장 싼 경로로 지금 도달시킨다
 
-`docs.limitations`는 "무엇이 안 잡히는가"만 나열하는 배열이라 "잡히지만 진짜 호출이 아닐 수
-있다"는 반대 방향 사실을 넣기엔 범주가 안 맞는다(commander 지적). 두 후보:
+`docs.limitations`는 "무엇이 안 잡히는가"만 나열하는 배열이라 "잡히지만 성격이 다른 관계다"라는
+반대 방향 서술을 넣기엔 범주가 안 맞는다(commander 지적, 유지). 두 후보를 남겨 둔다:
 1. `ProviderPreset.docs`에 `limitations`와 나란한 새 필드(예: `callerReliability` 또는 유사한
    이름)를 추가해 gopls/clangd만 채운다 - 계약 변경이라 `il-contract-architect`가 설계해야
    한다.
-2. 우선은 `docs.install` 옆 또는 `docs.limitations` 배열 자체에, 다른 항목과 다른 서술
-   방향("안 잡힘"이 아니라 "잡히지만 확정 아님")임을 명시한 문장 하나를 추가 - 계약 변경 없이
-   기존 배열 재사용, 다만 배열의 기존 "이건 전부 부재 목록" 암묵적 계약을 깨는 것이라 사용자
-   문서(README 등)에서 이 배열을 읽는 쪽의 가정도 같이 확인해야 한다.
-이 lane은 어느 쪽도 아직 구현하지 않는다 - commander가 "수정은 별도 lane"이라고 확정했으므로,
-이번 lane은 위 "제안 문장" 두 개를 실제 `catalog.ts`에 반영하는 것까지만 하고, 과다-보고 자체를
-알리는 새 필드/구조는 만들지 않는다(그 결정 자체가 별도 lane의 설계 대상).
+2. `docs.limitations` 배열 자체에, 다른 항목과 서술 방향이 반대("안 잡힘"이 아니라 "잡히지만
+   성격이 다름")임을 문장 자체와 주석 양쪽에 명시한 항목 하나를 추가 - 계약 변경 없음.
 
-## 다음 단계
+**commander 확정**: **이번 lane은 2번(계약 변경 없는 경로)으로 사실을 지금 사용자에게
+도달시킨다** - "알면서 출하하는 것이 문서 불일치보다 나쁘다"는 원칙 때문에 사실 전달 자체를
+별도 lane까지 미루지 않는다. `catalog.ts`의 Go/C `docs.limitations` 배열에 이 항목을 추가할 때,
+그 항목 바로 위에 **왜 이게 임시인지**(이 배열은 원래 "부재 목록"이라 반대 방향 서술을 넣는 것
+자체가 배열의 암묵적 계약과 안 맞고, 정식 필드는 `il-contract-architect`가 설계할 별도 lane의
+몫이라는 것)를 코드 주석으로 명시한다. 1번(정식 계약 변경)은 만들지 않는다 - 그 결정 자체가
+별도 lane의 설계 대상이다.
+
+**범위 정정 - 이건 gate 1을 넘는다(commander).** `edges`의 "호출" 라벨이 provider에 따라 다른
+성격의 관계(호출 vs 참조)를 가리킨다는 사실은 M4의 어느 gate에도 걸려 있지 않다 - 언어별 한계
+문서 최신화(gate 1)가 아니라 `edges` 계약 자체의 정확성 문제다. **별도 이슈로 뗀다**(가칭
+`edges`의 caller/reference 라벨 부정확 - gopls·clangd) - commander가 마일스톤 판정에서 별도로
+다룬다. 이 lane은 이 이슈를 발견하고 최소 서술로 사용자에게 알리는 것까지만 하고, 이슈 자체의
+해결(필터링/라벨링/계약 변경)은 다루지 않는다.
+
+## reviewer 독립 재현 — Go+C 둘 다 확인, agent 지시 문서 두 곳에서 추가 결함 발견
+
+reviewer가 이 lane의 fixture를 재사용하지 않고 **자기 fixture로, `gopls`도 새로 설치해** 네
+provider를 직접 재현했다 - 결과는 이 lane의 표와 일치. 그리고 이 lane이 아직 안 본 것을
+찾았다:
+
+- **`clangd`도 Go와 같은 급이다.** reviewer 실측: 호출 없는 포인터 대입(`int (*pure_reference)
+  (int) = fixture_target;`)이 응답에서 `relation: direct`로 나온다 - **실제 호출자와 응답
+  형태로 구분이 안 된다.** 기존 C 문서 문장은 이 동작의 **존재**만 정확히 언급했지("참조로
+  나타날 수 있다"), **"호출자와 구분 안 된 채로 나온다"는 심각도**는 적지 않았다. → 이 발견
+  이후로 이 lane의 기록 범위는 **Go 하나가 아니라 Go+C 둘**이다(아래 "제안 문장"/문서 수정
+  모두 이미 둘 다 다룬다 - 위 절 참고).
+- **agent 지시 문서 두 곳에 `data.edges`를 "confirmed"라고 명시적으로 단언하는 문장이 있다**:
+  `plugins/impact-lens/skills/impact-lens-cli/SKILL.md`와 `.../references/cli-contract.md`
+  (`"data.edges` holds **confirmed callers**"`). 이건 agent에게 "이건 확정된 호출자다"라고
+  가르치는 문서이고, 네 언어 중 둘(Go/C)에서 그 단언이 거짓이다. **문장을 지우지 않고 각주를
+  달았다** - 두 bundled provider(TS/JS, Python)에서는 여전히 참이기 때문이다. 반영 내용은 아래
+  "반영 완료" 절 참고.
+- **`README.md`의 유일한 경계 문구(`## 분석 경계`)가 방향이 반대였다** - "실제 관계가 그래프에
+  없을 수 있다"(과소보고)만 경고했고, "그래프에 있는 게 실제로는 호출이 아닐 수 있다"(과다보고)는
+  전혀 없었다. **새 주장이 아니라 반쪽만 적힌 기존 경계 문구를 완성한 것**으로 반영했다.
+
+**SKILL.md:76 - 부분 인용 경고에 따라 전체 맥락 확인함.** commander에게 전달된 인용은
+`"never use the bare word 'caller'... for a confirmed result"`뿐이었지만, 전체 문장은
+`data.augmentedEdges`(후보)를 `data.edges`(확정)와 같은 문장에서 섞어 부르지 말라는, **이번
+발견과 다른 규칙**이다(candidate/confirmed 혼동 방지 - 여전히 유효, 이번 발견으로 무효화되지
+않음). 그래서 이 문장 자체는 고치지 않고, 바로 다음 줄에 Go/C 각주를 새 항목으로 추가했다 -
+기존 규칙과 새 사실을 같은 문장에 억지로 합치지 않았다.
+
+**응답 정책 eval 확인** - 문서 수정 후 `npm run test:response-policy` 재실행, **38개 체크 전부
+그대로 통과**(회귀 없음). 이 각주들은 기존 forbidden-phrase/candidate-caller vocabulary 규칙이
+찾는 정확한 문구를 그대로 보존하고 그 옆에 새 문장만 추가했으므로 계약 검사에 걸리지 않았다 -
+"어긋나면 그게 이 발견이 계약 어휘까지 닿는다는 신호"(commander)였는데, 이번엔 안 어긋났다.
+
+### 이 발견이 M4의 어느 gate에도 안 걸린다는 사실 자체 (commander 지시로 기록)
+
+M4의 8개 gate 중 gate 4(adapter의 임의 승격 금지)와 gate 5(path convention이 가짜 edge를 만들지
+않음)가 "caller/edge 정확성"에 가장 가깝지만, **둘 다 이 저장소 자신의 코드(adapter, path
+resolution)에 대한 질문**이다. 이번 발견은 **provider가 돌려준 답 자체가 이 제품이 그 답에 붙인
+이름과 다르다**는 것 - M4의 어느 gate도 "provider의 답이 우리가 그것에 붙인 이름과 일치하는가"를
+묻지 않았다. 이 공백 자체가 마일스톤 판정에 들어가야 할 사실이라 여기 기록한다(commander가
+마일스톤 판정에서 별도로 다룬다).
+
+### 반영 완료 (이번 lane, 계약 변경 없음)
+
+- `README.md`의 `## 분석 경계` IMPORTANT 문구에 과다보고 방향 추가(Go/gopls, C·C++/clangd 이름을
+  대서 - tier로 귀속하지 않음).
+- `cli/README.md`에 새 절 `data.edges`가 label a call - for two providers, a value reference can
+  pass as one too" 추가 - 실측 근거·심각도 재서술 문안 전체.
+- `plugins/impact-lens/skills/impact-lens-cli/SKILL.md`에 새 bullet 추가(기존 76번째 줄 문장은
+  그대로 둠).
+- `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md`의 "confirmed callers"
+  문장 바로 뒤에 각주 문단 추가(기존 문장도 그대로 둠).
+
+## 다음 단계 — 전부 완료
 
 1. ~~Go의 두 축(과소-보고 vs 과다-보고) 처리 방향 확인~~ **완료** - Q1/Q2 모두 commander가
    확정했다.
-2. reviewer의 Go 발견 독립 재현 대기 - 그 결과를 반영한 뒤 `catalog.ts`를 갱신한다(위 "제안 문장"
-   그대로, reviewer 재현이 다른 결과를 내면 그에 맞게 수정).
-3. 네 언어 모두 `clangdIntegration.test.ts` 수준의 반복 fixture(실제 서버, 실제 파일, 버전 분기 -
-   gopls/clangd는 버전별 분기, bundled TS/pyright는 "이 pin에서 관측했다"로 단순화) 작성 - TS/JS·
-   Python·C는 기존 문장을 그대로 확인하는 fixture, Go는 갈라 적은 두 문장을 각각 증명하는
-   fixture.
-4. `catalog.ts`의 `docs.limitations` 문장 갱신 - Go는 갈라 적기, C는 "호출 없이도 재현됨" 근거
-   보강, TS/JS·Python은 근거 인용만 추가.
-5. 전체 재검증(`cli:test`/`test`/`test:response-policy`), commit, push, PR.
-6. (별도 lane, 이번 범위 밖) 과다-보고 자체를 사용자에게 어떻게 알릴지 설계 - `il-contract-
-   architect` 필요 여부부터 판단.
+2. ~~reviewer의 Go 발견 독립 재현~~ **완료** - Go+C 둘 다 확인, agent 지시 문서 결함 추가 발견,
+   위 절 반영 완료.
+3. ~~네 언어 모두 반복 fixture 작성~~ **완료** - `cli/src/test/gate1LanguageLimitations.test.ts`
+   신설(8 테스트: TS/JS 2, Python 2, Go 2, C 2). 실제 provider로 8/8 통과 확인(gopls v0.19.1,
+   clangd Apple 17.0.0, bundled TS/pyright). Go의 "식별자 참조 리플렉션은 잡히지만 이유는 참조
+   보고" 테스트는 뮤테이션으로 검증(순수 참조를 실제 호출로 바꿔 재현해 정확히 그 테스트만
+   실패, 원복 후 재통과).
+4. ~~`catalog.ts`의 `docs.limitations` 문장 갱신~~ **완료** - Go는 세 문장으로 분리(이름-문자열
+   리플렉션 불가/식별자-캡처 리플렉션은 참조 보고로 인해 노출/`data.edges`의 caller 라벨
+   부정확), C는 기존 문장 유지 + "호출 없이도 재현됨"과 "임시 항목" 주석 추가, TS/JS·Python은
+   근거 인용 추가.
+5. ~~전체 재검증~~ **완료** - `cli:test` 516/516(gopls PATH에 있어 이전 3개 skip도 포함해 전부
+   실행·통과), `test`(Extension) 84/84, `test:response-policy` 38 checks. 회귀 없음.
+6. ~~reviewer가 찾은 agent 지시 문서 두 곳(`SKILL.md`/`cli-contract.md`)의 "confirmed" 단언에
+   각주, `README.md`의 경계 문구 완성~~ **완료** - 위 "반영 완료" 절 참고.
+7. (별도 이슈, 이번 범위 밖) `edges`의 caller/reference 라벨 부정확(gopls·clangd) 자체의 해결
+   (필터링/라벨링/계약 변경) - commander가 마일스톤 판정에서 별도로 다룬다.
 
 ## 스크래치 측정 재현 방법 (다음 사람을 위해)
 

@@ -289,7 +289,7 @@ plugin runner는 현재 checkout에서 빌드된 CLI, 전역 `impact-lens`, 고�
 ## 분석 경계
 
 > [!IMPORTANT]
-> Impact Lens가 보여주는 관계는 언어 서비스의 **정적 Call Hierarchy 결과**입니다. reflection, runtime dependency injection, decorator route, event bus, 문자열 기반 import와 동적 호출처럼 provider가 반환하지 않는 관계는 실제로 존재하더라도 그래프에 없을 수 있습니다.
+> Impact Lens가 보여주는 관계는 언어 서비스의 **정적 Call Hierarchy 결과**입니다. reflection, runtime dependency injection, decorator route, event bus, 문자열 기반 import와 동적 호출처럼 provider가 반환하지 않는 관계는 실제로 존재하더라도 그래프에 없을 수 있습니다. **반대 방향도 있습니다**: Go(`gopls`)와 C/C++(`clangd`)에서는, 함수를 실제로 호출하지 않고 값으로만 참조(변수 대입, `reflect.ValueOf(fn)`처럼 리플렉션에 값으로 넘기는 것 등)해도 그 참조 지점이 `data.edges`에 caller로 나타날 수 있습니다 — 이때 그 관계 자체는 실재합니다(참조도 함수 시그니처가 바뀌면 실제로 깨지는 진짜 의존입니다), 다만 "호출"이라는 이름이 정확하지 않습니다. 같은 함수가 "3곳에서 호출됨"으로 보여도 실제로는 2곳은 호출이고 1곳은 참조일 수 있습니다. bundled-typescript(TS/JS)와 bundled-pyright(Python)에서는 이 현상이 확인되지 않았습니다 — 실제로 호출된 지점만 caller로 보고합니다. 자세한 내용과 실측 근거는 `cli/README.md`를 참고하세요.
 
 - VS Code Extension은 대상 언어 확장이 제공하는 Call Hierarchy 범위에서 동작합니다.
 - JavaScript/TypeScript CLI에는 `typescript-language-server`가 포함됩니다.

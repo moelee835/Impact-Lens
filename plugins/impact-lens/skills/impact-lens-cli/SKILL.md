@@ -69,6 +69,7 @@ Use stdin JSON for agent-generated requests. It avoids shell escaping ambiguity 
 - Never describe a result as `no impact`, `safe to change`, `unused`, `fully analyzed`, `complete analysis`, or
   `all callers`; those phrases claim more than static Call Hierarchy evidence establishes.
 - Treat incoming-call results as static evidence from the configured Call Hierarchy provider. Do not claim coverage of reflection, dependency injection, decorators, events, generated code, or runtime-only links.
+- For Go and C/C++ specifically (`gopls`/`clangd`), a `data.edges` entry is not always a genuine call: both providers can report a function referenced only as a value (assigned to a variable, captured, passed to `reflect.ValueOf(fn)`) as a caller, even when that reference is never actually invoked anywhere (measured directly, `docs/work/task-m4-gate1-lane-d-language-limitations.md`). The relationship is still real — a value reference is a genuine dependency that breaks if the target's signature changes — but do not report an exact call count for Go/C/C++ as if every entry were a confirmed invocation; say "referenced or called from N places" rather than "called from N places" when precision matters. `bundled-typescript`/`bundled-pyright` do not exhibit this — a value-only reference produces no entry for either.
 
 ## Augmented (candidate) edges
 
