@@ -110,14 +110,16 @@ test('an unknown preset is refused with the list of presets that do exist', asyn
 
 test('a raw command with no preset is diagnosed by --stdin, not a preset id', async t => {
   const workspace = temporaryDirectory(t, 'impact-lens-doctor-raw-ready-');
+  // languageId deliberately NOT 'java' here - this test is about the general raw-command response
+  // shape, and 'java' would also activate the JDK checks below, whose own tests cover that gate.
   const data = await runDoctor(undefined, {
     workspace,
-    command: { command: process.execPath, args: ['--version'], languageId: 'java' },
+    command: { command: process.execPath, args: ['--version'], languageId: 'go' },
     env: {},
   });
   assert.equal(data.status, 'ready');
   assert.equal(data.mode, 'preflight');
-  assert.deepEqual(data.command, { command: process.execPath, args: ['--version'], languageId: 'java', languageSource: 'command' });
+  assert.deepEqual(data.command, { command: process.execPath, args: ['--version'], languageId: 'go', languageSource: 'command' });
   // Never a `preset` key alongside `command` - a `tier: 'custom'` placeholder would let a consumer read
   // "no data" as "verified empty", which is exactly what this shape exists to avoid.
   assert.equal('preset' in data, false);
@@ -644,4 +646,206 @@ test('compile-database sample never leaks a secret via: a Windows-style absolute
 
   assert.doesNotMatch(JSON.stringify(result), /abc123secret/);
   assert.match(rawContent, /abc123secret/);
+});
+
+// ---------------------------------------------------------------------------
+// JDK compatibility axes (IL-LIM-018 stage 2, docs/work/task-m3-java-discovery-jdk.md) - only run for
+// a raw command whose resolved language is `java`, and only through `doctor --stdin` (no jdtls preset
+// exists in this catalog - that registration is explicitly out of this lane's scope).
+// ---------------------------------------------------------------------------
+
+function javaCommand(overrides: Partial<{ languageId: string }> = {}): { command: string; args?: string[]; languageId?: string } {
+  return { command: process.execPath, args: ['--version'], languageId: 'java', ...overrides };
+}
+
+test('the JDK checks only run when the resolved language is java, not for an unrelated raw command', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-gate-');
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: { command: process.execPath, args: ['--version'], languageId: 'python' },
+    env: {},
+  });
+  const ids = (data.checks as readonly DoctorCheck[]).map(entry => entry.id);
+  assert.ok(!ids.includes('jdk-runtime'), ids.join(', '));
+});
+
+test('jdk-runtime resolves JAVA_HOME first, matching bin/jdtls\'s own order, and reports pass for a real JDK 21+', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-runtime-pass-');
+  // A minimal fake JAVA_HOME whose bin/java is a script printing a real JDK-shaped version line to
+  // stderr, exactly where `java -version` actually writes it - proves this check reads both streams
+  // the same way `probeVersion` already does for every other preset's version probe.
+  const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-');
+  fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
+  const javaScript = path.join(javaHome, 'bin', 'java');
+  fs.writeFileSync(javaScript, '#!/usr/bin/env node\nprocess.stderr.write(\'openjdk version "21.0.5" 2026-01-01\\n\');\n');
+  fs.chmodSync(javaScript, 0o755);
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    env: { JAVA_HOME: javaHome, PATH: '' },
+  });
+  const runtime = check(data.checks as readonly DoctorCheck[], 'jdk-runtime');
+  assert.equal(runtime.status, 'pass');
+  assert.equal(runtime.detected, '21.0.5');
+  assert.equal(runtime.executable, 'java');
+  // Never the fake JAVA_HOME's absolute path - same redaction rule `executableCheck` already follows.
+  assert.doesNotMatch(JSON.stringify(runtime), /impact-lens-fake-java-home/);
+});
+
+test('jdk-runtime fails, not warns, for a real JDK below 21', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-runtime-low-');
+  const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-low-');
+  fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
+  const javaScript = path.join(javaHome, 'bin', 'java');
+  fs.writeFileSync(javaScript, '#!/usr/bin/env node\nprocess.stderr.write(\'openjdk version "17.0.9" 2025-01-01\\n\');\n');
+  fs.chmodSync(javaScript, 0o755);
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    env: { JAVA_HOME: javaHome, PATH: '' },
+  });
+  const runtime = check(data.checks as readonly DoctorCheck[], 'jdk-runtime');
+  assert.equal(runtime.status, 'fail');
+  assert.equal(runtime.code, 'jdk_runtime_unsupported');
+  assert.equal(runtime.detected, '17.0.9');
+  assert.equal(data.status, 'blocked');
+});
+
+test('jdk-runtime reports fail with jdk_runtime_not_found when no java resolves anywhere', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-runtime-missing-');
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    lookup: { env: { PATH: syntheticPosixDirectory(t, 'doctor-jdk-nobin-') }, platform: 'linux' },
+    env: {},
+  });
+  const runtime = check(data.checks as readonly DoctorCheck[], 'jdk-runtime');
+  assert.equal(runtime.status, 'fail');
+  assert.equal(runtime.code, 'jdk_runtime_not_found');
+});
+
+test('jdk-runtime warns (not fails) when the version probe times out - "could not tell" differs from "incompatible"', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-runtime-timeout-');
+  const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-slow-');
+  fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
+  const javaScript = path.join(javaHome, 'bin', 'java');
+  // Busy-waits longer than the short timeoutMs this test passes below - a real `probeVersion` timeout,
+  // not a script that finishes early with no version to report (a different failure shape this check
+  // already distinguishes: `no-version-in-output` vs `timeout`).
+  fs.writeFileSync(javaScript, '#!/usr/bin/env node\nconst start = Date.now();\nwhile (Date.now() - start < 2000) { /* busy-wait past the check\'s timeout */ }\n');
+  fs.chmodSync(javaScript, 0o755);
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    env: { JAVA_HOME: javaHome, PATH: '' },
+    timeoutMs: 300,
+  });
+  const runtime = check(data.checks as readonly DoctorCheck[], 'jdk-runtime');
+  assert.equal(runtime.status, 'warn');
+  assert.equal(runtime.code, 'jdk_runtime_version_unreadable');
+  assert.equal(runtime.reason, 'timeout');
+  // A timeout must never blocked the overall status the way a real incompatibility does.
+  assert.notEqual(data.status, 'blocked');
+});
+
+test('jdk-project-hint reads Gradle\'s JavaLanguageVersion.of(N) toolchain form and warns on a real mismatch', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-hint-mismatch-');
+  fs.writeFileSync(
+    path.join(workspace, 'build.gradle'),
+    'plugins { id "java" }\njava { toolchain { languageVersion = JavaLanguageVersion.of(17) } }\n',
+  );
+  const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-hint-');
+  fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(javaHome, 'bin', 'java'), '#!/usr/bin/env node\nprocess.stderr.write(\'openjdk version "21.0.5" 2026-01-01\\n\');\n');
+  fs.chmodSync(path.join(javaHome, 'bin', 'java'), 0o755);
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    env: { JAVA_HOME: javaHome, PATH: '' },
+  });
+  const hint = check(data.checks as readonly DoctorCheck[], 'jdk-project-hint');
+  assert.equal(hint.status, 'warn');
+  assert.equal(hint.declared, 17);
+  assert.equal(hint.runtimeDetected, 21);
+  assert.equal(hint.source, 'build.gradle');
+  // Warn-only: a project/runtime mismatch never blocks the overall status, unlike a real jdk-runtime
+  // incompatibility - this CLI has no standing to require a project target one JDK level over another.
+  assert.notEqual(data.status, 'blocked');
+});
+
+test('jdk-project-hint is omitted, not a false pass, when no build file declares a JDK level', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-hint-absent-');
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    lookup: { env: { PATH: syntheticPosixDirectory(t, 'doctor-jdk-hint-nobin-') }, platform: 'linux' },
+    env: {},
+  });
+  const ids = (data.checks as readonly DoctorCheck[]).map(entry => entry.id);
+  assert.ok(!ids.includes('jdk-project-hint'), ids.join(', '));
+});
+
+test('jdk-buildtool fires only on the exact reproduced combination: Gradle 8.14 + JDK major 25', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-buildtool-hit-');
+  fs.mkdirSync(path.join(workspace, 'gradle', 'wrapper'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, 'gradle', 'wrapper', 'gradle-wrapper.properties'),
+    'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14-bin.zip\n',
+  );
+  const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-25-');
+  fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(javaHome, 'bin', 'java'), '#!/usr/bin/env node\nprocess.stderr.write(\'openjdk version "25.0.4.1" 2026-01-01\\n\');\n');
+  fs.chmodSync(path.join(javaHome, 'bin', 'java'), 0o755);
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    env: { JAVA_HOME: javaHome, PATH: '' },
+  });
+  const buildTool = check(data.checks as readonly DoctorCheck[], 'jdk-buildtool');
+  assert.equal(buildTool.status, 'fail');
+  assert.equal(buildTool.code, 'jdk_buildtool_incompatible');
+  assert.equal(buildTool.buildToolVersion, '8.14');
+  // The message stays inside what was actually observed - "observed to fail", never "does not work".
+  assert.match(buildTool.reason as string, /observed to fail/);
+  assert.doesNotMatch(buildTool.reason as string, /does not work|never works|is unsupported/);
+  assert.equal(data.status, 'blocked');
+});
+
+test('jdk-buildtool is omitted, never pass, for a Gradle version outside the one reproduced combination', async t => {
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-buildtool-miss-');
+  fs.mkdirSync(path.join(workspace, 'gradle', 'wrapper'), { recursive: true });
+  fs.writeFileSync(
+    path.join(workspace, 'gradle', 'wrapper', 'gradle-wrapper.properties'),
+    'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.10.2-bin.zip\n',
+  );
+  const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-25b-');
+  fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(javaHome, 'bin', 'java'), '#!/usr/bin/env node\nprocess.stderr.write(\'openjdk version "25.0.4.1" 2026-01-01\\n\');\n');
+  fs.chmodSync(path.join(javaHome, 'bin', 'java'), 0o755);
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    env: { JAVA_HOME: javaHome, PATH: '' },
+  });
+  const ids = (data.checks as readonly DoctorCheck[]).map(entry => entry.id);
+  assert.ok(!ids.includes('jdk-buildtool'), ids.join(', '));
+});
+
+test('jdk-buildtool never spawns Gradle - the version comes from gradle-wrapper.properties alone', async t => {
+  // If this check ever shelled out to `gradle`, a PATH with no gradle on it would make the spawn fail
+  // (ENOENT) rather than silently succeed - this proves the read-only design by construction, not by
+  // inspecting a log. A workspace with no gradle-wrapper.properties at all must not throw or hang.
+  const workspace = temporaryDirectory(t, 'impact-lens-doctor-jdk-buildtool-nospawn-');
+  const javaHome = temporaryDirectory(t, 'impact-lens-fake-java-home-25c-');
+  fs.mkdirSync(path.join(javaHome, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(javaHome, 'bin', 'java'), '#!/usr/bin/env node\nprocess.stderr.write(\'openjdk version "25.0.4.1" 2026-01-01\\n\');\n');
+  fs.chmodSync(path.join(javaHome, 'bin', 'java'), 0o755);
+  const data = await runDoctor(undefined, {
+    workspace,
+    command: javaCommand(),
+    lookup: { env: { PATH: syntheticPosixDirectory(t, 'doctor-jdk-buildtool-nogradle-') }, platform: 'linux' },
+    env: { JAVA_HOME: javaHome },
+  });
+  const ids = (data.checks as readonly DoctorCheck[]).map(entry => entry.id);
+  assert.ok(!ids.includes('jdk-buildtool'), ids.join(', '));
 });

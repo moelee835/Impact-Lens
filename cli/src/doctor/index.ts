@@ -21,6 +21,7 @@ import {
   settingsKeysCheck,
   versionCheck,
 } from './checks';
+import { jdkBuildToolCheck, jdkProjectHintCheck, jdkRuntimeCheck } from './jdkChecks';
 
 /**
  * `impact-lens doctor <preset>`.
@@ -130,6 +131,24 @@ export async function runDoctor(
     if (compileDatabaseResult !== undefined) {
       checks.push(compileDatabaseResult);
     }
+  } else if (resolveRawLanguageId(resolution.command, options.file) === 'java') {
+    // The three JDK axes (IL-LIM-018 stage 2, docs/work/task-m3-java-discovery-jdk.md) - only
+    // meaningful for a raw command actually diagnosing Java/jdtls. Gated on the resolved language, the
+    // same signal `rawCommandSummary()` reports back, so "why did these checks run" is answerable from
+    // the response itself. No preset, no catalog entry - jdtls registration is out of this lane's scope.
+    // Reuses the same `timeoutMs` a smoke/fixture check already spends against the provider itself,
+    // rather than a second JDK-specific knob - one "how long is this run willing to wait" option.
+    const runtimeResult = jdkRuntimeCheck(options.env ?? process.env, options.lookup, options.timeoutMs);
+    checks.push(runtimeResult);
+    const runtimeMajor = typeof runtimeResult.detected === 'string' ? Number(runtimeResult.detected.split('.')[0]) : undefined;
+    const projectHintResult = jdkProjectHintCheck(workspace, runtimeMajor);
+    if (projectHintResult !== undefined) {
+      checks.push(projectHintResult);
+    }
+    const buildToolResult = jdkBuildToolCheck(workspace, runtimeMajor);
+    if (buildToolResult !== undefined) {
+      checks.push(buildToolResult);
+    }
   }
   // `settingsKeysCheck`/`projectConfigCheck` read the resolved settings tree and the project config
   // file respectively - neither depends on there being a catalog preset, so both run for a raw command
@@ -181,8 +200,16 @@ export async function runDoctor(
  * than as "you didn't pass --file". `languageId()`'s honest `'plaintext'` answer for an unrecognised
  * extension is preserved as-is when a `--file` WAS given - that case has a real file to be honest about.
  */
+/**
+ * Shared by `rawCommandSummary()` (reporting) and `runDoctor()` (gating the Java JDK checks) so the two
+ * never compute a different answer - the resolved language IS the signal that turns those checks on.
+ */
+function resolveRawLanguageId(command: ProviderCommand, file: string | undefined): string | undefined {
+  return command.languageId ?? (file === undefined ? undefined : detectLanguageId(file));
+}
+
 function rawCommandSummary(command: ProviderCommand, file: string | undefined): JsonObject {
-  const resolvedLanguageId = command.languageId ?? (file === undefined ? undefined : detectLanguageId(file));
+  const resolvedLanguageId = resolveRawLanguageId(command, file);
   return {
     command: command.command,
     ...(command.args === undefined ? {} : { args: command.args }),
