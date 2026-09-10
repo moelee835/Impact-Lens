@@ -125,9 +125,12 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
   > 만족하면 된다. `resolution: 'multiple'`이라는 코드 분기 자체(`resolutionCandidateCount > 1
   > ? 'multiple' : 'single'`)는 그대로 둔다 — 언젠가 실제로 트리거하는 구성이 발견되면 fixture로
   > 추가하되, 지금 이 gate를 통과시키는 조건은 아니다.
-  > **2026-09-10 판정**: 대체 gate로 닫힘 — alias(양성 `alias_target.py` + 음성
-  > `alias_uncaught_consumer.py`), sub-dependency(`nested_dependency_config/db/consumer.py`),
-  > cross-file dependency(`consumer.py`/`real_module.py`), 그리고 ambiguity(mount name-collision
+  > **2026-09-10 판정**: 대체 gate로 닫힘 — alias(양성 `alias_caught_consumer.py` + 음성
+  > `alias_uncaught_consumer.py`, 대상 정의는 `alias_target.py`),
+  > sub-dependency(`nested_dependency_config.py`/`nested_dependency_db.py`/
+  > `nested_dependency_consumer.py` — 평평한 세 파일이지 중첩 디렉터리가 아니다),
+  > cross-file dependency(`consumer.py`/`real_module.py`, 음성 대조군 `decoy_module.py`),
+  > 그리고 ambiguity(mount name-collision
   > 계열)가 전부 fixture로 재현된다. "복수 후보" 요구는 2026-09-04 정정이 제거했다 — 서로 다른 두
   > 자연스러운 구성으로 직접 시도했으나 pyright가 두 번 다 정확히 1개를 돌려줬다(**전수 조사가 아니라
   > 시도한 두 구성에서 못 찾았다는 것만 실측**). **원래 gate가 요구한 Spring 형태는 이 마일스톤에서
@@ -135,7 +138,7 @@ LSP가 놓치는 동적 호출, dependency injection, routing과 테스트 관�
   > `IL-LIM-016`(Kotlin)이 닫혀야 착수 가능하고 **둘 다** 닫혀야 완결된다.
 
 - [x] 모호한 DI/dynamic target은 하나의 확정 caller로 임의 승격되지 않는다. — 네 라운드에 걸쳐 여섯 가지 오탐 형태를 닫았다(PR #81·#84·#85·#86). **수용된 잔여 1건을 안고 닫힘**: 다중 세그먼트 절대 import가 여전히 경로 접미사로 일치하므로 동일한 dotted path로 끝나는 두 트리(vendored 사본)가 둘 다 만족한다 — `KNOWN, ACCEPTED RESIDUAL FALSE POSITIVE` 단위 테스트로 고정했고, **정밀도 corpus에서는 일부러 제외**했다(진짜 오탐을 정탐으로 세면 정밀도 주장 자체가 거짓이 된다).
-- [x] path convention만으로 가짜 call edge나 test passed 상태를 만들지 않는다. — path convention이 단독으로 edge를 만들지 못한다는 것은 gate 4의 재확인 구조가 보장하고, **test passed 상태는 데이터 모델에 존재하지 않는다**(`TestFreshness = 'notRun' | 'outdated'`, CLI에는 실행 어휘가 아예 없다). graph가 VS Code의 *통과한 테스트* 색을 빌려 쓰던 것도 중립색으로 교체했다(PR #82) — **모델이 일부러 주장하지 않는 것을 색이 주장하고 있었다.** 이 통과는 **부재에 의한 통과**이며 `IL-LIM-010` 3단계(실행 결과 import)가 도래하면 재판정되어야 한다.
+- [x] path convention만으로 가짜 call edge나 test passed 상태를 만들지 않는다. — path convention이 단독으로 edge를 만들지 못한다는 것은 gate 4의 재확인 구조가 보장한다. 나머지 절반은 **성격이 다른 두 근거**로 닫혔고, 뭉뚱그리면 안 된다. **(a) 모델 쪽은 부재다**: `TestFreshness = 'notRun' | 'outdated'`이고 CLI에는 실행 어휘가 아예 없어, **test passed를 표현할 값 자체가 없다** — 안전장치가 검증된 것이 아니라 위반할 기능이 없는 것이다. **(b) UI 쪽은 능동적 수정이다**: graph가 VS Code의 진짜 *테스트 통과* 토큰(`--vscode-testing-iconPassed`)을 test 노드에 빌려 쓰고 있었고, **그 코드는 v0.8.0으로 이미 출시된 상태였다** — 즉 배포된 제품이 색으로 거짓을 주장하고 있었고 PR #82가 그것을 찾아 중립색으로 고쳤다. **모델이 일부러 주장하지 않기로 한 것을 색이 주장하고 있었다.** (a)는 `IL-LIM-010` 3단계(실행 결과 import)가 도래하면 **재판정되어야 한다**.
 - [x] augmentation을 끄면 기존 LSP-only graph로 안전하게 rollback된다. — `impactLens.augmentationEnabled`/CLI `--augmentation` 둘 다 기본값 `false`이고, 끄면 `edges`/`nodes`가 byte-identical이다. 회귀 테스트는 **"다를 수 있는 필드만 지우고 나머지 전부 비교"** 극성으로 작성됐다(PR #79) — 비교 대상을 열거하면 나중에 추가되는 필드가 조용히 면제된다. adapter 예외도 정적 그래프를 무너뜨리지 못한다(PR #97).
 - [x] 지원 언어 fixture에서 정해진 false-positive와 latency budget을 통과한다. — **fixture가 아니라 실제 오픈소스 코드로** 측정했고, 숫자를 정하기 전에 결함 다섯 건이 먼저 나왔다(PR #99·#100·#101·#102). **명시된 잔여 7건을 안고 닫힘** — recall 약 57%, 조용한 기각(PR #105가 이후 일부 해소), corpus 2개, `Security()` 미인식, TS adapter 자기 budget 미실측(이후 vue-core 520파일로 초과 실측됨), extension host latency 미측정, dot-디렉터리 필터링. **gate가 닫히는 것과 기본값을 켜는 것은 별개다.**
 - [x] `user-tests/m4-user-test-spec.md`가 evidence 이해도와 실제 누락·오탐 검토를 포함해 승인됐으며,
