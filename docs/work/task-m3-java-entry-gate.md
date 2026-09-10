@@ -210,6 +210,69 @@ incoming 쪽에서 버그를 못 찾은 것은 "측정 도구가 둔감해서"�
 파일, 실제 dependency가 있어 resolve에 시간이 걸리는 프로젝트)가 필요하다 - 이 entry gate는
 그걸 시도하지 않았다.
 
+## 후속 실측(commander 1·2순위) — cross-file/multi-module과 cold/warm 재시도
+
+entry gate 통과 보고 후 commander가 우선순위를 정해 준 두 가지를 이어서 쟀다 — **아직
+preset 구현은 안 한다.**
+
+### 1순위 - cross-file / multi-module (Gradle)
+
+`app`/`lib` 두 모듈짜리 Gradle 프로젝트(`lib`은 `app`이 `implementation project(':lib')`로
+의존, 여전히 외부 dependency 없음)를 새로 만들어 **cross-module**(다른 모듈의 메서드를
+참조)과 **같은 모듈-다른 파일**(cross-file, 같은 모듈) 두 축을 각각 direct call 대조군 +
+method reference로 쟀다:
+
+| 케이스 | 대상 | 결과 |
+| --- | --- | --- |
+| cross-module, 직접 호출(대조군) | `LibTarget.crossModuleDirectTarget` | `AppCaller.crossModuleDirectCaller` ✅ |
+| cross-module, method reference | `LibTarget.crossModuleRefTarget` | `AppCaller.crossModuleRefCaller` ✅ |
+| 같은 모듈·다른 파일, 직접 호출(대조군) | `AppLocalTarget.sameModuleDirectTarget` | `SameModuleCaller.sameModuleDirectCaller` ✅ |
+| 같은 모듈·다른 파일, method reference | `AppLocalTarget.sameModuleRefTarget` | `SameModuleCaller.sameModuleRefCaller` ✅ |
+
+**넷 다 정확했다** - cold-immediate/warm(신호 대기 후)/warm+20s 세 라운드 전부 동일. 이 lane이
+찾으려던 "method reference로만 호출되는 메서드가 caller 없음으로 보고될 위험"은 **cross-file과
+cross-module에서도** 배제됐다 - `v1.61.0` 하나만 이 매트릭스로 쟀다(entry gate 자체가 이미
+v1.45.0/v1.61.0 둘 다 확인했고, 여기서는 "project 구조가 결과를 바꾸는가"만 새로 묻는 것이라
+등재 후보 버전 하나로 충분하다고 판단했다).
+
+### 2순위 - cold/warm: 진짜로 분리됐다 - 그리고 "빈 결과"가 아니라 "블로킹"이었다
+
+멀티모듈 fixture로 다시 쟀더니(daemon을 먼저 강제로 죽여 진짜 콜드 스타트를 유도) **이번엔
+실제로 분리됐다.** 개별 요청·응답의 타임스탬프를 직접 떠서 확인한 순서:
+
+| 시각(t=0부터) | 사건 |
+| --- | --- |
+| 0.00s | `initialize`/`didOpen` 완료, 첫 `prepareCallHierarchy` 요청 전송(id=2) |
+| 0.43s~3.94s | `language/status` 진행 알림들("Starting Gradle Daemon" → "Run build" → "Configure project" → "Synchronize Gradle project") |
+| 3.97s | **`ProjectStatus: OK`** |
+| 3.98s | **`Started: Ready`** |
+| 3.99s | **`ServiceReady`** |
+| 4.36s | id=2(첫 `prepareCallHierarchy`)의 **응답**이 그제서야 도착 - **정답이었다** |
+| 6.87s | id=3(첫 `incomingCalls`)의 응답 도착 - 정답, 다만 추가로 2.5초 더 걸림 |
+| 6.87s~7.02s | 나머지 7개 요청(다른 세 대상) 전부 거의 즉시(수십 ms) 응답 |
+
+**핵심 발견 - `t=0`에 보낸 요청이 "빈 결과"나 "아직 준비 안 됨" 에러를 즉시 돌려주지 않고,
+`Ready`가 뜰 때까지 응답 자체를 미룬 뒤 정답을 냈다.** 이건 이 lane이 처음에 걱정했던 실패
+모양("아직 색인 중이라 빈 결과가 나오고, 그걸 진짜 no-caller로 오독한다")이 **이번 시나리오
+에서는 일어나지 않았다** - 대신 요청이 **블로킹**됐다. `ProjectStatus: OK`는 `Started:
+Ready`/`ServiceReady`와 사실상 동시(20ms 이내)에 뜬다 - commander가 물은 "이 알림이 신호로
+쓸 만한가"에는 **그렇다, 다만 기존 `Started`/`ServiceReady`와 사실상 같은 시점이라 추가
+정보를 주지는 않는다**로 답한다.
+
+**두 번째로 흥미로운 점 - 첫 `incomingCalls`만 따로 더 느렸다(2.5초).** `Ready` 시점(3.99s)
+이후에 도착한 요청인데도 응답까지 시간이 더 걸렸다 - project readiness와는 별개로,
+call-hierarchy 자신의 검색 인덱스가 **그 종류의 쿼리를 처음 받을 때** 한 번 더 준비 작업을
+하는 것으로 보인다(가설, 소스 확인 안 함). 그 이후 요청은(완전히 다른 심볼이어도) 전부
+빨랐다.
+
+**이 발견의 한계 - 일반화하지 않는다.** 이번에 관측한 "느림"은 최대 ~7초, **외부 dependency가
+없는 최소 fixture** 기준이다. 실제 dependency 해석에 분·초 단위가 걸리는 진짜 프로젝트에서도
+jdtls가 "블로킹"으로 끝까지 버티는지, 아니면 어느 시점부터 클라이언트 쪽 timeout이나 다른
+실패 모양으로 넘어가는지는 **이번 lane이 확인하지 않았다.** commander가 인용한 사용자의
+"no callable symbol was found" 오류(Python/v0.9.0)도 이것과 **다른 실패 축**일 가능성이
+높다 - 그건 위치 자체가 심볼로 안 풀리는 오류이고, 이번에 관측한 건 심볼은 풀렸는데 그 답이
+나오기까지 걸린 시간이다. 서로 다른 문제를 같은 것으로 뭉치지 않는다.
+
 ## 발견 요약 — 핵심 질문에 대한 답
 
 **1. 핵심 질문: method reference로만 호출되는 메서드의 incoming call hierarchy가 잡히는가.**
@@ -232,14 +295,28 @@ Gradle) 전부에서 static·instance method reference 둘 다 정확한 caller�
 방식 자체가 다르다.** 이 lane의 범위 밖(entry gate는 "잡히는가"만 확인, "이름을 어떻게
 보여줄지"는 구현 lane의 몫)이지만, 다음 lane이 이 사실을 모르고 시작하지 않도록 여기 남긴다.
 
-**3. 발견 - 응답 모양은 빈 배열이지 `null`이 아니다.**
+**2026-09-10 commander 지적 - 이 발견은 이번 마일스톤이 계속 다뤄 온 것과 같은 축이다.**
+관계 자체는 실재한다(`accept`가 진짜로 `lambdaTarget`을 부른다) - 틀린 건 **이름이 사용자의
+소스 모델과 안 맞는다**는 점이다. 이건 M4 gate 1 lane D가 Go(`gopls`)/C(`clangd`)의
+`data.edges`에서 찾은 것과 정확히 같은 모양의 문제다 - 거기서도 관계는 진짜인데(참조는 실제
+의존이다) "caller"라는 라벨이 실제로 확인된 것보다 더 많이 약속했다. 여기서는 라벨이 아니라
+**caller의 이름 자체**가 사용자가 작성한 적 없는 합성 식별자로 나온다는 차이가 있지만, "관계는
+맞는데 사용자 모델과 표현이 어긋난다"는 근본 축은 같다. Java preset이 실제로 구현될 때 이
+문제를 gopls/clangd 건과 같은 방식(문서 각주, 혹은 더 나은 표현으로 매핑)으로 다룰지 판단이
+필요하다 - `IL-LIM-018` story 문서에도 이 연결을 남긴다(아래 참고).
+
+**3. 발견 - 이번 fixture에서는 응답 모양이 빈 배열이지 `null`이 아니었다.**
 
 `neverCalled`(어디서도 호출 안 됨)의 `incomingCalls`는 **`[]`**를 반환했다 - `null`도
 아니고 에러도 아니다. 이건 pyright(빈 배열)와 같은 방향이고 Pyrefly(`null`)와는 다른 방향
 이다 - `provider_null_incoming_calls`가 존재하는 이유였던 그 갈림이 jdtls에서는 (적어도
-이번에 측정한 두 버전에서는) 발생하지 않는다는 뜻이다. **다만 이건 "안전한 shape"이 확정됐다는
-뜻이지 "빈 결과가 항상 진짜 no-caller"라는 뜻은 아니다** - indexing 미완료 상태에서의 빈
-결과와 진짜 no-caller를 구분하는 문제(위 "cold/warm 한계" 참고)는 여전히 안 풀렸다.
+이번에 측정한 두 버전, 이번 fixture에서는) 발생하지 않는다는 뜻이다. **이건 "이 fixture에서
+그랬다"는 관측이지 "jdtls는 항상 `[]`만 낸다"는 일반 주장이 아니다** - 다른 실패 경로
+(project import 실패, 파일이 workspace 밖, 다른 종류의 미해결 상태)에서도 같은 shape을
+내는지는 이 lane이 확인하지 않았다. 그리고 이건 "안전한 shape이 확정됐다"는 뜻이지 "빈 결과가
+항상 진짜 no-caller"라는 뜻도 아니다 - indexing 미완료 상태에서의 빈 결과와 진짜 no-caller를
+구분하는 문제(위 "cold/warm 한계"/"후속 실측" 참고)는 이번 fixture 범위 안에서는 실제로
+"블로킹"으로 풀리는 것처럼 보였지만, 더 느린 실제 프로젝트에서도 그런지는 안 잰 채로 남는다.
 
 ## jdtls 버전 하한에 대한 판단 — commander의 조건부 규칙 그대로 적용
 
@@ -267,17 +344,20 @@ commander가 정확히 이 조건("오래된 쪽에서도 incoming이 멀쩡하�
 
 ## 남은 공백 (이 lane이 안 잰 것 - 숨기지 않는다)
 
-- **cold/warm을 실제로 분리하지 못했다**(위 절 참고) - 더 큰 fixture가 필요하다.
+- ~~cold/warm을 실제로 분리하지 못했다~~ **후속 실측으로 분리 성공** - 위 "후속 실측" 절
+  참고. 다만 **최대 ~7초, dependency 없는 fixture 기준**이고, 실제 dependency 해석이 분·초
+  단위로 걸리는 프로젝트에서 같은 "블로킹" 동작이 유지되는지는 여전히 안 잰다.
+- ~~멀티모듈, cross-file caller는 안 잰다~~ **후속 실측으로 확인함** - cross-module·같은
+  모듈-다른 파일 둘 다 정확했다(위 "1순위" 절).
 - **`v1.45.0` × Gradle project 조합을 안 잰다** - 최신 버전(등재 후보)의 안전성만 실제
-  프로젝트 형태로 재확인했다.
+  프로젝트 형태로 재확인했다. 멀티모듈 매트릭스도 `v1.61.0` 하나만 쟀다.
 - **interface default method, record compact constructor는 이번 lane의 범위 밖**(story
-  문서가 이미 별개 위험으로 분리해 둔 항목) - 여전히 미확인.
-- **Maven은 안 잤다** - Gradle만 확인했다. story의 범위는 Gradle/Maven 둘 다 언급하지만, 이
-  entry gate는 "project 형태가 결과를 바꾸는가"라는 질문에 하나의 real project 예시만
-  있으면 충분하다고 판단했다 - Maven이 다르게 동작할 가능성은 배제되지 않았다.
-- **멀티모듈, cross-file caller는 안 잰다** - fixture가 단일 파일/단일 모듈이다. Java의
-  cross-file/cross-module 관계 관측은 story 1단계의 더 넓은 baseline(이번 entry gate가
-  아닌) 몫으로 남는다.
+  문서가 이미 별개 위험으로 분리해 둔 항목) - 여전히 미확인(commander 3순위 대상).
+- **Maven은 안 잤다** - Gradle만 확인했다(commander 2순위 대상, Gradle 다음 순서로 이미
+  정해짐).
+- **실제 외부 dependency가 있는 프로젝트는 안 잰다** - 이번 멀티모듈도 여전히 dependency
+  없음(commander 지시대로 "의존성 없음"을 유지) - "블로킹이 실제 분·초 단위 지연에서도
+  유지되는가"라는 새로 생긴 질문에는 아직 답이 없다.
 - **jdtls의 advertised capability(`callHierarchyProvider` 선언 값)를 정식으로 기록하지
   않았다** - raw `initialize` 응답에 있었지만 이 문서에 표로 옮기지 않았다(원본 JSON 로그에는
   있다).

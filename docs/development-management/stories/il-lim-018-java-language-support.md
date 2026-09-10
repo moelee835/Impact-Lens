@@ -178,6 +178,38 @@ Java 개발자로서 검증된 Java LSP와 JDK/build(Gradle 또는 Maven) 조건
 하한선에 `eclipse.jdt.ls#3388` 수정을 포함하는 최소 릴리스 번호가 실측으로 채워진다(위 "권장
 대응" 참고, 이 lane은 그 번호를 확인하지 않았다).
 
+> **2026-09-10 entry gate 실측 완료(`docs/work/task-m3-java-entry-gate.md`)**: 5번 항목이
+> **통과**했다 - jdtls v1.45.0/v1.61.0, standalone·최소 Gradle(dependency 없음)·멀티모듈
+> (cross-file·cross-module) 전부에서 static·instance method reference로만 호출되는 메서드의
+> incoming call hierarchy가 정확했다. `eclipse.jdt.ls#3388`은 outgoing에만 있었고 incoming은
+> 영향받지 않았다는 것이 harness 자신의 outgoing 재현(같은 fixture, v1.45.0에서 알려진 버그
+> 재현 확인)으로 뒷받침된다. incoming이 구/신 버전 모두 멀쩡해 `eclipse.jdt.ls#3388`의 최소
+> 수정 릴리스 번호는 더 좁히지 않았다 - **Impact Lens가 incoming만 쓰는 한 이 번호는 preset
+> 등재 판단에 영향을 주지 않는다**는 것이 이번 실측의 결론이다.
+>
+> **다만 entry gate 통과 과정에서 이번 마일스톤이 계속 다뤄 온 것과 같은 축의 문제를
+> 하나 더 찾았다(commander 지적).** lambda 본문 안에서 직접 호출되는 메서드의 incoming
+> caller가 사용자가 작성한 이름(`lambdaCaller`)이 아니라 **컴파일러가 만든 합성 메서드**
+> (`Fixture$1.accept(String)`)로 나온다 - method reference의 경우 caller가 진짜 enclosing
+> 메서드 이름 그대로 나오는 것과 대비된다. 관계 자체는 실재하지만(그 합성 메서드가 실제로
+> `lambdaTarget`을 부른다), **caller 이름이 사용자의 소스 모델과 어긋난다** - 이건 M4 gate 1
+> lane D가 `gopls`/`clangd`의 `data.edges`에서 찾은 것("관계는 실재하지만 'caller' 라벨이
+> 확인된 것보다 더 많이 약속한다")과 근본 축이 같다. 그쪽은 라벨(호출 vs 참조)이 어긋났고
+> 여기는 caller의 **이름 자체**가 사용자 코드에 없는 식별자로 나온다는 차이가 있을 뿐, "관계는
+> 맞는데 사용자 모델과 표현이 안 맞는다"는 실패 모양은 같다. Java preset을 실제로 구현하는
+> lane은 이 문제를 gopls/clangd 건과 같은 방식(문서 각주 또는 caller 이름을 사용자가 읽을 수
+> 있는 형태로 다시 매핑)으로 다룰지 판단해야 한다 - 이 실측 lane은 발견만 하고 해결하지 않는다.
+
+## Kotlin(`IL-LIM-016`)과의 상황 차이 (2026-09-10, reviewer 조사 중)
+
+Kotlin은 Java와 상황이 다르다 - `prepareCallHierarchy`가 **top-level 함수에서는 `null`을
+반환하고 class method에서는 실제 아이템을 낸다**(reviewer 조사, 진행 중 - index confound를
+푸는 중이라 아직 확정 아님). Kotlin의 관용적 코드가 top-level 함수를 많이 쓰기 때문에, 이게
+확정되면 Kotlin의 지원 범위가 Java보다 더 좁게 잘릴 수 있다. 이 story(`IL-LIM-018`)의 entry
+gate 결과를 Kotlin에 그대로 옮기지 않는다 - 두 언어는 서로 다른 provider(jdtls vs Kotlin
+LSP)이고, 이번 실측이 보여준 대로 같은 종류의 질문(method reference/top-level 함수의 incoming
+가시성)이 provider마다 다른 답을 낼 수 있다.
+
 ### 2단계 — discovery와 JDK compatibility (Kotlin과 공유)
 
 1. standalone binary/jar의 platform path와 version parser를 구현한다 — `IL-LIM-016`의 동일 단계와
