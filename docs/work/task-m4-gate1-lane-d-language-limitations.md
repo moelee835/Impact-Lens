@@ -171,33 +171,109 @@ result."`는 **형태를 구분하지 않은 과장**이다 - 정확히 C++ 사�
 - 이름을 문자열로만 지목하는 진짜 리플렉션(`MethodByName("FixtureTarget")`)은 **문서 주장대로
   안 잡힌다** - 소스에 그 이름에 대한 정적 참조 자체가 없기 때문이다.
 
-**commander 판단을 요청하는 지점**: 이걸 어떻게 문서에 반영할지는 이 lane 혼자 정할 사안이
-아니라고 판단해 fixture를 짜기 전에 먼저 보고한다. 두 가지 축이 있다:
-1. **"never"/"only" 같은 무조건 단정을 없애고, C의 macro/virtual-dispatch 절처럼 형태별로
-   갈라 적는다** - 예: "이름을 문자열로 지목하는 진짜 리플렉션은 안 잡히지만, 식별자를 직접
-   참조해 함수 값을 얻은 뒤 리플렉션으로 호출하는 흔한 모양은 gopls가 그 참조 자체를 호출로
-   보고하기 때문에 오히려 잡힌다"는 식.
-2. **gopls의 "참조를 전부 호출로 보고한다"는 동작 자체가 별도로 문서화할 가치가 있는, 다른
-   방향(과소 보고가 아니라 과다 보고)의 한계일 수 있다** - 대입만 하고 호출은 절대 안 하는
-   코드도 "caller"로 잘못 나타난다는 것은 사용자가 오해할 수 있는 반대쪽 위험(존재하지 않는
-   caller가 있다고 믿게 됨)이다. 이건 원래 이 lane이 찾으려던 "과소 보고" 종류의 gap이 아니라
-   구조적으로 다른 종류의 결함이라, IL-LIM-001의 언어 matrix 범위인지 별도 이슈로 뗄지부터
-   판단이 필요하다.
+## 네 provider 교차 대조 — commander 지시: "gopls만의 결함인가, 일반적 동작인가"
 
-**대표 gap 제안(commander 확인 후 확정)**: 구성 3(`MethodByName`, 진짜 이름-문자열 리플렉션)을
-"여전히 안 잡히는" 대표 gap의 반복 fixture로 쓰고, 구성 1/2가 드러낸 과다-보고 동작은 문서
-정정과 함께 별도로 기록한다 - 다만 이 배분이 맞는지, 과다-보고를 이 lane에서 바로 정정할지
-아니면 별도 이슈로 뗄지 확인을 원한다.
+commander의 지적: 이 저장소에 이미 **반대 방향 증거**가 있다 - pyright preset의 `docs.limitations`는
+FastAPI route handler/`Depends()` 대상이 "프레임워크가 실제로 호출하지만 분석 코드 안에 호출
+표현식이 없어서 Call Hierarchy에 안 잡힌다"고 적고, 이는 실제 계측(instrumented FastAPI + wire
+수준)으로 뒷받침돼 있다 - 즉 **pyright는 참조만으로는 caller로 안 잡는다는 이미 검증된 전례가
+있다.** 그러면 gopls와 pyright가 `incomingCalls`의 의미 자체를 다르게 구현하고 있다는 뜻이 되고,
+이건 이 제품의 가장 근본적인 필드(`edges`)에서 일어나는 일이라 gopls 하나만의 일화로 남겨둘 수
+없다.
 
-## 다음 단계 (commander 확인 대기, 착수 안 함)
+**같은 대조(호출은 전혀 없이 값으로만 참조)를 네 provider 모두에 돌렸다**(기존 fixture 재사용,
+비용 저렴):
 
-1. Go의 두 축(과소-보고 vs 과다-보고) 처리 방향 확인.
-2. 확인되면 네 언어 모두 `clangdIntegration.test.ts` 수준의 반복 fixture(실제 서버, 실제 파일,
-   버전 분기 - gopls/clangd는 버전별 분기, bundled TS/pyright는 "이 pin에서 관측했다"로 단순화)
-   작성.
-3. `catalog.ts`의 `docs.limitations` 문장을 실측대로 갱신 - Go는 반드시, 나머지 셋은 근거 인용만
-   추가(실측 결과가 기존 문장과 일치했으므로 문장 자체는 안 바뀜).
-4. 전체 재검증(`cli:test`/`test`/`test:response-policy`), commit, push, PR.
+| provider | 대상 언어 | "호출 없이 참조만" 케이스 | 결과 |
+| --- | --- | --- | --- |
+| bundled-typescript 6.0.0 | TS/JS | `const stored = fixtureTarget;` / `const f: () => number = fixtureTarget; void f;` | **0건 - 참조를 caller로 안 잡음** |
+| bundled-pyright 1.1.413 | Python | `stored_ref = target.fixture_target` / `f = target.fixture_target` (호출 없음) | **0건 - 참조를 caller로 안 잡음** |
+| gopls v0.19.1 | Go | `var storedRef = FixtureTarget` / `var f func() int = FixtureTarget; _ = f` | **1건(각각) - 참조 자체를 caller로 잡음** |
+| clangd 17.0.0 | C | `void (*fp)(void) = fixture_target; (void)fp;` (호출 전혀 없음) | **1건 - 참조(대입 지점) 자체를 caller로 잡음** |
+
+**결론 - gopls만의 결함이 아니다. 두 provider군이 `incomingCalls`의 의미를 다르게 구현한다.**
+`gopls`와 `clangd`(둘 다 `verified-external` tier, 외부 LLVM/Go 툴체인 바이너리)는 **참조 자체를
+caller로 보고**하고, `bundled-typescript`와 `bundled-pyright`(둘 다 `bundled` tier, npm 패키지)는
+**진짜 호출 표현식만** caller로 잡는다. **같은 모양의 코드(호출 없이 함수를 값으로만 참조)가
+언어에 따라 다른 답을 받는다** - 사용자에게는 provider 구현 세부가 아니라 이 제품이 보이는
+행동이므로, 이건 언어 하나의 문제가 아니라 이 제품 전체의 provider-간 일관성 문제다.
+
+**C 쪽은 사실 이미 정확하게 적혀 있었다** - 기존 문서 문장(`'...only the pointer's own assignment
+site may appear as a reference.'`)이 "caller로 확정된다"가 아니라 "참조로 나타날 *수도* 있다"는
+더 약한 표현을 이미 쓰고 있다. Go의 기존 문장(`'Calls made only through reflection are not part of
+the Call Hierarchy result.'`)만 이 nuance 없이 "안 잡힌다"로 무조건 단정하고 있었다 - 즉 이번
+발견은 "Go만 이상하다"가 아니라 "**Go의 문서만 clangd가 이미 하고 있는 정확한 표현 방식을
+따라가지 못했다**"는 것에 더 가깝다.
+
+**Q1 답 (commander 방향 확정, 반영 완료)**: C의 macro/virtual-dispatch 절과 같은 형식으로
+갈랐다 - 정적 식별자 참조가 있는 리플렉션(잡힘, 그런데 "리플렉션을 이해해서"가 아니라 "참조를
+호출로 보고해서")과 이름-문자열 리플렉션(안 잡힘, 정적 참조 자체가 없어서)을 구분하고, 전자를
+"잡힌다"고만 쓰지 않고 이유(참조 보고, 진짜 호출 이해 아님)까지 명시한다 - 아래 "제안 문장" 절.
+
+**Q2 답 (commander 확정)**: **수정은 별도 lane, 기록·문서화는 이번 lane.** 이유-
+- 결함 종류가 다르다: 이 lane은 과소 보고(gap), 이건 과다 보고(존재하지 않는 caller를 있다고
+  믿게 함) - 정반대 방향.
+- 영향 범위가 다르다: augmentation이 아니라 `edges` 자체 - M4가 계약을 안 건드리기로 한 그 필드다.
+- 고치는 방법이 자명하지 않다(필터링? 라벨링? `edges`의 계약 변경?) - 측정 없이 정할 문제가
+  아니다.
+- **다만 문서화는 미루지 않는다** - "알면서 출하하는 것이 문서 불일치보다 나쁘다"(commander).
+  사용자가 알아야 할 사실: **"Go/C에서 caller로 보고된 항목 중 일부는 실제 호출이 아니라
+  참조일 수 있다."** `docs.limitations`는 원래 "안 잡히는 것" 목록이라 이 범주(과다 보고)가
+  안 맞는다 - 별도 필드나 섹션이 필요하다는 뜻으로, 아래 "문서화 위치" 절에서 제안한다.
+
+reviewer에게 Go 발견의 독립 재현을 별도로 요청했다(commander) - 사용자 문서에 들어갈 주장이라
+한 세션의 측정만으로 확정하지 않는다는 방침.
+
+## 제안 문장 (Q1 반영, commander/reviewer 확인 대기)
+
+**Go, 갈라 적는 안**:
+> Calls made only through reflection using a runtime-obtained method name (`reflect.Value.
+> MethodByName("...")`, no static identifier reference to the target in source) are not part of
+> the Call Hierarchy result. Calls made by capturing a function value through a direct identifier
+> reference and invoking it reflectively (`reflect.ValueOf(target).Call(...)`) DO appear, but not
+> because gopls resolves the reflective call - gopls's incomingCalls reports any reference to a
+> function name (assignment, variable capture, argument passing) as a caller regardless of whether
+> that reference is ever actually invoked (confirmed directly: a call-free reference alone produces
+> the identical result). A reported caller for this preset is therefore not proof an actual call
+> exists at that site.
+
+**C, 기존 문장 보강 안**(구조는 유지, 과다-보고 성격을 명시적으로 연결):
+> Calls made only through a function pointer invocation are not part of the Call Hierarchy result;
+> only the pointer's own assignment site may appear as a reference - even when the pointer is never
+> actually called through (confirmed directly: an assignment with no subsequent call produces the
+> identical result). The same reference-reported-as-caller behavior gopls exhibits for Go reflection
+> applies here.
+
+## 문서화 위치 제안 (과다 보고, 별도 lane에서 수정 - 이번 lane은 기록만)
+
+`docs.limitations`는 "무엇이 안 잡히는가"만 나열하는 배열이라 "잡히지만 진짜 호출이 아닐 수
+있다"는 반대 방향 사실을 넣기엔 범주가 안 맞는다(commander 지적). 두 후보:
+1. `ProviderPreset.docs`에 `limitations`와 나란한 새 필드(예: `callerReliability` 또는 유사한
+   이름)를 추가해 gopls/clangd만 채운다 - 계약 변경이라 `il-contract-architect`가 설계해야
+   한다.
+2. 우선은 `docs.install` 옆 또는 `docs.limitations` 배열 자체에, 다른 항목과 다른 서술
+   방향("안 잡힘"이 아니라 "잡히지만 확정 아님")임을 명시한 문장 하나를 추가 - 계약 변경 없이
+   기존 배열 재사용, 다만 배열의 기존 "이건 전부 부재 목록" 암묵적 계약을 깨는 것이라 사용자
+   문서(README 등)에서 이 배열을 읽는 쪽의 가정도 같이 확인해야 한다.
+이 lane은 어느 쪽도 아직 구현하지 않는다 - commander가 "수정은 별도 lane"이라고 확정했으므로,
+이번 lane은 위 "제안 문장" 두 개를 실제 `catalog.ts`에 반영하는 것까지만 하고, 과다-보고 자체를
+알리는 새 필드/구조는 만들지 않는다(그 결정 자체가 별도 lane의 설계 대상).
+
+## 다음 단계
+
+1. ~~Go의 두 축(과소-보고 vs 과다-보고) 처리 방향 확인~~ **완료** - Q1/Q2 모두 commander가
+   확정했다.
+2. reviewer의 Go 발견 독립 재현 대기 - 그 결과를 반영한 뒤 `catalog.ts`를 갱신한다(위 "제안 문장"
+   그대로, reviewer 재현이 다른 결과를 내면 그에 맞게 수정).
+3. 네 언어 모두 `clangdIntegration.test.ts` 수준의 반복 fixture(실제 서버, 실제 파일, 버전 분기 -
+   gopls/clangd는 버전별 분기, bundled TS/pyright는 "이 pin에서 관측했다"로 단순화) 작성 - TS/JS·
+   Python·C는 기존 문장을 그대로 확인하는 fixture, Go는 갈라 적은 두 문장을 각각 증명하는
+   fixture.
+4. `catalog.ts`의 `docs.limitations` 문장 갱신 - Go는 갈라 적기, C는 "호출 없이도 재현됨" 근거
+   보강, TS/JS·Python은 근거 인용만 추가.
+5. 전체 재검증(`cli:test`/`test`/`test:response-policy`), commit, push, PR.
+6. (별도 lane, 이번 범위 밖) 과다-보고 자체를 사용자에게 어떻게 알릴지 설계 - `il-contract-
+   architect` 필요 여부부터 판단.
 
 ## 스크래치 측정 재현 방법 (다음 사람을 위해)
 
