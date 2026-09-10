@@ -5,7 +5,8 @@ import { classifyRelationDetailed, toSuppressedTestRule, toTestRule } from './te
 import { readProjectTestPatterns } from './testPatternsConfig';
 import { projectCompletion } from './coverage';
 import { inspectCompileDatabase } from './providers/compileDatabase';
-import { C_FAMILY_LANGUAGE_IDS } from './providers/resolve';
+import { inspectJvmProjectModel } from './providers/jvmProjectModel';
+import { C_FAMILY_LANGUAGE_IDS, JVM_LANGUAGE_IDS } from './providers/resolve';
 import { AugmentationResult, runAugmentation } from './shared/adapters';
 import { externalRange, isOutside, relativeFile, symbolId, symbolKindName, uriFile } from './shared/impactHelpers';
 import {
@@ -183,6 +184,11 @@ export async function analyzeImpact(
     // matching how `provider.analysisObservations?.()` and `observations` already relate below.
     ...(C_FAMILY_LANGUAGE_IDS.has(provider.capabilities.detectedLanguageId)
       ? { compileDatabase: await inspectCompileDatabase(workspace) }
+      : {}),
+    // Same shape as compileDatabase above: read-only, lowest precedence, only for the languages it
+    // applies to (M3 Java Lane J, docs/work/task-m3-java-project-import-readiness.md).
+    ...(JVM_LANGUAGE_IDS.has(provider.capabilities.detectedLanguageId)
+      ? { jvmProjectModel: await inspectJvmProjectModel(workspace) }
       : {}),
     // M4 stage 2: signals augmentation's own findings the same way `compileDatabase` above signals
     // its own read-only discovery - computed here, lowest precedence, so an explicit test/caller

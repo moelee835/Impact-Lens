@@ -259,6 +259,27 @@ unit. Impact Lens reports this file type with the internal language id `c-cpp-he
 be recognized at all. This is a provider-selection signal, not an error: `clangd` still claims `.h` files
 and analyzes them once selected.
 
+## Java: `jvm_project_model_missing`, and what `unsupported` tier means
+
+`java-jdtls` (the shipped Java preset) is `tier: 'unsupported'`, not `verified-external` like `gopls` and
+`clangd` — a different, weaker claim. `unsupported` means the catalog knows how to launch the provider
+correctly (executable discovery, launch arguments, a `readiness` profile), but makes no claim about the
+quality of its answers. It is never selected by Auto; a request must name it explicitly with
+`providerPreset: "java-jdtls"`. Do not describe a `java-jdtls` result the way a `verified-external` result
+is described — do not say Java support has been verified.
+
+`jvm_project_model_missing` (`limitationDetails`, severity `warning`, scope `provider`) reports that no
+Gradle (`build.gradle(.kts)`, `settings.gradle(.kts)`) or Maven (`pom.xml`) project file was found at the
+workspace root, for a multi-file Java workspace. jdtls's `readiness` can report `ready` (its own indexing
+genuinely finished) while still having no project model that lets it see relationships across files — a
+real, reproduced case: a build-system-free workspace with two files where one calls the other returned an
+empty `incomingCalls` for the real caller. This code is unconditional on caller count, like the
+`compile_database_*` codes above, and may co-occur with `no_incoming_callers` — neither substitutes for the
+other, they name different axes (project-model absence vs. semantic absence). A single standalone `.java`
+file with no build marker does NOT get this code: that configuration is the one this preset's entry gate
+actually verified, so `jvm_project_model_missing` only fires once a *second* source file is found without a
+build marker present. When this code is present, do not state or imply that nothing calls the symbol.
+
 ## `requestStatus: partial`
 
 `partial` means the graph is usable but incomplete, never a complete list of callers. Name the cause from
@@ -304,6 +325,16 @@ into a false empty result.
 declared it needs (`ok: false`, `details.stage: "indexing"`, exit 5, `details.missing` listing the
 workspace-relative paths). Impact Lens deliberately never generates, builds, or syncs these files. Tell the
 user which files are missing and that they must supply them; do not offer to create them.
+
+`error.code: "timeout"` (`ok: false`, `details.stage: "query"`, `details.method` naming the raw LSP method,
+exit 6, `retryable: true`, message `"Language Server request timed out: <method>"`) is a *different* failure
+from `provider_not_ready` above and is not replaced by a preset declaring `readiness` — confirmed by
+execution (`docs/work/task-m3-java-project-import-readiness.md`), not assumed: readiness can settle
+normally (the server genuinely announced ready) and a specific query can still exceed the request timeout
+afterward, which surfaces this code with the raw protocol method name in the message, exactly as it always
+has. `provider_not_ready` as `error.code` only ever fires before the first query is sent; `timeout` can fire
+on any individual request, before or after readiness settled. Do not read a `timeout` failure as evidence
+about indexing state one way or the other.
 
 ## Fixed summary shape
 

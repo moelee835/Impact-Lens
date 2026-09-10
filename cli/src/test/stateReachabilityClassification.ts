@@ -31,6 +31,10 @@ export const CLASSIFIED_OBSERVATION_FIELDS: Readonly<Record<string, ObservationF
   // this is NOT one of the fields stateReachability.integration.test.ts's per-provider runtime check can
   // see (docs/work/task-m2-clangd-preset.md stage 3).
   compileDatabase: 'has-producer',
+  // impact.ts's analyzeImpact() sets this directly (jvmProjectModel: await inspectJvmProjectModel(workspace)),
+  // gated on providers/resolve.ts's JVM_LANGUAGE_IDS - same producer layer as compileDatabase above, for
+  // the same reason (docs/work/task-m3-java-project-import-readiness.md).
+  jvmProjectModel: 'has-producer',
   // impact.ts's analyzeImpact() sets this directly when any adapter's own budget (never the static
   // traversal's) runs out (M4 stage 1's "budget/limits leak" decision). Same producer layer as
   // `compileDatabase` and `semantic` above - never inside LspCallHierarchyProvider.analysisObservations().
@@ -78,6 +82,9 @@ export const OBSERVATION_FIELD_PRODUCER: Readonly<Record<string, 'lsp-provider' 
   indexing: 'lsp-provider',
   nullIncomingCallsObserved: 'lsp-provider',
   compileDatabase: 'analyze-caller',
+  // Same reasoning as compileDatabase: jvmProjectModel is a workspace-level filesystem fact
+  // (Gradle/Maven markers) a generic LspCallHierarchyProvider has no business knowing about.
+  jvmProjectModel: 'analyze-caller',
   // Same reasoning as compileDatabase: a framework adapter is a language/framework-specific concept a
   // generic LspCallHierarchyProvider has no business knowing about, so both are produced one layer up in
   // impact.ts's analyzeImpact(), never inside analysisObservations().

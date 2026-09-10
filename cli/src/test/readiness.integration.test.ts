@@ -81,10 +81,11 @@ async function session(
   fixture: string,
   readiness: ProviderReadinessProfile | undefined,
   env: Record<string, string> = {},
+  timeoutMs = 8000,
 ): Promise<Session> {
   const workspace = await scratch(t, prefix);
   withEnv(t, { IMPACT_LENS_MOCK_TARGET_URI: pathToFileURL(path.join(workspace, 'target.ts')).toString(), ...env });
-  const provider = new LspCallHierarchyProvider(workspace, 'target.ts', undefined, 8000, {
+  const provider = new LspCallHierarchyProvider(workspace, 'target.ts', undefined, timeoutMs, {
     resolution: { catalog: [mockPreset(fixture, readiness)] },
   });
   t.after(() => provider.dispose());
@@ -246,6 +247,62 @@ test('a fail budget overrun fails at the indexing stage before any query is sent
   assert.deepEqual(error.details, { stage: 'indexing', budgetMs: 60, observedWorking: false });
   // The failure is the point: an empty graph was never produced, so nothing can be mistaken for one.
   assert.equal(provider.capabilities.observed.prepareCallHierarchy, false);
+});
+
+// M3 Java Lane J (docs/work/task-m3-java-project-import-readiness.md): found while confirming the
+// provider_not_ready/timeout distinction against real jdtls with --timeout-ms 3000 against
+// java-jdtls's declared budgetMs: 45000 - the response said "within 45000ms" (the preset's raw
+// declared budget) even though the request-level cap made it actually wait only ~3s. The test above
+// never exercises this because its capMs (8000, session()'s default) is larger than its budgetMs (60) -
+// capMs is never the binding constraint there. This test makes capMs the binding constraint instead.
+test('a fail budget overrun reports the actually-applied (capped) budget, not the preset\'s raw declared one', { timeout: 30000 }, async t => {
+  const { workspace, provider } = await session(t, 'impact-lens-readiness-fail-capped-', 'readinessServer', {
+    signals: [{ kind: 'work-done-progress', means: 'ready', titlePattern: 'Indexing' }],
+    budgetMs: 45000,
+    onBudgetExceeded: 'fail',
+  }, { IMPACT_LENS_MOCK_READY_MODE: 'never' }, 500);
+
+  const error = await rejection(() => analyze(workspace, provider));
+  assert.equal(error.code, 'provider_not_ready');
+  // 500, not 45000: the session-level cap (session()'s last argument above) is what this call actually
+  // waited, and both the message and details must say so.
+  assert.deepEqual(error.details, { stage: 'indexing', budgetMs: 500, observedWorking: false });
+  assert.match(error.message, /within 500ms/);
+  assert.doesNotMatch(error.message, /45000/);
+});
+
+// ---------------------------------------------------------------------------
+// Readiness settling is not the same failure mode as a query itself timing out afterward
+//
+// M3 Java Lane J (docs/work/task-m3-java-project-import-readiness.md): commander asked, by execution
+// rather than by reading the code, whether "readiness never arrives" and "readiness arrives, then the
+// query times out" reach the user as the same thing or something different. They do not, and this test
+// is the execution that proves it, alongside the real jdtls run in that work doc's own log.
+// ---------------------------------------------------------------------------
+
+test('readiness settling is a different failure than a query that times out afterward', { timeout: 30000 }, async t => {
+  const { workspace, provider } = await session(t, 'impact-lens-readiness-then-query-timeout-', 'readinessServer', {
+    signals: [{ kind: 'notification', means: 'ready', method: 'custom/indexStatus', match: { path: ['index', 'state'], equals: 'ready' } }],
+    budgetMs: 5000,
+    onBudgetExceeded: 'fail',
+  }, {
+    IMPACT_LENS_MOCK_READY_MODE: 'notification',
+    IMPACT_LENS_MOCK_READY_DELAY_MS: '0',
+    IMPACT_LENS_MOCK_HANG_ON_QUERY: '1',
+  }, 300);
+
+  const error = await rejection(() => analyze(workspace, provider));
+  // Not provider_not_ready: readiness genuinely settled (the mock server announced ready immediately,
+  // well inside the 300ms cap), so awaitReadiness() returned normally and the traversal reached its
+  // first real query. This is JsonRpcClient's own generic per-request timer firing on
+  // textDocument/prepareCallHierarchy specifically - readiness has no visibility into it at all.
+  assert.equal(error.code, 'timeout');
+  assert.equal(error.exitCode, 6);
+  assert.match(error.message, /Language Server request timed out: textDocument\/prepareCallHierarchy/);
+  assert.deepEqual(error.details, { stage: 'query', method: 'textDocument/prepareCallHierarchy' });
+  // Readiness itself is not in question here - it settled. Distinguishing this shows the two failure
+  // modes really are different code paths, not the same timeout relabeled.
+  assert.equal(provider.analysisObservations().indexing?.status, 'ready');
 });
 
 // ---------------------------------------------------------------------------

@@ -33,19 +33,29 @@ export type ManifestValue =
 export type ManifestObject = { readonly [key: string]: ManifestValue };
 
 /**
- * The complete set of references a manifest may resolve. It is deliberately two entries long.
+ * The complete set of references a manifest may resolve. It was two entries long until the M3 Java
+ * lane needed a third.
  *
- * `workspaceRoot`, `detectedLanguageId`, `discoveredExecutablePath` and a path-`join` node were all
- * considered and left out: no preset in this catalog consumes them, and a declared value nothing
- * produces is the same drift `cli/src/errors.ts` exists to prevent. They get added by the change that
- * first needs them.
+ * `detectedLanguageId`, `discoveredExecutablePath` and a path-`join` node were considered and stayed
+ * out: no preset in this catalog consumes them, and a declared value nothing produces is the same
+ * drift `cli/src/errors.ts` exists to prevent. They get added by the change that first needs them.
+ *
+ * `workspaceRoot` is that change for a fourth candidate that was on the same "left out" list: it
+ * resolves to the analyzed workspace's absolute path. The `java-jdtls` preset
+ * (`docs/work/task-m3-java-project-import-readiness.md`) needs it for its `-data` argument — jdtls's
+ * own default workspace-metadata directory is keyed only by the cwd's *basename* SHA1 hash, so two
+ * differently-located projects sharing a folder name would silently share the same index (reproduced
+ * directly: two fixture directories both named `api` at different absolute paths resolved to the
+ * byte-identical default `-data` path via the real, unmodified jdtls launcher). Passing the full
+ * workspace path instead makes that collision structurally impossible - two different projects always
+ * have two different `-data` values regardless of folder name.
  */
-export const MANIFEST_REF_SOURCES = ['nodeExecutable', 'bundledModuleEntry'] as const;
+export const MANIFEST_REF_SOURCES = ['nodeExecutable', 'bundledModuleEntry', 'workspaceRoot'] as const;
 export type ManifestRefSource = (typeof MANIFEST_REF_SOURCES)[number];
 
 export interface ManifestRef {
   readonly $ref: ManifestRefSource;
-  /** Required by `bundledModuleEntry` and rejected on the other source. */
+  /** Required by `bundledModuleEntry` and rejected on the other two sources. */
   readonly module?: string;
 }
 
@@ -209,6 +219,18 @@ export const AMBIGUOUS_LANGUAGE_ID = 'c-cpp-header';
  * that resolved to one of these three.
  */
 export const C_FAMILY_LANGUAGE_IDS: ReadonlySet<string> = new Set(['c', 'cpp', AMBIGUOUS_LANGUAGE_ID]);
+
+/**
+ * `detectedLanguageId` values a JVM-toolchain-driven provider can apply to. Used to gate `impact.ts`'s
+ * read-only JVM project-model discovery (`providers/jvmProjectModel.ts`, Lane J,
+ * docs/work/task-m3-java-project-import-readiness.md), the same way `C_FAMILY_LANGUAGE_IDS` gates
+ * `compileDatabase.ts` above. Named for the toolchain, not the language, on purpose: `IL-LIM-016`
+ * (Kotlin) shares this JVM readiness/build-tool diagnostic ground with `IL-LIM-018` (Java) by design
+ * (see that story's own "의존성 및 위험" section) - `'kotlin'` is added here, not created as a second
+ * set, whenever Kotlin actually needs it, matching how `C_FAMILY_LANGUAGE_IDS` already covers multiple
+ * languages under one name.
+ */
+export const JVM_LANGUAGE_IDS: ReadonlySet<string> = new Set(['java']);
 
 export interface ProviderPreset {
   /** Stable identifier. A request's `providerPreset` and `doctor <preset>` name this. */

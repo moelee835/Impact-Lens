@@ -205,6 +205,52 @@ test('a present, fresh compile database carries none of the three compile_databa
   assert.deepEqual(found, []);
 });
 
+// docs/work/task-m3-java-project-import-readiness.md: a real jdtls run reported `ready` (indexing
+// genuinely finished) while a build-system-free, multi-file workspace still returned an empty
+// incomingCalls for a real cross-file caller - readiness alone cannot catch this, so this is a
+// separate signal grounded in project-model state, not in indexing state or any provider response
+// value. Present even with 3 callers, matching compile_database_*'s "unconditional on caller count"
+// policy for the same reason: a missing project model can produce an incomplete-but-nonzero list too.
+test('jvm_project_model_missing is surfaced when there is no build marker and more than one source file', () => {
+  const projection = project(
+    { incomingCallerCount: 3 },
+    { jvmProjectModel: { status: 'missing', multipleSourceFiles: true } },
+  );
+  assert.ok(codes(projection).includes('jvm_project_model_missing'));
+});
+
+test('jvm_project_model_missing is NOT surfaced for a single standalone file - the entry gate\'s own verified case', () => {
+  const projection = project(
+    { incomingCallerCount: 0 },
+    { jvmProjectModel: { status: 'missing', multipleSourceFiles: false } },
+  );
+  assert.ok(!codes(projection).includes('jvm_project_model_missing'));
+});
+
+test('jvm_project_model_missing is NOT surfaced when a Gradle or Maven marker is present', () => {
+  assert.ok(!codes(project({ incomingCallerCount: 0 }, { jvmProjectModel: { status: 'present', marker: 'gradle' } }))
+    .includes('jvm_project_model_missing'));
+  assert.ok(!codes(project({ incomingCallerCount: 0 }, { jvmProjectModel: { status: 'present', marker: 'maven' } }))
+    .includes('jvm_project_model_missing'));
+});
+
+test('jvm_project_model_missing and no_incoming_callers co-occur - they name different axes, neither substitutes for the other', () => {
+  const projection = project(
+    { incomingCallerCount: 0 },
+    { jvmProjectModel: { status: 'missing', multipleSourceFiles: true } },
+  );
+  assert.ok(codes(projection).includes('jvm_project_model_missing'));
+  assert.ok(codes(projection).includes('no_incoming_callers'));
+});
+
+// The vacuous-pass guard for this feature: a non-Java request never sets `observations.jvmProjectModel`
+// at all, and that absence - not a fourth "clean" status value - is what keeps every other language's
+// response byte-identical to what it was before this feature existed.
+test('jvm_project_model_missing never appears when observations.jvmProjectModel is unset', () => {
+  const projection = project({ incomingCallerCount: 0 }, {});
+  assert.ok(!codes(projection).includes('jvm_project_model_missing'));
+});
+
 // The vacuous-pass guard for this feature: a non-C/C++ request never sets `observations.compileDatabase`
 // at all, and that absence - not a fourth "clean" status value - is what keeps every other language's
 // response byte-identical to before this stage.
@@ -377,6 +423,7 @@ test('the structured list and the v1 array differ only by the withheld codes', (
       'compile_database_missing',
       'compile_database_stale',
       'compile_database_ambiguous',
+      'jvm_project_model_missing',
     ],
   );
 });

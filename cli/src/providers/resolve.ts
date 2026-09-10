@@ -24,6 +24,7 @@ import {
   DEFAULT_SETTINGS_DELIVERY,
   JsonObject,
   JsonValue,
+  JVM_LANGUAGE_IDS,
   ProviderPreset,
   ProviderReadinessProfile,
   ProviderTier,
@@ -35,7 +36,7 @@ import { ProjectProviderChoice, readProjectProviderChoice } from './projectConfi
 // (`from '../providers/resolve'`, across impact.ts, doctor/checks.ts and providers.test.ts) keeps
 // working unchanged now that catalog.ts also needs AMBIGUOUS_LANGUAGE_ID and imports it from ./preset
 // directly, to avoid a circular edge (resolve.ts already imports PROVIDER_CATALOG from catalog.ts).
-export { AMBIGUOUS_LANGUAGE_ID, C_FAMILY_LANGUAGE_IDS };
+export { AMBIGUOUS_LANGUAGE_ID, C_FAMILY_LANGUAGE_IDS, JVM_LANGUAGE_IDS };
 
 /**
  * Everything provider selection decides before a process is spawned.
@@ -262,13 +263,22 @@ function chooseProvider(
  * catalog order: two verified servers for one language can produce different answers, and silently
  * preferring whichever was listed first would make the result depend on an implementation detail no
  * user can see.
+ *
+ * `unsupported`-tier presets are filtered out before anything else runs. That tier means "the catalog
+ * knows how to launch this correctly, but makes no claim about answer quality" - Auto existing at all
+ * is a quality claim (it is the CLI picking a provider on the user's behalf with no explicit request),
+ * so an `unsupported` preset must never reach the rest of this function no matter how the executable
+ * or ambiguity checks below would have resolved it. The explicit selection path (`providerPreset` /
+ * project config) does not call this function and is unaffected - naming an `unsupported` preset
+ * outright is exactly what the tier exists to allow.
  */
 function autoDiscover(
   detectedLanguageId: string,
   catalog: readonly ProviderPreset[],
   options: ProviderResolutionOptions,
 ): ProviderPreset {
-  const matching = presetsForLanguage(catalog, detectedLanguageId);
+  const matching = presetsForLanguage(catalog, detectedLanguageId)
+    .filter(preset => preset.tier !== 'unsupported');
   if (matching.length === 0) {
     throw new CliError(
       'provider_required_for_language',
@@ -424,20 +434,35 @@ export function discoverExecutable(
 }
 
 function refs(options: ProviderResolutionOptions): ManifestRefContext {
-  return options.refs ?? DEFAULT_REFS;
+  return options.refs ?? defaultRefs(options);
 }
 
 /**
- * The only two dynamic values a manifest can name.
+ * The three dynamic values a manifest can name. All three are catalog-only and all three resolve
+ * inside this package. `bundledModuleEntry` goes through the bundled artifact inspection so that a
+ * missing or unreadable server still produces the same reinstall error it produces today.
  *
- * Both are catalog-only and both resolve inside this package. `bundledModuleEntry` goes through the
- * bundled artifact inspection so that a missing or unreadable server still produces the same
- * reinstall error it produces today.
+ * `workspaceRoot` is built per call (unlike the other two, which are static) because it needs
+ * `options.workspace` - and deliberately has no `process.cwd()` fallback of its own, for the same
+ * reason `ProviderResolutionOptions.workspace` itself has none (see that field's doc comment): a
+ * preset that references `workspaceRoot` in its manifest but is resolved without a workspace is a
+ * caller bug, not a case to paper over with a guess at which directory was meant.
  */
-const DEFAULT_REFS: ManifestRefContext = {
-  nodeExecutable: () => process.execPath,
-  bundledModuleEntry: module => bundledModuleEntryPath(module),
-};
+function defaultRefs(options: ProviderResolutionOptions): ManifestRefContext {
+  return {
+    nodeExecutable: () => process.execPath,
+    bundledModuleEntry: module => bundledModuleEntryPath(module),
+    workspaceRoot: () => {
+      if (options.workspace === undefined) {
+        throw new Error(
+          'A preset manifest referenced the workspaceRoot $ref, but no workspace was supplied to '
+          + 'resolve it against. This is a caller bug: pass ProviderResolutionOptions.workspace.',
+        );
+      }
+      return options.workspace;
+    },
+  };
+}
 
 function presetCommand(
   preset: ProviderPreset,
@@ -643,6 +668,7 @@ export function languageId(file: string): string {
     case '.swift': return 'swift';
     case '.kt': return 'kotlin';
     case '.kts': return 'kotlin';
+    case '.java': return 'java';
     default: return 'plaintext';
   }
 }

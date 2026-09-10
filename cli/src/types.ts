@@ -412,6 +412,17 @@ export interface AnalysisObservations {
    */
   readonly compileDatabase?: CompileDatabaseObservation;
   /**
+   * JVM project-model state for a `java` request, read-only-discovered by
+   * `providers/jvmProjectModel.ts` before the provider session runs. Absent for any non-JVM request.
+   *
+   * Lane J (docs/work/task-m3-java-project-import-readiness.md) found by direct observation against
+   * the real jdtls binary that a build-system-free, multi-file workspace can report `ready` (jdtls's
+   * own indexing genuinely finished) while still returning an empty `incomingCalls` for a caller that
+   * exists in a different file - readiness answers "is the index done", not "is there a project model
+   * that could see across files at all". This is that second, separate signal.
+   */
+  readonly jvmProjectModel?: JvmProjectModelObservation;
+  /**
    * M4 stage 2: adapter ids whose own exploration budget was exceeded while looking for augmented
    * edges. Never derived from `TraversalFacts`/`facts.limits` (M4 stage 1's "budget/limits leak"
    * decision, docs/work/task-m4-stage1-evidence-contract.md) - an adapter's budget is entirely its
@@ -524,6 +535,18 @@ export type CompileDatabaseObservation =
   | { readonly status: 'missing' }
   | { readonly status: 'present'; readonly relativePath: string; readonly stale: boolean }
   | { readonly status: 'ambiguous'; readonly relativePaths: readonly string[] };
+
+/**
+ * Read-only discovery result for JVM project-model markers (Gradle/Maven). See
+ * `providers/jvmProjectModel.ts` for how this is produced.
+ *
+ * `missing` carries `multipleSourceFiles` rather than being split into two statuses because the policy
+ * decision (does this warrant a limitation) needs both facts together, and `coverage.ts` is where that
+ * policy lives, not here - this type only reports what was observed.
+ */
+export type JvmProjectModelObservation =
+  | { readonly status: 'present'; readonly marker: 'gradle' | 'maven' }
+  | { readonly status: 'missing'; readonly multipleSourceFiles: boolean };
 
 // ---------------------------------------------------------------------------
 // data.augmentedEdges (schemaVersion 1, additive - M4 stage 1 decision, see

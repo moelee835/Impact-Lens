@@ -40,6 +40,7 @@ const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor',
 export interface ManifestRefContext {
   readonly nodeExecutable: () => string;
   readonly bundledModuleEntry: (module: string) => string;
+  readonly workspaceRoot: () => string;
 }
 
 export interface ManifestResolveOptions {
@@ -219,6 +220,15 @@ function resolveRef(ref: ManifestRef, path: readonly string[], options: Manifest
       );
     }
     return refs.nodeExecutable();
+  }
+  if (ref.$ref === 'workspaceRoot') {
+    if (ref.module !== undefined) {
+      throw providerConfigInvalid(
+        'it passes a module to a $ref that does not take one.',
+        { origin: options.origin, path: where, ref: ref.$ref },
+      );
+    }
+    return refs.workspaceRoot();
   }
   if (typeof ref.module !== 'string' || ref.module.length === 0) {
     throw providerConfigInvalid(

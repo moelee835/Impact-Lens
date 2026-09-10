@@ -1,0 +1,155 @@
+{
+  "file": "32-jvm-project-model-missing-misread-as-no-impact.json",
+  "name": "jvm_project_model_missing (and readiness) misread as a proven zero",
+  "description": "task-m3-java-project-import-readiness.md: same response as fixture 31, but the summary asserts \"nothing calls this\" using only indexingStatus: ready as justification and never mentions jvm_project_model_missing. Before this Lane's response-policy-engine.mjs fix, indexingStatus === 'ready' alone made unsupported_no_impact_conclusion pass this through unflagged - the exact same 'ready is not proof of completeness' gap the CLI-level fix (coverage.ts's jvmProjectModelDetails()) closes for the response itself, just one layer up in the agent-summary check. Must-fail fixture 32.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.9.1"
+      },
+      "node": {
+        "version": "25.8.1",
+        "major": 25,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "direct"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "JDT Language Server (Standard)",
+        "requestedLanguageId": "java",
+        "detectedLanguageId": "java",
+        "selectedBy": "preset",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": "unknown"
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        },
+        "version": "1.61.0-SNAPSHOT"
+      },
+      "coverage": {
+        "traversal": {
+          "status": "complete",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "ready",
+          "evidence": {
+            "signal": "notification",
+            "detail": "language/status"
+          }
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable",
+          "jvm_project_model_missing",
+          "no_incoming_callers"
+        ]
+      },
+      "completion": {
+        "requestStatus": "succeeded",
+        "traversalStatus": "exhausted",
+        "semanticScope": "provider-static",
+        "indexingStatus": "ready"
+      },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "40cbddf5422efdab3906e687",
+          "name": "fixtureTarget(int) : int"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "jvm_project_model_missing",
+          "severity": "warning",
+          "scope": "provider",
+          "message": "No Gradle or Maven project file was found for this multi-file Java workspace. The provider may not be able to see relationships across files without one, so a result reporting no callers is not evidence that none exist.",
+          "action": "Add a build.gradle(.kts) or pom.xml describing this project, or confirm the caller manually before removing this symbol."
+        },
+        {
+          "code": "no_incoming_callers",
+          "severity": "warning",
+          "scope": "semantic",
+          "message": "No incoming callers were returned for this symbol.",
+          "action": "Confirm dynamic entry points manually before removing this symbol."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "JDT Language Server (Standard)",
+      "requestedLanguageId": "java",
+      "detectedLanguageId": "java",
+      "selectedBy": "preset",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": "unknown"
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      },
+      "version": "1.61.0-SNAPSHOT"
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable"
+    ],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from java-jdtls. The provider's index is ready. No incoming callers were returned for fixtureTarget. Nothing calls this function, so it is safe to remove.",
+  "expect": "fail",
+  "expectedViolations": [
+    "missing_high_severity_disclosure",
+    "unsupported_no_impact_conclusion"
+  ]
+}

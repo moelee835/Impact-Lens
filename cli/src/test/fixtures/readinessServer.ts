@@ -13,11 +13,21 @@ import { notify, request, respond, serve, timeoutFromEnv } from './mockServer';
 // the uri of the single Call Hierarchy item; `callHierarchy/incomingCalls` always answers empty, which
 // is the shape that makes "still indexing" and "genuinely uncalled" indistinguishable without the
 // index state — the exact confusion this lane removes.
+//
+// IMPACT_LENS_MOCK_HANG_ON_QUERY, when set to '1', makes `textDocument/prepareCallHierarchy` never
+// respond at all - readiness still settles normally (independent of this flag), so this is the "ready
+// arrived, then the query itself timed out" case, deliberately distinct from `never`/`working` above
+// (both of which never let readiness settle in the first place). M3 Java Lane J
+// (docs/work/task-m3-java-project-import-readiness.md): commander's question of whether this case
+// produces the same raw `JsonRpcClient` "Language Server request timed out: <method>" message readiness
+// exists to move users away from, or something readiness-aware - this fixture is what answers it by
+// execution rather than by reading the code alone.
 
 const mode = process.env.IMPACT_LENS_MOCK_READY_MODE ?? 'never';
 const delayMs = timeoutFromEnv('IMPACT_LENS_MOCK_READY_DELAY_MS', 0);
 const title = process.env.IMPACT_LENS_MOCK_PROGRESS_TITLE ?? 'Indexing project';
 const targetUri = process.env.IMPACT_LENS_MOCK_TARGET_URI;
+const hangOnQuery = process.env.IMPACT_LENS_MOCK_HANG_ON_QUERY === '1';
 const token = 'impact-lens-mock-index';
 
 function announce(): void {
@@ -59,6 +69,9 @@ serve(message => {
     return;
   }
   if (message.method === 'textDocument/prepareCallHierarchy' && message.id !== undefined) {
+    if (hangOnQuery) {
+      return;
+    }
     respond(message.id, targetUri === undefined ? [] : [{
       name: 'target',
       kind: 12,

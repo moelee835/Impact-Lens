@@ -1,0 +1,152 @@
+{
+  "file": "31-jvm-project-model-missing-correctly-reported.json",
+  "name": "jvm_project_model_missing correctly reported alongside indexingStatus: ready",
+  "description": "task-m3-java-project-import-readiness.md: java-jdtls (tier: unsupported) declares a readiness profile (language/status -> ServiceReady), unlike clangd - so a real jdtls run against a build-system-free, multi-file workspace reports indexingStatus: ready (its own indexing genuinely finished) while jvmProjectModelDetails() still fires, because readiness answers 'is the index done', not 'is there a project model that could see across files'. This is the response shape a real end-to-end run against the real jdtls v1.61.0 binary actually produced (Target.java calling Caller.java's target with no build.gradle/pom.xml present). The summary names both jvm_project_model_missing and no_incoming_callers explicitly and never asserts the symbol is uncalled. Must-pass fixture 31 - also the fixture that proves the new jvm_project_model_missing entry in LIMITATION_SURFACE_PATTERNS matches real prose ('No Gradle or Maven project file was found'), not only the underscored code name.",
+  "response": {
+    "schemaVersion": 1,
+    "operation": "impact.analyze",
+    "ok": true,
+    "runtime": {
+      "cli": {
+        "name": "@impact-lens/cli",
+        "version": "0.9.1"
+      },
+      "node": {
+        "version": "25.8.1",
+        "major": 25,
+        "executable": "node"
+      },
+      "runner": {
+        "source": "direct"
+      }
+    },
+    "data": {
+      "provider": {
+        "host": "lsp",
+        "name": "JDT Language Server (Standard)",
+        "requestedLanguageId": "java",
+        "detectedLanguageId": "java",
+        "selectedBy": "preset",
+        "languageMatch": true,
+        "callHierarchy": true,
+        "diagnostics": true,
+        "advertised": {
+          "callHierarchy": true,
+          "diagnostics": "unknown"
+        },
+        "observed": {
+          "prepareCallHierarchy": true,
+          "incomingCalls": true,
+          "diagnostics": true
+        },
+        "lifecycle": {
+          "stage": "query",
+          "status": "ready"
+        },
+        "version": "1.61.0-SNAPSHOT"
+      },
+      "coverage": {
+        "traversal": {
+          "status": "complete",
+          "requestedDepth": 5,
+          "reachedDepth": 0,
+          "maxNodes": 120
+        },
+        "semantic": {
+          "status": "static-only",
+          "evidenceSources": [
+            "lsp-call-hierarchy"
+          ]
+        },
+        "indexing": {
+          "status": "ready",
+          "evidence": {
+            "signal": "notification",
+            "detail": "language/status"
+          }
+        },
+        "reasons": [
+          "dynamic_calls_not_inferred",
+          "unsaved_buffers_unavailable",
+          "jvm_project_model_missing",
+          "no_incoming_callers"
+        ]
+      },
+      "completion": {
+        "requestStatus": "succeeded",
+        "traversalStatus": "exhausted",
+        "semanticScope": "provider-static",
+        "indexingStatus": "ready"
+      },
+      "complete": true,
+      "truncated": false,
+      "traversalLimits": [],
+      "nodes": [
+        {
+          "id": "40cbddf5422efdab3906e687",
+          "name": "fixtureTarget(int) : int"
+        }
+      ],
+      "limitationDetails": [
+        {
+          "code": "dynamic_calls_not_inferred",
+          "severity": "info",
+          "scope": "semantic",
+          "message": "Dynamic dispatch, reflection and runtime wiring are not inferred from a static call hierarchy."
+        },
+        {
+          "code": "unsaved_buffers_unavailable",
+          "severity": "info",
+          "scope": "request",
+          "message": "Unsaved editor buffers are not visible to the CLI, so the analysis used the files on disk."
+        },
+        {
+          "code": "jvm_project_model_missing",
+          "severity": "warning",
+          "scope": "provider",
+          "message": "No Gradle or Maven project file was found for this multi-file Java workspace. The provider may not be able to see relationships across files without one, so a result reporting no callers is not evidence that none exist.",
+          "action": "Add a build.gradle(.kts) or pom.xml describing this project, or confirm the caller manually before removing this symbol."
+        },
+        {
+          "code": "no_incoming_callers",
+          "severity": "warning",
+          "scope": "semantic",
+          "message": "No incoming callers were returned for this symbol.",
+          "action": "Confirm dynamic entry points manually before removing this symbol."
+        }
+      ]
+    },
+    "capabilities": {
+      "host": "lsp",
+      "name": "JDT Language Server (Standard)",
+      "requestedLanguageId": "java",
+      "detectedLanguageId": "java",
+      "selectedBy": "preset",
+      "languageMatch": true,
+      "callHierarchy": true,
+      "diagnostics": true,
+      "advertised": {
+        "callHierarchy": true,
+        "diagnostics": "unknown"
+      },
+      "observed": {
+        "prepareCallHierarchy": true,
+        "incomingCalls": true,
+        "diagnostics": true
+      },
+      "lifecycle": {
+        "stage": "query",
+        "status": "ready"
+      },
+      "version": "1.61.0-SNAPSHOT"
+    },
+    "limitations": [
+      "dynamic_calls_not_inferred",
+      "unsaved_buffers_unavailable"
+    ],
+    "timings": {}
+  },
+  "summary": "Static call hierarchy from java-jdtls (tier: unsupported - this preset's accuracy has not been verified). The provider reports its readiness signal as ready, but no Gradle or Maven project file was found for this multi-file Java workspace, so the provider may not be able to see relationships across files at all - a result reporting no callers is not proof that none exist. No incoming callers were returned for fixtureTarget at depth 5. Because the project model is missing, do not conclude the function is unused - add a build.gradle(.kts) or pom.xml, or confirm the caller manually before removing it.",
+  "expect": "pass",
+  "expectedViolations": []
+}
