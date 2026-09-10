@@ -270,7 +270,7 @@ function toPayload(result: ImpactResult, canGoBack: boolean): GraphPayload {
   };
 }
 
-function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
+export function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
   const nonce = createNonce();
   const serialized = JSON.stringify(payload).replace(/</g, '\\u003c');
   const layoutConfig = JSON.stringify(DEFAULT_GRAPH_LAYOUT);
@@ -442,7 +442,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
     summary.classList.toggle('warning', graph.completeness.severity === 'warning');
     summary.classList.toggle('error', graph.completeness.severity === 'error');
     summary.title = graph.completeness.headline
-      + (graph.completeness.action ? '\n\n-> ' + graph.completeness.action : '');
+      + (graph.completeness.action ? '\\n\\n-> ' + graph.completeness.action : '');
     state.textContent = graph.state.label;
     state.classList.add(graph.state.className);
     state.title = [
@@ -464,7 +464,7 @@ function getHtml(webview: vscode.Webview, payload: GraphPayload): string {
       'indexing: ' + graph.coverage.indexing.status,
       'reasons: ' + (graph.coverage.reasons.join(', ') || 'none'),
       'augmentation: ' + (augmentationLimitations.join(', ') || 'none'),
-    ].join('\n');
+    ].join('\\n');
 
     for (let depth = 1; depth <= 20; depth += 1) addOption(analysisDepth, depth, depth === graph.coverage.traversal.requestedDepth);
     for (let depth = 1; depth <= graph.coverage.traversal.requestedDepth; depth += 1) addOption(visibleDepthSelect, depth, depth === visibleDepth);

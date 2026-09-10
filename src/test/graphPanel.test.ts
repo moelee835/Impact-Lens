@@ -7,6 +7,16 @@ import test from 'node:test';
 // plain node test. These checks read the source instead. They exist because both defects they guard
 // against were invisible: a state class with no stylesheet rule renders in the default colour and looks
 // settled, and a second copy of a label function is only noticed when the two copies disagree.
+//
+// What this file's source-text-only approach could NOT catch (docs/work/task-fix-graphpanel-webview-
+// syntax-error.md): getHtml() shipped a raw, unescaped `\n` inside its outer template literal at two
+// spots, which the outer literal resolved into a literal newline BYTE landing inside a nested
+// single-quoted string in the generated <script> - guaranteed to make every webview SyntaxError on load,
+// for three releases (v0.7.0-v0.9.0), regardless of payload. A regex over the source text has no way to
+// notice that "text that looks fine as TypeScript" produces syntactically broken JavaScript once the
+// outer template literal is actually evaluated - that requires calling getHtml() for real and parsing its
+// output, which needed getHtml() to be exported and vscode to be stubbed. See
+// graphPanelHtmlParses.test.ts for that check; this file's own approach is unchanged.
 const source = fs.readFileSync(
   path.resolve(__dirname, '..', '..', 'src', 'graphPanel.ts'),
   'utf8',
