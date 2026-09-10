@@ -1,13 +1,15 @@
 # M3 lane G — `IL-LIM-018` 진입 gate: jdtls incoming call hierarchy 실측
 
-- 상태: **일시 정지(2026-09-10, commander 지시) — 닫힘 아님.** 실측 완료 — 층 3까지. 실제
-  jdtls 두 버전을 실제로 기동해 이 저장소의 fixture로
+- 상태: **entry gate(층 3) 자체는 PR #118(`a14149e`)로 merge 완료.** 우선순위 4(symbol
+  shapes, 대규모 cold/warm)는 별도 branch `feat/m3-java-symbol-shapes`에서 이어감(commander
+  지시 - PR #117이 이 문서를 인용했는데 원래 branch가 미merge라 링크가 깨져 있었던 것을 먼저
+  고쳤다). 실제 jdtls 두 버전을 실제로 기동해 이 저장소의 fixture로
   `prepareCallHierarchy`/`incomingCalls`/`outgoingCalls`를 직접 호출하고 응답을 관찰했다.
   **결론: incoming 방향에서는 이 버그가 관측되지 않았다** - 아래 "실측 결과" 참고. preset
-  등재 여부에 대한 판단까지만 하고 구현(preset/catalog/CI)은 하지 않는다(commander 지시).
-  더 급한 사안(발행된 v0.9.0의 Call Graph 패널 미렌더링 결함, reviewer 수정에 대한 검토)
-  때문에 일시 정지됐다 - webview 수정이 정리되면 이 lane으로 돌아온다.
-- branch: `feat/m3-java-entry-gate`
+  등재 여부에 대한 판단까지만 하고 구현(preset/catalog/CI)은 하지 않는다(commander 지시,
+  여전히 유효).
+- branch: `feat/m3-java-symbol-shapes`(4순위 이후), 이전 작업은 `feat/m3-java-entry-gate`
+  (merge됨, PR #118)
 - 선행: `docs/development-management/stories/il-lim-018-java-language-support.md` 1단계 5번
   (2026-09-09 추가, entry gate), `docs/work/task-m3-java-kotlin-spring-planning-refinement.md`
   §2-2/§5(층 2 조사, "층 3은 M3 1단계의 진입 조건").
@@ -424,6 +426,73 @@ Gradle과 정확히 같은 fixture(`directCaller`/`methodRefCaller`/`instanceRef
 바꿔도 유지된다** - Maven이 Gradle과 다르게 동작할 가능성(위 "남은 공백"에 있던 항목)은 이제
 배제됐다.
 
+## 4순위 - symbol shapes(interface default method/record/test caller) + 대규모 project cold/warm
+
+**branch가 `feat/m3-java-symbol-shapes`로 바뀐 이유**: `feat/m3-java-entry-gate`가 PR
+#118(`a14149e`)로 이미 merge됐다 - commander가 PR #117에서 이 문서를 근거로 인용했는데
+merge 전이라 링크가 깨져 있었던 것을 먼저 고쳤다. 이 절부터는 별도 branch에서 이어간다
+(commander 지시).
+
+### symbol shapes - story 1단계 2번 남은 항목
+
+jdtls v1.61.0, 최소 Gradle(dependency 없음), 새 fixture(`/tmp/jdtls-symbolshapes-fixture`) -
+interface default method, record 관련 두 자리, test 주석이 붙은 caller 넷을 같은 방식(cold/
+warm/plus-20s 세 라운드, `Module._load` 아님 - 이번엔 raw LSP 클라이언트라 해당 없음)으로 쟀다.
+
+| target | 질문 | incoming | 결과 |
+| --- | --- | --- | --- |
+| interface default method 자체(`Greeter.defaultGreet`) | interface-typed 참조·구현체-typed 참조 양쪽으로 호출됐을 때 둘 다 잡히는가 | `callDefault(Greeter)`, `callDefaultOnImpl(GreeterImpl)` 둘 다 | ✅ 둘 다 정확 |
+| record 압축 생성자(`Point { ... }`) | `new Point(1, 2)` 같은 생성자 호출이 압축 생성자의 caller로 잡히는가 | `makePoint()` | ✅ 정확 |
+| record 압축 생성자가 부르는 helper(`validate`) | 압축 생성자 **본문 안**에서 나가는 호출의 caller 이름이 정상인가(합성 이름 아닌가) | `Point(int, int)` | ✅ 정확한 이름 - lambda의 합성 caller 이름 문제(위 발견 요약)와 달리 record 압축 생성자는 사용자가 읽을 수 있는 이름 그대로 나온다 |
+| `@Test` 주석 붙은 caller(`testProductionTarget`) | test 프레임워크 주석이 있는 메서드가 incoming caller로 잡힐 때 주석이 인식을 방해하는가 | `testProductionTarget()` | ✅ 정확 - 로컬 정의 `@interface Test`(실제 JUnit dependency 없이 최소 재현) 사용, 주석 존재가 call hierarchy 인식에 영향 없음 |
+
+**모두 정확 - 이 세 축에서는 entry gate에 준하는 위험이 없다.** 다만 **레코드의 auto-generated
+accessor(`x()`, `y()`) 자체는 이번에 쟀 안 다**(record component가 소스에 명시적으로 선언되지
+않아 `prepareCallHierarchy`를 걸 위치가 없다 - `RecordCaller.readX()`의 `p.x()` 호출이 무언가에
+귀속되긴 하겠지만, 그 대상이 record component 선언 자체와 같은 심볼로 잡히는지는 별도 확인이
+필요하고 이 lane은 안 했다). **v1.45.0에서는 재측정하지 않았다** - 이 세 축(interface default
+method/record/test annotation)은 `eclipse.jdt.ls#3388`과 무관한 별개 구문이라 그 버전 자체가
+관련이 없다는 판단(story 문서에 이미 기록됨)을 그대로 적용했다.
+
+### 대규모 project에서 cold/warm이 실제로 갈라지는가
+
+**질문의 배경**: 지금까지의 cold/warm 측정은 작은 fixture(파일 몇 개)라 "Ready 신호가 첫 쿼리
+완료 전에 이미 뜬다"로 매번 뭉개졌다. commander가 요청한 것: **더 큰 project에서 그 둘이 실제로
+갈라지는지, 그리고 timeout 발견(위 절)과 같은 축인지**.
+
+**fixture**: 합성 400개 Java 파일(`/tmp/jdtls-largescale-fixture`, `Gen0000`~`Gen0399`), 파일당
+5개 method 세트 x cross-file 호출 체인(`GenNNNN`이 `Gen(NNNN+1)%400`을 direct call + method
+reference 양쪽으로 부른다) - 외부 dependency 없음(순수 파일 수·symbol 수 축만 격리). `javac`로
+먼저 컴파일 성공을 확인한 뒤 jdtls에 줬다.
+
+**cold 측정 방법**: 이전 lane이 cold/warm을 못 가른 이유(Gradle daemon 재사용)를 이번엔
+`gradle --stop`으로 관련 daemon(8.10.2) 전부 내리고, 한 번도 안 쓴 `GRADLE_USER_HOME`으로 실행 -
+"이미 캐시된 걸 재사용해서 빨라 보이는" 착시를 배제했다.
+
+| 시각(요청 전송 후) | 이벤트 |
+| --- | --- |
+| t=0.01s | 요청 전송(`about-to-query-cold`) |
+| t=1.63s | Gradle daemon 기동 시작 |
+| t=5.03s | `ProjectStatus: OK` / `Started: Ready` |
+| t=5.04s | `ServiceReady` |
+| t=5.22s | 첫 `prepareCallHierarchy` 응답 도착 |
+| t=6.57s | 첫 라운드(target 2개 x prepare+incoming) 완전히 끝남 |
+
+**결과: 400개 파일에서도 cold round가 ~6.6초 안에 끝났다** - 앞선 소규모 fixture(수 개 파일,
+~4-7초)와 **같은 자릿수**다. 즉 **순수 파일 수·symbol 수 축만으로는 readiness 지연이 유의미하게
+늘지 않는다** - "블로킹이 실제 분·초 단위 지연에서도 유지되는가"(남은 공백에 있던 항목)의 답 중
+"파일 수" 부분은 이걸로 좁혀졌다. **timeout 발견(위 "실제 dependency×timeout 상호작용" 절)과
+비교하면 축이 다르다는 게 드러난다** - Spring Boot starter 하나(외부 dependency 해석)가
+~19초였는데 그건 **네트워크·의존성 그래프 해석 비용**이지 파일 수 비용이 아니다. **preset의
+readiness 설계에 주는 함의**: 지연의 실제 위험은 "큰 codebase"가 아니라 "해석해야 할 외부
+dependency가 많거나 첫 실행이라 아직 캐시가 없는 프로젝트"다 - timeout 전략을 파일 수가 아니라
+dependency 해석 여부·캐시 상태 기준으로 설계해야 한다는 뜻이다.
+
+**이 fixture가 재지 않은 것**: 400개의 균일하고 단순한 클래스(상속·제네릭·복잡한 타입 없음)일
+뿐, 실제 대형 엔터프라이즈 코드베이스의 복잡도(깊은 상속, 많은 외부 dependency, 복잡한 generic)를
+흉내 내지 않는다. "파일 수 자체는 괜찮다"는 이 fixture의 범위 안에서만 유효하다 - 진짜 대형
+project(예: 수천 파일 + 여러 외부 dependency)는 이 lane이 안 쟀다.
+
 ## 이 실측이 preset 등재 여부에 주는 함의
 
 **entry gate 자체는 통과한다** - method reference로만 호출되는 메서드가 "caller 없음"으로
@@ -439,25 +508,31 @@ import 상호작용(위 절)이 찾은 문제는 preset 구현 전에 미리 풀
 
 ## 남은 공백 (이 lane이 안 잰 것 - 숨기지 않는다)
 
-- ~~cold/warm을 실제로 분리하지 못했다~~ **후속 실측으로 분리 성공** - 위 "후속 실측" 절
-  참고. 다만 **최대 ~7초, dependency 없는 fixture 기준**이고, 실제 dependency 해석이 분·초
-  단위로 걸리는 프로젝트에서 같은 "블로킹" 동작이 유지되는지는 여전히 안 잰다.
+- ~~cold/warm을 실제로 분리하지 못했다~~ **후속 실측으로 분리 성공, 400-파일 규모에서도
+  재확인** - 위 "후속 실측"·"4순위" 절 참고. **다만 파일 수만 늘렸을 뿐이고, 여전히 dependency
+  없는 fixture 기준**이다 - 실제 dependency 해석이 분·초 단위로 걸리는 프로젝트에서 같은
+  "블로킹" 동작이 유지되는지는 여전히 안 잰다(아래 항목과 동일).
 - ~~멀티모듈, cross-file caller는 안 잰다~~ **후속 실측으로 확인함** - cross-module·같은
   모듈-다른 파일 둘 다 정확했다(위 "1순위" 절).
 - **`v1.45.0` × Gradle/Maven project 조합을 안 잰다** - 최신 버전(등재 후보)의 안전성만 실제
-  프로젝트 형태로 재확인했다. 멀티모듈 매트릭스, Maven 매트릭스 둘 다 `v1.61.0` 하나만 쟀다.
-- **interface default method, record compact constructor, test caller 분류는 이번 lane의
-  범위 밖**(story 문서가 이미 별개 위험으로 분리해 둔 항목) - 여전히 미확인. **취소선을 긋지
-  않는다** - commander 지시(2026-09-10)로 이 lane은 v0.9.0 Call Graph 렌더링 결함 검토
-  때문에 일시 정지됐고, 이 항목은 우선순위가 낮아진 게 아니라 **preset 구현 lane이 자체
-  fixture를 만들 때 함께 닫는 것이 자연스럽다**는 판단으로 이월됐다 - 별도의 entry-gate
-  재측정 lane을 다시 열 필요는 없다.
+  프로젝트 형태로 재확인했다. 멀티모듈 매트릭스, Maven 매트릭스, symbol shapes(4순위) 전부
+  `v1.61.0` 하나만 쟀다 - symbol shapes 세 축은 `eclipse.jdt.ls#3388`과 무관한 구문이라는
+  판단으로 v1.45.0 재측정을 의도적으로 생략했다(위 "4순위" 절에 명시).
+- ~~interface default method, record compact constructor, test caller 분류는 미확인~~
+  **후속 실측으로 확인함(4순위 절)** - 셋 다 incoming이 정확했고, record 압축 생성자가 부르는
+  helper의 caller 이름도(lambda와 달리) 합성되지 않고 정상이었다. **다만 record의
+  auto-generated accessor(`x()`/`y()`) 자체는 이번에도 안 쟀다** - 소스에 명시적 선언이 없어
+  `prepareCallHierarchy`를 걸 위치가 없다는 게 이 lane의 잠정 판단이고, 그 판단 자체를 실측으로
+  확인하지 않았다.
 - ~~Maven은 안 잤다~~ **후속 실측으로 확인함** - Gradle과 완전히 같은 패턴(위 "3순위" 절), 다만
   여전히 dependency 없음.
 - **"블로킹이 실제 분·초 단위 지연에서도 유지되는가"는 부분적으로만 답했다** - Gradle +
   Spring Boot starter web(dependency 하나) 기준 18,958ms로 30초 안에 들어왔다(위 "timeout
-  상호작용" 절). **이건 "이번엔 안 넘었다"이지 "더 많은 dependency에서도 항상 30초 안"이 아니다**
-  - Maven 쪽은 dependency 없는 상태로만 쟀고, 분 단위로 걸리는 실제 대형 프로젝트는 이 lane이
+  상호작용" 절). **400개 파일까지는 순수 파일 수가 그 자체로 지연 원인이 아니라는 것도 이번에
+  확인했다**(위 "4순위" 절 - cold round가 ~6.6초, 소규모 fixture와 같은 자릿수). **이건
+  "지연의 축이 파일 수가 아니라 dependency 해석"이라는 걸 좁혔다는 뜻이지, "더 많은
+  dependency에서도 항상 30초 안"이 아니다** - Maven 쪽은 dependency 없는 상태로만 쟀고, 여러
+  dependency·깊은 dependency graph·캐시 없는 첫 실행이 겹치는 실제 대형 프로젝트는 이 lane이
   아직 아무 것도 재지 않았다.
 - **jdtls의 advertised capability(`callHierarchyProvider` 선언 값)를 정식으로 기록하지
   않았다** - raw `initialize` 응답에 있었지만 이 문서에 표로 옮기지 않았다(원본 JSON 로그에는
