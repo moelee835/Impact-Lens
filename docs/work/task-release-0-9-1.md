@@ -102,6 +102,32 @@ commander가 "이번 변경이 `src/graphPanel.ts`와 테스트·문서뿐이라
 plugin manifest 2개(`0.5.0`) 그대로 유지, plugin 관련 파일 0개 변경 확인 — commander 판단이
 맞다.
 
+> **2026-09-10 정정 (reviewer가 사후 검증에서 발견, commander가 전달).** 위 "출력 없음(빈
+> diff)"은 **틀렸다.** `git diff v0.9.0..origin/main --stat -- plugins/`를 다시 돌리면
+> **2개 파일이 실제로 바뀌어 있다**:
+> - `plugins/impact-lens/scripts/run-impact-lens` — pin된 release fallback tarball URL이
+>   `v0.9.0` → `v0.9.1`(1줄).
+> - `plugins/impact-lens/skills/impact-lens-cli/references/cli-contract.md` — 예시 응답의
+>   `"version"` 필드 3곳이 `"0.9.0"` → `"0.9.1"`.
+>
+> 이 두 변경은 **이 문서 자신의 B-3 커밋이 만든 것**이다(위 B-1 표에 "동일 위치"로 이미 기록해
+> 둔 항목들) — B-2를 쓸 당시엔 아직 B-3을 실행하기 전이라 diff가 실제로 비어 있었지만, 이 문서를
+> 최종 정리하면서(B-3 이후) 이 문장을 재확인하지 않고 그대로 남겨 **stale한 근거를 인용**했다.
+> **결론(plugin payload 자체 버전은 `0.5.0` 유지) 자체는 여전히 맞다** — 바뀐 두 곳은 plugin의
+> agent-facing 판정 규칙이 아니라 **CLI 버전 문자열을 가리키는 기계적 참조**이고, `plugin.json`
+> 두 파일의 `version` 필드는 실제로 `0.5.0` 그대로다. 정확한 서술은: **"plugin payload 자체
+> 버전(`plugin.json`)은 안 바뀌었고, pin된 CLI 버전을 가리키는 참조 2곳은 정상적으로 v0.9.1로
+> 바뀌었다."**
+>
+> **이게 B-4와 바로 연결된다**: `run-impact-lens`가 이제 가리키는
+> `impact-lens-cli-0.9.1.tgz` release 자산은 **commander가 태그·Release를 발행하기 전에는
+> 존재하지 않는다** — 즉 이 pin이 정확히 B-4가 검증해야 할 대상이고, 발행 전에는 원리적으로
+> 검증이 불가능하다는 게 다시 확인된다.
+>
+> **오늘 이 lane 자신이 다른 사람의 인용 오류를 잡으려고 세운 규율("인용은 열어 보기 전까지
+> 근거가 아니다")을 자기 자신의 이전 문장에 적용하지 못한 사례** — PR 본문 작성 시점에 이미 한 번
+> 확인했다는 사실이 그 뒤에 같은 worktree에서 만든 변경을 재확인해야 할 필요를 없애주지 않는다.
+
 ## B-3. 실제 반영 — 완료
 
 Python 스크립트로 위 표의 모든 위치에서 `0.9.0` → `0.9.1` 일괄 치환(response-policy fixture
