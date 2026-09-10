@@ -496,7 +496,7 @@ walk에서 아예 빼는 것 — `maxFiles`를 올리는 것보다 근본적일 
     PR #102가 닫았다** — 1500(latency budget에서 유도, 400ms가 바뀌면 이 값도 같이 바뀌는
     잠정값)으로 실제 적용, dispatch 8개 쿼리를 실제 값으로 재검증했다.
 
-## 패턴 — 주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례 5건
+## 패턴 — 주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례 6건
 
 > **2026-09-10 갱신(gate 1 대조, `docs/work/task-m4-gate1-story-contract-corrections.md`)**: 3건에서
 > **4건**으로 늘었다. 아래 4번이 추가됐고, 이 절의 결론 문장도 함께 갱신했다.
@@ -504,8 +504,11 @@ walk에서 아예 빼는 것 — `maxFiles`를 올리는 것보다 근본적일 
 > **2026-09-10 재갱신(IL-LIM-001/002 inference-unresolved lane,
 > `docs/work/task-m4-il-lim001-002-inference-limitations.md`)**: 4건에서 **5건**으로 늘었다. 아래
 > 5번이 추가됐다 — 앞의 넷과 성격이 다르다는 점을 결론 문장 앞에 별도로 적었다.
+>
+> **2026-09-10 재재갱신(M4 gate 8, `docs/development-management/user-tests/m4-user-test-spec.md`,
+> reviewer의 Part A 독립 재현)**: 5건에서 **6건**으로 늘었다. 아래 6번이 추가됐다.
 
-**주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례가 이 마일스톤에서 5건 나왔고, 다섯 다
+**주석이 주장하는 보장과 코드가 실제로 하는 일이 어긋난 사례가 이 마일스톤에서 6건 나왔고, 여섯 다
 읽기가 아니라 실행·대조로 발견됐다.** 다음 사람이 이 저장소의 주석을 근거로 삼기 전에 알아야 할
 사실이라 여기 남긴다(이 lane은 이 주석들을 고치지 않는다 — 기록만 한다):
 
@@ -539,8 +542,17 @@ walk에서 아예 빼는 것 — `maxFiles`를 올리는 것보다 근본적일 
    발견, commander 지시로 README에 명시적 예외 조항을 추가해 정정했다(`docs/work/
    task-m4-il-lim001-002-inference-limitations.md`의 "6곳 미집계 재확인 지점 반영" 절 참고).
 
-**다섯 번이면 우연이 아니다.** 이 저장소의 주석·문서는 코드가 보장하기를 **의도한 것**을 적는
-경향이 있고, 다섯 번 다 그 보장이 실제로는 코드에 없었다.
+6. **augmentation limitation code 커버리지 인용 오류**(M4 gate 8, `docs/development-management/
+   user-tests/m4-user-test-spec.md` §6 A2, reviewer의 Part A 독립 재현): `augmentation_adapter_
+   failed`/`augmentation_internal_error`/`augmentation_budget_exceeded` 세 code가 CI의
+   mutation-검증 통합 테스트로 이미 덮인다는 **주장 자체는 사실**이었지만, 그 근거로 인용한 두
+   파일(`dynamicCallbackIntegration.test.ts`, `pythonFastapiIntegration.test.ts`)에는 이 세
+   code가 **한 번도 등장하지 않는다** — 실제 커버리지는 `augmentationBudgetExceededEndToEnd.
+   test.ts`(budget)와 `augmentationFailureIsolation.test.ts`(adapter_failed/internal_error)에
+   있다. reviewer가 깨끗한 worktree에서 Part A를 독립 재현하다가 발견.
+
+**여섯 번이면 우연이 아니다.** 이 저장소의 주석·문서는 코드가 보장하기를 **의도한 것**을 적는
+경향이 있고, 여섯 번 다 그 보장이 실제로는 코드에 없었다.
 
 **그리고 4번은 앞의 셋보다 한 겹 더 나쁘다** — 1~3번은 하나의 주석이 자기 파일 안에서 틀렸지만,
 4번은 **주석이 다른 문서를 근거로 지목하고 그 문서는 다른 종류의 근거를 갖고 있는** 형태다. 두
@@ -554,6 +566,20 @@ drift가 아니다 — **같은 PR이 같은 시점에 새로 쓴 문서 문장�
 가깝다). 즉 이 패턴은 "오래된 문서가 새 코드를 못 따라간다"는 형태만이 아니라 "새 문서가 새
 코드보다 먼저 도착한다"는 형태로도 반복된다 — 코드 리뷰에서 "이 PR이 새로 추가한 문장인가"는
 안전 신호가 되지 못한다.
+
+**6번은 앞의 것들과 또 다른 종류다 — 정확히는, 이번이 처음이 아닌 종류다.** 1~3번은 **주장
+자체가 거짓**이었다. 5번은 **새 문서가 자기 새 코드보다 넓게 약속**했다. **6번은 주장이 참인데
+근거를 엉뚱한 곳으로 가리킨다** — 이건 4번("already fixture-backed differently"가 fixture가
+아니라 1회성 probe를 가리킴)과 **같은 하위 종**이고, 이것으로 이 저장소에서 "가리키는 주석/문서"
+유형이 4번과 6번, **둘**이 됐다. 같은 실수가 두 번째로 나왔다는 사실 자체가, 다음 사람이
+"저기 근거가 있다"는 인용을 열어 실제로 그 근거가 무엇을 담고 있는지 확인하는 습관을 들여야 함을
+보여준다.
+
+**그리고 6번은 위치가 이 여섯 중 가장 나쁘다.** 1~5번은 모두 내부 주석이거나 이미 작성된 사용자
+문서(README)였다 — 6번은 **사용자에게 "직접 확인해 보라"고 내주는 문서**(`m4-user-test-spec.md`
+§6 A2)의 인용이었다. 사용자가 그 문서를 읽고 실제로 그 파일을 열어 `grep`하면 아무것도 찾지
+못하고, **참인 주장을 거짓으로 의심하게 된다** — 검증 가이드 안의 근거 오류는 검증 가이드
+자체의 신뢰를 깎는, 이 여섯 사례 중 가장 직접적인 사용자 접촉면이다.
 
 ## 이 lane이 하지 않는 것
 
