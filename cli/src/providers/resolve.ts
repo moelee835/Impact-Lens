@@ -667,6 +667,7 @@ export function languageId(file: string): string {
     case '.swift': return 'swift';
     case '.kt': return 'kotlin';
     case '.kts': return 'kotlin';
+    case '.java': return 'java';
     default: return 'plaintext';
   }
 }

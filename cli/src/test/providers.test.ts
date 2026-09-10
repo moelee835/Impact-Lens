@@ -422,8 +422,14 @@ test('the shipped catalog only claims languages that have been verified', () => 
   // needs no such evidence here (it is `bundled`, not `verified-external`) but is real for the same
   // reason: task-m2-python-preset.md ran a real Call Hierarchy round trip against pyright. 'clangd' is
   // the same as 'gopls' - verified-external evidence from a real Call Hierarchy round trip, this time
-  // against two real clangd builds (task-m2-clangd-preset.md).
-  assert.deepEqual(PROVIDER_CATALOG.map(preset => preset.id), ['bundled-typescript', 'gopls', 'bundled-pyright', 'clangd']);
+  // against two real clangd builds (task-m2-clangd-preset.md). 'java.jdtls' is different in kind, not
+  // just tier: it is `unsupported`, so the loop above requires nothing of it (see the assertion right
+  // below this one) - its presence here only proves the catalog carries exactly the five presets this
+  // file intends, not that jdtls's answers were verified.
+  assert.deepEqual(
+    PROVIDER_CATALOG.map(preset => preset.id),
+    ['bundled-typescript', 'gopls', 'bundled-pyright', 'clangd', 'java.jdtls'],
+  );
   assert.deepEqual(bundledLanguageIds(PROVIDER_CATALOG), [
     'typescript', 'typescriptreact', 'javascript', 'javascriptreact', 'python',
   ]);

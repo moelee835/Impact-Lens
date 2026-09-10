@@ -4,10 +4,17 @@ import { AMBIGUOUS_LANGUAGE_ID, ProviderPreset } from './preset';
  * The shipped preset catalog.
  *
  * M1 shipped exactly one entry (`bundled-typescript`) on purpose: it delivered the preset machinery,
- * not a list of languages. A preset may only enter this file once a real fixture has passed against a
- * pinned version range, because `verified-external` in a catalog is a claim users act on: it says
- * "point this at your project and the answer will be trustworthy". Listing a language we have not
- * exercised would make the tool's own support table the first thing it is wrong about.
+ * not a list of languages. A `bundled` or `verified-external` preset may only enter this file once a
+ * real fixture has passed against a pinned version range, because either tier in this catalog is a
+ * claim users act on: it says "point this at your project and the answer will be trustworthy". Listing
+ * a language we have not exercised under one of those tiers would make the tool's own support table
+ * the first thing it is wrong about.
+ *
+ * `tier: 'unsupported'` (added for `java.jdtls`, below) is the deliberate exception to that rule, not
+ * a violation of it: it exists precisely so this file can say "the catalog knows how to launch this
+ * correctly" without also saying "the answer will be trustworthy" - see that preset's own comment for
+ * why launching correctly (workspace-collision-safe `-data`, `readiness`) still needed a catalog entry
+ * even though no accuracy claim is being made.
  *
  * `gopls` (M2, IL-LIM-004 stage 3) is the first entry to actually earn that claim through the
  * `verified-external` tier rather than through `bundled`'s shipped-in-the-tarball shortcut — see
@@ -585,7 +592,106 @@ const clangd: ProviderPreset = {
   },
 };
 
-export const PROVIDER_CATALOG: readonly ProviderPreset[] = [bundledTypeScript, gopls, bundledPyright, clangd];
+export const JAVA_JDTLS_PRESET_ID = 'java.jdtls';
+
+/**
+ * `tier: 'unsupported'` - the first catalog entry to use it (`docs/work/
+ * task-m3-java-project-import-readiness.md`, commander decision 2026-09-10). Unlike every preset
+ * above, this is NOT a claim that answers from this preset are trustworthy - it is the opposite claim,
+ * made explicit: "the catalog knows how to launch this correctly (path, args, readiness), but says
+ * nothing about the quality of what it returns." No `version` and no `fixture`: those are what
+ * `verified-external` requires to earn its claim, and this preset makes no such claim to earn.
+ *
+ * Auto must never select this preset (`autoDiscover()` in resolve.ts filters `tier === 'unsupported'`
+ * out before anything else runs) - a user gets it only by naming `providerPreset: 'java.jdtls'`
+ * explicitly. Registering it here is what lets a hand-picked jdtls session use `-data`
+ * workspace-collision safety (`workspaceRoot` $ref, `preset.ts`) and a `readiness` profile
+ * (`language/status`→`ServiceReady`, below) - both mechanisms are preset-only (see the design doc's
+ * "선행 질문 조사 결과"), so neither was reachable before this preset existed at all, even for a user
+ * who already knew to ask for jdtls by raw command.
+ */
+const javaJdtls: ProviderPreset = {
+  id: JAVA_JDTLS_PRESET_ID,
+  displayName: 'Eclipse JDT Language Server (jdtls) - unverified',
+  tier: 'unsupported',
+  languageIds: ['java'],
+  extensions: ['.java'],
+  command: {
+    // PATH lookup only, same mechanism as gopls/clangd above. jdtls ships as a directory tree (a
+    // `bin/jdtls` launcher plus `plugins/`/`config_*`), not a single binary
+    // (docs/work/task-m3-java-discovery-jdk.md "standalone jdtls discovery") - this candidate list
+    // covers a package manager that puts a `jdtls` entry point on PATH. A `JDTLS_HOME`-style
+    // environment-variable fallback for a manually-extracted Eclipse tarball was designed but left
+    // unimplemented in this lane (see that design doc's own "확인 필요" note - the env var name and
+    // its actual existence were never confirmed) - deferred rather than guessed at. A user in that
+    // situation can add jdtls's own `bin/` directory to PATH today with no code change; this preset
+    // being `providerPreset`-only rather than Auto-discovered means that is a reasonable ask of
+    // someone already opting in by name.
+    candidates: ['jdtls'],
+    // jdtls's own default `-data` (workspace-metadata directory) is keyed only by the cwd's basename
+    // SHA1 hash - reproduced directly (docs/work/task-m3-java-project-import-readiness.md): two
+    // fixture directories both named `api` at different absolute paths resolved to the byte-identical
+    // default `-data` path via the real, unmodified jdtls launcher. Passing the full workspace path
+    // here instead makes that collision structurally impossible.
+    args: ['-data', { $ref: 'workspaceRoot' }],
+    languageIdFrom: 'detected',
+  },
+  // No `version`, no `fixture`: see the tier comment above - this preset does not carry the evidence
+  // `verified-external` requires, on purpose.
+  readiness: {
+    // No `requiredProjectFiles`: unlike gopls's go.mod, jdtls's standalone (no build system) mode is a
+    // real, already-verified-working mode (entry gate lane), not a silent degradation to guard
+    // against - requiring a build marker here would incorrectly block standalone `.java` files.
+    signals: [
+      // jdtls's language/status notification stream, observed directly in the entry gate lane
+      // (docs/work/task-m3-java-entry-gate.md): Starting -> Started: Ready -> ServiceReady, payload
+      // `{"type":"ServiceReady"}`. Only ServiceReady counts as ready, matching that lane's own
+      // conclusion that this is an existing 'notification' signal kind, not a new one.
+      { kind: 'notification', means: 'ready', method: 'language/status', match: { path: ['type'], equals: 'ServiceReady' } },
+    ],
+    // The entry gate lane measured ~19s for a real-dependency (Spring Boot) Gradle import - close to
+    // but under the CLI's own 30s default request timeout, which is why that timeout was leaking a raw
+    // LSP method name to users before this readiness profile existed. 45000 is a judgement call with
+    // real margin over that one measured data point, not a production ceiling - narrow it only after
+    // measuring a larger real project, never by guessing tighter.
+    budgetMs: 45000,
+    // Unlike gopls (which can proceed-partial because an AdHoc-but-answering gopls is still a real,
+    // if degraded, answer), the entry gate lane found jdtls blocks rather than returning anything
+    // during indexing - there is no partial result to proceed with, so exceeding budget here should
+    // read as "still not ready", not be dressed up as a completed query.
+    onBudgetExceeded: 'fail',
+  },
+  docs: {
+    install: 'https://github.com/eclipse-jdtls/eclipse.jdt.ls#installation',
+    limitations: [
+      // 2026-09-10 (docs/work/task-m3-java-project-import-readiness.md, commander decision): this is
+      // NOT a provider capability gap like the entries below it - every other line in every preset's
+      // `limitations` in this catalog describes something the provider itself cannot find. This one is
+      // our own tier claim (or rather, refusal to make one) about answer quality. `docs.limitations` is
+      // structurally a "what's missing" list and this is the second time a statement of a different
+      // shape has been placed here anyway (the first: gopls/clangd's caller-vs-reference over-reporting
+      // note, M4 gate 1 lane D, docs/work/task-m4-gate1-lane-d-language-limitations.md) - both were
+      // deliberate, contract-change-free placements to get a true statement to users now rather than
+      // wait for a dedicated field. A third occurrence is the signal that this field should split.
+      'This preset\'s Call Hierarchy accuracy has not been verified (unlike the verified-external ' +
+      'presets above, no fixture has passed against a pinned version range). It is never selected by ' +
+      'Auto - it must be named explicitly with providerPreset: "java.jdtls".',
+      // IL-LIM-018 entry gate (docs/development-management/stories/il-lim-018-java-language-support.md,
+      // 2026-09-10 block): a method called only from inside a lambda body reports its incoming caller
+      // as a compiler-generated synthetic method (e.g. `Fixture$1.accept(String)`), not the user's real
+      // enclosing method name - the relationship itself is real, but the caller's name does not match
+      // anything in the user's source. Method-reference calls (`obj::method`) do not have this problem;
+      // their reported caller is the real enclosing method name.
+      'A method called only from inside a lambda body may report a compiler-generated synthetic name ' +
+      '(not the user\'s enclosing method) as its caller.',
+      'Spring and other dependency-injection container relationships are not distinguished from ' +
+      'ordinary Call Hierarchy results by this preset.',
+    ],
+  },
+};
+
+export const PROVIDER_CATALOG: readonly ProviderPreset[] =
+  [bundledTypeScript, gopls, bundledPyright, clangd, javaJdtls];
 
 export function findPreset(catalog: readonly ProviderPreset[], id: string): ProviderPreset | undefined {
   return catalog.find(preset => preset.id === id);
