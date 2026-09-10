@@ -199,6 +199,16 @@ CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는
 5. 위 네 단계 모두 실패하면 다른 언어의 provider로 대체하지 않고 `provider_required_for_language`로
    실패합니다.
 
+> **이 절은 Agent CLI 이야기입니다. VS Code Extension은 provider를 이렇게 고르지 않습니다.**
+> Extension은 **자기 언어 엔진을 갖고 있지 않고**, VS Code에 등록된 언어 서비스에 그대로 위임합니다 —
+> 즉 **그 언어의 확장을 사용자가 설치해 두었고, 그 확장이 Call Hierarchy를 구현할 때만** 동작합니다.
+> 예를 들어 **Python은 CLI에서는 아무것도 설치하지 않아도 되지만**(`bundled-pyright`가 CLI 안에 들어
+> 있습니다), **Extension에서는 Python 확장이 필요합니다.** 그 확장이 없으면 분석은 "이 언어에 Call
+> Hierarchy provider가 등록되지 않은 것"과 "요청한 위치에 callable symbol이 없는 것"을 **구분할 수
+> 없다고 보고합니다** — VS Code가 둘 중 어느 쪽인지 알려주지 않기 때문이며, 그 상태에서 둘 중 하나로
+> 단정하지 않는 것이 의도된 동작입니다. `Impact Lens: Run Provider Doctor`가 같은 구분을 그대로
+> 보여줍니다.
+
 **오늘 shipped catalog에는 preset이 네 개입니다: `bundled-typescript`, `gopls`, `bundled-pyright`,
 `clangd`.** Auto가 설정 없이 동작하는 언어는 TypeScript/JavaScript(`.ts`, `.tsx`, `.js`, `.jsx` 등)와
 Python(`.py`)이고, `gopls`가 PATH에 설치돼 있는 경우의 Go(`.go`)와 `clangd`가 PATH에 설치돼 있는 경우의
