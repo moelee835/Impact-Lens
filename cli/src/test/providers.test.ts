@@ -191,6 +191,44 @@ test('auto-discovery reports the auto tier for a discovered external preset', t 
   assert.deepEqual(resolved.command.args, ['--stdio']);
 });
 
+test('auto-discovery never picks an unsupported-tier preset, even when its executable is installed', t => {
+  // Same PATH/executable setup as "auto-discovery reports the auto tier for a discovered external
+  // preset" above - the only variable changed is the tier. That test proves Auto picks this exact
+  // preset when it is installed and verified-external; this one proves Auto refuses the identical
+  // preset when it is unsupported. A test that only ever exercises the unsupported tier in isolation
+  // could pass by accident (e.g. if the executable lookup itself were broken); pairing it against the
+  // positive case that resolves the same way except for tier is what makes this non-vacuous.
+  const binaries = syntheticPosixDirectory(t, 'discovery-bin-unsupported-');
+  writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
+  assert.throws(
+    () => resolveProvider('src/a.swift', undefined, {
+      env: NO_ENV,
+      catalog: [...PROVIDER_CATALOG, fixtureUnclaimedLanguagePreset({ tier: 'unsupported' })],
+      lookup: { env: { PATH: binaries }, platform: 'linux' },
+    }),
+    (error: unknown) => error instanceof CliError
+      && error.code === 'provider_required_for_language'
+      && (error.details as { detectedLanguageId: string }).detectedLanguageId === 'swift',
+  );
+});
+
+test('an unsupported-tier preset can still be selected when named explicitly', t => {
+  // Auto refusing it (test above) must not block the explicit path - naming an unsupported preset
+  // outright is exactly what the tier exists to allow (commander's absolute condition is about Auto,
+  // not about explicit selection).
+  const binaries = syntheticPosixDirectory(t, 'discovery-bin-unsupported-explicit-');
+  writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
+  const resolved = resolveProvider('src/a.swift', undefined, {
+    env: NO_ENV,
+    providerPreset: 'fixture-swift',
+    catalog: [...PROVIDER_CATALOG, fixtureUnclaimedLanguagePreset({ tier: 'unsupported' })],
+    lookup: { env: { PATH: binaries }, platform: 'linux' },
+  });
+  assert.equal(resolved.selectedBy, 'preset');
+  assert.equal(resolved.tier, 'unsupported');
+  assert.equal(resolved.presetId, 'fixture-swift');
+});
+
 // ---------------------------------------------------------------------------
 // The rule that must never break: no cross-language fallback
 // ---------------------------------------------------------------------------
@@ -557,6 +595,7 @@ test('version comparison pads shorter versions and honours both bounds', () => {
 const REFS = {
   nodeExecutable: () => '/fixture/node',
   bundledModuleEntry: (module: string) => `/fixture/modules/${module}`,
+  workspaceRoot: () => '/fixture/workspace',
 };
 
 function catalogOptions(origin = 'fixture') {
@@ -576,6 +615,42 @@ test('manifest references resolve to values, keeping their type and needing no e
     literal: '${nodeExecutable} stays put',
     nested: { entry: '/fixture/modules/a/b.mjs' },
   });
+});
+
+test('workspaceRoot resolves to the analyzed workspace, not a rejected module', () => {
+  assert.deepEqual(
+    resolveManifestObject({ data: { $ref: 'workspaceRoot' } }, catalogOptions()),
+    { data: '/fixture/workspace' },
+  );
+  assert.throws(
+    () => resolveManifestObject({ data: { $ref: 'workspaceRoot', module: 'unexpected' } }, catalogOptions()),
+    (error: unknown) => error instanceof CliError && error.code === 'provider_config_invalid',
+  );
+});
+
+test('workspaceRoot fails loudly rather than guessing cwd when no workspace was supplied', t => {
+  // Mirrors "the project file is not consulted when no workspace is supplied" above: a cwd fallback
+  // here would let -data (or any future workspace-derived arg) point at whatever directory happened
+  // to be current, silently mixing up projects - the one failure mode this tool cannot have. No
+  // `workspace` option is passed below - that omission is the point of the test.
+  const binaries = syntheticPosixDirectory(t, 'discovery-bin-workspaceroot-');
+  writeExecutable(binaries, 'impact-lens-fixture-server', '#!/bin/sh\nexit 0\n');
+  const preset = fixtureUnclaimedLanguagePreset({
+    command: {
+      candidates: ['impact-lens-fixture-server'],
+      args: ['--data', { $ref: 'workspaceRoot' }],
+      languageIdFrom: 'detected',
+    },
+  });
+  assert.throws(
+    () => resolveProvider('src/a.swift', undefined, {
+      env: NO_ENV,
+      providerPreset: 'fixture-swift',
+      catalog: [...PROVIDER_CATALOG, preset],
+      lookup: { env: { PATH: binaries }, platform: 'linux' },
+    }),
+    /workspaceRoot/,
+  );
 });
 
 test('references are refused in user-supplied trees rather than silently dropped', () => {

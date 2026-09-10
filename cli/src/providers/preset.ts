@@ -33,19 +33,29 @@ export type ManifestValue =
 export type ManifestObject = { readonly [key: string]: ManifestValue };
 
 /**
- * The complete set of references a manifest may resolve. It is deliberately two entries long.
+ * The complete set of references a manifest may resolve. It was two entries long until the M3 Java
+ * lane needed a third.
  *
- * `workspaceRoot`, `detectedLanguageId`, `discoveredExecutablePath` and a path-`join` node were all
- * considered and left out: no preset in this catalog consumes them, and a declared value nothing
- * produces is the same drift `cli/src/errors.ts` exists to prevent. They get added by the change that
- * first needs them.
+ * `detectedLanguageId`, `discoveredExecutablePath` and a path-`join` node were considered and stayed
+ * out: no preset in this catalog consumes them, and a declared value nothing produces is the same
+ * drift `cli/src/errors.ts` exists to prevent. They get added by the change that first needs them.
+ *
+ * `workspaceRoot` is that change for a fourth candidate that was on the same "left out" list: it
+ * resolves to the analyzed workspace's absolute path. The `java.jdtls` preset
+ * (`docs/work/task-m3-java-project-import-readiness.md`) needs it for its `-data` argument — jdtls's
+ * own default workspace-metadata directory is keyed only by the cwd's *basename* SHA1 hash, so two
+ * differently-located projects sharing a folder name would silently share the same index (reproduced
+ * directly: two fixture directories both named `api` at different absolute paths resolved to the
+ * byte-identical default `-data` path via the real, unmodified jdtls launcher). Passing the full
+ * workspace path instead makes that collision structurally impossible - two different projects always
+ * have two different `-data` values regardless of folder name.
  */
-export const MANIFEST_REF_SOURCES = ['nodeExecutable', 'bundledModuleEntry'] as const;
+export const MANIFEST_REF_SOURCES = ['nodeExecutable', 'bundledModuleEntry', 'workspaceRoot'] as const;
 export type ManifestRefSource = (typeof MANIFEST_REF_SOURCES)[number];
 
 export interface ManifestRef {
   readonly $ref: ManifestRefSource;
-  /** Required by `bundledModuleEntry` and rejected on the other source. */
+  /** Required by `bundledModuleEntry` and rejected on the other two sources. */
   readonly module?: string;
 }
 
