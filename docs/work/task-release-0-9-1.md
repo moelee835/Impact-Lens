@@ -171,3 +171,59 @@ Python 스크립트로 위 표의 모든 위치에서 `0.9.0` → `0.9.1` 일괄
 3. **B-4(공개 default-path 사후 검증)는 여기서 하지 않는다** — 발행된 태그/Release가 아직 없다.
    commander가 발행한 뒤 별도로 수행한다.
 4. **태그 발행·GitHub Release 생성은 하지 않는다** — commander가 진행.
+
+## 릴리스 아티팩트 빌드 (`origin/main`(`35f0376`) 기준, commander 요청)
+
+**로컬 `vsce` 패키징 실패의 근본 원인 규명 — 이전 lane에서 "npm UUID-path-masking bug"라고만
+불렸던 것의 정확한 정체.** 이 머신의 기본 Node(`v25.8.1`, Homebrew 설치)에서는 `pnpm exec vsce
+ls --no-yarn`/`vsce package`가 매번 파일을 **0개** 찾는다(`.vscodeignore`·`package.json`의
+`publisher`/`repository`/`engines`/`main` 필드 전부 정상, `out/extension.js`도 실제로 존재하는데도).
+플레인 `git clone`(worktree 아님)에서도 동일하게 재현돼 **worktree 구조 문제가 아님을 배제**했다.
+`@vscode/vsce@3.9.2`가 CI가 고정한 **Node 22**가 아니라 이 머신의 **Node 25**에서 내부 파일
+탐색이 깨지는 것으로 보인다 — Adoptium/nodejs.org에서 self-contained Node 22.19.0 tarball을
+`/tmp`에 내려받아(sudo 없음, 시스템 Node 안 건드림) `PATH`에 앞세워 재시도하니 **정확히 같은
+명령이 정상 동작**했다(`vsce ls --no-yarn` → 40개 파일 나열, `out/extension.js`·`out/graphPanel.js`
+포함). **이걸로 결론**: 로컬 실패는 이 머신의 기본 Node 버전과 vsce의 호환성 문제이지, 코드나
+패키징 설정의 결함이 아니다. 다음 릴리스부터는 로컬에서 vsce를 돌릴 때 Node 22를 먼저 확인한다.
+
+### 산출물
+
+| 파일 | 경로 | 바이트 수(`ls -l`) | sha256 |
+| --- | --- | --- | --- |
+| VSIX | `/tmp/impact-lens-0.9.1.vsix` | `1229940` | `4fca9118f0373c025f5dab22617c9cb5f7703b702bfabf1d11073e9419e1d94f` |
+| CLI tarball | `/tmp/impact-lens-cli-0.9.1.tgz` | `159845` | `8800ea183aa5cd1e15b630045e4f24a58b5b7ab4866a675ab0fbd5610c716d35` |
+
+빌드 명령(둘 다 Node 22.19.0, `origin/main`(`35f0376`)을 가리키는 격리 worktree, `pnpm install
+--frozen-lockfile`로 CI와 동일한 의존성 트리 재현):
+- VSIX: `pnpm test && pnpm run compile && git diff --check && npx --yes @vscode/vsce package
+  --no-yarn --out /tmp/impact-lens-0.9.1.vsix` → `42 files, 1.17 MB`(vsce 자체 보고, 위 표의
+  바이트 수가 근거).
+- CLI tarball: `cli/` 안에서 `npm pack --pack-destination /tmp` → `39 files`, vsce와 무관하게
+  npm의 표준 tarball 생성이라 이 머신에서 처음부터 문제 없이 동작했다.
+
+### 패키지 내용 확인 — 눈으로 안 넘기고 직접 풀어서 확인
+
+**VSIX**: `unzip`으로 풀어 42개 파일 전체 목록을 직접 나열 — `src/`·`docs/`·`cli/dist/index.js`·
+`cli/node_modules/**` **전부 없음**, `cli/dist/shared/**/*.js`(FastAPI adapter 전용, 7개
+파일)만 재포함돼 있다 — `.vscodeignore`가 의도한 모양 그대로. `extension/package.json`의
+`version`이 `0.9.1`인 것도 확인.
+
+**`out/graphPanel.js`에 수정이 실제로 들어갔는지 — 이 릴리스의 존재 이유**: 압축을 푼
+`extension/out/graphPanel.js`에서 이 PR #112의 두 수정 지점을 직접 문자열로 확인 — `'\\n\\n->
+'`와 `.join('\\n')` 둘 다 **있음**(안전한 이중 백슬래시 형태). 이전 lane들이 쓴 odd-backslash
+정규식 스윕을 이 컴파일된 파일 전체에 스코프 없이 돌려 봤더니 1건이 잡혔는데, 확인해 보니
+**오탐**이었다 — `const serialized = JSON.stringify(payload).replace(/</g, '\\u003c')`(이건
+`<script>` 밖의 평범한 TS 코드, `</script>` 주입 방지용 기존 안전 패턴)를 정규식이 "백슬래시 1개
++ 백슬래시 1개"로 잘못 쪼갠 것 — 실제로는 이중 백슬래시 통째로 안전하다. PR #112 검토·이전
+lane들의 정규식 스윕은 소스의 375~864번째 줄로 정확히 범위를 좁혀서 돌렸기 때문에 이 자리를
+애초에 스캔하지 않았다 — 이번에 범위 없이 컴파일본 전체를 훑다가 처음 마주친 이 정규식의
+한계이지, 코드의 결함이 아니다.
+
+**PACKAGED 아티팩트에서 직접 `getHtml()`을 호출해 실행으로 확인(commander 추가 요청)**:
+reviewer가 PR #112 재현에 쓴 것과 같은 기법(`Module._load`를 `vscode` 하나만 stub하도록
+패치)을 **소스가 아니라 압축을 푼 VSIX 안의 `extension/out/graphPanel.js` 파일에** 그대로
+적용 — `require()`로 실제로 로드하고 `getHtml()`을 실제 payload로 호출해 `<script>` 내용을
+추출한 뒤 `new Function()`으로 파싱했다. **파싱 성공**(`script body length: 33643 bytes`).
+추가로 payload의 `completeness.action`(원래 결함이 심었던 바로 그 필드) 텍스트가 렌더링된
+스크립트 출력에 그대로 나타나는 것까지 확인 — "빌드됐으니 고쳐졌겠지"가 아니라 **발행 예정
+아티팩트 자체가 실행으로 확인됐다.**
