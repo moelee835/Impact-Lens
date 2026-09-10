@@ -216,6 +216,7 @@ provider lifecycle 밖에서 발생하는 실패도 같은 envelope로 보고한
 | `timeout` | `details.stage` | 요청이 timeout budget을 초과함. retryable. timeout을 높이거나 depth를 줄여 재실행 |
 | `request_cancelled` | `details.stage` | 사용자 또는 상위 host가 취소함. 실패가 아니라 중단으로 보고 |
 | `target_not_found` / `target_ambiguous` | query | 요청 위치에서 callable symbol을 특정하지 못함. 선언 이름을 지정하거나 `expectedSymbol`로 구분 |
+| `test_pattern_config_invalid` | 없음(exit 8) | 커밋된 `.impact-lens/test-patterns.json` 또는 개인 override `test-patterns.local.json`이 스키마(`{"include": [...], "exclude": [...]}`, 문자열 배열)를 어기거나, 지원하는 좁은 glob 부분집합(`*`/`**`/`/`만 허용) 밖의 문법을 쓴다. `provider_config_invalid`(exit 5)를 재사용하지 않는 이유는 provider와 무관한 관심사이기 때문이다(IL-LIM-010 stage 1 완결 결정, `docs/work/task-m4-il-lim-010-stage1-completion.md`) - exit 5 그룹의 문서화된 의미("provider 미가용 또는 Call Hierarchy 미지원")를 흐리지 않기 위해 별도 exit 8 tier를 쓴다. `details`에 실패한 파일과 문제된 pattern을 담는다 |
 | `internal_error` | 없음 | adapter 또는 CLI 내부 실패. debug log와 함께 보고. generic catch는 어느 단계에서 실패했는지 알 수 없으므로 `details.stage`를 만들지 않는다 |
 
 `details.stage`는 **던지는 지점이 stage를 실제로 아는 경우에만** 존재한다. `timeout`은 in-flight request의

@@ -166,6 +166,25 @@ adapter.md`의 "gate 2 판정" 절 — 실제 VS Code webview 렌더, marker 시
 >   뭉치면 "언어 하나로는 아무것도 시작 못 한다"거나 "하나만 닫혀도 5단계가 끝난다"는 잘못된
 >   양극단 중 하나로 읽힌다 — 그래서 나눠 적는다.
 
+> **2026-09-10 추가 — `IL-LIM-010` stage 1의 나머지 acceptance criteria 4개 중 3개가 닫혔다, gate 1
+> 전체는 여전히 열림.** `docs/work/task-m4-il-lim-010-stage1-completion.md`(branch
+> `feat/il-lim-010-stage1-evidence-and-patterns`)가 PR #91이 남긴 두 항목(분류 근거 `ruleId`를
+> 응답 계약에 노출, 사용자 include/exclude pattern과 precedence)을 구현했다. reviewer의 gate 1
+> 전수 감사가 나머지 두 항목을 재판정했다: **언어 matrix**는 PR #91이 이미 닫아 놨던 것으로
+> 확인(새 fixture 없이 기존 corpus로 회귀만 재확인), **"실행하지 않은 테스트를 성공으로 표시하지
+> 않는다"**는 참이지만 **공백에 의한 통과**로 판정됐다 — `TestFreshness`(Extension,
+> `src/types.ts`)에 `'passed'`/`'failed'` 상태가 아예 없고 CLI(`cli/src/types.ts`)에는 test
+> 실행 어휘 자체가 없어 위반할 기능이 없는 것이지, 안전장치가 검증된 게 아니다. `IL-LIM-010`
+> 3단계(테스트 실행 결과 import)가 그 상태를 도입하는 순간 이 판정은 **재실행되어야 한다** — 이
+> 문장을 `src/types.ts`의 `TestFreshness` 선언 옆, `cli/src/impact.ts`의 `testDistance` 계산
+> 옆에도 코드 주석으로 남겼다(코드 동작은 안 바꿈).
+>
+> **gate 1 전체는 이 lane으로 안 닫힌다** — `IL-LIM-001`("Backlog" 상태, runtime-observation
+> producer 없음)과 `IL-LIM-002`(gate C의 runtime-only binding fixture 없음, 5단계는 M3
+> 의존이라 M4 안에서 실행 불가능)의 위 항목들은 이 lane이 손대지 않았다. **이 PR의 커밋/PR
+> 본문에는 "`IL-LIM-010` stage 1 완결"로 정확히 인용한다** — "gate 1을 닫는다"라고 쓰면 이
+> 문서와 어긋난다(2026-09-09 추가가 실패 격리 항목에 대해 이미 세운 것과 같은 관례).
+
 ### Gate 2 — JSON과 UI 구분
 
 - **JSON**: `data.edges`/`data.augmentedEdges` 분리, `resolution`/`evidenceSource` 필드, "candidate

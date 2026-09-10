@@ -1,7 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { classifyRelation } from './testFile';
+import { classifyRelationDetailed, toSuppressedTestRule, toTestRule } from './testFile';
+import { readProjectTestPatterns } from './testPatternsConfig';
 import { projectCompletion } from './coverage';
 import { inspectCompileDatabase } from './providers/compileDatabase';
 import { C_FAMILY_LANGUAGE_IDS } from './providers/resolve';
@@ -42,6 +43,12 @@ export async function analyzeImpact(
 ): Promise<Record<string, unknown>> {
   const started = Date.now();
   const workspace = await canonicalWorkspace(request.workspace);
+  // IL-LIM-010 stage 1 completion (docs/work/task-m4-il-lim-010-stage1-completion.md). Read once, up
+  // front, before any provider work starts - an invalid `.impact-lens/test-patterns.json`/`.local.json`
+  // fails the request immediately (`test_pattern_config_invalid`) rather than after an expensive
+  // traversal, and every node below shares the exact same compiled patterns rather than each
+  // re-reading/re-compiling its own copy.
+  const userTestPatterns = readProjectTestPatterns(workspace);
   const file = await resolveWorkspaceFileSecure(workspace, request.file);
   validatePosition(request.line, request.column);
   const requestedDepth = integerInRange(request.depth ?? 5, 1, 20, 'depth');
@@ -64,7 +71,7 @@ export async function analyzeImpact(
     // directory-convention rule cannot tell the difference from the outside. Computed once and reused so
     // this doesn't run `relativeFile()` a third time.
     const relativeItemFile = relativeFile(workspace, itemFile);
-    const relation = classifyRelation(entry.depth, relativeItemFile);
+    const { relation, classification } = classifyRelationDetailed(entry.depth, relativeItemFile, userTestPatterns);
     return {
       id: symbolId(entry.item),
       name: entry.item.name,
@@ -78,7 +85,16 @@ export async function analyzeImpact(
       selectionRange: externalRange(entry.item.selectionRange),
       depth: entry.depth,
       relation,
+      // The CLI response has no test-execution status field at all (unlike the Extension's
+      // `TestFreshness`, which at least declares the concept even though it only ever holds
+      // 'notRun'/'outdated' today - see that type's own comment in `src/types.ts`). So "does the CLI
+      // ever report an unrun test as passed" is true for the same underlying reason as the Extension's
+      // case (the acceptance criterion holds because the feature to violate it does not exist yet, not
+      // because a safeguard was verified) but for a stronger structural reason here: there is no
+      // vocabulary at all to add a wrong value to, not merely an incomplete one.
       testDistance: relation === 'test' ? entry.depth : null,
+      testRule: toTestRule(classification),
+      testRuleSuppressed: toSuppressedTestRule(classification),
       note,
       diagnostics: diagnosticsForItem(diagnosticMap.get(entry.item.uri) ?? [], entry.item),
       source: await sourceForItem(entry.item, request.includeSource ?? 'none'),

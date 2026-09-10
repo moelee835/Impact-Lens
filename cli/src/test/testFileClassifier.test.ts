@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifyTestFile, isTestFilePath } from '../shared/testFileClassifier';
-import { classifyRelation } from '../testFile';
+import { classifyTestFile, compileTestPatterns, isTestFilePath } from '../shared/testFileClassifier';
+import { classifyRelation, classifyRelationDetailed } from '../testFile';
+
+// IL-LIM-010 stage 1 completion (docs/work/task-m4-il-lim-010-stage1-completion.md). The 30-path
+// corpus below is the SAME corpus PR #91 already verified two hosts agree on - reused here (not
+// duplicated as new fixtures, per commander's steer: the language matrix is already closed by PR #91,
+// so this lane's job is proving the new pattern axis does not regress it, not adding more languages).
+const EXISTING_CORPUS: readonly string[] = [
+  'workspace/order.test.ts', 'workspace/order.spec.tsx', 'workspace/test_order.py',
+  'workspace/order_test.go', 'workspace/order_test.py', 'workspace/order_spec.rb',
+  'workspace/OrderServiceTest.java', 'workspace/FooTest.ts', 'workspace/FooTest.go',
+  'workspace/FooTest.py', 'workspace/order_test.js', 'workspace/test_order.ts',
+  'workspace/order_test.cpp', 'workspace/OrderServiceTests.cs', 'workspace/FooTest.kt',
+  'workspace/spec_order.rb', 'workspace/a.test.d.ts', 'workspace/a.spec.d.ts',
+  'workspace/test_order.d.ts', 'src/foo_test', 'src/test_foo', 'workspace/src/order.ts',
+  'workspace/src/contest.java', 'workspace/src/tester.ts', 'workspace/src/specification.ts',
+  'workspace/tests/order_service.py', 'workspace/test/order_service.go',
+  'workspace/__tests__/checkout.ts', 'workspace/spec/payment.rb', 'scripts/test',
+];
 
 // IL-LIM-010 stage 1 (docs/work/task-m4-il-lim-010-test-classifier.md). The CLI never had a test
 // pinning this classification logic before this lane - `cli/src/impact.ts` was the only caller, and
@@ -39,7 +56,11 @@ test('recognizes each rule only on the extensions its source framework actually 
     ['workspace/OrderServiceTest.java', 'pascal-suffix'],
   ];
   for (const [path, ruleId] of positive) {
-    assert.deepEqual(classifyTestFile(path), { isTest: true, ruleId }, path);
+    assert.deepEqual(
+      classifyTestFile(path),
+      { isTest: true, ruleId, source: 'default-convention', matchedPattern: null, suppressedRuleId: null },
+      path,
+    );
   }
 
   const negative = [
@@ -109,4 +130,111 @@ test('classifyRelation (CLI thin adapter) keeps root/direct/transitive/test sema
   assert.equal(classifyRelation(2, 'src/checkout.ts'), 'transitive');
   assert.equal(classifyRelation(1, 'test_order.py'), 'test');
   assert.equal(classifyRelation(3, 'order_test.go'), 'test');
+});
+
+// --- IL-LIM-010 stage 1 completion: user include/exclude patterns (docs/work/
+// task-m4-il-lim-010-stage1-completion.md) ---------------------------------------------------------
+
+test('omitting userPatterns is byte-identical to the pre-lane classifyTestFile() result, across the entire existing corpus', () => {
+  // This is the regression guard commander asked for in place of new fixtures: the language matrix
+  // (PR #91) does not get new test cases here, it gets proof the new optional parameter cannot have
+  // touched it. `classifyTestFile(path)` (one argument) must produce the exact same object shape as
+  // before this lane on every path in the existing corpus.
+  for (const path of EXISTING_CORPUS) {
+    const withoutPatterns = classifyTestFile(path);
+    assert.equal(withoutPatterns.source, withoutPatterns.isTest ? 'default-convention' : 'none', path);
+    assert.equal(withoutPatterns.matchedPattern, null, path);
+    assert.equal(withoutPatterns.suppressedRuleId, null, path);
+  }
+});
+
+test('a user pattern that matches NOTHING in the existing corpus leaves every result unchanged', () => {
+  const irrelevant = compileTestPatterns(['e2e/**/*.contract.ts'], ['vendor/**']);
+  for (const path of EXISTING_CORPUS) {
+    const without = classifyTestFile(path);
+    const withIrrelevantPatterns = classifyTestFile(path, irrelevant);
+    assert.deepEqual(withIrrelevantPatterns, without, path);
+  }
+});
+
+test('a user include pattern rescues a file none of the five default rules would ever catch', () => {
+  const patterns = compileTestPatterns(['e2e/**/*.contract.ts'], []);
+  assert.equal(isTestFilePath('e2e/checkout/order.contract.ts'), false, 'no default rule matches this shape at all');
+  assert.deepEqual(classifyTestFile('e2e/checkout/order.contract.ts', patterns), {
+    isTest: true,
+    ruleId: null,
+    source: 'user-include',
+    matchedPattern: 'e2e/**/*.contract.ts',
+    suppressedRuleId: null,
+  });
+  // A path the include pattern does NOT match is unaffected.
+  assert.equal(classifyTestFile('e2e/checkout/order.ts', patterns).isTest, false);
+});
+
+test('a user exclude pattern always wins over BOTH a default rule and a user include pattern (Jest testPathIgnorePatterns precedence)', () => {
+  const overDefault = compileTestPatterns([], ['integration/**']);
+  assert.deepEqual(classifyTestFile('integration/order_test.py', overDefault), {
+    isTest: false,
+    ruleId: null,
+    source: 'user-exclude',
+    matchedPattern: 'integration/**',
+    suppressedRuleId: 'underscore-suffix',
+  });
+
+  const overInclude = compileTestPatterns(['e2e/**/*.contract.ts'], ['e2e/**']);
+  assert.deepEqual(classifyTestFile('e2e/checkout/order.contract.ts', overInclude), {
+    isTest: false,
+    ruleId: null,
+    source: 'user-exclude',
+    matchedPattern: 'e2e/**',
+    // No default rule would have matched this path either - nothing to name here.
+    suppressedRuleId: null,
+  });
+});
+
+test('an exclude pattern that matches a path nothing was ever going to classify as a test reports "none", not "user-exclude"', () => {
+  // A "just in case" exclude that never actually suppresses anything should not be reported as if it
+  // did - `source` distinguishes "this pattern changed the answer" from "this pattern matched, but the
+  // answer was already false".
+  const pointlessExclude = compileTestPatterns([], ['vendor/**']);
+  assert.deepEqual(classifyTestFile('vendor/order.ts', pointlessExclude), {
+    isTest: false,
+    ruleId: null,
+    source: 'none',
+    matchedPattern: null,
+    suppressedRuleId: null,
+  });
+});
+
+test('classifyRelationDetailed exposes the classification the bare relation adapter discards, and root never classifies at all', () => {
+  const patterns = compileTestPatterns(['e2e/**/*.contract.ts'], []);
+  const root = classifyRelationDetailed(0, 'e2e/order.contract.ts', patterns);
+  assert.equal(root.relation, 'root');
+  assert.equal(root.classification, null, 'depth 0 short-circuits before the classifier ever runs');
+
+  const rescued = classifyRelationDetailed(1, 'e2e/order.contract.ts', patterns);
+  assert.equal(rescued.relation, 'test');
+  assert.equal(rescued.classification?.source, 'user-include');
+
+  // Omitting userPatterns still behaves exactly like the old classifyRelation().
+  const patternless = classifyRelationDetailed(1, 'src/order.ts');
+  assert.equal(patternless.relation, 'direct');
+  assert.equal(patternless.classification?.source, 'none');
+});
+
+test('invalid user patterns throw InvalidTestPatternError instead of being silently ignored', () => {
+  for (const [call, expectedField] of [
+    [() => compileTestPatterns(['*.test.?s'], []), 'include'] as const,
+    [() => compileTestPatterns([], ['']), 'exclude'] as const,
+    [() => compileTestPatterns(['a\\b'], []), 'include'] as const,
+    [() => compileTestPatterns(['a***b'], []), 'include'] as const,
+  ]) {
+    assert.throws(call, (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.name, 'InvalidTestPatternError');
+      assert.equal((error as { field?: string }).field, expectedField);
+      assert.match(error.message, /is not supported|must not be empty/);
+      return true;
+    });
+  }
 });

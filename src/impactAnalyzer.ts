@@ -6,7 +6,8 @@ import { vscodeCoverage, vscodeProviderMetadata } from './coverage';
 import { EMPTY_IMPACT_DELTA } from './impactDelta';
 import { NoteStore } from './noteStore';
 import { createSymbolKey } from './symbolIdentity';
-import { classifyImpactRelation } from './testFile';
+import { classifyRelationDetailed, toSuppressedTestRule, toTestRule } from './testFile';
+import { TestPatternsStore } from './testPatternsStore';
 import { ImpactDiagnostic, ImpactEdge, ImpactNode, ImpactResult } from './types';
 import type { AugmentedEdge } from '../cli/dist/types';
 // This relative path depends on `src/` and `out/` being siblings ONE level under the repo root, both
@@ -26,7 +27,10 @@ interface CallEntry {
 }
 
 export class ImpactAnalyzer {
-  constructor(private readonly notes: NoteStore) {}
+  constructor(
+    private readonly notes: NoteStore,
+    private readonly testPatterns: TestPatternsStore,
+  ) {}
 
   async prepare(
     document: vscode.TextDocument,
@@ -68,6 +72,14 @@ export class ImpactAnalyzer {
     const rangesByEdge = new Map<string, readonly vscode.Range[]>();
     const root: CallEntry = { item: rootItem, callSiteRanges: [] };
     const languageId = (await vscode.workspace.openTextDocument(rootItem.uri)).languageId;
+    // IL-LIM-010 stage 1 completion (docs/work/task-m4-il-lim-010-stage1-completion.md). Read once, up
+    // front - before any traversal work starts, mirroring `cli/src/impact.ts`'s identical ordering - so
+    // an invalid `.impact-lens/test-patterns.json`/`.local.json` fails the analysis immediately instead
+    // of after a full traversal, and every node below shares the same compiled patterns. A root with no
+    // workspace folder (a single-file window) gets no user patterns at all - same "if the boundary is
+    // unknown, do not guess" reasoning already applied to augmentation below in this function.
+    const rootFolder = vscode.workspace.getWorkspaceFolder(rootItem.uri);
+    const userTestPatterns = rootFolder ? await this.testPatterns.patternsFor(rootFolder) : undefined;
 
     const traversal = await traverseIncoming(
       root,
@@ -102,7 +114,11 @@ export class ImpactAnalyzer {
         // Windows `/c:/...`-shaped path never has to be reparsed. The second argument MUST stay `false`:
         // `true` prefixes multi-root workspace folder names onto the result, which reintroduces this
         // exact bug through another door for a folder named `test`/`spec`.
-        const relation = classifyImpactRelation(entry.depth, vscode.workspace.asRelativePath(entry.value.item.uri, false));
+        const { relation, classification } = classifyRelationDetailed(
+          entry.depth,
+          vscode.workspace.asRelativePath(entry.value.item.uri, false),
+          userTestPatterns,
+        );
         const isTest = relation === 'test';
         const note = await this.notes.resolve(entry.value.item);
         return {
@@ -117,6 +133,8 @@ export class ImpactAnalyzer {
           changed: false,
           reviewed: false,
           testFreshness: isTest ? 'notRun' : undefined,
+          testRule: toTestRule(classification),
+          testRuleSuppressed: toSuppressedTestRule(classification),
         };
       }),
     );
@@ -139,7 +157,9 @@ export class ImpactAnalyzer {
     // limitation code only ever appears when it would actually matter to the user - reporting "cannot
     // augment" for a feature nobody turned on would be noise, not a limitation.
     const augmentationEnabled = configuration.get<boolean>('augmentationEnabled', false);
-    const workspaceFolder = vscode.workspace.getWorkspaceFolder(rootItem.uri);
+    // Same folder as `rootFolder` above, computed once at the top of this function - reused here rather
+    // than calling `getWorkspaceFolder()` a second time for the same URI.
+    const workspaceFolder = rootFolder;
     // commander's finding, confirmed directly (package.json has no `browser`/`extensionKind`/
     // `capabilities.virtualWorkspaces` entry at all, so VS Code treats this extension as virtual-
     // workspace-capable by default; the adapter's own `walkPythonFiles()` catches ANY `fs.readdir()`

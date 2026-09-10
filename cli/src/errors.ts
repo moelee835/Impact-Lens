@@ -63,6 +63,16 @@ export const CLI_ERROR_CODES = [
   'timeout',
   // exit 7 - unsupported CLI Node.js runtime
   'node_version_unsupported',
+  // exit 8 - invalid committed project configuration file, non-provider. `provider_config_invalid`
+  // (exit 5) already owns "a committed config file the caller must fix" for provider selection, and its
+  // group comment is scoped to providers on purpose - a bad `.impact-lens/test-patterns.json` is not a
+  // provider problem, so reusing exit 5 would mislabel that group's documented meaning for every other
+  // code already in it (IL-LIM-010 stage 1 completion decision, docs/work/task-m4-il-lim-010-stage1-
+  // completion.md; exit 2's "invalid command or request" group was considered and rejected too - a
+  // malformed committed file is not a fault in any one *request*, `invalid_request`'s own reasoning).
+  // This tier exists so a future non-provider committed-config code has somewhere accurate to go instead
+  // of forcing a choice between two groups whose documented meaning it does not actually match.
+  'test_pattern_config_invalid',
   // exit 10 - unexpected CLI error
   'internal_error',
 ] as const;

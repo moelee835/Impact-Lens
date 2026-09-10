@@ -407,6 +407,37 @@ If no verified auto provider serves the detected language, the request returns
 `provider_required_for_language`. An explicit `languageId` that conflicts with the detected file type returns
 `provider_language_mismatch`; the bundled TypeScript provider is not tried for another language.
 
+## Test classification evidence
+
+Every node in `data.nodes` carries `relation` (`root` | `direct` | `transitive` | `test`) and, when
+`relation` is `test`, a `testDistance` (the traversal depth at which it was found). Two more fields expose
+*why* a node was or was not classified `test`:
+
+```json
+{
+  "id": "1f3c9b...",
+  "relation": "test",
+  "testDistance": 2,
+  "testRule": {"id": "dot-suffix", "source": "default-convention"},
+  "testRuleSuppressed": null
+}
+```
+
+- `testRule` is non-null if and only if `relation === "test"`. `source` is `"default-convention"` when one
+  of the five built-in naming rules matched (`id` is that rule's stable id: `test-directory`, `dot-suffix`,
+  `underscore-prefix`, `underscore-suffix`, or `pascal-suffix`), or `"user-include"` when a workspace-defined
+  include pattern matched instead (`id` is the literal pattern string, e.g. `"e2e/**/*.spec.ts"` - a user's
+  own glob has no other stable id).
+- `testRuleSuppressed` is non-null only when a workspace-defined exclude pattern is the reason this node is
+  NOT `relation: "test"`, even though a default rule or an include pattern would otherwise have matched. This
+  can appear on a node whose `relation` is `direct` or `transitive`, not only on nodes that came close to
+  being a test - the classifier runs on every node regardless of relation. `ruleId` is the default rule that
+  would have matched, or `null` if none would have; `excludePattern` is the exclude pattern that won.
+- The two fields are always mutually exclusive for the same node - an exclude match always overrides an
+  include match, so a node never carries both.
+- `relation`'s own computation and meaning are unchanged by either field - both are new siblings carrying
+  evidence, the same pattern `data.augmentedEdges` uses next to `data.edges` below.
+
 ## Augmented (candidate) edges
 
 Set request field `augmentationEnabled: true` to turn on framework adapters (currently `fastapi-static-v1`
@@ -548,6 +579,8 @@ Use the same target and scope with `note delete`. Preview first without `apply` 
 - `5`: provider unavailable or missing Call Hierarchy support
 - `6`: timeout
 - `7`: unsupported CLI Node.js runtime
+- `8`: invalid committed project configuration file, non-provider (`test_pattern_config_invalid` for a
+  malformed `.impact-lens/test-patterns.json`/`test-patterns.local.json`)
 - `10`: unexpected CLI error
 - `127`: plugin runner could not locate or launch the CLI runtime
 
