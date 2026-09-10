@@ -1,6 +1,7 @@
 # M3 Java 3단계: project import와 readiness — 사전 작업 문서 (초안)
 
-- 상태: 구현 진행 중(commander 승인, 2026-09-10) — 아래 "구현 진행 상황" 참고
+- 상태: 구현 완료, PR 올림, reviewer 검토 대기(commander 지시 — 검토 전 merge 금지) — 아래
+  "구현 진행 상황" 참고
 - 관련 스토리: [`IL-LIM-018`](../development-management/stories/il-lim-018-java-language-support.md) 3단계
 - 선행 lane: [Lane I(2단계, discovery/JDK compatibility)](task-m3-java-discovery-jdk.md), PR #122(`7349b60`)
 
@@ -57,9 +58,33 @@ fixture 32를 만들다가 `response-policy-engine.mjs` 자신의 독립된 결�
 놓치고 있었다(`provider_null_incoming_calls`는 이미 고려돼 있었다 — 같은 종류를 하나 더 놓친
 것).
 
-- timeout 문구 고도화 — readiness 배선 자체가 이미 raw LSP 메서드 이름 노출을 막는다(색인 중이면
-  `lifecycle: working`으로 먼저 나옴). 색인 완료 **후**의 진짜 timeout과의 구분이 실제로 의미
-  있게 갈리는지는 실사용 시나리오로 아직 확인 안 됨.
+**2026-09-10 timeout 항목 — 실행으로 확인 완료, commander outcome 1(이미 다른 code/문구).**
+commander 지시대로 추측하지 않고 둘 다 직접 실행했다:
+- **(a) readiness가 timeout 안에 안 옴**: 실제 jdtls 바이너리 + 새 `GRADLE_USER_HOME`(entry
+  gate가 ~19초로 잰 것과 같은 Spring Boot fixture, 진짜 cold dependency 해석 강제) +
+  `--timeout-ms 3000`으로 실행 — `error.code: "provider_not_ready"`가 나왔다, raw LSP timeout
+  메시지가 아니다. `awaitReadiness()`의 `onBudgetExceeded: 'fail'` 경로(`readiness.ts`)가
+  쿼리 전에 이미 던지고 있었다.
+- **(b) ready가 된 뒤 쿼리 자체가 timeout**: 실제 jdtls로는 쿼리 자체가 timeout보다 느리게
+  만들기 어려워(타이밍이 결정적이지 않음), 통제된 mock server 통합 테스트로 확인 —
+  `readinessServer.ts`에 `IMPACT_LENS_MOCK_HANG_ON_QUERY`를 추가해 readiness는 즉시 정상
+  settle되게 하고 `prepareCallHierarchy`만 응답을 영원히 안 하게 만들었다. 결과:
+  `error.code: "timeout"`, raw 메서드 이름이 메시지에 그대로 나옴, `details.stage: "query"` —
+  구조적으로 다른 실패. 영구 회귀 테스트로 남겼다("readiness settling is a different failure
+  than a query that times out afterward").
+
+**결론(commander의 셋 중 1번)**: 이미 다른 code/문구다 — stage 3의 이 항목은 새 설계가
+필요 없다. `cli-contract.md`에 `timeout` error code 자체가 전혀 문서화 안 돼 있던 걸 발견해
+새 문단으로 추가했다(`provider_not_ready`와 명확히 구분).
+
+**부수적으로 찾아 고친 독립 결함**: (a)를 실제로 돌리다가 `readiness.ts`의 `settle()`이
+실제 적용된 budget(`min(profile.budgetMs, capMs)`)을 대기에는 올바르게 쓰면서, 에러
+메시지/`details`에는 `this.profile.budgetMs`(preset이 선언한 원래 값)를 그대로 썼다는 걸
+발견했다 — `java.jdtls`는 `budgetMs: 45000`을 선언하는데 `--timeout-ms 3000`으로 실행하면
+실제로는 ~3초만 기다렸으면서 메시지는 "45000ms 기다렸다"고 거짓을 말하고 있었다. 실제
+적용된 값을 보고하도록 고치고, 실제 jdtls 재실행으로 확인(이제 정확히 "3000ms" 보고), 그리고
+`capMs`가 실제로 binding constraint가 되는 케이스를 도는 회귀 테스트를 새로 추가했다(기존
+테스트는 `capMs`가 항상 `budgetMs`보다 커서 이 경로를 한 번도 타지 않았다).
 
 ## 목적과 사용자 가치
 
