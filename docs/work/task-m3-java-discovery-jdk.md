@@ -268,6 +268,39 @@ no gradle-wrapper.properties at all`로 이름을 바꾸고, 주석에 "이게 �
 것을 증명하지 않는다** - 다음 사람이 약한 쪽을 spawn-free의 근거로 삼지 않도록, 그리고 나중에
 그 테스트가 바뀌어도 이 안전 속성이 실제로 깨졌는지 알 수 있도록 코드 자체에 남겨 뒀다.
 
+## 실제 windows-latest CI에서만 드러난 것 - "가짜 java 실행 파일"을 두 번 잘못 만들었다
+
+PR #122의 windows-latest job 세 개(clangd/cli:test/gopls 각각의 windows job)가 전부 실패했다 -
+이 lane 자신의 새 테스트 때문이었다.
+
+**첫 시도(POSIX shebang 스크립트)**: `bin/java`(확장자 없음)에 `#!/usr/bin/env node`로 시작하는
+텍스트 파일을 써서 "java" 흉내를 냈다. **Windows는 커널 레벨에서 shebang을 해석하지 않는다** -
+`resolveJdkRuntimeExecutable`이 요구하는 이름(`java.exe`)도 아니었고, 설령 이름을 맞췄어도 그
+파일 자체가 Windows에서 실행 가능한 형식이 아니었다. 결과: JAVA_HOME 해석이 조용히 실패하고
+PATH의 **진짜** java(windows-latest 러너에 실제로 설치된 것)로 넘어가, 테스트가 의도한 것과
+전혀 다른, 예측 불가능한 버전이 나왔다 - 네 테스트가 각자 다른 방식으로 깨졌다.
+
+**두 번째 시도(process.execPath를 복사)**: "진짜 실행 가능한 바이너리를 만들자"는 생각으로
+`fs.copyFileSync(process.execPath, javaPath)`를 했다. **이것도 이 머신(macOS)에서 직접 실행해
+보니 바로 깨졌다** - `dyld: Library not loaded: @rpath/libnode.141.dylib`. 이 머신의 node는
+같은 디렉터리의 `.dylib`에 상대 경로로 동적 링크돼 있어서, 실행 파일만 복사하면 그 상대 경로
+해석이 깨진다. **CI에 올리기 전에 로컬에서 직접 실행해 잡았다** - 두 번째로 잘못된 가짜 실행
+파일을 또 CI에 태울 뻔한 걸 막았다.
+
+**해법**: `jdkRuntimeCheck`에 테스트 전용 `executable`/`probeArgs` override를 추가해,
+`process.execPath`를 **복사·이동·심링크 없이 그 자리 그대로** 쓰고, 실제 버전 문자열은
+스크립트 인자로 넘기게 했다 - `versionProbe.test.ts`가 gopls 테스트에 이미 쓰고 있던, **이
+저장소에서 이미 증명된 유일한 패턴**을 그대로 따랐다(세 번째로 혼자 새로운 방법을 만들지
+않았다). `resolveJdkRuntimeExecutable`의 JAVA_HOME 우선순위 로직 자체는 파일을 절대 실행하지
+않으므로(`fs.statSync().isFile()`만 함) 별도로, 빈 파일로 안전하게 검증했다.
+
+**추가로 `testFsHelpers.ts`의 기존 경고를 직접 위반할 뻔했다**: PATH-fallback 검증 테스트에서
+`syntheticPosixDirectory()` + 강제 `platform: 'linux'` 조합에 `path.join()`으로 만든 경로를
+비교 대상으로 썼는데, 그 헬퍼 파일 자신의 주석이 "이 정확한 모양이 이 스위트를 windows 호스트에서
+두 번 깨뜨렸다"고 이미 경고하고 있었다 - 커밋하기 전에 그 주석을 읽고 스스로 잡아, `findExecutable
+('java', lookup)`을 직접 불러 그 결과와 비교하는 방식(경로를 내가 새로 만들지 않고, 이미
+안전하다고 증명된 같은 함수를 양쪽에 동일하게 써서 위임을 확인하는 것)으로 바꿨다.
+
 ## 관측: spawn-family 감사(`buildInvocation.sources.test.ts`)의 탐지 방식이 코드·주석의 표현에
 ## 비용을 물린다 (commander 지시 - 관측만, 개선안 없음)
 

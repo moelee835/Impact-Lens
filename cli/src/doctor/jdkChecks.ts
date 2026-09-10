@@ -27,7 +27,7 @@ import { DoctorCheck } from './checks';
  * than it looks - a check that guesses a *different* JVM than jdtls will actually use can clear a
  * broken JDK combination, or fail a working one, both silently.
  */
-function resolveJdkRuntimeExecutable(
+export function resolveJdkRuntimeExecutable(
   env: NodeJS.ProcessEnv,
   lookup: ExecutableLookupOptions | undefined,
 ): string | undefined {
@@ -55,12 +55,35 @@ const JDTLS_MINIMUM_JDK = { minimum: '21' };
  * different findings a user needs to act on differently (commander's instruction - the same axis this
  * repository keeps separating for indexing readiness and for today's CI flake write-up).
  */
+export interface JdkRuntimeCheckTestOverrides {
+  /**
+   * Skips `resolveJdkRuntimeExecutable`'s filesystem search and uses this path as the resolved "java"
+   * directly. Exists only so a test can hand `probeVersion` something guaranteed launchable on every
+   * OS (`process.execPath` - the real running node binary, never copied or relocated) instead of
+   * needing a real JDK installed, or a fake one built by hand. `resolveJdkRuntimeExecutable`'s own
+   * JAVA_HOME/PATH ordering is exercised separately, directly, and does not need this override - it
+   * only ever does `fs.statSync(...).isFile()`, never spawns anything, so a placeholder file (real
+   * content irrelevant) is enough to test it on its own.
+   */
+  readonly executable?: string;
+  /**
+   * Defaults to the one argument jdtls.py itself actually passes - never anything else in production.
+   * Overridable so a test using the `executable` override above can point it at a fixture script
+   * instead (the same `process.execPath` + fixture-script pattern `versionProbe.test.ts` already uses,
+   * for the same reason: a fake "java" has to be a REAL launchable binary on every OS this suite runs
+   * on, including windows-latest, and neither a POSIX shebang script nor a relocated copy of the node
+   * binary is one - discovered only by running this suite there and reading why it failed twice).
+   */
+  readonly probeArgs?: readonly string[];
+}
+
 export function jdkRuntimeCheck(
   env: NodeJS.ProcessEnv,
   lookup: ExecutableLookupOptions | undefined,
   timeoutMs = 5000,
+  testOverrides: JdkRuntimeCheckTestOverrides = {},
 ): DoctorCheck {
-  const executable = resolveJdkRuntimeExecutable(env, lookup);
+  const executable = testOverrides.executable ?? resolveJdkRuntimeExecutable(env, lookup);
   if (executable === undefined) {
     return {
       id: 'jdk-runtime',
@@ -74,7 +97,7 @@ export function jdkRuntimeCheck(
     };
   }
   const outcome = probeVersion(executable, {
-    args: ['-version'],
+    args: testOverrides.probeArgs ?? ['-version'],
     timeoutMs,
     maxOutputBytes: 4096,
     supported: JDTLS_MINIMUM_JDK,
