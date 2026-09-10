@@ -150,6 +150,18 @@ function corpus(workspace: string): readonly Case[] {
     analyzeCase('provider together with providerPreset', {
       ...target, providerPreset: 'go-gopls', provider: { command: process.execPath },
     }, both(false)),
+    // M3 Java Lane J (docs/work/task-m3-java-project-import-readiness.md): reviewer caught that the
+    // preset was first registered as "java.jdtls" - a dot, which PRESET_ID_PATTERN has never allowed
+    // (every existing preset id is hyphen-only) - and every test up to that point called
+    // resolveProvider() directly, bypassing this exact request-validation layer entirely, so nothing
+    // caught it. README/cli-contract.md both document providerPreset: "java-jdtls" as the way to use
+    // this preset; this case is what actually walks that documented path through the real CLI, the way
+    // a user (or an agent following the docs) would. schemaAccepts: true here is not vacuous - the
+    // schema's own pattern is asserted to equal PRESET_ID_PATTERN above, so this only holds because
+    // the id was fixed to match the same pattern the CLI enforces.
+    analyzeCase('preset id "java-jdtls" (the shipped unsupported-tier Java preset) is accepted by request validation', {
+      ...target, providerPreset: 'java-jdtls',
+    }, both(true)),
     analyzeCase('preset id with a path separator', { ...target, providerPreset: '../escape' }, both(false)),
     analyzeCase('preset id in upper case', { ...target, providerPreset: 'Go-Gopls' }, both(false)),
     analyzeCase('preset id past the length limit', {

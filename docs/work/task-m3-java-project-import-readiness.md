@@ -10,14 +10,14 @@
 완료(전부 테스트 통과, `feat/m3-java-project-import-readiness` 브랜치):
 1. `workspaceRoot` $ref 추가, `-data` 인자에 연결 — `-data` 충돌 실제로 고쳐짐(`7dd84c6`).
 2. `autoDiscover()`에서 `tier: 'unsupported'` 배제 — Auto 비선택이 실행 테스트로 pin됨(`7dd84c6`).
-3. `java.jdtls` catalog 등재(`tier: 'unsupported'`, readiness, docs.limitations) + `.java` →
+3. `java-jdtls` catalog 등재(`tier: 'unsupported'`, readiness, docs.limitations) + `.java` →
    `'java'` languageId 매핑 추가(`f9fdd26`).
 4. doctor의 "검증되지 않음" 보고 확인(`f9fdd26`) — 실행 테스트로 pin됨.
 5. README 갱신(`b44458d`).
 
 **추가로, 실제 jdtls 바이너리(v1.61.0)와 JDK 21로 `analyze` 전체 경로를 실제 실행했다(계획에
 없었지만, 등재한 메커니즘이 진짜로 동작하는지 실행 없이는 알 수 없어서 직접 확인함):**
-- `providerPreset: "java.jdtls"`로 실제 jdtls를 기동, `-data` 인자를 실제로 받아들였다(PATH의
+- `providerPreset: "java-jdtls"`로 실제 jdtls를 기동, `-data` 인자를 실제로 받아들였다(PATH의
   `jdtls` 래퍼가 정상 실행됨).
 - 응답의 `coverage.indexing`이 `{"status":"ready","evidence":{"signal":"notification","detail":
   "language/status"}}`로 나왔다 — `language/status`→`ServiceReady` readiness 신호가 실제
@@ -80,11 +80,49 @@ commander 지시대로 추측하지 않고 둘 다 직접 실행했다:
 **부수적으로 찾아 고친 독립 결함**: (a)를 실제로 돌리다가 `readiness.ts`의 `settle()`이
 실제 적용된 budget(`min(profile.budgetMs, capMs)`)을 대기에는 올바르게 쓰면서, 에러
 메시지/`details`에는 `this.profile.budgetMs`(preset이 선언한 원래 값)를 그대로 썼다는 걸
-발견했다 — `java.jdtls`는 `budgetMs: 45000`을 선언하는데 `--timeout-ms 3000`으로 실행하면
+발견했다 — `java-jdtls`는 `budgetMs: 45000`을 선언하는데 `--timeout-ms 3000`으로 실행하면
 실제로는 ~3초만 기다렸으면서 메시지는 "45000ms 기다렸다"고 거짓을 말하고 있었다. 실제
 적용된 값을 보고하도록 고치고, 실제 jdtls 재실행으로 확인(이제 정확히 "3000ms" 보고), 그리고
 `capMs`가 실제로 binding constraint가 되는 케이스를 도는 회귀 테스트를 새로 추가했다(기존
 테스트는 `capMs`가 항상 `budgetMs`보다 커서 이 경로를 한 번도 타지 않았다).
+
+## 2026-09-10 reviewer 발견 — preset id `java.jdtls`가 요청 검증에서 거부됨(merge 차단, 수정 완료)
+
+**결함**: `PRESET_ID_PATTERN`(`configTree.ts:54`, `^[a-z0-9]+(?:-[a-z0-9]+)*$`)은 점을 허용하지
+않는데, catalog에 등재한 preset id가 `java.jdtls`였다. `analyze` 요청의 `providerPreset` 필드는
+`requestPresetId()`(`configTree.ts`)를 거쳐 이 패턴으로 검증되므로, README와 `cli-contract.md`가
+명시하는 유일한 문서화된 사용법(`providerPreset: "java.jdtls"`)을 그대로 따르면 `invalid_request`가
+났다. 기존 네 preset(`bundled-typescript`/`gopls`/`bundled-pyright`/`clangd`)이 전부 하이픈만
+쓰는데 이것만 벗어나 있었다 — 새 검증 규칙이 필요한 게 아니라 있는 규칙을 안 따른 것이었다.
+
+**왜 여기까지 왔는가 — 이 세션이 오늘 세 번째로 겪은 같은 패턴이다**: 모든 테스트가
+`resolveProvider()`를 **직접 호출**해서 실제 요청 검증 계층(`index.ts`의
+`validateAnalyzeObject()`→`requestPresetId()`)을 건너뛰었다. catalog 등재, 문서화, 테스트
+통과까지 다 됐는데 **문서에 적힌 대로 하면 실패하는** 결함이 merge 직전까지 안 잡혔다 —
+구성요소는 검증했고 사용자가 실제로 지나는 길은 지나 보지 않은 것.
+
+**수정**: `java.jdtls` → `java-jdtls`로 rename(catalog.ts, preset.ts, coverage.ts, readiness.ts,
+README.md, cli-contract.md, story 문서, 관련 fixture와 테스트 전부). `PRESET_ID_PATTERN`은
+넓히지 않는다 — commander 판단: 패턴을 넓히는 건 모든 미래 preset id에 영구히 적용되는 계약
+확장이고(나간 것을 빼는 건 비싸고 안 나간 것을 안 넣는 건 싸다, `runtime-observation`에 적용한
+것과 같은 비대칭), 점 형태가 암시하는 namespace 계층(`java.`) 규약은 지금 존재하지도 강제되지도
+않는다 — 미래의 두 번째 소비자(예: `kotlin.lsp`)를 위해 지금 규약을 발명하는 것은 이 세션이
+오늘 Kotlin 공유 추상화를 막은 것과 같은 이유로 하지 않는다.
+
+**이번엔 요청 검증 계층을 실제로 타는 테스트를 추가했다**: `requestSchema.test.ts`의 기존
+`corpus()`/`parserAccepts()`(실제 CLI 실행 파일을 `spawnSync`로 띄우고 `--stdin`으로 JSON을
+먹여 실제 `error.code`를 확인하는, 이미 있던 메커니즘)에 `providerPreset: "java-jdtls"` 케이스를
+추가했다. `resolveProvider()` 직접 호출이 아니라 실제 파이프라인을 통과한다. **비-공허성 확인**:
+같은 메커니즘으로 옛 id(`java.jdtls`, 점 포함)를 실제로 넣어 보니 정확히 reviewer가 찾은 그
+`invalid_request`가 재현됐다 — 이 테스트가 실제로 이 결함을 잡을 수 있었다는 것을 rename 전
+상태로 직접 확인했다.
+
+**기록만 하고 고치지 않는 것(commander 지시)**: `doctor java-jdtls`(위치 인자, `index.ts:43`
+`const presetId = argv[1] === '--stdin' ? undefined : argv[1]`)는 `requestPresetId()`를 전혀
+타지 않는다 — **어떤 문자열이든** 그대로 `findPreset()`에 넘어간다. `analyze`의 `providerPreset`
+(JSON 필드)은 `requestPresetId()`를 탄다. **같은 개념(preset id)에 검증 경로가 둘 있고 결과가
+다르다** — rename으로 지금은 둘 다 통과해 증상이 사라졌지만 구조는 남는다. 이 마일스톤이 오늘
+반복해서 겪은 "같은 질문에 서로 다른 두 구현"과 같은 모양이다. 고치지 않는다 — 기록만.
 
 ## 목적과 사용자 가치
 
@@ -228,7 +266,7 @@ preset을 보고할 때마다 무조건 포함된다**(`...(preset.docs?.limitat
 limitations: preset.docs.limitations })`, 조건은 필드 존재 여부일 뿐 실행파일 탐색 결과와 무관).
 `preset.ts:248-252`의 "Shown to the user when the executable is missing"라는 doc-comment는 이
 필드가 만들어진 원래 의도를 적은 것이지 실제 노출 조건이 아니다 — **코드를 직접 읽어 확인**했다.
-그래서 새 필드를 추가하지 않고, `java.jdtls` catalog 항목의 `docs.limitations`에 "정확도는 아직
+그래서 새 필드를 추가하지 않고, `java-jdtls` catalog 항목의 `docs.limitations`에 "정확도는 아직
 검증되지 않았다. Auto는 이 preset을 선택하지 않으며 `providerPreset`으로 명시해야 쓸 수 있다"는
 문장을 넣는 쪽을 택한다 — 계약 변경 없이 기존 필드를 있는 그대로 쓴다는 점에서 이 저장소의 "새 필드는
 그걸 처음 필요로 하는 변경에서만 추가한다"(`preset.ts:36-41`과 같은 원칙) 규율과 맞는다.

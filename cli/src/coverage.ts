@@ -596,7 +596,7 @@ function compileDatabaseDetails(observation: AnalysisObservations['compileDataba
  * reason: a hard gate (mirroring gopls's `requiredProjectFiles` for `go.mod`) would turn every
  * already-working single-file standalone query `unsupported`, which this story's scope does not ask
  * for (`docs/work/task-m3-java-project-import-readiness.md`'s own reasoning for why
- * `requiredProjectFiles` was not reused on the `java.jdtls` preset).
+ * `requiredProjectFiles` was not reused on the `java-jdtls` preset).
  *
  * Deliberately unconditional on caller count, for the same reason `compileDatabaseDetails` is: a
  * missing project model can produce an incomplete-but-nonzero caller list (a query that only needs

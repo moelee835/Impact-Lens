@@ -251,7 +251,7 @@ test('a fail budget overrun fails at the indexing stage before any query is sent
 
 // M3 Java Lane J (docs/work/task-m3-java-project-import-readiness.md): found while confirming the
 // provider_not_ready/timeout distinction against real jdtls with --timeout-ms 3000 against
-// java.jdtls's declared budgetMs: 45000 - the response said "within 45000ms" (the preset's raw
+// java-jdtls's declared budgetMs: 45000 - the response said "within 45000ms" (the preset's raw
 // declared budget) even though the request-level cap made it actually wait only ~3s. The test above
 // never exercises this because its capMs (8000, session()'s default) is larger than its budgetMs (60) -
 // capMs is never the binding constraint there. This test makes capMs the binding constraint instead.

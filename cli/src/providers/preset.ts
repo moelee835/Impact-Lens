@@ -41,7 +41,7 @@ export type ManifestObject = { readonly [key: string]: ManifestValue };
  * drift `cli/src/errors.ts` exists to prevent. They get added by the change that first needs them.
  *
  * `workspaceRoot` is that change for a fourth candidate that was on the same "left out" list: it
- * resolves to the analyzed workspace's absolute path. The `java.jdtls` preset
+ * resolves to the analyzed workspace's absolute path. The `java-jdtls` preset
  * (`docs/work/task-m3-java-project-import-readiness.md`) needs it for its `-data` argument — jdtls's
  * own default workspace-metadata directory is keyed only by the cwd's *basename* SHA1 hash, so two
  * differently-located projects sharing a folder name would silently share the same index (reproduced

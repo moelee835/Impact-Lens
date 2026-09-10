@@ -132,7 +132,7 @@ Java 개발자로서 검증된 Java LSP와 JDK/build(Gradle 또는 Maven) 조건
 
 ## 권장 대응
 
-- preset ID를 `java.jdtls`로 두고 검증 version 범위를 좁게 관리한다.
+- preset ID를 `java-jdtls`로 두고 검증 version 범위를 좁게 관리한다.
 
   > **2026-09-09 추가(`docs/work/task-m3-java-kotlin-spring-planning-refinement.md`)**: 이 "좁게
   > 관리한다"의 실제 하한선에 넣어야 할 실측 하나를 여기 남긴다 — jdtls 자신의 실제 버그

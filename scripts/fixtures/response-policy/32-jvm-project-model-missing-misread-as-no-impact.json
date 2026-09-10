@@ -146,7 +146,7 @@
     ],
     "timings": {}
   },
-  "summary": "Static call hierarchy from java.jdtls. The provider's index is ready. No incoming callers were returned for fixtureTarget. Nothing calls this function, so it is safe to remove.",
+  "summary": "Static call hierarchy from java-jdtls. The provider's index is ready. No incoming callers were returned for fixtureTarget. Nothing calls this function, so it is safe to remove.",
   "expect": "fail",
   "expectedViolations": [
     "missing_high_severity_disclosure",

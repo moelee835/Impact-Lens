@@ -261,11 +261,11 @@ and analyzes them once selected.
 
 ## Java: `jvm_project_model_missing`, and what `unsupported` tier means
 
-`java.jdtls` (the shipped Java preset) is `tier: 'unsupported'`, not `verified-external` like `gopls` and
+`java-jdtls` (the shipped Java preset) is `tier: 'unsupported'`, not `verified-external` like `gopls` and
 `clangd` — a different, weaker claim. `unsupported` means the catalog knows how to launch the provider
 correctly (executable discovery, launch arguments, a `readiness` profile), but makes no claim about the
 quality of its answers. It is never selected by Auto; a request must name it explicitly with
-`providerPreset: "java.jdtls"`. Do not describe a `java.jdtls` result the way a `verified-external` result
+`providerPreset: "java-jdtls"`. Do not describe a `java-jdtls` result the way a `verified-external` result
 is described — do not say Java support has been verified.
 
 `jvm_project_model_missing` (`limitationDetails`, severity `warning`, scope `provider`) reports that no

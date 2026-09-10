@@ -218,7 +218,7 @@ export class ReadinessTracker {
     if (this.profile.onBudgetExceeded === 'fail') {
       // `budgetMs` here, not `this.profile.budgetMs`: when the caller's own request timeout is the
       // tighter of the two (capMs < this.profile.budgetMs - a real, measured case, not hypothetical:
-      // java.jdtls declares budgetMs: 45000, and a request run with --timeout-ms 3000 genuinely only
+      // java-jdtls declares budgetMs: 45000, and a request run with --timeout-ms 3000 genuinely only
       // waited ~3s, docs/work/task-m3-java-project-import-readiness.md), the message and details used
       // to name the preset's full declared budget instead of the shorter time this call actually
       // waited - a real number reported that never corresponded to what happened.

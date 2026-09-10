@@ -210,7 +210,7 @@ CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는
 > 보여줍니다.
 
 **오늘 shipped catalog에는 preset이 다섯 개입니다: `bundled-typescript`, `gopls`, `bundled-pyright`,
-`clangd`, `java.jdtls`.** Auto가 설정 없이 동작하는 언어는 TypeScript/JavaScript(`.ts`, `.tsx`, `.js`,
+`clangd`, `java-jdtls`.** Auto가 설정 없이 동작하는 언어는 TypeScript/JavaScript(`.ts`, `.tsx`, `.js`,
 `.jsx` 등)와 Python(`.py`)이고, `gopls`가 PATH에 설치돼 있는 경우의 Go(`.go`)와 `clangd`가 PATH에
 설치돼 있는 경우의 C/C++(`.c`, `.cc`, `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp`, `.hxx`)도 여기 더해집니다.
 `bundled-typescript`와 `bundled-pyright`는 CLI 자체에 포함돼 있어(`bundled` tier) 사용자가 아무것도
@@ -222,13 +222,13 @@ CLI는 아무것도 설정하지 않아도 TypeScript/JavaScript 파일에서는
 않아 `experimental` 등급입니다** — Auto가 자동으로 고른다는 것은 catalog에 등록되고 실행 파일이
 발견됐다는 뜻이지, 그 결과가 사람에 의해 검증됐다는 뜻이 아닙니다.
 
-**`java.jdtls`(Java)는 이 셋과도 다른, 더 약한 등급인 `unsupported` tier입니다.** `experimental`
+**`java-jdtls`(Java)는 이 셋과도 다른, 더 약한 등급인 `unsupported` tier입니다.** `experimental`
 (`verified-external`)은 "우리가 기동은 검증했고, 결과가 맞는지는 사람이 아직 확인 안 했다"는
 뜻이지만, `unsupported`는 **결과 품질에 대해 아무 주장도 하지 않습니다** — catalog가 아는 건 이
 provider를 올바르게 기동하는 법(실행 파일 경로, 인자, indexing 완료 신호)뿐입니다. 그래서
 `unsupported` tier preset은 **Auto가 절대 고르지 않습니다** — `gopls`/`clangd`처럼 실행 파일만
-설치돼 있어도 자동으로 켜지는 일이 없습니다. `java.jdtls`를 쓰려면 요청에
-`providerPreset: "java.jdtls"`를 명시해야 합니다. `doctor java.jdtls`는 이 preset을 진단하지만
+설치돼 있어도 자동으로 켜지는 일이 없습니다. `java-jdtls`를 쓰려면 요청에
+`providerPreset: "java-jdtls"`를 명시해야 합니다. `doctor java-jdtls`는 이 preset을 진단하지만
 보고 결과에 항상 "정확도가 검증되지 않았다"는 문장이 함께 나옵니다.
 
 Swift/Kotlin 등 그 외 언어는 "곧 지원 예정"이 아니라 **오늘 catalog에 preset 자체가 없어서 항상

@@ -10,7 +10,7 @@ import { AMBIGUOUS_LANGUAGE_ID, ProviderPreset } from './preset';
  * a language we have not exercised under one of those tiers would make the tool's own support table
  * the first thing it is wrong about.
  *
- * `tier: 'unsupported'` (added for `java.jdtls`, below) is the deliberate exception to that rule, not
+ * `tier: 'unsupported'` (added for `java-jdtls`, below) is the deliberate exception to that rule, not
  * a violation of it: it exists precisely so this file can say "the catalog knows how to launch this
  * correctly" without also saying "the answer will be trustworthy" - see that preset's own comment for
  * why launching correctly (workspace-collision-safe `-data`, `readiness`) still needed a catalog entry
@@ -592,7 +592,7 @@ const clangd: ProviderPreset = {
   },
 };
 
-export const JAVA_JDTLS_PRESET_ID = 'java.jdtls';
+export const JAVA_JDTLS_PRESET_ID = 'java-jdtls';
 
 /**
  * `tier: 'unsupported'` - the first catalog entry to use it (`docs/work/
@@ -603,7 +603,7 @@ export const JAVA_JDTLS_PRESET_ID = 'java.jdtls';
  * `verified-external` requires to earn its claim, and this preset makes no such claim to earn.
  *
  * Auto must never select this preset (`autoDiscover()` in resolve.ts filters `tier === 'unsupported'`
- * out before anything else runs) - a user gets it only by naming `providerPreset: 'java.jdtls'`
+ * out before anything else runs) - a user gets it only by naming `providerPreset: 'java-jdtls'`
  * explicitly. Registering it here is what lets a hand-picked jdtls session use `-data`
  * workspace-collision safety (`workspaceRoot` $ref, `preset.ts`) and a `readiness` profile
  * (`language/status`→`ServiceReady`, below) - both mechanisms are preset-only (see the design doc's
@@ -675,7 +675,7 @@ const javaJdtls: ProviderPreset = {
       // wait for a dedicated field. A third occurrence is the signal that this field should split.
       'This preset\'s Call Hierarchy accuracy has not been verified (unlike the verified-external ' +
       'presets above, no fixture has passed against a pinned version range). It is never selected by ' +
-      'Auto - it must be named explicitly with providerPreset: "java.jdtls".',
+      'Auto - it must be named explicitly with providerPreset: "java-jdtls".',
       // IL-LIM-018 entry gate (docs/development-management/stories/il-lim-018-java-language-support.md,
       // 2026-09-10 block): a method called only from inside a lambda body reports its incoming caller
       // as a compiler-generated synthetic method (e.g. `Fixture$1.accept(String)`), not the user's real

@@ -92,15 +92,15 @@ test('preflight on the bundled preset reports ready without starting a process',
   assert.deepEqual((data.preset as { id: string; tier: string }).tier, 'bundled');
 });
 
-test('java.jdtls reports tier unsupported and says so in its limitations, unlike a verified preset', async t => {
+test('java-jdtls reports tier unsupported and says so in its limitations, unlike a verified preset', async t => {
   const binaries = syntheticPosixDirectory(t, 'doctor-jdtls-unsupported-');
-  const data = await runDoctor('java.jdtls', {
+  const data = await runDoctor('java-jdtls', {
     workspace: temporaryDirectory(t, 'impact-lens-doctor-jdtls-'),
     env: {},
     lookup: { env: { PATH: binaries }, platform: 'linux' },
   });
   const preset = data.preset as { id: string; tier: string; limitations?: readonly string[] };
-  assert.equal(preset.id, 'java.jdtls');
+  assert.equal(preset.id, 'java-jdtls');
   assert.equal(preset.tier, 'unsupported');
   // doctor/index.ts renders docs.limitations unconditionally whenever the preset declares it - this
   // is the "not verified" notice commander required, delivered through that existing field rather
@@ -239,7 +239,7 @@ test('the CLI surface accepts doctor --stdin and combines it with --file, --work
       // (--stdin + --file + --workspace + --smoke together), not language detection, so it uses the
       // same clearly-fake extension as "with --file given but its extension unrecognised" above rather
       // than a real one. It used to use Fixture.java, back when .java had no languageId() mapping -
-      // now that java.jdtls exists (docs/work/task-m3-java-project-import-readiness.md) that would
+      // now that java-jdtls exists (docs/work/task-m3-java-project-import-readiness.md) that would
       // assert a now-wrong 'plaintext' languageId for an unrelated reason.
       [EXECUTABLE, 'doctor', '--stdin', '--file', 'Fixture.unknownext', '--workspace', workspace],
       { encoding: 'utf8', input: JSON.stringify({ provider: { command: process.execPath, args: ['--version'] } }) },
