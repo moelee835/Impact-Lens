@@ -199,6 +199,25 @@ Java 개발자로서 검증된 Java LSP와 JDK/build(Gradle 또는 Maven) 조건
 > 맞는데 사용자 모델과 표현이 안 맞는다"는 실패 모양은 같다. Java preset을 실제로 구현하는
 > lane은 이 문제를 gopls/clangd 건과 같은 방식(문서 각주 또는 caller 이름을 사용자가 읽을 수
 > 있는 형태로 다시 매핑)으로 다룰지 판단해야 한다 - 이 실측 lane은 발견만 하고 해결하지 않는다.
+>
+> **후속 실측(cross-file/multi-module, cold/warm, Maven, 실제 dependency×timeout 상호작용)도
+> 전부 entry gate를 통과시켰다** - 자세한 근거는 `docs/work/task-m3-java-entry-gate.md` 참고.
+> 다만 **실제 dependency가 있는 프로젝트의 import 시간이 CLI 기본 timeout(30초)을 넘으면,
+> jdtls가 "블로킹"으로 답을 미루는 방식이라 그 blocking이 timeout에 먼저 잘린다** - 그 결과가
+> `code: "timeout"`, `"Language Server request timed out: textDocument/prepareCallHierarchy"`
+> 라는 raw LSP 메서드 이름을 노출하는 일반 오류다. **"아직 project를 import/색인 중이다"라는
+> 신호가 없어, 사용자가 "이 도구는 Java에서 안 된다"로 오독할 수 있다** - 이건 이 story와
+> `IL-LIM-016`(Kotlin) 둘 다 종료 조건으로 걸어 둔 "indexing 중 빈 결과와 진짜 no-caller를
+> 분리한다"는 요구가, jdtls에서는 정확히 이 timeout 구간에서 아직 안 풀려 있다는 뜻이다.
+>
+> **이건 preset 구현 lane이 새로 설계할 문제가 아니라, 이미 있는 메커니즘을 연결하는
+> 문제다(commander 확인).** `gopls` preset이 이미 `work-done-progress` 신호로 `readiness`
+> 프로필을 선언해 이 정확한 문제를 풀어 뒀다(위 "현재 기준선"/`catalog.ts`의 gopls 항목
+> 참고). jdtls도 같은 종류의 신호(`language/status` 알림 스트림 - `Starting` →
+> `Started: Ready` → `ServiceReady`, 실측으로 직접 확인)를 이미 보내고 있다 - 지금은 preset이
+> 없어 raw custom provider로만 접근하다 보니 이 신호가 전혀 연결돼 있지 않을 뿐이다. **preset
+> 구현 lane은 이 신호를 gopls와 같은 방식으로 `readiness` 프로필에 연결하는 것부터 시작하면
+> 된다** - 새 프로토콜이나 새 신호를 찾을 필요가 없다.
 
 ## Kotlin(`IL-LIM-016`)과의 상황 차이 (2026-09-10, reviewer 조사 중)
 
