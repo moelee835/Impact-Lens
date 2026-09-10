@@ -742,3 +742,21 @@ union spread 자체는 여전히 `cli/src/testPatternsConfig.ts`와 `src/testPat
 
 **검증(3차, 전부 `[실행]`, `rm -rf out cli/dist` 후)**: `npm run cli:test` - 505 tests, 502 pass,
 3 skip. `npm test`(Extension) - 84/84. `npm run test:response-policy` - 36/36. 전부 회귀 없음.
+
+**2026-09-10 reviewer 최종 승인 - "이 PR 이후에도 남는 것" 한 줄 추가.** reviewer가 3차 재검토에서
+union 뮤테이션이 순수 단위 테스트·중간 계층·실제 `analyzeImpact()`를 부르는 end-to-end 테스트
+세 층 모두에서 동시에 실패함을 실행으로 확인했고("기법 8: revert 기반 비공허성은 그 fixture가
+정말 그 코드를 지나는지 확인해야 한다"), 정상 패턴이 새 거부 규칙에 안 걸리는 역방향도 확인해
+merge를 막을 이유가 없다고 판정했다. 다만 "공유 함수를 부르므로 정확성을 물려받는다"는 이 문서의
+논증이 정확히 어디까지 덮는지 경계를 그어 명시하라고 요청했다:
+
+> `TestPatternsStore`가 공유 shape 검증·union 함수를 **실제로 호출한다는 사실 자체**를 강제하는
+> 실행 테스트가 없다 - `require('vscode')` 때문에 이 저장소의 `node --test`로 못 돌린다. 정확성
+> 논증은 "같은 함수를 부른다"는 **구조 논증**이고, 그 호출이 유지된다는 보장은 아니다. `NoteStore`가
+> 같은 이유로 갖는 공백과 같고, gate 2의 vscode-host harness 잔여와 같은 범주다.
+
+이 lane이 만든 공백이 아니라 이 파일이 모델로 삼은 `NoteStore`도 같은 이유로 테스트가 0건이라는
+기존 한계를 그대로 물려받은 것 - "덮는 것"(shape 검증·union precedence, 순수 함수라 직접 테스트되고
+두 host가 같은 함수를 부르는 한 갈라질 수 없음)과 "안 덮는 것"(파일 읽기, JSON 파싱 오류 처리,
+`FileNotFound` 분기, 그리고 그 함수를 실제로 부르는 배선 자체 - 이 배선이 유지된다는 걸 강제하는
+CI가 없음)을 명확히 갈라 남긴다.
