@@ -363,6 +363,19 @@ const LIMITATION_SURFACE_PATTERNS = {
     /\baugmentation_internal_error\b/i,
     /\binternal error\b[^.!?]{0,40}\baugmentation\b|\baugmentation\b[^.!?]{0,40}\binternal error\b/i,
   ],
+  // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md).
+  // Registered here so an honest disclosure of this code never trips `missing_high_severity_disclosure` -
+  // this exact gap (a new augmentation limitation code shipped without a matching entry here) already
+  // happened once for `augmentation_budget_exceeded`/`framework_route_mount_unresolved` (M4 gate 4
+  // reopening lane) and cost a false positive against wording that followed the docs correctly.
+  augmentation_inference_unresolved: [
+    /\brecognized\b[^.!?]{0,80}\bcould not resolve\b/i,
+    /\bcaller list\b[^.!?]{0,40}\b(?:may be |might be )?incomplete\b/i,
+    /\bunderstate\b[^.!?]{0,40}\bimpact\b/i,
+    /\bblocked by the current detection technique\b/i,
+    /\bwaiting on a provider capability\b/i,
+    /\baugmentation_inference_unresolved\b/i,
+  ],
 };
 
 function escapeRegExp(text) {

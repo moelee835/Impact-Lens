@@ -60,7 +60,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { externalRange, relativeFile, symbolKindName, uriFile } from '../impactHelpers';
-import { AugmentedEdge, CallHierarchyItem, LspPosition } from '../../types';
+import { AugmentedEdge, CallHierarchyItem, LspPosition, RejectedInferenceCategory, RejectedInferenceTally } from '../../types';
 import { AdapterBudget, AdapterInput, AdapterResult } from './types';
 
 const IGNORED_DIRECTORIES = new Set([
@@ -210,26 +210,42 @@ const DECORATOR_CALL_OPEN_PATTERN = /@[\w.]+\s*$/;
  * `dynamicCallbackAdapter.ts`, and this file's own fold-to-abandonment on an ambiguous alias/mount
  * match) rather than risk a sixth silently-wrong-answer channel.
  */
+/** M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+ * a rejection now carries WHY, so the caller can tally it instead of silently dropping the candidate -
+ * this is the exact reject path gate 7 measured as a silent 40%-of-real-references drop. `reasonCode`
+ * for the "malformed structure" fallback (`findNearestPrecedingDef`/`findDecoratedDef` themselves
+ * returning nothing after a successful `parameter`/`decorator` classification) is folded into the same
+ * `unclassified-enclosing-call`/`technique-blocked` pair used for `classifyDependsReferenceContext`'s own
+ * generic reject - that fallback is documented elsewhere as "should not happen for real Python", so a
+ * separate reasonCode for it is not worth the extra vocabulary. */
+type EnclosingDefResult =
+  | { readonly def: EnclosingDef; readonly reasonCode?: undefined; readonly category?: undefined }
+  | { readonly def: undefined; readonly reasonCode: string; readonly category: RejectedInferenceCategory };
+
+const MALFORMED_STRUCTURE_REJECTION = { reasonCode: 'unclassified-enclosing-call', category: 'technique-blocked' as const };
+
 function findEnclosingDef(
   lines: readonly string[],
   strippedLines: readonly string[],
   fromLine: number,
   fromCharacter: number,
-): EnclosingDef | undefined {
+): EnclosingDefResult {
   const context = classifyDependsReferenceContext(strippedLines, fromLine, fromCharacter);
   if (context.kind === 'reject') {
-    return undefined;
+    return { def: undefined, reasonCode: context.reasonCode, category: context.category };
   }
   if (context.kind === 'parameter') {
-    return findNearestPrecedingDef(lines, fromLine);
+    const def = findNearestPrecedingDef(lines, fromLine);
+    return def ? { def } : { def: undefined, ...MALFORMED_STRUCTURE_REJECTION };
   }
-  return findDecoratedDef(lines, context.decoratorLine);
+  const def = findDecoratedDef(lines, context.decoratorLine);
+  return def ? { def } : { def: undefined, ...MALFORMED_STRUCTURE_REJECTION };
 }
 
 type DependsReferenceContext =
   | { readonly kind: 'parameter' }
   | { readonly kind: 'decorator'; readonly decoratorLine: number }
-  | { readonly kind: 'reject' };
+  | { readonly kind: 'reject'; readonly reasonCode: string; readonly category: RejectedInferenceCategory };
 
 /**
  * Length-preserving strip of Python `#` comments and single/double-quoted strings (triple-quoted
@@ -317,14 +333,22 @@ function classifyDependsReferenceContext(
             return { kind: 'decorator', decoratorLine: index };
           }
           // Some other unclosed call (a plain function call, `Annotated[...]`'s own brackets are not
-          // parens so never reach here, etc.) - not confidently parameter or decorator.
-          return { kind: 'reject' };
+          // parens so never reach here, etc.) - not confidently parameter or decorator. This is a
+          // TECHNIQUE limit, not a missing capability: a real parser could classify this call safely,
+          // this paren-depth scan cannot without risking exactly the kind of scope/alias mistake gate 4
+          // reopened twice on this file already (M4 IL-LIM-001/002 inference-unresolved lane).
+          return { kind: 'reject', reasonCode: 'unclassified-enclosing-call', category: 'technique-blocked' };
         }
         depth -= 1;
       }
     }
   }
-  return { kind: 'reject' };
+  // No unclosed `(` at all by the time the scan reaches the top of the file - a bare module-level
+  // statement (`XDep = Annotated[T, Depends(y)]` or `XDep = Depends(y)`). Following `XDep` to where it is
+  // later USED as a parameter default needs workspace-wide `reference`/`definition` resolution, a
+  // capability this adapter's SPI does not have (M4 IL-LIM-001/002 inference-unresolved lane;
+  // il-lim-002-framework-di-routing.md's own "미해결 질문") - CAPABILITY-blocked, not technique-blocked.
+  return { kind: 'reject', reasonCode: 'module-level-alias', category: 'capability-blocked' };
 }
 
 /** The pre-fix behavior, kept for the one shape it was always correct for (parameter form): nearest
@@ -958,6 +982,14 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
   const seenPairs = new Set<string>();
   let budgetExceeded = false;
   let mountUnresolved = false;
+  // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+  // aggregated by reasonCode, never one entry per occurrence (commander's direction) - converted to
+  // `AdapterResult.rejectedInferences` just before returning.
+  const rejectionTallies = new Map<string, RejectedInferenceTally>();
+  function recordRejection(reasonCode: string, category: RejectedInferenceCategory): void {
+    const existing = rejectionTallies.get(reasonCode);
+    rejectionTallies.set(reasonCode, { reasonCode, category, count: (existing?.count ?? 0) + 1 });
+  }
 
   // No blanket "root's own file must import fastapi" gate: root can be a plain dependency function
   // (e.g. a shared db.py with no fastapi import of its own) whose only FastAPI-relevant reference lives
@@ -1098,10 +1130,14 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
         resolutionCandidateCount = resolved.items.length;
       }
       const enclosing = findEnclosingDef(lines, parenClassificationLines, reference.line, reference.dependsCharacter);
-      if (!enclosing) {
+      if (!enclosing.def) {
+        // M4 IL-LIM-001/002 inference-unresolved lane: this reference WAS recognized (it just resolved
+        // to root, above) - only the enclosing caller could not be pinned. Tallied, never silently
+        // dropped (gate 7 measured this exact drop at ~40% of real references before this lane).
+        recordRejection(enclosing.reasonCode, enclosing.category);
         continue;
       }
-      const enclosingResolved = await resolveEndpoint(input, file, { line: enclosing.line, character: enclosing.character });
+      const enclosingResolved = await resolveEndpoint(input, file, { line: enclosing.def.line, character: enclosing.def.character });
       if (enclosingResolved.items.length === 0) {
         continue;
       }
@@ -1158,5 +1194,5 @@ export async function fastapiDependencyAdapter(input: AdapterInput): Promise<Ada
     budgetExceeded = true;
   }
 
-  return { edges, budgetExceeded, mountUnresolved };
+  return { edges, budgetExceeded, mountUnresolved, rejectedInferences: [...rejectionTallies.values()] };
 }

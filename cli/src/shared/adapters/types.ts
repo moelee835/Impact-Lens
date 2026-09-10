@@ -7,7 +7,7 @@
 // adapter can be added by appending to the `ADAPTERS` array in `./index.ts`; nothing about this shape
 // needs to change for that.
 
-import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../../types';
+import { AugmentedEdge, CallHierarchyItem, CallHierarchyProvider, RejectedInferenceTally } from '../../types';
 
 /**
  * An adapter's own exploration limits, entirely separate from the static traversal's depth/node
@@ -83,6 +83,14 @@ export interface AdapterResult {
    * `runAugmentation()`'s own check treats that identically to `false` (both are falsy).
    */
   readonly mountUnresolved?: boolean;
+  /**
+   * M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+   * relationships this adapter RECOGNIZED as a candidate inference but could not resolve into a specific
+   * caller this run, aggregated per `reasonCode` as a count - never one entry per occurrence (see
+   * `RejectedInferenceTally`'s own doc comment in `../../types.ts`). Optional like `mountUnresolved`
+   * above - omit or leave empty when nothing was rejected this run.
+   */
+  readonly rejectedInferences?: readonly RejectedInferenceTally[];
 }
 
 /**

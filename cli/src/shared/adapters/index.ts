@@ -1,7 +1,13 @@
 // M4 stage 2 - the whole "registry" is this one array. See `./types.ts` for why this is deliberately
 // not a bigger plugin-loading abstraction.
 
-import { AugmentationAdapterFailure, AugmentedEdge, CallHierarchyItem, CallHierarchyProvider } from '../../types';
+import {
+  AugmentationAdapterFailure,
+  AugmentationInferenceUnresolved,
+  AugmentedEdge,
+  CallHierarchyItem,
+  CallHierarchyProvider,
+} from '../../types';
 import { dynamicCallbackAdapter } from './dynamicCallbackAdapter';
 import { fastapiDependencyAdapter } from './fastapiDependencyAdapter';
 import { AdapterBudget, RegisteredAdapter } from './types';
@@ -73,6 +79,10 @@ export interface AugmentationResult {
    * reason `types.ts`'s own doc comment on it gives: an inline object type nested inside
    * `AnalysisObservations` broke `stateReachability.sources.test.ts`'s field-inventory scan. */
   readonly failedAdapters: readonly AugmentationAdapterFailure[];
+  /** M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+   * one entry per adapter that reported at least one rejected-inference tally this run - empty, not
+   * absent, when nothing was rejected (matching this interface's other array fields' convention). */
+  readonly inferenceUnresolved: readonly AugmentationInferenceUnresolved[];
 }
 
 function errorKindOf(error: unknown): string {
@@ -113,12 +123,19 @@ export async function runAugmentation(
   adapters: readonly RegisteredAdapter[] = ADAPTERS,
 ): Promise<AugmentationResult> {
   if (!enabled) {
-    return { edges: [], budgetExceededAdapterIds: [], mountUnresolvedAdapterIds: [], failedAdapters: [] };
+    return {
+      edges: [],
+      budgetExceededAdapterIds: [],
+      mountUnresolvedAdapterIds: [],
+      failedAdapters: [],
+      inferenceUnresolved: [],
+    };
   }
   const edges: AugmentedEdge[] = [];
   const budgetExceededAdapterIds: string[] = [];
   const mountUnresolvedAdapterIds: string[] = [];
   const failedAdapters: AugmentationAdapterFailure[] = [];
+  const inferenceUnresolved: AugmentationInferenceUnresolved[] = [];
   for (const adapter of adapters) {
     if (!adapter.languageIds.includes(languageId)) {
       continue;
@@ -148,9 +165,12 @@ export async function runAugmentation(
       if (result.mountUnresolved) {
         mountUnresolvedAdapterIds.push(adapter.id);
       }
+      if (result.rejectedInferences && result.rejectedInferences.length > 0) {
+        inferenceUnresolved.push({ adapterId: adapter.id, tallies: result.rejectedInferences });
+      }
     } catch (error) {
       failedAdapters.push({ adapterId: adapter.id, errorKind: errorKindOf(error) });
     }
   }
-  return { edges, budgetExceededAdapterIds, mountUnresolvedAdapterIds, failedAdapters };
+  return { edges, budgetExceededAdapterIds, mountUnresolvedAdapterIds, failedAdapters, inferenceUnresolved };
 }

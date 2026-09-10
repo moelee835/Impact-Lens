@@ -447,6 +447,27 @@ export interface AnalysisObservations {
    * the more benign-sounding adapter-failure wording).
    */
   readonly augmentationInternalError?: AugmentationInternalError;
+  /**
+   * M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md,
+   * closing IL-LIM-001 acceptance criterion 4 and IL-LIM-002 criteria 4-5's non-gate-C half): adapter ids
+   * paired with a tally of relationships that adapter RECOGNIZED as a candidate inference but could not
+   * resolve into a specific caller - gate 7 measured that roughly 40% of real references were silently
+   * dropped this way before this lane. Never produced as an augmented edge, and never one entry per
+   * occurrence - a single registration point can produce many occurrences (reviewer's vue-core
+   * measurement: one `onUpdated(() => {...})` call produced three), and stacking one entry per occurrence
+   * would be noise, not disclosure. Aggregated per adapter, per `reasonCode`, as a count.
+   *
+   * `RejectedInferenceCategory` intentionally ships only three values today
+   * (`backlog`/`capability-blocked`/`technique-blocked`) - a fourth, `runtime-only` (the target is
+   * determined only at runtime, which static analysis cannot resolve in principle - "gate C" in this
+   * milestone's own vocabulary), was deliberately NOT added: no adapter has a code path that produces it
+   * yet (measured directly against three candidate FastAPI shapes, all rejected - see the work document),
+   * and `AUGMENTED_EDGE_SOURCES`'s `runtime-observation` precedent for keeping a producer-less value cuts
+   * the OTHER way here - removing an already-shipped enum value is the expensive direction, so a value
+   * with zero producers should never ship in the first place. It gets added when gate C's own lane gives
+   * it a real producer, not before.
+   */
+  readonly augmentationInferenceUnresolved?: readonly AugmentationInferenceUnresolved[];
 }
 
 /**
@@ -466,6 +487,32 @@ export interface AugmentationAdapterFailure {
 
 export interface AugmentationInternalError {
   readonly errorKind: string;
+}
+
+/**
+ * M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md).
+ * Ships three values only - see `AnalysisObservations.augmentationInferenceUnresolved`'s own doc comment
+ * for why a fourth, `runtime-only`, is deliberately absent rather than reserved.
+ */
+export const REJECTED_INFERENCE_CATEGORIES = ['backlog', 'capability-blocked', 'technique-blocked'] as const;
+export type RejectedInferenceCategory = (typeof REJECTED_INFERENCE_CATEGORIES)[number];
+
+/**
+ * One adapter's count of relationships it recognized but could not resolve into a specific caller, for
+ * one `reasonCode` - never one entry per occurrence (see the field's own doc comment on why). `reasonCode`
+ * is a kebab-case, adapter-internal string, reusing `AugmentedEdge.reasonCode`'s existing free-form-string
+ * convention rather than inventing a second vocabulary (e.g. `module-level-alias`,
+ * `unclassified-enclosing-call`, `unrecognized-scope-opener`).
+ */
+export interface RejectedInferenceTally {
+  readonly reasonCode: string;
+  readonly category: RejectedInferenceCategory;
+  readonly count: number;
+}
+
+export interface AugmentationInferenceUnresolved {
+  readonly adapterId: string;
+  readonly tallies: readonly RejectedInferenceTally[];
 }
 
 /**

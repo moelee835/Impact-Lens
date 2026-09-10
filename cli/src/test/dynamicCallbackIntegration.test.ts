@@ -62,6 +62,7 @@ interface AnalyzeResponse {
   readonly data: {
     readonly nodes: ReadonlyArray<{ readonly id: string; readonly name: string }>;
     readonly augmentedEdges: readonly AugmentedEdge[];
+    readonly limitationDetails: ReadonlyArray<{ readonly code: string; readonly message: string }>;
   };
 }
 
@@ -109,6 +110,20 @@ function candidateFor(name: string): AugmentedEdge {
 test('augmentedEdges contains exactly the 4 expected candidates and nothing else - the accuracy corpus in one assertion', () => {
   const withoutKnownResidual = sourceNames().filter(name => !KNOWN_ACCEPTED_RESIDUAL_SOURCES.includes(name));
   assert.deepEqual([...withoutKnownResidual].sort(), [...EXPECTED_CANDIDATE_SOURCES].sort());
+});
+
+// M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md,
+// closing IL-LIM-001 acceptance criterion 4 / IL-LIM-002 criterion 4): the corpus's negative fixtures
+// that "fold to no candidate" (regexBraceTrap.ts, objectLiteralMethodCallback.ts, classMethodCallback.ts
+// - all three cross an UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER, the reviewer's vue-core-measured
+// dominant channel) must now surface as augmentation_inference_unresolved, technique-blocked - not
+// silently vanish the way they did before this lane, which is the entire reason this corpus exists.
+test('the corpus\'s "folds to no candidate" fixtures surface as augmentation_inference_unresolved, technique-blocked - not a silent drop', () => {
+  const detail = response.data.limitationDetails.find(entry => entry.code === 'augmentation_inference_unresolved');
+  assert.ok(detail, `expected augmentation_inference_unresolved in ${JSON.stringify(response.data.limitationDetails)}`);
+  assert.match(detail!.message, /dynamic-callback-static-v1 recognized 3 relationship/);
+  assert.match(detail!.message, /blocked by the current detection technique/);
+  assert.match(detail!.message, /caller list at these points may be incomplete/);
 });
 
 test('setTimeout(handler, 0): reasonCode callback-registration, adapterId dynamic-callback-static-v1, evidenceSource static-inference', () => {

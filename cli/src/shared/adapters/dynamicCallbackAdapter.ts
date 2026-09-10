@@ -53,7 +53,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { externalRange, relativeFile, symbolKindName, uriFile } from '../impactHelpers';
-import { AugmentedEdge, CallHierarchyItem } from '../../types';
+import { AugmentedEdge, CallHierarchyItem, RejectedInferenceCategory, RejectedInferenceTally } from '../../types';
 import { AdapterInput, AdapterResult } from './types';
 
 const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', 'out', 'dist', 'build', '.pnpm-store']);
@@ -376,31 +376,50 @@ export function stripSameLineCommentsAndStrings(line: string): string | null {
  * fixtures (all pinned CURRENT behavior, not the shape this coupling would break) - only in real code,
  * the same "fixture passes, real code doesn't" shape this milestone has now hit four times.
  */
-function findEnclosingFunction(lines: readonly string[], fromLine: number): EnclosingFunction | undefined {
+/**
+ * M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+ * `reasonCode`/`category` are set only for the two "gave up on a real ambiguity" exits below
+ * (unparseable line, unrecognized scope opener) - both TECHNIQUE limits, per this file's own doc comment
+ * above (widening `ENCLOSING_FUNCTION_PATTERNS` risks new mis-attribution, gate 7's measured lesson).
+ * Reaching the top of the file with no enclosing scope at all is a genuinely correct answer (the call
+ * site really is at module top level) and is NOT tallied - `fn: undefined` with no `reasonCode` there
+ * means "there is no caller here", not "we could not tell".
+ */
+interface EnclosingFunctionResult {
+  readonly fn: EnclosingFunction | undefined;
+  readonly reasonCode?: string;
+  readonly category?: RejectedInferenceCategory;
+}
+
+function findEnclosingFunction(lines: readonly string[], fromLine: number): EnclosingFunctionResult {
   let depth = 0;
   for (let index = fromLine; index >= 0; index -= 1) {
     const line = lines[index];
     const stripped = stripSameLineCommentsAndStrings(line);
     if (stripped === null) {
-      return undefined;
+      return { fn: undefined, reasonCode: 'unparseable-line', category: 'technique-blocked' };
     }
     if (depth === 0) {
       for (const pattern of ENCLOSING_FUNCTION_PATTERNS) {
         const match = line.match(pattern);
         if (match) {
-          return { name: match[1], line: index, character: line.indexOf(match[1], match.index ?? 0) };
+          return { fn: { name: match[1], line: index, character: line.indexOf(match[1], match.index ?? 0) } };
         }
       }
       const unrecognizedMatch = line.match(UNRECOGNIZED_FUNCTION_LIKE_LINE_OPENER);
       if (unrecognizedMatch && !CONTROL_FLOW_KEYWORDS.has(unrecognizedMatch[1])) {
-        return undefined;
+        // reviewer's vue-core measurement (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+        // this exact branch accounted for all 6 rejected candidates in a 12-candidate sample from a real
+        // 520-file codebase, converging on ONE cause (method-shorthand/inline-arrow scope openers), not
+        // many - the structural finding, not the raw fraction, is what generalizes.
+        return { fn: undefined, reasonCode: 'unrecognized-scope-opener', category: 'technique-blocked' };
       }
     }
     const closes = stripped.split('}').length - 1;
     const opens = stripped.split('{').length - 1;
     depth = Math.max(0, depth + closes - opens);
   }
-  return undefined;
+  return { fn: undefined };
 }
 
 async function resolveAt(
@@ -550,6 +569,14 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
   const edges: AugmentedEdge[] = [];
   const seenPairs = new Set<string>();
   const walkState = { filesVisited: 0, maxFiles: input.budget.maxFiles, truncated: false };
+  // M4 IL-LIM-001/002 inference-unresolved lane (docs/work/task-m4-il-lim001-002-inference-limitations.md):
+  // aggregated by reasonCode, never one entry per occurrence - reviewer's vue-core measurement found a
+  // single `onUpdated(() => {...})` registration point producing three occurrences by itself.
+  const rejectionTallies = new Map<string, RejectedInferenceTally>();
+  function recordRejection(reasonCode: string, category: RejectedInferenceCategory): void {
+    const existing = rejectionTallies.get(reasonCode);
+    rejectionTallies.set(reasonCode, { reasonCode, category, count: (existing?.count ?? 0) + 1 });
+  }
 
   await walkSourceFiles(input.workspace, walkState, async file => {
     let text: string;
@@ -592,10 +619,13 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
         }
 
         const enclosing = findEnclosingFunction(lines, callSite.line);
-        if (!enclosing) {
+        if (!enclosing.fn) {
+          if (enclosing.reasonCode !== undefined && enclosing.category !== undefined) {
+            recordRejection(enclosing.reasonCode, enclosing.category);
+          }
           continue;
         }
-        const enclosingResolved = await resolveAt(input, file, enclosing.line, enclosing.character);
+        const enclosingResolved = await resolveAt(input, file, enclosing.fn.line, enclosing.fn.character);
         if (enclosingResolved.length !== 1) {
           continue;
         }
@@ -621,5 +651,5 @@ export async function dynamicCallbackAdapter(input: AdapterInput): Promise<Adapt
     }
   });
 
-  return { edges, budgetExceeded: walkState.truncated };
+  return { edges, budgetExceeded: walkState.truncated, rejectedInferences: [...rejectionTallies.values()] };
 }
