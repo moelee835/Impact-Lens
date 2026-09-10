@@ -1,12 +1,10 @@
 # M4 v0.9.0 release 정합성
 
-- 상태: **B-3까지 완료.** B-1(버전 소유 위치 재조사)·B-2(버전 선택)·CHANGELOG 사실 대조·B-3(실제
-  반영) 끝. **B-4(공개 default-path 사후 검증)는 아직 수행되지 않았다 — 발행된 아티팩트가 없어서
-  수행할 수 없다.** M2 전례(PR #69가 릴리스, 태그 발행, 그 다음 PR #70이 발행본 대상 B-4/B-5를
-  별도로 기록)와 같은 순서로, 이 PR은 **버전 반영과 PR merge까지만**이고 B-4는 **사용자 확인 후
-  commander가 태그·GitHub Release를 발행한 뒤, 발행본을 대상으로 별도 PR에서** 수행한다. **이 PR이
-  merge됐다는 것은 "발행 경로가 검증됐다"는 뜻이 아니다** — 발행 경로 검증(B-4)은 발행 후에만
-  가능하며 아직 수행되지 않았다.
+- 상태: **완료.** B-1(버전 소유 위치 재조사)·B-2(버전 선택)·CHANGELOG 사실 대조·B-3(실제 반영)
+  전부 끝났고, `v0.9.0` 태그·GitHub Release 발행(commander 세션) 후 **B-4(공개 default-path
+  사후 검증)도 별도 문서로 완료됐다** - `docs/work/task-m4-release-0-9-0-verification.md` 참고.
+  M2 전례(PR #69가 릴리스·태그 발행, PR #70이 발행본 대상 B-4/B-5를 별도로 기록)와 같은 순서를
+  따랐다.
 - branch: `release/v0.9.0`
 - 선행: `docs/work/task-m2-release-0-8-0.md`(B-1/B-2/B-4 방법론의 전례), M4 gate 1~8 전부 닫힘
   (PR #109가 M4 종료 처리를 reviewer 재확인 중).
@@ -204,16 +202,14 @@ has_090=$(grep -l '"0\.9\.0"' "$DIR"/*.json | wc -l)
 - `npm run test:response-policy` — 38 checks 통과(fixture 30개 버전 치환 후에도 doc invariant
   등 전부 그대로 통과, 회귀 없음).
 
-## 범위 — 이 PR이 끝나는 지점과 그 다음
+## 범위 — 이 문서가 끝나는 지점과 그 다음
 
-이 PR은 **B-3(버전 반영)과 CHANGELOG 확정까지만** 하고 commit·push·PR을 연다. **태그 발행·
-GitHub Release 생성은 하지 않는다**(commander 지시, 사용자 확인 후 commander가 직접 진행).
+이 문서(및 PR #110)는 **B-3(버전 반영)과 CHANGELOG 확정**을 담당했다. 태그 발행·GitHub Release
+생성은 commander가 사용자 확인 후 직접 진행했다(`v0.9.0`,
+https://github.com/moelee835/Impact-Lens/releases/tag/v0.9.0).
 
-**B-4(공개 default-path 사후 검증)는 이 PR에 포함되지 않는다 — 발행된 아티팩트가 없어서
-지금은 수행할 수 없다.** M2 전례(`task-m2-release-0-8-0.md`)가 정확히 같은 순서를 썼다: PR #69가
-릴리스(버전·CHANGELOG)와 태그 발행, 그 다음 **별도 PR #70**이 발행본을 대상으로 B-4/B-5를
-수행하고 기록했다. 이 lane도 같다 — 태그·Release가 발행된 뒤, 발행된 아티팩트(VSIX/tarball
-URL)를 대상으로 상위 우선순위 경로(explicit path, checkout, global 설치)를 전부 명시적으로 막고
-`runner.source`가 실제로 `release-fallback`으로 떨어지는지 확인하는 것은 **다음 lane의 몫**이다.
-**이 PR이 merge된다는 것은 "발행 경로가 검증됐다"는 뜻이 아니다** — PR 본문에도 같은 문장을
-남긴다.
+**B-4(공개 default-path 사후 검증)는 이 문서에 포함되지 않았다 - 발행 후에만 가능한 검증이기
+때문이다.** M2 전례(`task-m2-release-0-8-0.md`)와 정확히 같은 순서를 따랐다: PR #69가 릴리스
+(버전·CHANGELOG)와 태그 발행, 그 다음 별도 PR #70이 발행본을 대상으로 B-4/B-5를 수행하고
+기록했다. 이 lane도 같다 - 태그·Release 발행 후, **`docs/work/task-m4-release-0-9-0-
+verification.md`가 별도 문서·별도 PR로 B-4를 수행하고 기록했다.**
