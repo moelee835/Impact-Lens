@@ -151,6 +151,18 @@ limitations: preset.docs.limitations })`, 조건은 필드 존재 여부일 뿐 
 문장을 넣는 쪽을 택한다 — 계약 변경 없이 기존 필드를 있는 그대로 쓴다는 점에서 이 저장소의 "새 필드는
 그걸 처음 필요로 하는 변경에서만 추가한다"(`preset.ts:36-41`과 같은 원칙) 규율과 맞는다.
 
+> **기록(commander 지시, 고치지 않고 적기만 함) — `docs.limitations`가 서로 다른 두 종류의
+> 진술을 담게 된다.** 지금 이 필드는 provider가 **무엇을 못 찾는가**(reflection, function
+> pointer 등, capability gap)를 담는다. 여기에 "이 preset은 정확도가 검증되지 않았고 Auto가
+> 안 고른다"를 넣으면 그건 provider의 능력이 아니라 **우리 쪽의 등급 주장**이다 — 다른 종류의
+> 진술이다. 막지 않는다 — 계약 변경 없이 정직한 문장이 사용자에게 실제로 도달하는 게 지금 더
+> 중요하다. 다만 이 저장소가 같은 범주 문제를 이미 한 번 만났다 — M4 gate 1 lane D에서
+> gopls/clangd의 과다 보고 사실(관계는 실재하지만 "호출" 라벨이 실제보다 넓게 약속)을 어디
+> 적을지 고민했을 때, `docs.limitations`가 "부재 목록"이라 반대 방향 서술이 범주에 안 맞는다고
+> 기록하고 임시로 넣었다(`docs/work/task-m4-gate1-lane-d-language-limitations.md` 276-292줄).
+> **이번이 두 번째다.** 이 필드가 서로 다른 두 종류의 진술을 담고 있고, 그렇게 된 것이 두
+> 번째라는 사실 자체를 여기 남긴다 — **세 번째가 오면 그때는 필드를 나눌 신호**다.
+
 **4. README**: 190-225줄 단락에 `unsupported` tier 설명을 추가한다 — "catalog가 기동 방법(경로·
 인자·readiness)은 알지만 결과 품질은 검증하지 않았다. Auto는 절대 고르지 않으며 `providerPreset`으로
 명시해야만 쓸 수 있다." `verified-external`이 이미 쓰는 "experimental"(사용자 검증 미실행) prose와는
