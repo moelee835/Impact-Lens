@@ -96,3 +96,25 @@ test('the error message says what IS supported, matching the classifier module\'
     return true;
   });
 });
+
+test('a leading "/" through the full CLI pipeline is rejected with a suggested fix, not silently accepted as a dead pattern (reviewer\'s finding)', t => {
+  const workspace = temporaryWorkspace(t);
+  writeShared(workspace, { include: ['/test/*.ts'] });
+  assert.throws(() => readProjectTestPatterns(workspace), (error: unknown) => {
+    assert.ok(error instanceof CliError);
+    assert.equal(error.code, 'test_pattern_config_invalid');
+    assert.match(error.message, /leading "\//);
+    return true;
+  });
+});
+
+test('a trailing "/" through the full CLI pipeline is rejected with a suggested fix, not silently accepted as a dead pattern (reviewer\'s finding)', t => {
+  const workspace = temporaryWorkspace(t);
+  writeShared(workspace, { exclude: ['tests/'] });
+  assert.throws(() => readProjectTestPatterns(workspace), (error: unknown) => {
+    assert.ok(error instanceof CliError);
+    assert.equal(error.code, 'test_pattern_config_invalid');
+    assert.match(error.message, /trailing "\//);
+    return true;
+  });
+});

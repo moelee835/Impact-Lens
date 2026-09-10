@@ -212,6 +212,26 @@ export function validateTestPattern(pattern: string): string | null {
     return `pattern "${pattern}" is not supported: three or more consecutive "*" have no defined `
       + `meaning here (${UNSUPPORTED_PATTERN_HELP})`;
   }
+  // reviewer's finding (docs/work/task-m4-il-lim-010-stage1-completion.md): a leading or trailing "/"
+  // compiles WITHOUT error (every character here is a plain, supported literal) but the resulting regex
+  // can never match anything, since `classifyTestFile()` always matches against a normalized path that
+  // never itself starts or ends with "/". A pattern this module cannot understand is rejected loudly
+  // elsewhere in this file (unsupported metacharacters) precisely so it never looks accepted while doing
+  // nothing - a syntactically fine but permanently-dead pattern is the same failure in a different
+  // costume, and it is a worse one here: Jest's own `testPathIgnorePatterns` docs use `"/node_modules/"`
+  // as their headline example, so a user following this module's own cited precedent (see the
+  // precedence section this file's `matches: 'user-include' | 'user-exclude'` vocabulary documents) is
+  // exactly the person this silently breaks. Reject with the fix spelled out, not just "invalid" - same
+  // reasoning as `UNSUPPORTED_PATTERN_HELP` above.
+  if (pattern.startsWith('/')) {
+    return `pattern "${pattern}" is not supported: a leading "/" is never needed - every path here is `
+      + `already workspace-relative and never starts with "/", so this could never match anything; use `
+      + `"${pattern.slice(1)}" instead`;
+  }
+  if (pattern.endsWith('/')) {
+    return `pattern "${pattern}" is not supported: a trailing "/" alone never matches a FILE, so this `
+      + `could never match anything; use "${pattern}**" to match everything under that directory`;
+  }
   return null;
 }
 

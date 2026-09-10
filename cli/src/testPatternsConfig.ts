@@ -2,6 +2,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CliError } from './errors';
 import { CompiledTestPatterns, compileTestPatterns, InvalidTestPatternError } from './shared/testFileClassifier';
+import {
+  InvalidTestPatternsDocumentError,
+  RawTestPatternsDocument,
+  TEST_PATTERNS_DOCUMENT_ALLOWED_FIELDS,
+  validateTestPatternsDocumentShape,
+} from './shared/testPatternsDocument';
 
 /**
  * Two committed/personal workspace files, read by BOTH hosts (IL-LIM-010 stage 1 completion, docs/work/
@@ -13,13 +19,6 @@ import { CompiledTestPatterns, compileTestPatterns, InvalidTestPatternError } fr
  */
 export const SHARED_TEST_PATTERNS_PATH = '.impact-lens/test-patterns.json';
 export const LOCAL_TEST_PATTERNS_PATH = '.impact-lens/test-patterns.local.json';
-
-const ALLOWED_FIELDS = ['include', 'exclude'];
-
-interface RawTestPatterns {
-  readonly include: readonly string[];
-  readonly exclude: readonly string[];
-}
 
 /**
  * `.impact-lens/test-patterns.json` in either workspace file is not itself a `CliError` - it is created
@@ -43,38 +42,18 @@ function testPatternConfigInvalid(problem: string, details: Record<string, unkno
   );
 }
 
-function optionalStringArray(value: unknown, field: string, origin: string): readonly string[] {
-  if (value === undefined) {
-    return [];
-  }
-  if (!Array.isArray(value) || !value.every(entry => typeof entry === 'string')) {
-    throw testPatternConfigInvalid(`field "${field}" must be an array of strings.`, { origin, field });
-  }
-  return value;
-}
-
-function validateShape(parsed: unknown, origin: string): RawTestPatterns {
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw testPatternConfigInvalid('it must contain a JSON object.', { origin });
-  }
-  const value = parsed as Record<string, unknown>;
-  const unknownFields = Object.keys(value).filter(key => !ALLOWED_FIELDS.includes(key));
-  if (unknownFields.length > 0) {
-    throw testPatternConfigInvalid(`it has unknown fields: ${unknownFields.sort().join(', ')}.`, {
-      origin,
-      allowedFields: ALLOWED_FIELDS,
-    });
-  }
-  return {
-    include: optionalStringArray(value.include, 'include', origin),
-    exclude: optionalStringArray(value.exclude, 'exclude', origin),
-  };
+function asCliError(error: InvalidTestPatternsDocumentError, origin: string): CliError {
+  return testPatternConfigInvalid(error.message, {
+    origin,
+    ...(error.field ? { field: error.field } : {}),
+    allowedFields: TEST_PATTERNS_DOCUMENT_ALLOWED_FIELDS,
+  });
 }
 
 /** A missing file is not an error - most projects will have neither file. A file that exists but
  * cannot be understood IS an error (same reasoning as `readProjectProviderChoice()`'s own doc comment:
  * telling someone their request is malformed when the problem is a committed file misdirects them). */
-function readRaw(workspace: string, relativePath: string): RawTestPatterns {
+function readRaw(workspace: string, relativePath: string): RawTestPatternsDocument {
   const file = path.join(workspace, ...relativePath.split('/'));
   let text: string;
   try {
@@ -91,7 +70,14 @@ function readRaw(workspace: string, relativePath: string): RawTestPatterns {
       reason: error instanceof Error ? error.message : 'parse failed',
     });
   }
-  return validateShape(parsed, relativePath);
+  try {
+    return validateTestPatternsDocumentShape(parsed);
+  } catch (error) {
+    if (error instanceof InvalidTestPatternsDocumentError) {
+      throw asCliError(error, relativePath);
+    }
+    throw error;
+  }
 }
 
 function readAndCompileOne(workspace: string, relativePath: string): CompiledTestPatterns {

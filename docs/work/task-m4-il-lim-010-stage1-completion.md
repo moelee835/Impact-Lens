@@ -611,16 +611,22 @@ gate 7에서 commander 스스로가 겪은 "이 머신에서 재현된다"와 "�
 실수(`.claude/worktrees` 사본 548개를 제품 결함으로 처음 발표했다가 자체 정정)와 같은 종류의
 질문을 이번엔 구현 전에 먼저 물어 봐서, 공개 주장이 되기 전에 정정됐다.
 
-**하지만 조용히 닫지 않고 남기는 잔여 두 건(commander 지시)**:
+**하지만 조용히 닫지 않고 남기는 잔여(commander 지시, 2026-09-10 reviewer 실측으로 절반 승격)**:
 1. **`outsideWorkspace` 필드를 검증하는 테스트가 저장소 전체에 0건이다**(`grep -rn
    "outsideWorkspace" cli/src/test/` 무응답, 이번 조사에서 처음 확인). 사용자에게 나가는 필드인데
-   어떤 테스트도 그 값을 주장하지 않는다 - 위 "production은 canonical로 흐른다"는 결론도 코드
-   추적이지 실행 검증은 아니다. 이번 lane에서 고치지 않는다 - 발견만 기록한다.
-2. **풀리지 않은 질문**: canonical root를 받은 **실제 서버**(gopls/pyright/clangd/tsserver)가
-   workspace 안에 있는 symlink된 소스(예: pnpm의 symlink farm)에 대해 non-canonical URI를 돌려줄
-   수 있는가? 그렇다면 workspace **안**의 파일이 `outsideWorkspace: true`로 잘못 나가고 경로도
-   상대화되지 않는 실제 production 결함이 된다. 이건 "없다"가 아니라 "확인 안 됐다" - 어느 쪽으로도
-   실행 검증되지 않았다.
+   어떤 테스트도 그 값을 주장하지 않는다. 이번 lane에서 고치지 않는다 - 발견만 기록한다.
+2. **풀리지 않은 질문 - 확인된 절반과 안 본 절반을 갈라 적는다.** canonical root를 받은 **실제
+   서버**가 workspace 안에 있는 symlink된 소스(예: pnpm의 symlink farm)에 대해 non-canonical URI를
+   돌려줄 수 있는가? 그렇다면 workspace **안**의 파일이 `outsideWorkspace: true`로 잘못 나가고
+   경로도 상대화되지 않는 실제 production 결함이 된다.
+   - **확인됨(`[실행]`, reviewer) - 번들 TypeScript LSP·번들 pyright 둘 다.** 실제 symlink
+     workspace(`/tmp` → `/private/tmp`)에 대해 두 서버 모두 canonical URI를 정확히 돌려줬고,
+     `outsideWorkspace: false`가 정확한 답이었다. 이 두 서버에 대해서는 위 "production은
+     canonical로 흐른다"는 판정이 **코드 추적에서 실행 검증으로 승격됐다.**
+   - **여전히 안 봄 - gopls·clangd.** 이 둘은 이번에 실행되지 않았다 - "없다"가 아니라 "확인
+     안 됐다"로 남긴다. 두 서버 모두 자체 프로세스가 경로를 재작성할 여지(gopls의 모듈 경로 해석,
+     clangd의 compile database 경로 정규화)가 있어 번들 TS/pyright와 같은 결론을 자동으로
+     물려받는다고 가정하지 않는다.
 
 **가장 값진 관찰(commander 표현) — 기본 규칙 다섯의 견고함은 설계가 아니라 우연이다.**
 `test-directory`는 위치와 무관하게 전 세그먼트를 훑고 나머지 네 규칙은 basename만 보기 때문에,
@@ -652,3 +658,64 @@ gate 7에서 commander 스스로가 겪은 "이 머신에서 재현된다"와 "�
 열려 있고, `test:vsix-contents`는 메인 트리에서 재확인이 필요하며, Extension 쪽 `TestPatternsStore`는
 실제 VS Code extension host에서 구동해 본 적이 없다(이 저장소에 그 harness가 없다는 기존 한계 -
 `test:vsix-contents`의 자체 주석이 이미 밝힌 것과 같은 종류의 잔여).
+
+## 2026-09-10 추가 — reviewer 2차 검토, 두 건 실제로 고침
+
+reviewer가 조건 2·3·4·5는 실행으로 확인(exit 8, "무엇이 지원되는가" 메시지, exit code 근거 주석)
+했지만, **잔여로 미루면 안 되는 두 건**을 지적했다 - 둘 다 "이 PR이 막겠다고 선언한 실패가 그대로
+통과하는" 모양이라 이번 PR에서 직접 고쳤다.
+
+**1) 선행/후행 `/` - "invalid가 아니라 valid하지만 죽어있는" 패턴.** reviewer 실측:
+`validateTestPattern("/test/*.ts")`와 `validateTestPattern("test/")` 둘 다 `null`(유효)을 반환하면서
+실제로는 절대 매치하지 않는 패턴을 조용히 통과시켰다 - 이 PR이 1차 출처로 든 Jest
+`testPathIgnorePatterns`의 공식 예시가 정확히 `"/node_modules/"` 모양이라, Jest 모델을 따라 하는
+사용자가 가장 먼저 마주칠 조용한 기각이었다. **고침**: `validateTestPattern()`(`testFileClassifier.ts`)
+에 leading/trailing `/` 검사를 추가해 `?`/`[]`/`{}`/`!`와 같은 극성(경고가 아니라 거부)으로
+처리하고, 메시지에 **대체 표현을 그대로** 넣었다(`/test/*.ts` → `test/*.ts`,`test/` → `test/**`) -
+"잘못됐다"가 아니라 "이렇게 쓰라"로 답한다. `cli/src/test/testPatternGlob.test.ts`/
+`cli/src/test/testPatternsConfig.test.ts`에 reviewer의 정확한 repro 문자열로 고정 테스트 추가.
+
+**2) 두 host의 설정 읽기·검증 계층에 parity 테스트가 0건.** reviewer 지적: `compileTestPatterns()`는
+공유 함수라 확인됐지만, 파일 읽기 이후의 shape 검증(`validateShape`/`optionalStringArray`)은 CLI
+(`cli/src/testPatternsConfig.ts`)와 Extension(`src/testPatternsStore.ts`)에 독립적으로 복붙돼
+있었고, 두 구현이 같은 답을 낸다는 걸 확인하는 테스트가 없었다 - PR #91이 찾은 "같은 규칙, 다른
+구현, 강제 없음" 갈라짐이 정확히 같은 모양으로 새 계층에도 있었다.
+
+**고침 - parity 테스트를 추가하는 대신 중복 자체를 없앴다** (commander가 제시한 두 선택지 중 "공유
+모듈로 합칠 수 있으면 그게 낫다" 쪽). 새 파일 `cli/src/shared/testPatternsDocument.ts`
+(`validateTestPatternsDocumentShape()`, 의존성 없음, `cli/src/shared/**` 경계 유지)로 shape 검증
+로직을 옮기고, CLI(`testPatternsConfig.ts`)와 Extension(`testPatternsStore.ts`) 둘 다 이 함수
+하나만 호출하도록 바꿨다 - 이제 "두 구현이 같은 답을 내는가"라는 질문 자체가 성립하지 않는다(구현이
+하나뿐이므로). 남는 host별 차이는 순수 file I/O(`fs.readFileSync` vs `vscode.workspace.fs.readFile`)
+와 실패를 무엇으로 보여줄지(`CliError` vs 평범한 `Error`)뿐 - 둘 다 근본적으로 host마다 다를 수밖에
+없는 부분이라 통합 대상이 아니다.
+
+**이 통합에도 정직하게 남는 한계**: `TestPatternsStore`(Extension)는 실제 `vscode` 모듈을 import해서
+`npm test`가 쓰는 평범한 `node --test`(vscode 모듈이 없는 환경) 아래서 직접 단위 테스트를 돌릴 수
+없다(`require('vscode')`가 순수 Node에서 `Cannot find module 'vscode'`로 실패하는 걸 직접 확인) -
+이 저장소에 vscode-host harness가 없다는 기존 한계와 같은 종류다. 그래서 shape 검증의 정확성은
+`cli/src/test/testPatternsDocument.test.ts`(순수, vscode 불필요)가 직접 증명하고,
+`TestPatternsStore`는 그 함수를 그대로 호출하기 때문에 **구조적으로** 같은 정확성을 물려받는다 -
+"실행해서 같다고 확인했다"가 아니라 "애초에 같은 코드다"로 답한 것이라는 차이를 `testPatternsStore.ts`
+자신의 doc comment에 남겼다. 파일 I/O 자체(watcher 무효화 등)는 여전히 미검증 잔여다.
+
+**vsix packaging 경계 재확인** - 새 공유 파일(`cli/src/shared/testPatternsDocument.ts`)이 컴파일된
+`cli/dist/shared/testPatternsDocument.js`에 `require()` 호출이 하나도 없음을 직접 확인(의존성 없는
+순수 함수라 당연한 결과이지만, 추측 대신 컴파일된 산출물을 직접 열어 확인했다) - `.vscodeignore`의
+`!cli/dist/shared/**/*.js` negation과 `scripts/test-vsix-contents.mjs`의 require-boundary 스캔
+둘 다 새 파일 경로를 자동으로 포함하므로 별도 등록이 필요 없다. `vsce ls`를 이 worktree에서 직접
+돌리는 건 여전히 안 되지만(기존 환경 한계), 스캔 로직이 검사하는 대상(require 호출 목록)을 수동으로
+재현해 같은 결론에 도달했다.
+
+**outsideWorkspace 잔여 갱신**: reviewer가 실제 symlink workspace(`/tmp`→`/private/tmp`)로 번들
+TypeScript LSP·번들 pyright 둘 다 실행해 `outsideWorkspace: false`가 정확함을 확인 - 이 두 서버에
+대해서는 판정이 코드 추적에서 실행 검증으로 승격됐다. gopls·clangd는 여전히 미확인으로 남긴다(위
+"풀리지 않은 질문" 절 갱신 참고).
+
+**검증 결과(2차, 전부 `[실행]`, `rm -rf out cli/dist` 후)**:
+- `npm run cli:test` - 502 tests, 499 pass, 0 fail, 3 skip. 새 파일 2개(`testPatternsDocument.test.ts`
+  16개 테스트, `testPatternGlob.test.ts`/`testPatternsConfig.test.ts`에 4개 추가) 전부 통과, 기존
+  회귀 없음.
+- `npm test`(Extension) - 84 tests, 84 pass, 0 fail(리팩터링이 `ImpactNode`/`classifyImpactRelation`
+  동작을 안 바꿨음을 재확인).
+- `npm run test:response-policy` - 36 checks 통과.

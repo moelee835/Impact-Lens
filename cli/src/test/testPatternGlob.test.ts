@@ -101,3 +101,43 @@ test('two patterns that look almost identical do not silently match each other\'
   assert.equal(matches('a/*.ts', 'a/b/c.ts'), false);
   assert.equal(matches('a/**.ts', 'a/b/c.ts'), true);
 });
+
+test('a leading "/" is rejected rather than silently compiling to a pattern that can never match anything', () => {
+  // reviewer's finding: `validateTestPattern('/test/*.ts')` returned null (accepted) before this fix,
+  // and the compiled pattern then matched nothing at all against a workspace-relative path (which never
+  // itself starts with "/") - no error, no warning, an always-empty result. Jest's own
+  // `testPathIgnorePatterns` docs use `"/node_modules/"` as their headline example, so this exact shape
+  // is the one a user modeling this feature on Jest is most likely to type.
+  const problem = validateTestPattern('/test/*.ts');
+  assert.notEqual(problem, null);
+  assert.match(problem!, /leading "\/"/);
+  // The message must name the fix, not just the defect - it should suggest the exact corrected pattern.
+  assert.match(problem!, /"test\/\*\.ts"/);
+  assert.throws(() => compileTestPatterns(['/test/*.ts'], []), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal(error.name, 'InvalidTestPatternError');
+    return true;
+  });
+});
+
+test('a trailing "/" is rejected rather than silently compiling to a pattern that can never match a file', () => {
+  // reviewer's finding: `validateTestPattern('test/')` returned null (accepted) before this fix, and the
+  // compiled pattern matched nothing - a trailing "/" alone requires the matched string to literally end
+  // in "/", but every path handed to this classifier is a FILE path (workspace-relative, no directory
+  // has its own separate node). "did you mean **" is the actual fix, so the message says it.
+  const problem = validateTestPattern('test/');
+  assert.notEqual(problem, null);
+  assert.match(problem!, /trailing "\/"/);
+  assert.match(problem!, /"test\/\*\*"/);
+});
+
+test('"*" matching a leading-dot segment (e.g. ".hidden.test.ts") is CURRENT, PINNED behavior - not a design guarantee', () => {
+  // reviewer's finding: unlike minimatch's default (dotfiles excluded from "*" unless `dot: true`),
+  // this compiler's "*" -> `[^/]*` has no dotfile exclusion, so `*.test.ts` matches `.hidden.test.ts`
+  // too. commander's explicit instruction: do NOT change this behavior in this PR - inventing dotfile
+  // semantics without measuring real usage would be exactly the kind of un-measured behavior change
+  // this repository's own gate 7 lane warned against. This test exists ONLY to pin today's behavior so
+  // it cannot drift silently later, not to endorse it as correct.
+  assert.equal(matches('*.test.ts', '.hidden.test.ts'), true);
+  assert.equal(matches('**/*.test.ts', 'src/.hidden.test.ts'), true);
+});
