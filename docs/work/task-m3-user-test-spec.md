@@ -63,14 +63,37 @@
 
 ## 테스트 및 완료 기준
 
-- [ ] `m3-user-test-spec.md`가 생성되고 Java 중심 과업 + Kotlin/Swift 보류 사유를 포함한다.
-- [ ] 명세가 유도 금지(M1/M2가 세운 자유서술→확인, 금지 단어) 규칙을 승계한다.
-- [ ] reviewer 세션이 명세를 검토하고 판정·발견을 기록한다.
-- [ ] 실행 경계가 명시된다: 이 작업은 **명세 작성 + 검토**까지이며, 실제 VS Code 실행은 JDK/jdtls/
+- [x] `m3-user-test-spec.md`가 생성되고 Java 중심 과업 + Kotlin/Swift 보류 사유를 포함한다.
+- [x] 명세가 유도 금지(M1/M2가 세운 자유서술→확인, 금지 단어) 규칙을 승계한다.
+- [x] reviewer 세션이 명세를 검토하고 판정·발견을 기록한다(1차 완료, 지적 전부 반영). **재검토 권장.**
+- [x] 실행 경계가 명시된다: 이 작업은 **명세 작성 + 검토**까지이며, 실제 VS Code 실행은 JDK/jdtls/
   fixture 준비와 별도 승인이 필요하다(현재 이 환경에 toolchain 부재).
+
+## reviewer 배정 (§7.1, 지시 전 문서화)
+
+- **대상:** reviewer 세션(cmux surface 8A480F34…).
+- **목적:** M3 사용자 테스트 명세의 결함·유도 질문·검증 공백·milestone/story 불일치를 적대적으로
+  찾는다(il-reviewer 역할).
+- **산출물:** 발견(결함/공백/유도 위험)과 최종 판정을 텍스트로 보고. §15 검토 체크리스트 각 항목에
+  대한 통과/미통과 근거.
+- **검증:** lead가 발견을 이 문서 로그에 반영하고 명세를 수정한다.
+- **제약(공유 worktree 보호):** 읽기전용. `git` 실행·branch 전환·파일 생성/수정 금지. 두 파일
+  (`user-tests/m3-user-test-spec.md`, 이 문서)과 milestone/IL-LIM-018만 읽고 보고한다.
 
 ## 작업 로그
 
 - 2026-09-22: branch `test/m3-user-test-spec`를 main에서 분기. Java 코드 현황(languageId 연결됨,
   `java-jdtls` = unsupported tier, fixture 없음)과 toolchain 부재(JDK/jdtls 없음)를 직접 확인.
-  사전 작업 문서 작성. 다음: 명세 본문 작성 → reviewer 검토 배정(§7.1).
+  사전 작업 문서 작성. 명세 본문 작성·커밋(16433da). 공유 worktree 제약 확인(단일 worktree,
+  reviewer/tester 같은 branch 공유). reviewer 검토 dispatch(§7.1 배정 문서화 완료).
+- 2026-09-22: **reviewer 1차 적대적 검토 수신(판정: 수정 필요).** cmux로 dispatch, reviewer가 3개
+  문서를 Read하고 §15 체크리스트 10항목 판정 + 추가 결함 8건 보고. 결정적 2건:
+  (A) T4 "indexing 중 빈 결과"가 jdtls 실측(indexing 중 블로킹→Ready)과 모순 →
+  (B) milestone gate의 callable 오탐 과업 부재. 중요 3건(C: T3 timeout 환경 의존/무효세션,
+  D: 참여자 패턴 적합성, F: T4-DI 금지단어 우회), 보통 2건(E: §9 폐쇄형 유도, G: build-없는
+  cross-file 원인 미분리), 경미 1건(H: jdtls 캐시 OS별).
+  **반영:** T6(callable 오탐) 신설, T4를 2출처로 재설계+indexing 제거, T3 재현 조건(자연/강제 형태
+  +무효세션) 추가, §3 패턴 적합성 fallback, T4-DI 진행자 중립 제시 절차, §9 개방형화, build-없는
+  cross-file 불확실성 명시, §5 jdtls `-data` OS별 처리, §8·§10·§15 갱신. 변경 파일:
+  `user-tests/m3-user-test-spec.md`. **재검토 권장(2차 검토는 이후 배정).**
+  검증 경계: 명세·검토 반영까지 완료. 실제 사용자 실행은 toolchain/참여자/승인 필요(미충족).
