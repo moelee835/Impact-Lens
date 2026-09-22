@@ -4,9 +4,10 @@
 - 작성 기준 코드 상태: `main`에 merge된 M3 Java lane(IL-LIM-018 stage 2 `#122`, stage 3 `#123`).
   **발행 버전이 아니라 merge된 코드 기준으로 쓴다** — M1 명세가 발행 버전과 작성 기준을 혼동해 사후
   정정이 필요했던 전례를 반복하지 않는다.
-- 상태: **초안 작성 + reviewer 1차 적대적 검토 반영 완료. 재검토 권장. 아직 실행하지 않았다.
+- 상태: **초안 작성 + reviewer 1·2차 적대적 검토 반영 완료, 3차 닫힘 검증 승인. 아직 실행하지 않았다.
   실행 전제조건이 아직 갖춰지지 않았다(아래 §0).** 반영한 검토 지적: callable 오탐 과업(T6) 신설,
-  T4 "indexing 중" 제거(jdtls 블로킹 실측 반영), T3 timeout 환경 통제, 참여자 패턴 적합성 fallback,
+  T4 "indexing 중" 제거·두 출처(cross-file/DI)로 통일(jdtls 블로킹 실측 반영), T3 timeout 환경 통제
+  (자연/강제 형태), T6 수행 전제(도구 callable 진입점 사전 확인), 참여자 패턴 적합성 fallback,
   §9 폐쇄형 질문 개방형화, build-없는 cross-file 원인 미분리 명시, jdtls 캐시 OS별 처리.
 - 작성 규칙: [마일스톤별 사용자 테스트 명세 계획](../milestones/user-validation-planning.md)
 - 근거: [IL-LIM-018 Java](../stories/il-lim-018-java-language-support.md),
