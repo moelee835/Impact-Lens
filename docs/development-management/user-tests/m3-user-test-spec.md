@@ -4,8 +4,10 @@
 - 작성 기준 코드 상태: `main`에 merge된 M3 Java lane(IL-LIM-018 stage 2 `#122`, stage 3 `#123`).
   **발행 버전이 아니라 merge된 코드 기준으로 쓴다** — M1 명세가 발행 버전과 작성 기준을 혼동해 사후
   정정이 필요했던 전례를 반복하지 않는다.
-- 상태: **초안 작성 + reviewer 1·2차 적대적 검토 반영 완료, 3차 닫힘 검증 승인. 아직 실행하지 않았다.
-  실행 전제조건이 아직 갖춰지지 않았다(아래 §0).** 반영한 검토 지적: callable 오탐 과업(T6) 신설,
+- 상태: **초안 작성 + reviewer 1·2차 적대적 검토 반영 완료, 3차 닫힘 검증 승인, 기술 스모크 검증 반영
+  (§0.1). 아직 사람 대상 실행은 하지 않았다.** 실행 전제조건은 아래 §0. 스모크 검증으로 T3~T6의 기술적
+  가정이 실측 확인됐고(§0.1), 사람이 그 값을 어떻게 읽는지는 여전히 실제 참여자로만 잰다(§3). 반영한
+  검토 지적: callable 오탐 과업(T6) 신설,
   T4 "indexing 중" 제거·두 출처(cross-file/DI)로 통일(jdtls 블로킹 실측 반영), T3 timeout 환경 통제
   (자연/강제 형태), T6 수행 전제(도구 callable 진입점 사전 확인), 참여자 패턴 적합성 fallback,
   §9 폐쇄형 질문 개방형화, build-없는 cross-file 원인 미분리 명시, jdtls 캐시 OS별 처리.
@@ -39,6 +41,39 @@
 - **실행에는 toolchain과 fixture가 필요하다.** JDK 21+ (jdtls 서버 runtime), jdtls 배포본, 그리고
   dependency가 self-contained한 Gradle/Maven Java fixture. 이 셋 중 하나라도 없으면 실행은 성립하지
   않는다. **명세 작성·검토는 이 준비 없이도 가능하며, 그것이 이 문서의 현재 단계다.**
+
+## 0.1 기술 스모크 검증 결과 — 명세의 기술적 가정은 실측으로 확인됐다
+
+**이 절은 사람 대상 실행이 아니다.** 아래는 명세가 재려는 과업들의 *기술적 전제*(도구가 실제로 그런
+결과를 내는가)를 최소 fixture로 확인한 것이다. 사용자가 그 값을 어떻게 읽는지(T1~T6의 본질)는 여전히
+실제 참여자로만 잴 수 있다(§3). 이 검증은 그 과업들이 **없는 현상을 재려 하지 않음**을 보증한다.
+
+- **환경:** openjdk 27 (≥21), jdtls 1.61.0 (Homebrew, PATH의 `jdtls` — preset `candidates: ['jdtls']`가
+  그대로 discovery), impact-lens CLI 0.9.1. `providerPreset: "java-jdtls"`를 stdin body로 지정. 2026-09-23 측정.
+- **T5 합성 lambda caller — 확인.** lambda 본문에서 호출된 메서드의 caller가 `App$1.accept(String)`
+  (합성 익명클래스 `<Type>$1` + functional 메서드)으로 나온다 — 명세가 예시한 `Fixture$1.accept(String)`
+  패턴과 형태가 같다. 같은 대상을 **method reference**로 부르면 caller가 **실제 enclosing 메서드 이름**
+  그대로 나온다(T5 대비군 성립).
+- **T6 callable 오탐 — 확인(가정보다 강함).** jdtls는 **일반 필드(LSP `SymbolKind.Field`)에도 call
+  hierarchy를 반환**하고, 그 필드의 모든 읽기/쓰기 지점을 "caller"로 낸다. 즉 "호출처럼 보이지만 별개
+  callable이 아닌" 지점을 도구가 진입점으로 제시한다 — T6가 재려던 과잉 제시가 실재한다. 응답에
+  `kind`(=Field)가 실려 있어 **host UI 계층은 구분할 수 있으나 분석 자체는 억제하지 않는다.** 이로써
+  T6 수행 전제(도구가 accessor/필드를 callable 진입점으로 제시하는지)의 미확정 부분이 해소된다 —
+  제시한다.
+- **T3 timeout 문구 — 확인 + 정밀화.** timeout 오류 message는 `Language Server request timed out:
+  <method>` 템플릿(`cli/src/jsonRpc.ts`)으로 **raw LSP 메서드 이름을 그대로 노출**하고, "아직 준비 중"
+  신호가 없다. `retryable: true`와 `details.stage`는 JSON에는 있으나 **사람이 보는 message에는 없다** —
+  T3가 지적한 바로 그 공백. **정밀화:** timeoutMs를 지나치게 낮추면(예: 100ms) 오류가
+  `prepareCallHierarchy`가 아니라 **`initialize` 단계**에서 걸린다. 명세가 인용한
+  `textDocument/prepareCallHierarchy` 문구를 강제 형태로 재현하려면 timeout을 **init 비용보다는 크고
+  (cold) call-hierarchy 비용보다는 작게** 맞춰야 한다(§6 T3 강제 형태에 이 조건을 반영).
+- **T4 build-없는 cross-file — 확인.** build system 없는 2파일 디렉터리에서 다른 파일의 호출자를 가진
+  메서드를 조회하면 caller가 **빈 배열**로 나오는데, 응답은 `complete: true` · `indexingStatus: ready` ·
+  `requestStatus: succeeded`다 — **진짜 "호출자 없음"과 구별할 신호가 없다.** IL-LIM-018 Lane J의
+  "원인 미분리" 우려가 그대로 재현된다.
+- **재현하지 않은 것:** 경량(무의존) fixture라 cold import가 빨라(~5s) **T3 자연 형태(느린 첫 import)는
+  이 검증에서 발생하지 않았다.** 자연 형태는 무거운 전이 의존을 가진 실제 프로젝트가 필요하다(§5).
+  Kotlin/Swift는 §0·§11대로 대상이 아니다.
 
 ## 1. 검증 목적
 
@@ -164,7 +199,11 @@ timeout 오류를 받는다. 참여자에게 **"이 결과를 보고 이 도구�
   않으면 아래 강제 형태로 전환한다.
 - **(강제 형태)** CLI `timeoutMs`를 cold import 실측치보다 낮게(예: 3000ms) 설정해 timeout 경로를
   결정적으로 재현한다. 이때 관측 대상은 "느림 자체"가 아니라 **timeout 오류 문구를 사람이 어떻게
-  읽는가**이므로, 낮춘 timeout으로도 관측 목표는 동일하다.
+  읽는가**이므로, 낮춘 timeout으로도 관측 목표는 동일하다. **단 timeout을 지나치게 낮추면(스모크
+  검증에서 100ms일 때) 오류가 `prepareCallHierarchy`가 아니라 `initialize` 단계에서 걸려 message에
+  담기는 raw 메서드 이름이 달라진다(§0.1).** 명세가 재려는 `prepareCallHierarchy` 문구를 재현하려면
+  timeoutMs를 **init(서버 기동)이 끝날 만큼은 크고, cold call-hierarchy가 끝나기 전에는 작게** 잡는다.
+  진행자는 실제로 재현된 오류의 `details.method`가 무엇이었는지 기록한다.
 
 두 형태 중 어느 쪽으로도 timeout 오류를 재현하지 못한 세션은 **T3 무효**로 기록하고 §10 모수에서
 제외한다.
@@ -221,12 +260,15 @@ timeout 오류를 받는다. 참여자에게 **"이 결과를 보고 이 도구�
   아니면 도구가 진입점을 보여줬다는 이유만으로 별개 callable로 과신하는가.
 - **참여자 프로젝트에 record나 뚜렷한 getter/property가 없으면** §3 fallback(진행자 제공 최소 보조
   fixture)으로 이 과업만 보조 코드에서 수행하고, 보조 fixture 사용 사실을 기록한다.
-- **T6 수행 전제(먼저 확인한다):** Java preset은 현재 unsupported tier이고 callable symbol policy
-  (IL-LIM-011)가 getter/record accessor를 callable 진입점으로 제시하는지 확정돼 있지 않다. 진행자는
-  T6 전에 **도구가 실제로 getter/record accessor에 callable 진입점(CodeLens/분석 진입점)을 제시하는지
-  사전 확인**한다. 제시하지 않으면 (b) 오탐 sub-scenario는 관측 대상이 없으므로, **"도구가 이 callable
-  kind에 진입점을 제시하지 않는다"는 사실 자체를 IL-LIM-011 정책 gap으로 기록**하고 T6를 그 관측으로
-  마감한다 — 없는 오탐을 억지로 만들지 않는다.
+- **T6 수행 전제(먼저 확인한다):** Java preset은 현재 unsupported tier이다. **스모크 검증(§0.1)에서
+  jdtls는 getter뿐 아니라 일반 필드(SymbolKind.Field)에도 call hierarchy를 반환함이 확인됐다** — 즉
+  raw jdtls는 accessor/필드를 call hierarchy 대상으로 제시하며, 억제하지 않는다. 다만 그 위 host UI가
+  응답의 `kind`를 써서 진입점을 걸러낼 수 있고, IL-LIM-011 정책이 최종적으로 무엇을 진입점으로 보일지는
+  세팅에 따라 다를 수 있다. 그러므로 진행자는 T6 전에 **참여자가 실제로 쓰는 host(§4)에서 도구가
+  getter/record accessor(그리고 필드)에 callable 진입점을 제시하는지 사전 확인**한다. 제시하지 않으면
+  (b) 오탐 sub-scenario는 그 host에서 관측 대상이 없으므로, **"이 host/설정은 이 callable kind에
+  진입점을 제시하지 않는다"는 사실 자체를 IL-LIM-011 정책 gap으로 기록**하고 T6를 그 관측으로 마감한다
+  — 없는 오탐을 억지로 만들지 않는다.
 
 ## 7. 과업별 기대 결과와 중단 조건
 

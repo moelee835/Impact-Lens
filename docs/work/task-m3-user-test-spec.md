@@ -129,3 +129,18 @@
   목록 등 정당한 문맥. §3 신규4("언제나 별도 non-build 구성")와 §6 T4 재현 판정은 층위가 달라 모순
   아님. 미확인 영역: IL-LIM-018 실측 수치 대조와 실제 실행(범위 밖).
   **검토 완료 처리:** 명세 상태 줄 갱신. 다음: PR 준비.
+- 2026-09-22: PR #126 push 차단 발견 → 원인은 "Protect Main" ruleset이 이름과 달리 `~ALL`(모든 브랜치)에
+  PR 필수 rule을 적용한 오설정. 사용자 승인 후 ruleset 대상을 `~DEFAULT_BRANCH`만으로 수정(main 보호는
+  유지). round 2·3 커밋 push(`30405d6..7d2c7e3`) → PR #126 4커밋 반영, 제목·본문을 round 3 approved로 갱신.
+- 2026-09-23: **기술 스모크 검증 수행(사용자 승인).** 목적: 명세가 재는 과업들의 *기술적 전제*가 실제로
+  성립하는지(도구가 그런 결과를 내는지)를 확인해, 사람 대상 실행이 "없는 현상"을 재지 않도록 보증.
+  산출물/검증: openjdk 27·jdtls 1.61.0·CLI 0.9.1로 최소 fixture(`/tmp/il-java-fixture` maven,
+  `/tmp/il-java-nobuild` no-build 2파일)를 만들어 `providerPreset: java-jdtls` analyze 실행. 결과 —
+  **T5**(lambda caller `App$1.accept(String)` 합성·method ref는 실제 이름 보존), **T6**(필드도
+  call hierarchy 반환 = callable 과잉 제시, `kind=Field`는 응답에 존재), **T3**(message가 raw LSP
+  메서드명 노출·준비중 신호 없음; 100ms는 `initialize`에서 걸림 → 강제 형태 정밀화), **T4**(build-없는
+  cross-file caller 0 + `complete:true`/`ready`, 진짜 없음과 구별 불가) 모두 실측 확인. 재현 안 된 것:
+  T3 자연 형태(경량 fixture라 import 빠름). **반영:** 명세에 §0.1 신설, §6 T3 강제 형태에 init/prepare
+  단계 조건, T6 수행 전제를 "미확정→§0.1로 해소(host UI 구분은 별도)"로 갱신, 상태 줄 갱신. toolchain은
+  이 머신에 실제 설치됨(brew: openjdk/jdtls/maven; keg-only openjdk는 세션 JAVA_HOME/PATH로 사용).
+  경계: 이 검증은 기술 전제까지다. 사람 대상 사용자 검증은 참여자·동의·별도 승인이 여전히 필요(§0·§3).
